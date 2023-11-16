@@ -31,7 +31,7 @@
  * @brief	Verilog wrapper for IP packaging.
  */
 
-module thresholding_axi_tpl_inner #(
+module $MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 	int unsigned  N,	// output precision
 	int unsigned  K,	// input/threshold precision
 	int unsigned  C,	// Channels

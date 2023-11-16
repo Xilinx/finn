@@ -92,16 +92,12 @@ def make_single_thresholding_binary_search_modelwrapper(
     output_data_type,
     activation_bias,
     num_input_vecs,
+    rt_writable,
 ):
-
     NumChannels = thresholds.shape[0]
 
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
 
     node_inp_list = ["inp", "thresh"]
 
@@ -119,6 +115,7 @@ def make_single_thresholding_binary_search_modelwrapper(
         outputDataType=output_data_type.name,
         activation_bias=activation_bias,
         numInputVectors=num_input_vecs,
+        runtime_writeable_weights=rt_writable,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -153,9 +150,7 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     num_steps = act.get_num_possible_values() - 1
 
     # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
+    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
     thresholds = sort_thresholds_increasing(thresholds)
 
     # Other non-input parameters
@@ -168,12 +163,7 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        num_input_vecs,
+        thresholds, pe, input_data_type, output_data_type, activation_bias, num_input_vecs, 1
     )
 
     model = model.transform(SetExecMode("rtlsim"))
@@ -191,11 +181,12 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
+@pytest.mark.parametrize("rt_writable", [0, 1])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels
+    activation, input_data_type, fold, num_input_channels, rt_writable
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
@@ -214,9 +205,7 @@ def test_fpgadataflow_thresholding_binary_search(
     x = gen_finn_dt_tensor(input_data_type, tensor_shape)
 
     # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
+    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
 
     # provide non-decreasing/ascending thresholds
     thresholds = sort_thresholds_increasing(thresholds)
@@ -241,6 +230,7 @@ def test_fpgadataflow_thresholding_binary_search(
         output_data_type,
         activation_bias,
         num_input_vecs,
+        rt_writable,
     )
 
     model = model.transform(InsertFIFO(True))
@@ -248,11 +238,6 @@ def test_fpgadataflow_thresholding_binary_search(
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-
-    # Retrieve the axilite programming sequence for weights - for decoupled mode only
-    tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
-    tbs_inst = getCustomOp(tbs_node)
-    config = tbs_inst.get_dynamic_config(model, 4)
 
     # Reshape generated data (not from model)
     oshape = model.get_tensor_shape("outp")
@@ -282,6 +267,13 @@ def test_fpgadataflow_thresholding_binary_search(
         return write_thresh_config
 
     input_dict = {"inp": x}
-    rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
+    if rt_writable:
+        # Retrieve the axilite programming sequence for weights - for rt-writable mode only
+        tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
+        tbs_inst = getCustomOp(tbs_node)
+        config = tbs_inst.get_dynamic_config(model, 4)
+        rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
+    else:
+        rtlsim_exec(model, input_dict)
     y_produced = input_dict["outp"]
     assert (y_produced == y_expected).all()

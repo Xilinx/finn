@@ -31,7 +31,7 @@
  * @brief	Verilog wrapper for IP packaging.
  */
 
-module thresholding_axi_tpl_outer #(
+module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  N = $N$,	// output precision
 	parameter  K = $M$,	// input/threshold precision
 	parameter  C = $C$,	// Channels
@@ -88,7 +88,7 @@ module thresholding_axi_tpl_outer #(
 	output [((PE*O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
 
-	thresholding_axi_tpl_inner #(
+	$MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 		.N(N), .K(K), .C(C), .PE(PE),
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),

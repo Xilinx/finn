@@ -258,8 +258,25 @@ class Thresholding_Binary_Search(HLSCustomOp):
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
 
-        # TODO
-        code_gen_dict["$THRESHOLDS$"] = []
+        # TODO check for sortedness and size here?
+        # RTL component currently always expects 2^N-1 thresholds, but
+        # sometimes we have fewer due to e.g. narrow range quantization
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        # add dummy dimension as final dimension (that's what gets packed with next call)
+        thresholds = np.expand_dims(thresholds, axis=-1)
+        t_packed = pack_innermost_dim_as_hex_string(
+            thresholds,
+            self.get_weight_datatype(),
+            self.get_weight_datatype().bitwidth(),
+            prefix="'h",
+        )
+        # massage generated thresholds string to fit SystemVerilog array formatting
+        t_str = np.array2string(t_packed, separator=", ")
+        t_str = t_str.replace("[", "'{")
+        t_str = t_str.replace("]", "}")
+        t_str = t_str.replace('"', "")
+
+        code_gen_dict["$THRESHOLDS$"] = [t_str]
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -305,10 +322,11 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def get_rtl_file_list(self):
         """Thresholding binary search RTL file list"""
         return [
+            "axilite_if.v",
             "thresholding.sv",
             "thresholding_axi.sv",
-            "thresholding_axi_inner.v",
-            "thresholding_axi_outer.v",
+            "thresholding_axi_tpl_inner.sv",
+            "thresholding_axi_tpl_outer.v",
         ]
 
     def get_rtl_file_paths(self):
@@ -412,8 +430,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         in_ind = 0
         for inputs in node.input:
             # it is assumed that the first input of the node is the data input
-            # the second input are the weights
-            # the third input are the thresholds
+            # the second input are the thresholds
             if in_ind == 0:
                 assert (
                     str(context[inputs].dtype) == "float32"
@@ -506,9 +523,17 @@ class Thresholding_Binary_Search(HLSCustomOp):
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
 
-        intf_names = super().get_verilog_top_module_intf_names()
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = [("s_axis", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("m_axis", self.get_outstream_width_padded())]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
         if self.get_nodeattr("runtime_writeable_weights") == 1:
             intf_names["axilite"] = ["s_axilite"]
+
         return intf_names
 
     def get_dynamic_config(self, model, address_stride=1):
