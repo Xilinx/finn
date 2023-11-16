@@ -76,6 +76,7 @@ from finn.core.rtlsim_exec import rtlsim_exec
 from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.coyote_build import CoyoteBuild
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -798,6 +799,16 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+        elif cfg.shell_flow_type == ShellFlowType.COYOTE_ALVEO:
+            model = model.transform(
+                CoyoteBuild(
+                    fpga_part=cfg._resolve_fpga_part(),
+                    period_ns=cfg.synth_clk_period_ns,
+                    signature=cfg.signature,
+                )
+            )
+
+            copy_tree(model.get_metadata_prop("bitfile"), bitfile_dir)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
