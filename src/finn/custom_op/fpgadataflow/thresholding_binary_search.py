@@ -86,6 +86,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "gen_top_module": ("s", False, ""),
             # bias to be applied to outputs of the node
             "activation_bias": ("i", False, 0),
+            # whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -249,10 +253,13 @@ class Thresholding_Binary_Search(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def prepare_codegen_rtl_values(self):
+    def prepare_codegen_rtl_values(self, model):
         """All dictionary values produced in this function are to replace
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
+
+        # TODO
+        code_gen_dict["$THRESHOLDS$"] = []
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -290,11 +297,19 @@ class Thresholding_Binary_Search(HLSCustomOp):
             o_bits = math.ceil(2**o_bitwidth + bias)
         code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
+        rt_weights = self.get_nodeattr("runtime_writeable_weights")
+        code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
+
         return code_gen_dict
 
     def get_rtl_file_list(self):
         """Thresholding binary search RTL file list"""
-        return ["thresholding.sv", "thresholding_axi.sv", "thresholding_axi_wrapper.v"]
+        return [
+            "thresholding.sv",
+            "thresholding_axi.sv",
+            "thresholding_axi_inner.v",
+            "thresholding_axi_outer.v",
+        ]
 
     def get_rtl_file_paths(self):
         """Get full path of all RTL files"""
@@ -323,10 +338,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
             f.write(data)
         return
 
-    def generate_hdl(self):
+    def generate_hdl(self, model):
         """Prepare HDL files from templates for synthesis"""
         # Generate a dictionary of values to put in RTL template
-        code_gen_dict = self.prepare_codegen_rtl_values()
+        code_gen_dict = self.prepare_codegen_rtl_values(model)
 
         # Retrieve the destination directory for the final RTL files
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -346,7 +361,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl()
+        self.generate_hdl(model)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -492,7 +507,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         Each block must have at most one aximm and one axilite."""
 
         intf_names = super().get_verilog_top_module_intf_names()
-        intf_names["axilite"] = ["s_axilite"]
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
     def get_dynamic_config(self, model, address_stride=1):
