@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -44,6 +44,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeAddStreams
 
 
 def make_addstreams_modelwrapper(ch, pe, idt):
@@ -52,7 +53,7 @@ def make_addstreams_modelwrapper(ch, pe, idt):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch])
 
     addstreams_node = helper.make_node(
-        "AddStreams_Batch",
+        "AddStreams",
         ["inp1", "inp2"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -60,6 +61,7 @@ def make_addstreams_modelwrapper(ch, pe, idt):
         NumChannels=ch,
         PE=pe,
         inputDataType=idt.name,
+        preferred_impl_style="hls",
     )
     graph = helper.make_graph(
         nodes=[addstreams_node],
@@ -103,6 +105,9 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     x2 = gen_finn_dt_tensor(idt, (1, ch))
 
     model = make_addstreams_modelwrapper(ch, pe, idt)
+    model.save("addstreams_hw.onnx")
+    model = model.transform(SpecializeAddStreams())
+    model.save("addstreams_hls.onnx")
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -130,7 +135,7 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     assert (y_produced == y_expected).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("AddStreams_Batch")[0]
+        node = model.get_nodes_by_op_type("AddStreams_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
