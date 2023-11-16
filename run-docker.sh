@@ -102,6 +102,9 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 
 DOCKER_INTERACTIVE=""
 
+# Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
+FINN_DOCKER_EXTRA+=" "
+
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"
   DOCKER_CMD="pytest"
