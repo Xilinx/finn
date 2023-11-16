@@ -26,7 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import functools
 import json
+import operator
 import os
 import re
 import subprocess
@@ -79,7 +81,7 @@ class Interface(ABC):
     def __str__(self):
         desc: List[str] = []
         desc.append("Interface name is: %s" % self.name)
-        desc.append("The sub signales are:")
+        desc.append("The sub signals are:")
         for name, width in self._sub_signals.items():
             desc.append("\t%s : %d (in bits)" % (name, width))
         if self.owner is not None:
@@ -278,38 +280,57 @@ class IP:
 class BD:
     """Represents a block design.
 
-    `interfaces` represents the list of interfaces available to the outside not all the interfaces
-    that are in the block design
+
 
     `ips` list of ips that constitute the block design. This is optional because it is only
     required for block designs we want to generate ourselves. Not for block design we only
     want to "instantiate".
+
+    `intra_connections` is a list of tcl commands that establishes the intra block design
+    connections
+
+    `interfaces` represents the list of interfaces available to the outside not all the interfaces
+    that are in the block design. Generated from the given list of ips.
 
     `make_external` list of bd-specific tcl commands that make the necessary pins available
     to the outside
     """
 
     module_name: str
-    interfaces: Dict[str, Interface]
     ips: Optional[List[IP]]
-    make_external: Optional[List[str]]
+    intra_connections: List[str]
+    interfaces: Dict[str, Interface]
+    make_external: List[str]
 
     def __init__(
         self,
         bd_name: str,
-        interfaces: List[Interface],
         ips: Optional[List[IP]],
-        make_external: Optional[List[str]],
+        intra_connections: List[str],
+        extra_external_commands: Optional[List[str]],
     ):
         self.module_name = bd_name
-        self.interfaces = {}
-        for interface in interfaces:
-            self.interfaces[interface.name] = interface
         self.ips = ips
-        self.make_external = make_external
+
+        self.intra_connections = intra_connections
+        self.interfaces = {}
+        if ips is not None:
+            tcl: List[str] = []
+            get_bd_cells: List[str] = []
+            tcl.append("startgroup")
+            for ip in ips:
+                get_bd_cells.append("[get_bd_cells %s]" % ip.module_name)
+                self.interfaces.update(ip.interfaces)
+
+            tcl.append("make_bd_pins_external  %s" % " ".join(get_bd_cells))
+            tcl.append("make_bd_intf_pins_external  %s" % " ".join(get_bd_cells))
+            tcl.append("endgroup")
+            if extra_external_commands is not None:
+                tcl.extend(extra_external_commands)
+            self.make_external = tcl
 
     def create_ips(self) -> List[str]:
-        """Reponsible for acutally creating the block design"""
+        """Responsible for actually creating the block design"""
         tcl: List[str] = []
         if self.ips is None:
             return tcl
@@ -329,6 +350,7 @@ class BD:
                     "set_property -dict [list %s] [get_bd_cells %s]"
                     % (GenerateCoyoteProject.generate_config(ip.config), ip.module_name)
                 )
+
         return tcl
 
     def __getitem__(self, key):
@@ -336,6 +358,10 @@ class BD:
 
 
 class Instantiation:
+    """Represents the Verilog instantiation of an IP or a block design (in this case the wrapper of
+    the block design)
+    """
+
     ip: Union[IP, BD]
 
     def __init__(self, instantiation_name: str, ip: Union[IP, BD]):
@@ -350,6 +376,10 @@ class Instantiation:
 
 
 class ExternalInterface:
+    """Represents the interface that is given to use in the verilog file we are trying to generate.
+    In the Coyote case, it is the interface Coyote gives us inside the user logic file
+    """
+
     def __init__(self, interfaces: List[Interface]):
         self.interfaces = {}
         for interface in interfaces:
@@ -360,6 +390,9 @@ class ExternalInterface:
 
 
 class Design:
+    """Represents the whole user logic file. Contains all the instantiations plus all the wires
+    required to make them."""
+
     def __init__(
         self,
         instantiations: Dict[str, Instantiation],
@@ -370,7 +403,6 @@ class Design:
         self.wires: List[SimpleWire] = []
         self.ips = set()
         self.ip_repo_paths = set()
-        # Sets of unique IPs and unique repo paths
         for name, instantiation in instantiations.items():
             self.ips.add(instantiation.ip)
             if isinstance(instantiation.ip, IP) and instantiation.ip.ip_repo_path is not None:
@@ -378,6 +410,13 @@ class Design:
 
 
 class CreateStitchedIPForCoyote(Transformation):
+    """
+    Adds a TLastMarker node at the end of the graph and creates a stitched IP from the new graph.
+
+    Outcome if successful: the vivado_stitch_proj attribute is set to the associated Vivado stitched
+    IP project.
+    """
+
     def __init__(self, fpga_part, period_ns, signature):
         super().__init__()
         self.fpga_part = fpga_part
@@ -385,9 +424,9 @@ class CreateStitchedIPForCoyote(Transformation):
         self.signature = signature
 
     def apply(self, model):
-        # We want dynamic True so we leave default arguments
-        # Also, we only want it at the output since the Coyote interface already provides tlast to
-        # the input width converter
+        # NOTE: We want dynamic True so we leave default arguments
+        # NOTE: We only want the TLastMarker node at the output since the Coyote interface already
+        # provides tlast to the input width converter
         if not json.loads(model.get_metadata_prop("accl_mode")):
             model = model.transform(InsertTLastMarker())
         model = model.transform(GiveUniqueNodeNames())
@@ -408,6 +447,14 @@ class CreateStitchedIPForCoyote(Transformation):
 
 
 class GenerateCoyoteProject(Transformation):
+    """Generate a Coyote Vivado project with the required configuration to make the instantiation
+    of the FINN kernel possible. It will add the required IP repo paths, generate the required IPs
+    and block designs.
+
+    Outcome if successful: sets the coyote_hw_build attribute to the Coyote shell project path. The
+    project will have the proper IP paths, IPs, output products and block designs setup.
+    """
+
     def __init__(self, fpga_part, design: Design):
         super().__init__()
         self.fpga_part = fpga_part
@@ -447,6 +494,7 @@ class GenerateCoyoteProject(Transformation):
             tcl.append('create_bd_design "%s"' % ip.module_name)
             tcl.append("update_compile_order -fileset sources_1")
             tcl.extend(ip.create_ips())
+            tcl.extend(ip.intra_connections)
             if ip.make_external is not None:
                 tcl.extend(ip.make_external)
             tcl.append("save_bd_design")
@@ -515,7 +563,6 @@ class GenerateCoyoteProject(Transformation):
         return tcl
 
     def apply(self, model):
-        model.set_metadata_prop("coyote_hw_build", self.coyote_hw_build_dir.__str__())
         # Clone Coyote git repo
         COYOTE_REPOSITORY = "https://github.com/fpgasystems/Coyote.git"
 
@@ -525,9 +572,15 @@ class GenerateCoyoteProject(Transformation):
             f"{COYOTE_REPOSITORY}",
             f"{self.coyote_repo_dir}",
         ]
-        process_compile = subprocess.Popen(git_clone_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        assert os.path.isdir(self.coyote_repo_dir)
+        # TODO: Checkout a specific commit to ensure compatibility
+        process_git_clone = subprocess.Popen(git_clone_command, stdout=subprocess.PIPE)
+        process_git_clone.communicate()
+        assert process_git_clone.returncode == 0, (
+            "Failed to clone Coyote repo at address: %s" % COYOTE_REPOSITORY
+        )
+        assert os.path.isdir(self.coyote_repo_dir), (
+            "Unable to find cloned directory: %s" % self.coyote_repo_dir
+        )
         model.set_metadata_prop("coyote_dir", self.coyote_repo_dir.__str__())
 
         # Create build directory
@@ -547,12 +600,21 @@ class GenerateCoyoteProject(Transformation):
             f"{self.coyote_hw_dir}",
             f"-DFDEV_NAME={coyote_board}",
         ]
-        process_compile = subprocess.Popen(cmake_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        process_cmake = subprocess.Popen(cmake_command, stdout=subprocess.PIPE)
+        process_cmake.communicate()
+        assert (
+            process_cmake.returncode == 0
+        ), "Failed to generate CMake configuration for coyote,cmake command is: %s" % " ".join(
+            cmake_command
+        )
 
         make_shell_command = ["make", "shell"]
-        process_compile = subprocess.Popen(make_shell_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        process_shell = subprocess.Popen(make_shell_command, stdout=subprocess.PIPE)
+        process_shell.communicate()
+        assert (
+            process_shell.returncode == 0
+        ), "Failed to generate Coyote shell. Command is: %s" % " ".join(make_shell_command)
+        assert Path("lynx/lynx.xpr").is_file()
 
         tcl = []
         tcl.append("open_project lynx/lynx.xpr")
@@ -582,13 +644,25 @@ class GenerateCoyoteProject(Transformation):
         vivado_cmd = ["vivado", "-mode", "batch", "-source", "automate.tcl"]
         process_vivado = subprocess.Popen(vivado_cmd, stdout=subprocess.PIPE)
         process_vivado.communicate()
+        assert (
+            process_vivado.returncode == 0
+        ), "Failed to run project automation in Vivado,command is: %s" % " ".join(vivado_cmd)
 
         os.chdir(finn_cwd)
+
+        model.set_metadata_prop("coyote_hw_build", self.coyote_hw_build_dir.__str__())
 
         return (model, False)
 
 
 class CoyoteUserLogic(Transformation):
+    """Generates the user_logic file for the Coyote shell containing the FINN kernel and all that
+    is required to make it work.
+
+    Outcome if successful: Modifies the user_logic verilog file provided by Coyote to contain the
+    FINN kernel and all that is required to make it work inside with the shell.
+    """
+
     def __init__(self, design: Design):
         super().__init__()
         self.design = design
@@ -650,6 +724,12 @@ class CoyoteUserLogic(Transformation):
 
 
 class CoyoteCompile(Transformation):
+    """Asks Coyote to compile the project.
+
+    Outcome if successful: A bitstream should be generated and the bitfile attribute should be set
+    to point to the bitstream files.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -658,9 +738,10 @@ class CoyoteCompile(Transformation):
         finn_cwd = os.getcwd()
         os.chdir(coyote_hw_build_dir)
 
-        make_shell_command = ["make", "compile"]
-        process_compile = subprocess.Popen(make_shell_command, stdout=subprocess.PIPE)
+        make_compile_command = ["make", "compile"]
+        process_compile = subprocess.Popen(make_compile_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        assert process_compile.returncode == 0, "Failed to compile Coyote shell"
 
         bitfile_coyote_dir = coyote_hw_build_dir / "bitstreams"
         assert os.path.isdir(bitfile_coyote_dir.__str__())
@@ -672,6 +753,13 @@ class CoyoteCompile(Transformation):
 
 
 class CoyoteBuild(Transformation):
+    """Generates a Coyote shell containing the accelerator.
+
+    :parameter fpga_part: string identifying the target FPGA
+    :parameter period_ns: target clock period
+
+    """
+
     def __init__(self, fpga_part, period_ns, signature):
         super().__init__()
         self.fpga_part = fpga_part
@@ -693,7 +781,6 @@ class CoyoteBuild(Transformation):
             interfaces=[
                 SimpleWire("aclk", 1),
                 SimpleWire("aresetn", 1),
-                # NOTE: Coyote interface is 512 bits wide
                 AXI4Stream(
                     "s_axis", input_width_bits, tlast, AXIInterface.Delimiter.UNDERSCORE, False
                 ),
@@ -712,13 +799,26 @@ class CoyoteBuild(Transformation):
         )
 
     @staticmethod
-    def create_interconnect(
-        vivado_stitch_proj: str, axilites: List[str]
-    ) -> Tuple[IP, List[Tuple[str, int]], List[Interface]]:
-        design_file = Path(vivado_stitch_proj) / "finn_design.v"
+    def next_power_of_2(x: int):
+        return 1 << (x - 1).bit_length()
 
-        # TODO: Max amount of master out per interconnect is 16.
-        # Will have to chain them if we have more axilite.
+    @staticmethod
+    def get_axilites_with_width(
+        vivado_stitch_proj: str, axilites: List[str]
+    ) -> List[Interface.Signal]:
+        """The function reads the acutal axilites addresses width directly from the finn_design.v
+        file generated by the CreateStitchedIPStep.
+
+        Parameters:
+        vivado_stitch_proj (str): Path to the Vivado stitched IP project
+        axilites (List[str]): Names of the axilites interfaces
+
+        Returns:
+        List[Interface.Signal]: List of axilites interfaces names associated with their address
+        width
+
+        """
+        design_file = Path(vivado_stitch_proj) / "finn_design.v"
 
         contents = None
         with open(design_file, "r") as f:
@@ -727,7 +827,6 @@ class CoyoteBuild(Transformation):
         assert contents is not None
 
         axilites_with_addr_width: List[Tuple[str, int]] = []
-
         for axilite in axilites:
             match = re.search(r"input \[(\d+)\:0\]%s_awaddr" % axilite, contents)
             assert match
@@ -739,72 +838,257 @@ class CoyoteBuild(Transformation):
             axilites_with_addr_width, key=lambda tup: tup[1], reverse=True
         )
 
-        addr_width_and_base: Dict[str, Tuple[int, int]] = {}
-        prev_width = 0
-        # NOTE: AXI4L address sent through the Coyote interface start at 0x12_0000
-        prev_base = 0x12_0000
-        for signal_name, addr_width in axilites_with_addr_width:
-            assert addr_width <= 32
-            addr_width_and_base[signal_name] = (
-                addr_width,
-                prev_base + ((1 << prev_width) if prev_width > 0 else 0),
-            )
-            prev_width = addr_width_and_base[signal_name][0]
-            prev_base = addr_width_and_base[signal_name][1]
+        return axilites_with_addr_width
 
-            # NOTE: Max we can go before we start modifying bits above
-            # the split done by Coyote (0x12_0000)
-            assert (prev_base + (1 << prev_width) - 1) <= 0x13_FFFF
+    @staticmethod
+    def create_interconnects(
+        axilites_outer: List[Interface.Signal],
+    ) -> Tuple[List[IP], Dict[str, str], List[str], List[str]]:
+        """This function creates one or more interconnects to connect the Coyote AXI4Lite interface
+        to the potentially multiple accelerator AX4List interfaces. In case the accelerator
+        requires more than 16 AXI4Lite interfaces, multiple interconnects, chained together, are
+        generated by this function.
 
-        config: Dict[str, str] = {}
-        config["ADDR_WIDTH"] = "32"
-        config["DATA_WIDTH"] = "32"
-        config["NUM_MI"] = str(len(axilites))
-        config["PROTOCOL"] = "AXI4LITE"
-        for i, axilite in enumerate(axilites):
-            config["M%0.2d_A00_ADDR_WIDTH" % i] = str(addr_width_and_base[axilite][0])
-            if addr_width_and_base[axilite][1] != 0:
-                config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % addr_width_and_base[axilite][1]
+        Parameters:
+        axilites_outer (List[Interface.Signal]): List of axilite interfaces with their name and
+        their address width
 
-        interfaces: List[Interface] = [
-            AXI4Lite(
-                name="S00_AXI_0",
-                width=32,
-                delimiter=AXIInterface.Delimiter.UNDERSCORE,
-                external=False,
-                addr_width=32,
-            )
-        ]
+        Returns:
+        Tuple[List[IP], Dict[str, str], List[str], List[str]]:
+            - List[IP]: the interconnects IPs
+            - Dict[str, str]: the interconnects connections to the axilites signals
+            - List[str]: the connections between the interconnects, as TCL commands
+            - List[str]: the specific TCL commands to make the appropriate pins external
 
-        for i, axilite in enumerate(axilites):
-            interfaces.append(
-                AXI4Lite(
-                    name="M%0.2d_AXI_0" % i,
-                    width=32,
-                    delimiter=AXIInterface.Delimiter.UNDERSCORE,
-                    external=False,
-                    addr_width=32,
+        """
+
+        def collapse_axilites_to_fit(
+            axilites_inner: List[Interface.Signal],
+        ) -> Tuple[List[Tuple[List[Interface.Signal], int]], Optional[List[Interface.Signal]]]:
+            # NOTE: This represents the axilites connections as a list of list because everything
+            # after and including the 15th elements of axilites_inner is collapsed into the 15th
+            # element. This allows to treat the axilites that will be connected to the other
+            # interconnects just like any other axi lite, except we will use the total address
+            # width of the connected interfaces to generate the proper address map.
+            axilites_list_list: List[Tuple[List[Interface.Signal], int]] = [
+                ([(name, width)], width) for name, width in axilites_inner
+            ]
+
+            remaining_axilites = None
+            if len(axilites_list_list) > 16:
+                # NOTE: This is what is responsible for collapsing everything after the 15th element
+                axilites_list_list[15] = (
+                    [item for sublist in axilites_list_list[15:] for item in sublist[0]],
+                    # NOTE: This corresponds to how many address bits we will need for the
+                    # remaining axilites
+                    functools.reduce(
+                        operator.add,
+                        map(
+                            lambda width: 1 << width, [elem[1] for elem in axilites_list_list[15:]]
+                        ),
+                    ).bit_length(),
                 )
+                # NOTE: This is what is "left over" after we finish connecting the current
+                # interconnect
+                remaining_axilites = axilites_list_list[15][0]
+                # NOTE: Once everything is collapsed, we cut after the 15th element
+                axilites_list_list = axilites_list_list[:16]
+
+            axilites_list_list = sorted(axilites_list_list, key=lambda tup: tup[1], reverse=True)
+            # NOTE: After the cut, if one was needed, axilites_list_list should not contain more
+            # than 16 elements
+            assert len(axilites_list_list) <= 16
+
+            return (axilites_list_list, remaining_axilites)
+
+        def configure_and_connect(
+            axilites_list_list: List[Tuple[List[Interface.Signal], int]],
+            current_idx: int,
+            indices_count: Dict[int, int],
+        ) -> Tuple[Dict[str, str], int, Dict[str, str]]:
+            config: Dict[str, str] = {}
+            config["ADDR_WIDTH"] = "32"
+            config["DATA_WIDTH"] = "32"
+            config["NUM_MI"] = str(len(axilites_list_list))
+            config["PROTOCOL"] = "AXI4LITE"
+            prev_width = 0
+            # NOTE: AXI4L address sent through the Coyote interface start at 0x12_0000
+            prev_base = 0x12_0000 if current_idx == 0 else 0
+
+            chain_interconnect_idx = 0
+            axilites_connections: Dict[str, str] = {}
+            for i, (axilites_with_width, total_width) in enumerate(axilites_list_list):
+                assert total_width <= 32
+
+                (signal_name, addr_width) = (
+                    axilites_with_width[0]
+                    if len(axilites_with_width) == 1
+                    else ("interconnect_chain", total_width)
+                )
+                config["M%0.2d_A00_ADDR_WIDTH" % i] = str(addr_width)
+                if prev_width == 0:
+                    config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % prev_base
+                else:
+                    prev_base = prev_base + (1 << prev_width)
+                    config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % prev_base
+
+                if len(axilites_with_width) == 1:
+                    axilites_connections[
+                        "M%0.2d_AXI_%d" % (i, indices_count.get(i, 0))
+                    ] = signal_name
+                    indices_count[i] = indices_count.get(i, 0) + 1
+                else:
+                    chain_interconnect_idx = i
+                prev_width = addr_width
+
+                # NOTE: Max we can go before we start modifying bits above
+                # the split done by Coyote (0x12_0000)
+                assert (
+                    prev_base + (1 << prev_width) - 1
+                ) <= 0x13_FFFF, "The axi lites interfaces cover too big of a range."
+
+            return (axilites_connections, chain_interconnect_idx, config)
+
+        def create_interconnects_inner(
+            axilites_inner: List[Interface.Signal], current_idx: int, indices_count: Dict[int, int]
+        ) -> Tuple[List[IP], Dict[str, str], List[str]]:
+            """This function is responsible for actually creating the interconnects. It should be
+            called recurisevly with a smaller list axilites signals everytime.
+
+            Parameters:
+            axilites_inner (List[Interface.Signal]): List of remaining axilite interfaces with
+            their name and their address width.
+            current_idx (int): index of the currently generated interconnect. Useful for generating
+            interfaces and IPs names.
+            indices_count (Dict[int, int]): When generating multiple interconnects, it is possible
+            that several master connections with the same index gets exposed to the outside. For
+            instance, it is possible that the M01_AXI interface of interconnect 0 and the M01_AXI
+            of interconnect 1 get exposed to the outside. In that case, the exposed interface for
+            interconnect 0, will be named M01_AXI_0 and the exposed interface of interconnect 1
+            will be named M01_AXI_1. `indices_count` allows to keep track of how many master
+            interfaces that are going to get exposed have the same inner index.
+
+            Returns:
+            Tuple[List[IP], Dict[str, str], List[str], List[str]]:
+                - List[IP]: the interconnects IPs
+                - Dict[str, str]: the interconnects connections to the axilites signals
+                - List[str]: the connections between the interconnects, as TCL commands
+
+            """
+
+            (axilites_list_list, remaining_axilites) = collapse_axilites_to_fit(axilites_inner)
+            old_indices_count = indices_count.copy()
+
+            ips: List[IP] = []
+            intra_connections_tcl: List[str] = []
+
+            (axilites_connections, chain_interconnect_idx, config) = configure_and_connect(
+                axilites_list_list, current_idx, indices_count
             )
 
-        interfaces.extend([SimpleWire("aclk_0", 1), SimpleWire("aresetn_0", 1)])
+            if remaining_axilites is not None:
+                assert remaining_axilites is not None
+                (
+                    intra_ips,
+                    intra_axilites_connections,
+                    intra_intra_connections_tcl,
+                ) = create_interconnects_inner(
+                    remaining_axilites, current_idx=current_idx + 1, indices_count=indices_count
+                )
+                ips.extend(intra_ips)
+                axilites_connections.update(intra_axilites_connections)
+                intra_connections_tcl.extend(intra_intra_connections_tcl)
+                ip_name = "axi_crossbar_%d" % current_idx
+                intra_connections_tcl.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/M%0.2d_AXI]"
+                    " [get_bd_intf_pins axi_crossbar_%d/S00_AXI]"
+                    % (ip_name, chain_interconnect_idx, current_idx + 1)
+                )
+
+            interfaces: List[Interface] = []
+            if current_idx == 0:
+                interfaces.append(
+                    AXI4Lite(
+                        name="S00_AXI_0",
+                        width=32,
+                        delimiter=AXIInterface.Delimiter.UNDERSCORE,
+                        external=False,
+                        addr_width=32,
+                    )
+                )
+                interfaces.extend([SimpleWire("aclk_0", 1), SimpleWire("aresetn_0", 1)])
+
+            for i in range(len(axilites_list_list)):
+                if remaining_axilites is None or i != chain_interconnect_idx:
+                    interfaces.append(
+                        AXI4Lite(
+                            name="M%0.2d_AXI_%d" % (i, old_indices_count.get(i, 0)),
+                            width=32,
+                            delimiter=AXIInterface.Delimiter.UNDERSCORE,
+                            external=False,
+                            addr_width=32,
+                        )
+                    )
+            # Prepend this IP
+            ips[:0] = [
+                IP(
+                    vlnv=IP.build_vlnv(
+                        vendor="xilinx.com",
+                        library="ip",
+                        name="axi_crossbar",
+                        version="2.1",
+                    ),
+                    module_name="axi_crossbar_%d" % current_idx,
+                    interfaces=interfaces,
+                    ip_repo_path=None,
+                    config=config,
+                    run_needed=True,
+                )
+            ]
+            return (
+                ips,
+                axilites_connections,
+                intra_connections_tcl,
+            )
+
+        (
+            interconnects,
+            interconnects_axilites_connections,
+            intra_connections,
+        ) = create_interconnects_inner(axilites_outer, 0, {})
+
+        extra_external_commands: List[str] = []
+        if len(interconnects) > 1:
+            extra_external_commands.append("startgroup")
+            get_bd_nets: List[str] = []
+            get_bd_ports: List[str] = []
+            connections_to_external: List[str] = []
+            for i in range(1, len(interconnects)):
+                get_bd_nets.append("[get_bd_nets aclk_%d_1]" % i)
+                get_bd_nets.append("[get_bd_nets aresetn_%d_1]" % i)
+                get_bd_ports.append("[get_bd_ports aclk_%d]" % i)
+                get_bd_ports.append("[get_bd_ports aresetn_%d]" % i)
+                connections_to_external.append(
+                    "connect_bd_net [get_bd_ports aclk_0] [get_bd_pins axi_crossbar_%d/aclk]" % i
+                )
+                connections_to_external.append(
+                    "connect_bd_net [get_bd_ports aresetn_0] [get_bd_pins axi_crossbar_%d/aresetn]"
+                    % i
+                )
+
+            # NOTE: Necessary for clock and reset inputs. Did not find a cleaner way to do this
+            extra_external_commands.append("delete_bd_objs %s" % " ".join(get_bd_nets))
+            extra_external_commands.append("delete_bd_objs %s" % " ".join(get_bd_ports))
+            extra_external_commands.append("endgroup")
+            extra_external_commands.append("startgroup")
+            extra_external_commands.extend(connections_to_external)
+            extra_external_commands.append("endgroup")
 
         return (
-            IP(
-                vlnv=IP.build_vlnv(
-                    vendor="xilinx.com",
-                    library="ip",
-                    name="axi_crossbar",
-                    version="2.1",
-                ),
-                module_name="axi_crossbar_0",
-                interfaces=interfaces,
-                ip_repo_path=None,
-                config=config,
-                run_needed=True,
-            ),
-            axilites_with_addr_width,
-            interfaces,
+            interconnects,
+            interconnects_axilites_connections,
+            intra_connections,
+            extra_external_commands,
         )
 
     @staticmethod
@@ -816,11 +1100,15 @@ class CoyoteBuild(Transformation):
 
         return False
 
-    def apply(self, model):
-        # We want dynamic True so we leave default arguments
-        # Also, we only want it at the output since the Coyote interface already provides tlast to
-        # the input width converter
+    @staticmethod
+    def __update_intf_axilite_control(intf_names_axilite: List[str]):
+        s_axi_control_counter = 0
+        for i, axilite in enumerate(intf_names_axilite):
+            if "control" in axilite:
+                intf_names_axilite[i] = "s_axi_control_%d" % s_axi_control_counter
+                s_axi_control_counter = s_axi_control_counter + 1
 
+    def apply(self, model):
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
         model = model.transform(
             CreateStitchedIPForCoyote(
@@ -831,46 +1119,36 @@ class CoyoteBuild(Transformation):
         )
 
         is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
-
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
-        # NOTE: s_axi_control_%d in intf_names["axilite"] does not match what is in the finn
-        # design file. The index is 0 and not 3.
-        # TODO: Be a bit more reliable, there, we might have several of them.
-        # Keep a counter and update the name accordingly.
-        for i, axilite in enumerate(intf_names["axilite"]):
-            if "control" in axilite:
-                intf_names["axilite"][i] = "s_axi_control_0"
-                break
+        CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
 
         # Only one main output and one main input
-        # NOTE: This will probably stay like this
+        # NOTE: This will change for ACCL mode where we have several inputs and outputs
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
         assert len(intf_names["m_axis"]) == 1, "Only support one toplevel output"
 
-        (
-            interconnect,
-            axilites,
-            interconnect_interfaces,
-        ) = CoyoteBuild.create_interconnect(
+        axilites_with_addr_width = CoyoteBuild.get_axilites_with_width(
             model.get_metadata_prop("vivado_stitch_proj"), intf_names["axilite"]
         )
 
+        (
+            interconnects,
+            interconnects_connections,
+            intra_connections,
+            extra_external_commands,
+        ) = CoyoteBuild.create_interconnects(axilites_with_addr_width)
+
         interconnect_bd = BD(
             bd_name="design_crossbar",
-            interfaces=interconnect_interfaces,
-            ips=[interconnect],
-            make_external=[
-                "startgroup",
-                "make_bd_pins_external  [get_bd_cells %s]" % interconnect.module_name,
-                "make_bd_intf_pins_external  [get_bd_cells %s]" % interconnect.module_name,
-                "endgroup",
-            ],
+            ips=interconnects,
+            intra_connections=intra_connections,
+            extra_external_commands=extra_external_commands,
         )
 
         finn_interfaces: List[Interface] = []
 
-        for axilite, width in axilites:
+        for axilite, width in axilites_with_addr_width:
             finn_interfaces.append(
                 AXI4Lite(
                     name=axilite,
@@ -1017,11 +1295,9 @@ class CoyoteBuild(Transformation):
             design, coyote_interface["axi_ctrl"]
         )
 
-        for i, (axilite, width) in enumerate(axilites):
-            instantiations["axi_crossbar_0_inst"]["M%0.2d_AXI_0" % i].connect(
-                design,
-                instantiations["finn_kernel_inst"][axilite],
-                # type: ignore
+        for interconnect_master, finn_signal in interconnects_connections.items():
+            instantiations["axi_crossbar_0_inst"][interconnect_master].connect(
+                design, instantiations["finn_kernel_inst"][finn_signal]
             )
 
         instantiations["axi_crossbar_0_inst"]["aclk_0"].connect(
