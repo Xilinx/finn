@@ -473,16 +473,15 @@ class Thresholding_Binary_Search(HLSCustomOp):
         super().reset_rtlsim(sim)
         super().toggle_clk(sim)
 
-        wnbits = self.get_weightstream_width()
-        export_wdt = self.get_weight_datatype()
-        wei = npy_to_rtlsim_input("{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits)
-        num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+        io_names = self.get_verilog_top_module_intf_names()
+        istream_name = io_names["s_axis"][0][0]
+        ostream_name = io_names["m_axis"][0][0]
         io_dict = {
-            "inputs": {"in0": inp, "weights": wei * num_w_reps},
-            "outputs": {"s_axis": []},
+            "inputs": {istream_name: inp},
+            "outputs": {ostream_name: []},
         }
         self.rtlsim_multi_io(sim, io_dict)
-        output = io_dict["outputs"]["out"]
+        output = io_dict["outputs"][ostream_name]
 
         # Manage output data
         odt = self.get_output_datatype()
