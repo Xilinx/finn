@@ -280,20 +280,18 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def setup_accl_interface(self, model):
-        tcl = []
-
         has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
 
         unused_src = None
         unused_sink = None
 
         if has_accl_in:
-            tcl.append("set_property name data_from_cclo [get_bd_intf_ports s_axis_0]")
-            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 s_axis_0")
+            self.connect_cmds.append("set_property name data_from_cclo_0 [get_bd_intf_ports s_axis_0]")
+            self.connect_cmds.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 s_axis_0")
             unused_src = "s_axis_0"
         else:
-            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 data_from_cclo")
-            unused_src = "data_from_cclo"
+            self.connect_cmds.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 data_from_cclo_0")
+            unused_src = "data_from_cclo_0"
 
         accl_out_node = None
         for node in model.graph.node:
@@ -302,12 +300,12 @@ class CreateStitchedIP(Transformation):
                 break
 
         if accl_out_node is not None:
-            tcl.append("set_property name data_to_cclo [get_bd_intf_ports m_axis_0]")
-            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 m_axis_0")
+            self.connect_cmds.append("set_property name data_to_cclo_0 [get_bd_intf_ports m_axis_0]")
+            self.connect_cmds.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 m_axis_0")
 
             # TODO: In a case where we have multiple nodes that access the cmd interface
             # we will need to add an arbiter for this.
-            tcl += [
+            self.connect_cmds += [
                 "make_bd_intf_pins_external [get_bd_intf_pins {}/{}]".format(
                     accl_out_node.name,
                     pin_name
@@ -315,44 +313,40 @@ class CreateStitchedIP(Transformation):
                 for pin_name in ["cmd_to_cclo", "sts_from_cclo", "s_axi_control"]
             ]
 
-            tcl.append("create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0")
-            tcl.append("connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins {}/wait_for_ack]".format(accl_out_node.name))
+            self.connect_cmds.append("create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0")
+            self.connect_cmds.append("connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins {}/wait_for_ack]".format(accl_out_node.name))
 
             unused_sink = "m_axis_0"
         else:
-            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo")
-            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo")
-            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo")
+            self.connect_cmds.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo_0")
+            self.connect_cmds.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo_0")
+            self.connect_cmds.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo_0")
 
-            unused_sink = "data_to_cclo"
+            unused_sink = "data_to_cclo_0"
 
         tie_off_cmd = accl_out_node is not None
 
         def tie_off(a, b):
             fifo_name = f"tie_off_{a}_{b}"
-            tcl.append(
-                f"create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 {fifo_name}"
-            )
-            tcl.append(
+            self.connect_cmds.append(
                 f"""
-                    connect_bd_intf_net [get_bd_intf_pins {fifo_name}/S_AXIS]
-                    [get_bd_intf_pins {a}]
-                """
-            )
-            tcl.append(
-                f"""
-                    connect_bd_intf_net [get_bd_intf_pins {fifo_name}/M_AXIS]
-                    [get_bd_intf_pins {b}]
+                create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 {fifo_name}
+                connect_bd_net [get_bd_ports ap_clk] [get_bd_pins {fifo_name}/s_axis_aclk]
+                connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins {fifo_name}/s_axis_aresetn]
+                connect_bd_intf_net [get_bd_intf_pins {fifo_name}/S_AXIS] [get_bd_intf_pins {a}]
+                connect_bd_intf_net [get_bd_intf_pins {fifo_name}/M_AXIS] [get_bd_intf_pins {b}]
                 """
             )
 
         # Tie off the unused ports with a fifo so that they will not get removed from the
         # interface of the generated IP.
-        # tie_off(unused_src, unused_sink)
-        # if accl_out_node is None:
-        #     tie_off("cmd_to_cclo", "sts_from_cclo")
+        tie_off(unused_src, unused_sink)
+        if accl_out_node is None:
+            tie_off("sts_from_cclo_0", "cmd_to_cclo_0")
 
-        return tcl
+
+        self.intf_names["s_axis"] += ["sts_from_cclo_0", "data_from_cclo_0"]
+        self.intf_names["m_axis"] += ["cmd_from_cclo_0", "data_to_cclo_0"]
 
     def apply(self, model):
         # ensure non-relative readmemh .dat files
@@ -424,6 +418,9 @@ class CreateStitchedIP(Transformation):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
 
+        if self.accl_interface:
+            self.setup_accl_interface(model)
+
         if self.signature:
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("checksum")
@@ -432,7 +429,6 @@ class CreateStitchedIP(Transformation):
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
-        print(vivado_stitch_proj_dir)
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
         # start building the tcl script
         tcl = []
@@ -452,9 +448,6 @@ class CreateStitchedIP(Transformation):
 
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
-
-        if self.accl_interface:
-            tcl.extend(self.setup_accl_interface(model))
 
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
