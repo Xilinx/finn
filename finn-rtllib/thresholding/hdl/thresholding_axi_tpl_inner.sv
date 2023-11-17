@@ -108,4 +108,4 @@ module $MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 		.m_axis_tready, .m_axis_tvalid, .m_axis_tdata
 	);
 
-endmodule : thresholding_axi_tpl_inner
+endmodule : $MODULE_NAME_AXI_WRAPPER$_tpl_inner

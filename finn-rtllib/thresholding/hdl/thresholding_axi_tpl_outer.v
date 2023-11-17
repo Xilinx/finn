@@ -107,4 +107,4 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 		.m_axis_tready(m_axis_tready), .m_axis_tvalid(m_axis_tvalid), .m_axis_tdata(m_axis_tdata)
 	);
 
-endmodule // thresholding_axi_tpl_outer
+endmodule // $MODULE_NAME_AXI_WRAPPER$
