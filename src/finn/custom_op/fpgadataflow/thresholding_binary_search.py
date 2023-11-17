@@ -32,7 +32,10 @@ import os
 import sys
 import warnings
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import find_next_power_of_2, get_rtlsim_trace_depth, make_build_dir
@@ -265,10 +268,12 @@ class Thresholding_Binary_Search(HLSCustomOp):
         thresholds = model.get_initializer(self.onnx_node.input[1])
         # add dummy dimension as final dimension (that's what gets packed with next call)
         thresholds = np.expand_dims(thresholds, axis=-1)
+        wdt = self.get_weight_datatype()
+        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         t_packed = pack_innermost_dim_as_hex_string(
             thresholds,
-            self.get_weight_datatype(),
-            self.get_weight_datatype().bitwidth(),
+            wdt,
+            bw_hexdigit,
             prefix="'h",
         )
         # massage generated thresholds string to fit SystemVerilog array formatting
@@ -554,6 +559,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         config = {}
         channel_cntr = 0
+        wdt = self.get_weight_datatype()
+        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         for channel in thresholds:
             channel_start_addr = channel_cntr * weight_addr_boundary * address_stride
             weight_cntr = 0
@@ -568,8 +575,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
                         str(
                             pack_innermost_dim_as_hex_string(
                                 [weight],
-                                self.get_weight_datatype(),
-                                self.get_weight_datatype().bitwidth(),
+                                wdt,
+                                bw_hexdigit,
                             )
                         ),
                         0,
