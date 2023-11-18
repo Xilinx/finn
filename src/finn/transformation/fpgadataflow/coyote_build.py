@@ -50,17 +50,21 @@ from finn.util.basic import alveo_part_map, make_build_dir
 
 
 class Interface(ABC):
-    Signal: TypeAlias = str
-    name: Signal
-    _sub_signals: List[Tuple[Signal, int]]
-    width: int
+    """Interface used to represent an Interface, that is to say a simple pin (SimpleWire) or
+    interface pins (AXI4Lite, AXI4Stream).
+    """
+
+    Width: TypeAlias = int
+    Signal: TypeAlias = Tuple[str, Width]
+
+    name: str
+    _sub_signals: Dict[str, Width]
     owner: Optional["Instantiation"]
     external: bool
 
-    def __init__(self, name: str, width: int, external: bool):
+    def __init__(self, name: str, external: bool):
         self.name = name
-        self.width = width
-        self._sub_signals = []
+        self._sub_signals = {}
         self.connected = False
         self.owner = None
         self.external = external
@@ -69,34 +73,58 @@ class Interface(ABC):
     def connect(self, design: "Design", other: "Interface"):
         pass
 
-
-class Delimiter(Enum):
-    UNDERSCORE = "_"
-    POINT = "."
+    def __getitem__(self, key):
+        return self._sub_signals[key]
 
     def __str__(self):
-        return str(self.value)
+        desc: List[str] = []
+        desc.append("Interface name is: %s" % self.name)
+        desc.append("The sub signales are:")
+        for name, width in self._sub_signals.items():
+            desc.append("\t%s : %d (in bits)" % (name, width))
+        if self.owner is not None:
+            desc.append("Owner is:")
+            desc.append(self.owner.__str__())
+        desc.append("Interface is%s external" % ("" if self.external else " not"))
+        return "\n".join(desc)
 
 
 class AXIInterface(Interface):
-    def __init__(self, name: str, width: int, delimiter: Delimiter, external: bool):
-        super().__init__(name=name, width=width, external=external)
+    """Represents an AXIInterface. Could be AXI4Lite or AXI4Stream.
+
+    Specifies how two AXIInterfaces should be connected.
+    """
+
+    class Delimiter(Enum):
+        UNDERSCORE = "_"
+        POINT = "."
+
+        def __str__(self):
+            return str(self.value)
+
+    def __init__(self, name: str, delimiter: Delimiter, external: bool):
+        super().__init__(name=name, external=external)
         self.delimiter = delimiter
 
     def connect(self, design: "Design", other: "AXIInterface"):
         assert not other.connected
         assert not self.connected
         assert not self.external
+        # NOTE: It is possible that two axi interfaces do not have the same number of signals if
+        # they are AXI4Streams. Some have tkeep and tlast some do not.
         if len(self._sub_signals) != len(other._sub_signals):
-            assert isinstance(self, AXI4Stream) and isinstance(
-                other, AXI4Stream
-            ), "This should not happen"
+            assert isinstance(self, AXI4Stream) and isinstance(other, AXI4Stream), (
+                "Different number of signals should only happen in the case of AXI4Stream"
+                " interfaces. This should not happen.\nSelf is: %s\nOther is: %s"
+                % (self.__str__(), other.__str__())
+            )
 
-        # NOTE: This holds only if the potential additional signals are at the end of the list
-        # NOTE: This is currently the case for AXI4Stream
-        max_range = min(len(self._sub_signals), len(other._sub_signals))
-        for i in range(max_range):
-            (sub_signal, width) = self._sub_signals[i]
+        dict_iterated_over = (
+            self._sub_signals
+            if len(self._sub_signals) < len(other._sub_signals)
+            else other._sub_signals
+        )
+        for sub_signal, width in dict_iterated_over.items():
             our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
             other_interface = "%s%s%s" % (other.name, other.delimiter, sub_signal)
             assert self.owner is not None
@@ -118,6 +146,8 @@ class AXIInterface(Interface):
                     width=width,
                 )
                 wire.connected = True
+                # NOTE: Wires are put into the design as they are global, that is to say, seen by
+                # different IPs
                 design.wires.append(wire)
                 self.owner.connections[our_interface] = wire.name
                 other.owner.connections[other_interface] = wire.name
@@ -127,57 +157,78 @@ class AXIInterface(Interface):
 
 
 class AXI4Stream(AXIInterface):
+    """Represents an AXI4Stream interface.
+
+    Its particularity is the fact that the number of signals depending on whether tlast is
+    supported or not.
+    """
+
     @staticmethod
     def next_multiple_of_8(width: int):
         return ((width + 7) >> 3) << 3
 
-    def __init__(self, name: str, width: int, tlast: bool, delimiter: Delimiter, external: bool):
-        super().__init__(name, AXI4Stream.next_multiple_of_8(width), delimiter, external)
-        self.tlast = tlast
-        self._sub_signals = [("tdata", self.width), ("tvalid", 1), ("tready", 1)]
-        if tlast:
-            # TLAST is always one bit and TKEEP is WIDTH(in bits)/8
-            self._sub_signals.append(("tlast", 1))
-            self._sub_signals.append(("tkeep", self.width >> 3))
-
-
-class AXI4Lite(AXIInterface):
     def __init__(
         self,
         name: str,
-        width: int,
-        delimiter: Delimiter,
+        data_width: int,
+        tlast: bool,
+        delimiter: AXIInterface.Delimiter,
         external: bool,
-        addr_width,
-        scale=1,
     ):
-        super().__init__(name, width, delimiter, external)
+        super().__init__(name, delimiter, external)
+        self.tlast = tlast
+        width_adjusted = AXI4Stream.next_multiple_of_8(data_width)
+        self._sub_signals = {"tdata": width_adjusted, "tvalid": 1, "tready": 1}
+        if tlast:
+            # NOTE: TLAST is always one bit and TKEEP is WIDTH(in bits)/8
+            self._sub_signals["tlast"] = 1
+            self._sub_signals["tkeep"] = width_adjusted >> 3
+
+    def __str__(self):
+        return "Interface type: AXI4Stream\n%s" % super().__str__()
+
+
+class AXI4Lite(AXIInterface):
+    """Represents an AXI4Lite interface."""
+
+    def __init__(
+        self, name: str, width: int, delimiter: AXIInterface.Delimiter, external: bool, addr_width
+    ):
+        super().__init__(name, delimiter, external)
         # TODO: Add arprot and awprot, three bits (recommended value is 0b000 so
         # can safely be ignored)
-        self._sub_signals = [
-            ("awaddr", addr_width * scale),
-            ("awvalid", 1 * scale),
-            ("awready", 1 * scale),
-            ("wdata", width * scale),
-            ("wstrb", (width >> 3) * scale),
-            ("wvalid", 1 * scale),
-            ("wready", 1 * scale),
-            ("bresp", 2 * scale),
-            ("bvalid", 1 * scale),
-            ("bready", 1 * scale),
-            ("araddr", addr_width * scale),
-            ("arvalid", 1 * scale),
-            ("arready", 1 * scale),
-            ("rdata", width * scale),
-            ("rresp", 2 * scale),
-            ("rready", 1 * scale),
-            ("rvalid", 1 * scale),
-        ]
+        self._sub_signals = {
+            "awaddr": addr_width,
+            "awvalid": 1,
+            "awready": 1,
+            "wdata": width,
+            "wstrb": width >> 3,
+            "wvalid": 1,
+            "wready": 1,
+            "bresp": 2,
+            "bvalid": 1,
+            "bready": 1,
+            "araddr": addr_width,
+            "arvalid": 1,
+            "arready": 1,
+            "rdata": width,
+            "rresp": 2,
+            "rready": 1,
+            "rvalid": 1,
+        }
+
+    def __str__(self):
+        return "Interface type: AXI4Lite\n%s" % super().__str__()
 
 
 class SimpleWire(Interface):
+    """Represents a simple wire, that is to say, an interface with only one pin."""
+
+    width: Interface.Width
+
     def __init__(self, name: str, width: int):
-        super().__init__(name, width, True)
+        super().__init__(name, True)
+        self.width = width
 
     def connect(self, design: "Design", interface: "SimpleWire"):
         assert not self.connected
@@ -188,17 +239,22 @@ class SimpleWire(Interface):
 
         self.owner.connections[self.name] = interface.name
 
+    def __str__(self):
+        return "Interface type: SimpleWire\n%s" % super().__str__()
+
 
 class IP:
+    """Represents an IP and all that is required to instantiate it."""
+
     IPConfig: TypeAlias = "dict[str, str]"
     interfaces: Dict[str, Interface]
 
     def __init__(
         self,
         vlnv: str,
-        module_name: str,
+        module_name: str,  # NOTE: Name of the configured/instantiable version of the IP
         interfaces: List[Interface],
-        ip_repo_path: Optional[str] = None,
+        ip_repo_path: Optional[str] = None,  # NOTE: No repo path for Vivado/Xilinx IPs
         config: Optional[IPConfig] = None,
         run_needed=False,
     ):
@@ -220,11 +276,23 @@ class IP:
 
 
 class BD:
-    Config: TypeAlias = "dict[str, str]"
+    """Represents a block design.
+
+    `interfaces` represents the list of interfaces available to the outside not all the interfaces
+    that are in the block design
+
+    `ips` list of ips that constitute the block design. This is optional because it is only
+    required for block designs we want to generate ourselves. Not for block design we only
+    want to "instantiate".
+
+    `make_external` list of bd-specific tcl commands that make the necessary pins available
+    to the outside
+    """
+
+    module_name: str
     interfaces: Dict[str, Interface]
     ips: Optional[List[IP]]
     make_external: Optional[List[str]]
-    module_name: str
 
     def __init__(
         self,
@@ -241,6 +309,7 @@ class BD:
         self.make_external = make_external
 
     def create_ips(self) -> List[str]:
+        """Reponsible for acutally creating the block design"""
         tcl: List[str] = []
         if self.ips is None:
             return tcl
@@ -625,8 +694,12 @@ class CoyoteBuild(Transformation):
                 SimpleWire("aclk", 1),
                 SimpleWire("aresetn", 1),
                 # NOTE: Coyote interface is 512 bits wide
-                AXI4Stream("s_axis", input_width_bits, tlast, Delimiter.UNDERSCORE, False),
-                AXI4Stream("m_axis", output_width_bits, tlast, Delimiter.UNDERSCORE, False),
+                AXI4Stream(
+                    "s_axis", input_width_bits, tlast, AXIInterface.Delimiter.UNDERSCORE, False
+                ),
+                AXI4Stream(
+                    "m_axis", output_width_bits, tlast, AXIInterface.Delimiter.UNDERSCORE, False
+                ),
             ],
             ip_repo_path=None,
             config={
@@ -697,7 +770,7 @@ class CoyoteBuild(Transformation):
             AXI4Lite(
                 name="S00_AXI_0",
                 width=32,
-                delimiter=Delimiter.UNDERSCORE,
+                delimiter=AXIInterface.Delimiter.UNDERSCORE,
                 external=False,
                 addr_width=32,
             )
@@ -708,7 +781,7 @@ class CoyoteBuild(Transformation):
                 AXI4Lite(
                     name="M%0.2d_AXI_0" % i,
                     width=32,
-                    delimiter=Delimiter.UNDERSCORE,
+                    delimiter=AXIInterface.Delimiter.UNDERSCORE,
                     external=False,
                     addr_width=32,
                 )
@@ -802,7 +875,7 @@ class CoyoteBuild(Transformation):
                 AXI4Lite(
                     name=axilite,
                     width=32,
-                    delimiter=Delimiter.UNDERSCORE,
+                    delimiter=AXIInterface.Delimiter.UNDERSCORE,
                     external=False,
                     addr_width=width,
                 )
@@ -817,14 +890,14 @@ class CoyoteBuild(Transformation):
                     intf_names["s_axis"][0][0],
                     intf_names["s_axis"][0][1],
                     False,
-                    Delimiter.UNDERSCORE,
+                    AXIInterface.Delimiter.UNDERSCORE,
                     False,
                 ),
                 AXI4Stream(
                     intf_names["m_axis"][0][0],
                     intf_names["m_axis"][0][1],
                     not is_accl_mode,
-                    Delimiter.UNDERSCORE,
+                    AXIInterface.Delimiter.UNDERSCORE,
                     False,
                 ),
             ]
@@ -841,13 +914,13 @@ class CoyoteBuild(Transformation):
             "host_to_finn",
             not is_accl_mode,
             512,
-            finn_kernel_ip[intf_names["s_axis"][0][0]].width,
+            finn_kernel_ip[intf_names["s_axis"][0][0]]["tdata"],
         )
 
         axis_dwidth_convert_finn_to_host = CoyoteBuild.create_converter(
             "finn_to_host",
             not is_accl_mode,
-            finn_kernel_ip[intf_names["m_axis"][0][0]].width,
+            finn_kernel_ip[intf_names["m_axis"][0][0]]["tdata"],
             512,
         )
 
@@ -856,7 +929,7 @@ class CoyoteBuild(Transformation):
                 AXI4Lite(
                     name="axi_ctrl",
                     width=64,
-                    delimiter=Delimiter.POINT,
+                    delimiter=AXIInterface.Delimiter.POINT,
                     external=True,
                     addr_width=64,
                 ),
@@ -864,16 +937,16 @@ class CoyoteBuild(Transformation):
                 SimpleWire(name="aresetn", width=1),
                 AXI4Stream(
                     name="axis_host_0_sink",
-                    width=512,
+                    data_width=512,
                     tlast=True,
-                    delimiter=Delimiter.POINT,
+                    delimiter=AXIInterface.Delimiter.POINT,
                     external=True,
                 ),
                 AXI4Stream(
                     name="axis_host_0_src",
-                    width=512,
+                    data_width=512,
                     tlast=True,
-                    delimiter=Delimiter.POINT,
+                    delimiter=AXIInterface.Delimiter.POINT,
                     external=True,
                 ),
             ]
