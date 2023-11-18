@@ -31,6 +31,7 @@ import numpy as np
 import os
 import sys
 import warnings
+from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
@@ -38,7 +39,12 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import find_next_power_of_2, get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import (
+    find_next_power_of_2,
+    get_rtlsim_trace_depth,
+    make_build_dir,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -208,7 +214,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return self.get_normal_input_shape()
 
     def get_number_output_values(self):
-        return 0
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_exp_cycles(self):
         return 0
@@ -316,11 +322,11 @@ class Thresholding_Binary_Search(HLSCustomOp):
         if self.get_input_datatype().signed():
             code_gen_dict["$SIGNED$"] = [str(1)]
             o_bits = 1 + math.ceil(
-                -bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias
+                math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
             )
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
-            o_bits = math.ceil(2**o_bitwidth + bias)
+            o_bits = math.ceil(math.log2(2**o_bitwidth + bias))
         code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
@@ -498,6 +504,33 @@ class Thresholding_Binary_Search(HLSCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*oshape)
         context[node.output[0]] = output
         return
+
+    def hls_sname(self):
+        """Get the naming convention used by Vitis HLS for stream signals
+        Example: the TDATA for a stream called "out" would be out_V_TDATA.
+        """
+        # no additional prefix/suffix in interface names since this is an RTL component
+        return ""
+
+    def rtlsim_multi_io(self, sim, io_dict):
+        "Run rtlsim for this node, supports multiple i/o streams."
+
+        # signal name prefix
+        sname = "_"
+
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        if trace_file == "default":
+            trace_file = self.onnx_node.name + ".vcd"
+        num_out_values = self.get_number_output_values()
+        total_cycle_count = rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        )
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL

@@ -38,6 +38,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
+from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -135,45 +136,6 @@ def make_single_thresholding_binary_search_modelwrapper(
     return model
 
 
-# Test brief: Test that PrepareRTLSim() runs successfully. This function is not
-# tested in test_fpgadataflow_thresholding_binary_search()
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
-    input_data_type = DataType["INT16"]
-    act = DataType["INT4"]
-    fold = -1
-    num_input_channels = 16
-
-    # Handle inputs to the test
-    pe = generate_pe_value(fold, num_input_channels)
-    num_steps = act.get_num_possible_values() - 1
-
-    # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
-    thresholds = sort_thresholds_increasing(thresholds)
-
-    # Other non-input parameters
-    num_input_vecs = [1, 2, 2]
-    output_data_type = act
-    if output_data_type == DataType["BIPOLAR"]:
-        activation_bias = 0
-    else:
-        activation_bias = output_data_type.min()
-
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, num_input_vecs, 1
-    )
-
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    return
-
-
 # Test brief: Create a Thresholding binary search layer using various parameters
 # and test against a SW generated & simulated dataset
 # N.B. Fold values where C % PE != 0 fail
@@ -182,12 +144,15 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
 @pytest.mark.parametrize("rt_writable", [0, 1])
+@pytest.mark.parametrize("node_by_node", [0, 1])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels, rt_writable
+    activation, input_data_type, fold, num_input_channels, rt_writable, node_by_node
 ):
+    if rt_writable and node_by_node:
+        pytest.skip("Runtime-writable not applicable for node-by-node sim")
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
@@ -237,7 +202,13 @@ def test_fpgadataflow_thresholding_binary_search(
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+
+    if node_by_node:
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareRTLSim())
+    else:
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
 
     # Reshape generated data (not from model)
     oshape = model.get_tensor_shape("outp")
@@ -273,7 +244,9 @@ def test_fpgadataflow_thresholding_binary_search(
         tbs_inst = getCustomOp(tbs_node)
         config = tbs_inst.get_dynamic_config(model, 4)
         rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
+        y_produced = input_dict["outp"]
     else:
-        rtlsim_exec(model, input_dict)
-    y_produced = input_dict["outp"]
+        ret = execute_onnx(model, input_dict)
+        y_produced = ret["outp"]
+
     assert (y_produced == y_expected).all()
