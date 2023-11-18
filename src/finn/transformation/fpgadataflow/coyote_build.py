@@ -69,10 +69,6 @@ class Interface(ABC):
     def connect(self, design: "Design", other: "Interface"):
         pass
 
-    @abstractmethod
-    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
-        pass
-
 
 class Delimiter(Enum):
     UNDERSCORE = "_"
@@ -127,61 +123,6 @@ class AXIInterface(Interface):
                 other.owner.connections[other_interface] = wire.name
 
         other.connected = True
-        self.connected = True
-
-    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
-        assert isinstance(self, AXI4Lite)
-        for other in others:
-            assert not other.connected, "%s already connected" % other.name
-            assert isinstance(
-                other, AXI4Lite
-            ), "%s is not of type AXI4Lite. Only AXI4Lite supported for multiple connections" % (
-                other.name
-            )
-        assert not self.connected
-        assert not self.external
-        assert self.owner is not None
-
-        wires: List[SimpleWire] = []
-        for sub_signal, width in self._sub_signals:
-            wire = SimpleWire(
-                name="%s_%s_wire_%s"
-                % (
-                    self.owner.ip.module_name,
-                    self.name,
-                    sub_signal,
-                ),
-                width=width,
-            )
-            design.wires.append(wire)
-            wires.append(wire)
-            our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
-            self.owner.connections[our_interface] = wire.name
-
-        for i, other in enumerate(others):
-            assert not other.external
-            assert other.owner is not None
-            for j, (other_sub_signal, other_sub_signal_width) in enumerate(other._sub_signals):
-                (sub_signal, width) = self._sub_signals[j]
-
-                # NOTE: Guaranteed to give an integer by construction, see scale in AXI4Lite
-                width_to_use = width / len(others)
-
-                other_interface = "%s%s%s" % (
-                    other.name,
-                    other.delimiter,
-                    other_sub_signal,
-                )
-
-                wire = wires[j]
-                wire.connected = True
-                other.owner.connections[other_interface] = "%s[%d:%d]" % (
-                    wire.name,
-                    i * width_to_use + other_sub_signal_width - 1,
-                    i * width_to_use,
-                )
-            other.connected = True
-
         self.connected = True
 
 
@@ -246,9 +187,6 @@ class SimpleWire(Interface):
         assert self.owner is not None
 
         self.owner.connections[self.name] = interface.name
-
-    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
-        assert False, "Operation not supported for SimpleWire"
 
 
 class IP:
