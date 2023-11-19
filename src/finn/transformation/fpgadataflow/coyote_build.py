@@ -52,37 +52,37 @@ from finn.util.basic import alveo_part_map, make_build_dir
 
 
 class Interface(ABC):
-    """Interface used to represent an Interface, that is to say a simple pin (SimpleWire) or
-    interface pins (AXI4Lite, AXI4Stream).
+    """Interface used to represent an Interface, that is to say a simple pin (SimpleWire)
+    or interface pins (AXI4Lite, AXI4Stream).
     """
 
     Width: TypeAlias = int
     Signal: TypeAlias = Tuple[str, Width]
 
     name: str
-    _sub_signals: Dict[str, Width]
+    sub_signals: Dict[str, Width]
     owner: Optional["Instantiation"]
     external: bool
 
     def __init__(self, name: str, external: bool):
         self.name = name
-        self._sub_signals = {}
+        self.sub_signals = {}
         self.connected = False
         self.owner = None
         self.external = external
 
     @abstractmethod
-    def connect(self, design: "Design", other: "Interface"):
+    def connect(self, design: "Design", other: "Interface") -> None:
         pass
 
-    def __getitem__(self, key):
-        return self._sub_signals[key]
+    def __getitem__(self, key) -> Width:
+        return self.sub_signals[key]
 
-    def __str__(self):
+    def __str__(self) -> str:
         desc: List[str] = []
         desc.append("Interface name is: %s" % self.name)
         desc.append("The sub signals are:")
-        for name, width in self._sub_signals.items():
+        for name, width in self.sub_signals.items():
             desc.append("\t%s : %d (in bits)" % (name, width))
         if self.owner is not None:
             desc.append("Owner is:")
@@ -108,13 +108,13 @@ class AXIInterface(Interface):
         super().__init__(name=name, external=external)
         self.delimiter = delimiter
 
-    def connect(self, design: "Design", other: "AXIInterface"):
+    def connect(self, design: "Design", other: "AXIInterface") -> None:
         assert not other.connected
         assert not self.connected
         assert not self.external
         # NOTE: It is possible that two axi interfaces do not have the same number of signals if
         # they are AXI4Streams. Some have tkeep and tlast some do not.
-        if len(self._sub_signals) != len(other._sub_signals):
+        if len(self.sub_signals) != len(other.sub_signals):
             assert isinstance(self, AXI4Stream) and isinstance(other, AXI4Stream), (
                 "Different number of signals should only happen in the case of AXI4Stream"
                 " interfaces. This should not happen.\nSelf is: %s\nOther is: %s"
@@ -122,9 +122,9 @@ class AXIInterface(Interface):
             )
 
         dict_iterated_over = (
-            self._sub_signals
-            if len(self._sub_signals) < len(other._sub_signals)
-            else other._sub_signals
+            self.sub_signals
+            if len(self.sub_signals) < len(other.sub_signals)
+            else other.sub_signals
         )
         for sub_signal, width in dict_iterated_over.items():
             our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
@@ -180,11 +180,11 @@ class AXI4Stream(AXIInterface):
         super().__init__(name, delimiter, external)
         self.tlast = tlast
         width_adjusted = AXI4Stream.next_multiple_of_8(data_width)
-        self._sub_signals = {"tdata": width_adjusted, "tvalid": 1, "tready": 1}
+        self.sub_signals = {"tdata": width_adjusted, "tvalid": 1, "tready": 1}
         if tlast:
             # NOTE: TLAST is always one bit and TKEEP is WIDTH(in bits)/8
-            self._sub_signals["tlast"] = 1
-            self._sub_signals["tkeep"] = width_adjusted >> 3
+            self.sub_signals["tlast"] = 1
+            self.sub_signals["tkeep"] = width_adjusted >> 3
 
     def __str__(self):
         return "Interface type: AXI4Stream\n%s" % super().__str__()
@@ -199,7 +199,7 @@ class AXI4Lite(AXIInterface):
         super().__init__(name, delimiter, external)
         # TODO: Add arprot and awprot, three bits (recommended value is 0b000 so
         # can safely be ignored)
-        self._sub_signals = {
+        self.sub_signals = {
             "awaddr": addr_width,
             "awvalid": 1,
             "awready": 1,
@@ -279,8 +279,6 @@ class IP:
 
 class BD:
     """Represents a block design.
-
-
 
     `ips` list of ips that constitute the block design. This is optional because it is only
     required for block designs we want to generate ourselves. Not for block design we only
@@ -782,10 +780,18 @@ class CoyoteBuild(Transformation):
                 SimpleWire("aclk", 1),
                 SimpleWire("aresetn", 1),
                 AXI4Stream(
-                    "s_axis", input_width_bits, tlast, AXIInterface.Delimiter.UNDERSCORE, False
+                    "s_axis",
+                    input_width_bits,
+                    tlast,
+                    AXIInterface.Delimiter.UNDERSCORE,
+                    False,
                 ),
                 AXI4Stream(
-                    "m_axis", output_width_bits, tlast, AXIInterface.Delimiter.UNDERSCORE, False
+                    "m_axis",
+                    output_width_bits,
+                    tlast,
+                    AXIInterface.Delimiter.UNDERSCORE,
+                    False,
                 ),
             ],
             ip_repo_path=None,
@@ -818,6 +824,7 @@ class CoyoteBuild(Transformation):
         width
 
         """
+
         design_file = Path(vivado_stitch_proj) / "finn_design.v"
 
         contents = None
@@ -915,6 +922,7 @@ class CoyoteBuild(Transformation):
             axilites_list_list: List[Tuple[List[Interface.Signal], int]],
             current_idx: int,
             indices_count: Dict[int, int],
+            base_addr: int,
         ) -> Tuple[Dict[str, str], int, Dict[str, str]]:
             config: Dict[str, str] = {}
             config["ADDR_WIDTH"] = "32"
@@ -922,8 +930,7 @@ class CoyoteBuild(Transformation):
             config["NUM_MI"] = str(len(axilites_list_list))
             config["PROTOCOL"] = "AXI4LITE"
             prev_width = 0
-            # NOTE: AXI4L address sent through the Coyote interface start at 0x12_0000
-            prev_base = 0x12_0000 if current_idx == 0 else 0
+            prev_base = base_addr
 
             chain_interconnect_idx = 0
             axilites_connections: Dict[str, str] = {}
@@ -960,7 +967,10 @@ class CoyoteBuild(Transformation):
             return (axilites_connections, chain_interconnect_idx, config)
 
         def create_interconnects_inner(
-            axilites_inner: List[Interface.Signal], current_idx: int, indices_count: Dict[int, int]
+            axilites_inner: List[Interface.Signal],
+            current_idx: int,
+            indices_count: Dict[int, int],
+            base_addr: int,
         ) -> Tuple[List[IP], Dict[str, str], List[str]]:
             """This function is responsible for actually creating the interconnects. It should be
             called recurisevly with a smaller list axilites signals everytime.
@@ -992,9 +1002,11 @@ class CoyoteBuild(Transformation):
             ips: List[IP] = []
             intra_connections_tcl: List[str] = []
 
-            (axilites_connections, chain_interconnect_idx, config) = configure_and_connect(
-                axilites_list_list, current_idx, indices_count
-            )
+            (
+                axilites_connections,
+                chain_interconnect_idx,
+                config,
+            ) = configure_and_connect(axilites_list_list, current_idx, indices_count, base_addr)
 
             if remaining_axilites is not None:
                 assert remaining_axilites is not None
@@ -1003,7 +1015,10 @@ class CoyoteBuild(Transformation):
                     intra_axilites_connections,
                     intra_intra_connections_tcl,
                 ) = create_interconnects_inner(
-                    remaining_axilites, current_idx=current_idx + 1, indices_count=indices_count
+                    remaining_axilites,
+                    current_idx=current_idx + 1,
+                    indices_count=indices_count,
+                    base_addr=int(config["M%0.2d_A00_BASE_ADDR" % chain_interconnect_idx], 16),
                 )
                 ips.extend(intra_ips)
                 axilites_connections.update(intra_axilites_connections)
@@ -1061,11 +1076,13 @@ class CoyoteBuild(Transformation):
                 intra_connections_tcl,
             )
 
+        # NOTE: AXI4L address sent through the Coyote interface start at 0x12_0000
+        COYOTE_BASE_ADDR = 0x12_0000
         (
             interconnects,
             interconnects_axilites_connections,
             intra_connections,
-        ) = create_interconnects_inner(axilites_outer, 0, {})
+        ) = create_interconnects_inner(axilites_outer, 0, {}, COYOTE_BASE_ADDR)
 
         extra_external_commands: List[str] = []
         if len(interconnects) > 1:
