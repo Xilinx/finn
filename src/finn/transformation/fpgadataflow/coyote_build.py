@@ -874,30 +874,40 @@ class CoyoteBuild(Transformation):
                 ([(name, width)], width) for name, width in axilites_inner
             ]
 
+            MAX_AMOUNT_OF_AXILITES = 16
+            assert (
+                MAX_AMOUNT_OF_AXILITES > 1
+            ), "We need at least 2 outputs per interconnect for chaining"
+
             remaining_axilites = None
-            if len(axilites_list_list) > 16:
+            if len(axilites_list_list) > MAX_AMOUNT_OF_AXILITES:
                 # NOTE: This is what is responsible for collapsing everything after the 15th element
-                axilites_list_list[15] = (
-                    [item for sublist in axilites_list_list[15:] for item in sublist[0]],
+                axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1] = (
+                    [
+                        item
+                        for sublist in axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1 :]
+                        for item in sublist[0]
+                    ],
                     # NOTE: This corresponds to how many address bits we will need for the
                     # remaining axilites
                     functools.reduce(
                         operator.add,
                         map(
-                            lambda width: 1 << width, [elem[1] for elem in axilites_list_list[15:]]
+                            lambda width: 1 << width,
+                            [elem[1] for elem in axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1 :]],
                         ),
                     ).bit_length(),
                 )
                 # NOTE: This is what is "left over" after we finish connecting the current
                 # interconnect
-                remaining_axilites = axilites_list_list[15][0]
+                remaining_axilites = axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1][0]
                 # NOTE: Once everything is collapsed, we cut after the 15th element
-                axilites_list_list = axilites_list_list[:16]
+                axilites_list_list = axilites_list_list[:MAX_AMOUNT_OF_AXILITES]
 
             axilites_list_list = sorted(axilites_list_list, key=lambda tup: tup[1], reverse=True)
             # NOTE: After the cut, if one was needed, axilites_list_list should not contain more
             # than 16 elements
-            assert len(axilites_list_list) <= 16
+            assert len(axilites_list_list) <= MAX_AMOUNT_OF_AXILITES
 
             return (axilites_list_list, remaining_axilites)
 
