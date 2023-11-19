@@ -830,7 +830,7 @@ class CoyoteBuild(Transformation):
         for axilite in axilites:
             match = re.search(r"input \[(\d+)\:0\]%s_awaddr" % axilite, contents)
             assert match
-            addr_width = int(match.group(1))
+            addr_width = int(match.group(1)) + 1
             assert addr_width <= 32
             axilites_with_addr_width.append((axilite, addr_width))
 
