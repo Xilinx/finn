@@ -66,7 +66,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             "Dim": ("ints", True, []),  # [H, W]
             "Channels": ("i", True, 0),
             "Kernel": ("ints", True, []),  # [H, W]
-            "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
+            "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -77,7 +77,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             # const -- embedded weights, default, long compile/synth times
             # decoupled -- streaming weights with weight streamer packaged inside IP
             # external -- streaming weights with external streamer
-            "mem_mode": ("s", False, "const", {"const", "decoupled", "external"}),
+            "mem_mode": ("s", False, "decoupled", {"const", "decoupled", "external"}),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -303,45 +303,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         exp_cycles = ((ch * k_h * k_w) / pe / simd) * batch_size * (dim_h * dim_w) / mmv
         return int(exp_cycles)
 
-    def get_template_param_values(self):
-        """Returns the template parameter values according to input, output and weight
-        data types."""
-        ret = dict()
-        inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
-        out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        # out_is_binary = self.get_output_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
-            raise Exception("True binary (non-bipolar) inputs not yet supported")
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        # out_is_bipolar = self.get_output_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-        # fill in TSrcI and TWeightI
-        # TODO check these with Giulio
-        # TODO handle non-bipolar binary inputs
-        if inp_is_bipolar and wt_is_bipolar:
-            ret["TSrcI"] = "Recast<XnorMul>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and wt_is_bipolar:
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Recast<Binary>"
-        elif inp_is_bipolar and (not wt_is_bipolar):
-            ret["TSrcI"] = "Recast<Binary>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and (not wt_is_bipolar):
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Identity"
-
-        # fill in TDstI
-        ret["TDstI"] = "Slice<%s>" % out_hls_str
-
-        return ret
-
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
@@ -364,57 +325,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         ret = ret.reshape(1, pe, wmem, simd)
         return ret
-
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
-        """Convert the original numpy weight matrix orig_weight_matrix into
-        a form suitable for passing to the hlslib call:
-        * ensure MH % PE == 0
-        * for bipolar weights&inputs, ensure thresholds are positive
-        * interleave rows between PEs
-        * reshape into (PE, TMEM, n_thres_steps) and return
-        """
-        ch = self.get_nodeattr("Channels")
-        pe = self.get_nodeattr("PE")
-        tmem = self.calc_tmem()
-        assert ch % pe == 0, "Requirement Channels divisable by PE is violated."
-        assert (
-            orig_thres_matrix.ndim == 2
-        ), """Threshold matrix dimension is
-        not as expected (2)."""
-        n_thres_steps = orig_thres_matrix.shape[1]
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-        if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
-            # ensure all thresholds are integer
-            assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
-        ret = orig_thres_matrix
-        # ensure channels = mh , duplicating if necessary
-        if ret.shape[0] == 1:
-            ret = np.tile(ret, (ch, 1))
-        assert ret.shape[0] == ch, "Channels of threshold matrix are not as expected (ch)"
-        # distribute rows between PEs
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        assert (
-            ret.shape[0] == pe
-        ), """First dimension after distribution of the
-        rows between PEs is not as expected (pe)"""
-        assert (
-            ret.shape[1] == tmem
-        ), """Second dimension after distribution of the
-        rows between PEs is not as expected (tmem)"""
-        assert (
-            ret.shape[2] == n_thres_steps
-        ), """Third dimension after distribution of the
-        rows between PEs is not as expected (n_thres_steps)"""
-        return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
@@ -548,55 +458,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 """Please set mem_mode to "const", "decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
-
-        # save thresholds in thresh.h
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-            if thresholds is not None:
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-                wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-                # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-                inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-                wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-                bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-                inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-                wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-                # get computed threshold datatype from attribute
-                tdt = DataType[self.get_nodeattr("accDataType")]
-
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                    self.onnx_node.name,
-                    str(tdt),
-                )
-                thresholds_hls_code = numpy_to_hls_code(
-                    threshold_tensor, tdt, "thresholds", False, True
-                )
-                # write thresholds into thresh.h
-                f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
-                tdt_hls = tdt.get_hls_datatype_str()
-                # use binary to export bipolar activations
-                export_odt = self.get_output_datatype()
-                if self.get_output_datatype() == DataType["BIPOLAR"]:
-                    export_odt = DataType["BINARY"]
-                odt_hls = export_odt.get_hls_datatype_str()
-                f_thresh.write(
-                    "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
-                    = ".format(
-                        self.calc_tmem(),
-                        self.get_nodeattr("PE"),
-                        threshold_tensor.shape[-1],
-                        tdt_hls,
-                        odt_hls,
-                        self.get_nodeattr("ActVal"),
-                        "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
-                    )
-                )
-                f_thresh.write(thresholds_hls_code)
-                f_thresh.close()
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -1025,19 +886,8 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
         )
         acc_luts = acc_bits
-        # thresholds and threshold comparators
-        thr_luts = 0
-        comp_luts = 0
-        noact = self.get_nodeattr("noActivation")
-        # TODO - add 'ram_style_threshold' node attribute
-        if noact == 0:
-            odt = self.get_output_datatype()
-            B = odt.bitwidth()
-            thr_luts = (2**B - 1) * acc_bits * self.calc_tmem() / 64
-            comp_luts = (2**B - 1) * acc_bits
-
         return int(
-            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
+            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts)) + c2
         )
 
 # TODO: fix estimations
@@ -1091,12 +941,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         weight_param_type = "param_weight_%db" % (weight_bits)
         weight_count = k_h * k_w * fm
         ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
-        if self.get_nodeattr("noActivation") == 0:
-            tdt = DataType[self.get_nodeattr("accDataType")]
-            thres_bits = tdt.bitwidth()
-            thres_param_type = "param_threshold_%db" % (thres_bits)
-            thres_count = fm
-            ret_dict[thres_param_type] = thres_count
         return ret_dict
 
     def derive_characteristic_fxns(self, period):
