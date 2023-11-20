@@ -79,6 +79,7 @@ class InferRTLMatrixVectorActivation(Transformation):
                     ram_style = getCustomOp(n).get_nodeattr("ram_style")
                     resType = getCustomOp(n).get_nodeattr("resType")
                     runtime_writeable_weights = getCustomOp(n).get_nodeattr("runtime_writeable_weights")
+                    assert(getCustomOp(n).get_nodeattr("noActivation")==1), "Layer {} currently has thresholds embedded. Please implement the Thresholding layer standalone to enable the RTL-based MatrixVector unit".format(n.name)
 
                     new_node = helper.make_node(
                         "MatrixVectorActivation_rtl",
@@ -156,6 +157,7 @@ class InferRTLVectorVectorActivation(Transformation):
                     runtime_writeable_weights = getCustomOp(n).get_nodeattr("runtime_writeable_weights")
                     ram_style = getCustomOp(n).get_nodeattr("ram_style")
                     resType = getCustomOp(n).get_nodeattr("resType")                    
+                    assert(getCustomOp(n).get_nodeattr("noActivation")==1), "Layer {} currently has thresholds embedded. Please implement the Thresholding layer standalone to enable the RTL-based MatrixVector unit".format(n.name)
 
                     new_node = helper.make_node(
                         "VectorVectorActivation_rtl",
