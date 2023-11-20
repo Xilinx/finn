@@ -46,7 +46,9 @@ module thresholding_axi_tpl_inner #(
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
-	localparam int unsigned  O_BITS = $clog2(2**N+BIAS)
+	localparam int unsigned  O_BITS = BIAS >= 0?
+		/* unsigned */ $clog2(2**N+BIAS) :
+		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
 )(
 	// Global Control
 	input	ap_clk,
