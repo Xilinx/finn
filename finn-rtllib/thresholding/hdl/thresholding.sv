@@ -197,7 +197,7 @@ module thresholding #(
 					initial begin
 						Thresh = THRESHOLDS[pe][2**SN-1];
 					end
-					always_ff @(posedge clk) begin
+					always @(posedge clk) begin
 						if(we)  Thresh <= p.val;
 					end
 				end
@@ -211,7 +211,7 @@ module thresholding #(
 						end
 					end
 					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
-					always_ff @(posedge clk) begin
+					always @(posedge clk) begin
 						if(we)  Threshs[addr] <= p.val;
 						Thresh <= Threshs[addr];
 					end
