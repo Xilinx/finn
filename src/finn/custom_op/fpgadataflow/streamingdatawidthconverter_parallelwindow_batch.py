@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import shutil
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -39,7 +40,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 # tensor shapes are the same. performs data width conversion at the rtlsim level
 
 
-class StreamingDataWidthConverter_ParallelWindow_Batch(HLSCustomOp):
+class StreamingDataWidthConverter_rtl(HLSCustomOp):
     """Class that corresponds to finn-hlslib StreamingDataWidthConverter_ParallelWindow_Batch
     function. To be inserted between an RTL-SWG with parallel window mode enabled and a 
     VVU."""
@@ -57,6 +58,9 @@ class StreamingDataWidthConverter_ParallelWindow_Batch(HLSCustomOp):
             "PE": ("i", True, 0),
             "Channels": ("i", True, 0),
             "Kernel": ("ints", True, []),
+            "Mode": ("s", False, ""),
+            # attribute to save top module name - not user configurable
+            "gen_top_module": ("s", False, "")
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -166,135 +170,6 @@ class StreamingDataWidthConverter_ParallelWindow_Batch(HLSCustomOp):
 
         return info_messages
 
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
-
-    def defines(self, var):
-        numReps = 1
-        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
-        inWidth = self.get_nodeattr("inWidth")
-        outWidth = self.get_nodeattr("outWidth")
-        simd = self.get_nodeattr("SIMD")
-        pe = self.get_nodeattr("PE")
-        channels = self.get_nodeattr("Channels")
-        nf = int(channels/pe)
-        sf = int(np.prod(self.get_nodeattr("Kernel")) / simd)
-        actWidth = DataType[self.get_nodeattr("dataType")].bitwidth()
-        self.code_gen_dict["$DEFINES$"] = [
-            "#define InWidth %d " % inWidth,
-            "#define OutWidth %d " % outWidth,
-            "#define SIMD %d " % simd,
-            "#define PE %d " % pe,
-            "#define Channels %d " % channels,
-            "#define NF %d " % nf,
-            "#define SF %d " % sf,
-            "#define ActWidth %d " % actWidth,
-            "#define NumInWords %d " % numInWords,
-            "#define numReps %d" % numReps,
-        ]
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
-    def docompute(self):
-        # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_ParallelWindow_Batch"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            "%s<InWidth, OutWidth, SIMD, PE, Channels, NF, SF, ActWidth, NumInWords>(in0_%s, out_%s, numReps);"
-            % (op, self.hls_sname(), self.hls_sname())
-        ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
-            )
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def blackboxfunction(self):
-        in_packed_bits = self.get_instream_width()
-        in_packed_hls_type = "ap_uint<%d>" % in_packed_bits
-        out_packed_bits = self.get_outstream_width()
-        out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
-            % (
-                self.onnx_node.name,
-                in_packed_hls_type,
-                self.hls_sname(),
-                out_packed_hls_type,
-                self.hls_sname(),
-            )
-        ]
-
-    def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
@@ -371,20 +246,153 @@ class StreamingDataWidthConverter_ParallelWindow_Batch(HLSCustomOp):
         assert context[node.output[0]].shape == tuple(
             exp_shape
         ), """Output
-        shape doesn't match expected shape, should be same as input shape"""
+        shape doesn't match expected shape, should be same as input shape"""        
+
+    def prepare_codegen_default(self):
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_axi_wrapper.v"
+
+        code_gen_dict = {}
+        code_gen_dict["$IN_WIDTH$"] = [str(self.get_nodeattr("inWidth"))]
+        code_gen_dict["$OUT_WIDTH$"] = [str(self.get_nodeattr("outWidth"))]
+        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
+        code_gen_dict["$CHANNELS$"] = [str(self.get_nodeattr("Channels"))]
+        code_gen_dict["$KERNEL_PROD$"] = [str(np.prod(self.get_nodeattr("Kernel")))]
+        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
+        code_gen_dict["$MODE$"] = [self.get_nodeattr("Mode")]
+
+        return template_path, code_gen_dict
+
+    def generate_hdl(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        template_path, code_gen_dict = self.prepare_codegen_default()
+        # add general parameters to dictionary
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
+            self.get_verilog_top_module_name()
+        ]
+        # save top module name so we can refer to it after this node has been renamed
+        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
+        
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+                ),
+                "w"
+        ) as f:
+            f.write(template_wrapper)
+
+        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_parallelwindow.sv", code_gen_dir)
+        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_upsample.sv", code_gen_dir)
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
 
     def code_generation_ipi(self):
-        return super().code_generation_ipi()
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/")
+        source_files = [
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+            ),
+            rtllib_dir + "dwc_parallelwindow.sv",
+            rtllib_dir + "dwc_upsample.sv"
+        ]
+
+        cmd = []
+        
+        # source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        # cmd.append("file mkdir %s" % source_target)
+        for f in source_files:
+            cmd += ["add_files -norecurse %s" % (f)]
+        cmd += [
+            "create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+        ]
+
+        return cmd
+
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
         return 0
 
     def prepare_rtlsim(self):
-        super().prepare_rtlsim()
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # Path to (System-)Verilog files used by top-module & path to top-module
+        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/dwc"]
+        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper.v"]
+
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_files,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+
+        return sim
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        super().code_generation_ipgen(model, fpgapart, clk)
+        """Normally: Generates C++ code and tcl script for IP generation.
+        Here: Generates (System-)Verilog code for IP generation."""
+        self.generate_hdl()
 
     def ipgen_singlenode_code(self):
-        super().ipgen_singlenode_code()
+        pass
+
+    def code_generation_cppsim(self, model):
+        """Normally: Generates C++ code for simulation (cppsim)."""
+        pass
+
+    def compile_singlenode_code(self):
+        pass
+
+    def global_includes(self):
+        pass
+
+    def defines(self, var):
+        pass
+
+    def read_npy_data(self):
+        pass
+
+    def strm_decl(self):
+        pass
+
+    def docompute(self):
+        pass
+
+    def dataoutstrm(self):
+        pass
+
+    def save_as_npy(self):
+        pass
+
+    def blackboxfunction(self):
+        pass
+
+    def pragmas(self):
+        pass
