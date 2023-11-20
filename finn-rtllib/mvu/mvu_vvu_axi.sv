@@ -154,6 +154,7 @@ module mvu_vvu_axi #(
 	uwire ovld;
 	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
 	uwire mvauin_t amvau_i;
+	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
 
 	if (IS_MVU) begin : genMVUInput
 		assign  amvau_i = amvau;
