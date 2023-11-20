@@ -105,13 +105,13 @@ class InsertDWC(Transformation):
                             )
                             graph.value_info.append(dwc_output_tensor)
                             
-                            if _is_parallel_window_mode(n0, consumer):
+                            if n.op_type == "ConvolutionInputGenerator_rtl" and _is_parallel_window_mode(n0, consumer):
                                 simd = n1.get_nodeattr("SIMD")
                                 pe = n1.get_nodeattr("PE")
                                 channels = n1.get_nodeattr("Channels")
                                 kernel = n1.get_nodeattr("Kernel")
                                 dwc_node = oh.make_node(
-                                    "StreamingDataWidthConverter_ParallelWindow_Batch",
+                                    "StreamingDataWidthConverter_rtl",
                                     [output_name],
                                     [dwc_output_tensor.name],
                                     domain="finn.custom_op.fpgadataflow",
@@ -124,8 +124,26 @@ class InsertDWC(Transformation):
                                     PE=pe,
                                     Channels=channels,
                                     Kernel=kernel,
+                                    Mode="parallel_window"
                                 )
-                            else:    
+                            elif dwc_in_width < dwc_out_width:    
+                                dwc_node = oh.make_node(
+                                    "StreamingDataWidthConverter_rtl",
+                                    [output_name],
+                                    [dwc_output_tensor.name],
+                                    domain="finn.custom_op.fpgadataflow",
+                                    backend="fpgadataflow",
+                                    shape=dwc_shape,
+                                    inWidth=dwc_in_width,
+                                    outWidth=dwc_out_width,
+                                    dataType=str(dtype.name),
+                                    SIMD=-1,
+                                    PE=-1,
+                                    Channels=-1,
+                                    Kernel=-1,
+                                    Mode="upsample"
+                                )
+                            else:
                                 dwc_node = oh.make_node(
                                     "StreamingDataWidthConverter_Batch",
                                     [output_name],
