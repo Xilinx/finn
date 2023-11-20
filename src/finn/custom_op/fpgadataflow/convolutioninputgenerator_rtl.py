@@ -237,12 +237,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         mmv_in = 1
         mmv_out = 1
         channel_factor = int(ifm_ch / simd)
-
-        # compute minimal buffer length (assuming it holds 1 complete window)
-        buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
-
         impl_style = self.select_impl_style()
         if impl_style == "default":
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+            ) * channel_factor
             # add additional buffer space in case of stride > 1
             # this minimizes cycle count as it allows an earlier pre-load of inputs
             buffer_depth = (
@@ -257,6 +256,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 )
             )
         elif impl_style == "parallel":
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w
+            ) * channel_factor + 1
             buffer_depth = buffer_min_size + 1
         return buffer_depth
 
@@ -676,6 +678,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         dilation = self.get_nodeattr("Dilation")
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
+        depthwise = self.get_nodeattr("depthwise")
 
         k_h, k_w = k
         h, w = ifm_dim
@@ -691,7 +694,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         channel_factor = int(ifm_ch / simd)
 
         # compute minimal buffer length (assuming it holds 1 complete window)
-        buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
+        buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w) * channel_factor + 1
 
         buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
@@ -710,32 +713,32 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ]
 
         # re-use default controller loop structure
-        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
+        code_gen_dict["$IS_DEPTHWISE$"] = ["1"] if depthwise else ["0"]
         loop_h_iterations = out_dim_h
-        loop_w_iterations = out_dim_w  # now the innermost loop
-        loop_kh_iterations = 1
+        loop_w_iterations = out_dim_w
+        loop_kh_iterations = channel_factor
         loop_kw_iterations = 1
         loop_simd_iterations = 1
 
-        if loop_w_iterations == 1:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
-            loop_h_iterations -= 1  # -1 because state is initial state
+        if loop_kh_iterations == 1:
+            if loop_w_iterations == 1:
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
+                loop_h_iterations -= 1  # -1 because state is initial state
+            else:
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
+                loop_w_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
-            loop_w_iterations -= 1  # -1 because state is initial state
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KH"]
+            loop_kh_iterations -= 1  # -1 because state is initial state
 
         # set head and tail address increment values
-        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
-        addr_incr_end_row = (
-            -buffer_min_size
-            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
-            + ((stride_h - 1) * w * channel_factor)  # skip lines
-            + 1
-        )
-
-        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
-        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
-        tail_incr_last_window = stride_w
+        tail_incr_w = (stride_w - 1) * channel_factor + 1
+        tail_incr_h = (
+            (skip_columns + (kernel_width - 1)) * channel_factor + 1
+        ) + (  # remaining line
+            (stride_h - 1) * w * channel_factor
+        )  # skip lines
+        tail_incr_last_window = stride_w * channel_factor
 
         addr_incr_end_simd = 1
         addr_incr_end_window_elem = 1
@@ -810,15 +813,21 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         for ky in range(k_h):
             reg_fifo = []
             for kx in range(k_w):
-                reg_fifo.append(px_idx)
-                px_idx += 1
+                for c in range(channel_factor):
+                    if c < (channel_factor - 1):
+                        if not (ky == 0 and kx == 0):
+                            reg_fifo.append(-1)
+                            px_idx += 1
+                    else:
+                        reg_fifo.append(px_idx)
+                        px_idx += 1
                 if kx < (k_w - 1):
-                    reg_fifo.extend([-1] * (dilation_w - 1))
-                    px_idx += dilation_w - 1
+                    reg_fifo.extend([-1] * ((dilation_w - 1) * channel_factor))
+                    px_idx += (dilation_w - 1) * channel_factor
             reg_fifos.append(reg_fifo)
 
             if ky < (k_h - 1):
-                line_buffer_len = (w - kernel_width) + w * (dilation_h - 1)
+                line_buffer_len = ((w - kernel_width) + w * (dilation_h - 1)) * channel_factor
                 bram_fifos_depth.append(line_buffer_len)
                 px_idx += line_buffer_len
 
@@ -926,6 +935,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         """Selects implementation style based on folding configuration."""
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
+        depthwise = self.get_nodeattr("depthwise")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ifm_dim = self.get_nodeattr("IFMDim")
         stride = self.get_nodeattr("Stride")
@@ -950,7 +960,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         if self.get_nodeattr("parallel_window"):
             # mmv_in = M * 1
             mmv_out = M * k_h * k_w
-            assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             # mmv_in = 1
             mmv_out = 1
@@ -959,7 +968,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # choose implementation style
         if mmv_out > 1 or (k_h == 1 and k_w == 1):
             impl_style = "parallel"
-            assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
+            if depthwise:
+                # allow SIMD < IFM_CH in depthwise mode (VVAU supports the resulting data layout)
+                assert ifm_ch % simd == 0, "Constraint violated: SIMD must divide IFMChannels"
+            else:
+                assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             impl_style = "default"
 

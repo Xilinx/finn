@@ -196,8 +196,8 @@ def test_fpgadataflow_slidingwindow_rtl(
         pytest.skip("Not all combinations for stride > k edge case supported in default mode")
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
-    if parallel_window and simd != ifm_ch:
-        pytest.skip("Parallel window requires SIMD=C")
+    if parallel_window and simd != ifm_ch and not dw:
+        pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
 
     ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
     ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
