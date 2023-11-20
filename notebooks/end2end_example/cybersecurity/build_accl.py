@@ -5,8 +5,6 @@ import numpy as np
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 
-unsw_nb15_data = np.load("./unsw_nb15_binarized.npz")
-
 inp = np.zeros((1, 3, 32, 32)).astype(np.float32)
 out = np.zeros((1)).astype(np.float32)
 
@@ -14,10 +12,8 @@ np.save(open("input.npy", "wb"), inp)
 np.save(open("expected_output.npy", "wb"), out)
 
 
-# model_dir = os.environ['FINN_ROOT'] + "/pretrained_models"
-# model_file = model_dir + "/cnv-w1a2.onnx"
-
-model_file = '/tmp/finn_dev_streichg/end2end_cnv_w1a1_folded.onnx'
+model_dir = os.environ['FINN_ROOT'] + "/pretrained_models"
+model_file = model_dir + "/end2end_cnv_w1a1_folded.onnx"
 
 estimates_output_dir = "output_estimates_only"
 

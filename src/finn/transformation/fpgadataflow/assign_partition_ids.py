@@ -16,7 +16,7 @@ class AssignPartitionIDs(Transformation):
             self.target_platform,
             self.ndevices,
             # TODO: Remove this after testing
-            abs_anchors=[(0, [1]), (1, [4])]
+            abs_anchors=[(8, [1]), (9, [4])]
         )
 
         if floorplans is None:
