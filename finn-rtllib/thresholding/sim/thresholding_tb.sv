@@ -85,7 +85,7 @@ module thresholding_tb #(
 		uwire  ovld;
 		uwire [PE-1:0][N-1:0]  odat;
 
-		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG)) dut (
+		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1)) dut (
 			.clk, .rst,
 
 			// Configuration

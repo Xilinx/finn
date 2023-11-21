@@ -63,6 +63,7 @@ module thresholding #(
 
 	// Initial Thresholds (per channel)
 	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
+	bit  USE_CONFIG = 1,
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -132,7 +133,7 @@ module thresholding #(
 		always_ff @(posedge clk) begin
 			if(rst)  GuardSem <= N+2;
 			else begin
-				automatic logic  dec = !cfg_en && !th_full && ivld;
+				automatic logic  dec = !(USE_CONFIG && cfg_en) && !th_full && ivld;
 				automatic logic  inc = ovld && ordy;
 				GuardSem <= GuardSem + (inc == dec? 0 : inc? 1 : -1);
 			end
@@ -143,7 +144,7 @@ module thresholding #(
 		if(PE == 1)  assign  cfg_sel[0] = 1;
 		else begin
 			for(genvar  pe = 0; pe < PE; pe++) begin
-				assign	cfg_sel[pe] = cfg_en && (cfg_a[N+:$clog2(PE)] == pe);
+				assign	cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_a[N+:$clog2(PE)] == pe);
 			end
 		end
 
@@ -158,26 +159,26 @@ module thresholding #(
 					CnlCnt <= 0;
 					CnlLst <= 0;
 				end
-				else if(!cfg_en && !th_full && ivld) begin
+				else if(!(USE_CONFIG && cfg_en) && !th_full && ivld) begin
 					CnlCnt <= CnlCnt + (CnlLst? 1-CF : 1);
 					CnlLst <= CnlCnt == CF-2;
 				end
 			end
 
-			assign  iptr[N+:$clog2(CF)] = cfg_en? cfg_a[N+$clog2(PE)+:$clog2(CF)] : CnlCnt;
+			assign  iptr[N+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[N+$clog2(PE)+:$clog2(CF)] : CnlCnt;
 		end
 
 		for(genvar  pe = 0; pe < PE; pe++) begin
 			assign	pipe[pe][0] = '{
-				op:  cfg_en?
+				op:  USE_CONFIG && cfg_en?
 					(!cfg_sel[pe]? NOP : cfg_we? WR : RB) :
 					(ivld && !th_full? TH : NOP),
 				ptr: iptr,
-				val: !cfg_en? idat[pe] : cfg_we? cfg_d : 0
+				val: !(USE_CONFIG && cfg_en)? idat[pe] : cfg_we? cfg_d : 0
 			};
 		end
 
-		assign	irdy = !cfg_en && !th_full;
+		assign	irdy = !(USE_CONFIG && cfg_en) && !th_full;
 	end : blkFeed
 
 	//-----------------------------------------------------------------------
@@ -191,17 +192,10 @@ module thresholding #(
 
 			// Threshold Memory
 			val_t  Thresh;	// Read-out register
-			if(1) begin : blkThreshMem
-				uwire  we = (p.op ==? WR) && cs;
-				if((CF == 1) && (stage == 0)) begin
-					initial begin
-						Thresh = THRESHOLDS[pe][2**SN-1];
-					end
-					always @(posedge clk) begin
-						if(we)  Thresh <= p.val;
-					end
-				end
-				else begin
+			if(1) begin : blkThresh
+
+				uwire val_t  threshs[CF * 2**stage];
+				if(USE_CONFIG) begin : genThreshMem
 					val_t  Threshs[CF * 2**stage];
 					initial begin
 						for(int unsigned  c = 0; c < CF; c++) begin
@@ -210,13 +204,41 @@ module thresholding #(
 							end
 						end
 					end
+
+					uwire  we = (p.op ==? WR) && cs;
+					if((CF == 1) && (stage == 0)) begin
+						always @(posedge clk) begin
+							if(we)  Threshs[0] <= p.val;
+						end
+					end
+					else begin
+						uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
+						always @(posedge clk) begin
+							if(we)  Threshs[addr] <= p.val;
+						end
+					end
+
+					assign	threshs = Threshs;
+				end : genThreshMem
+				else begin : genThreshCst
+					for(genvar  c = 0; c < CF; c++) begin
+						for(genvar  i = 0; i < 2**stage; i++) begin
+							assign	threshs[(c << stage) + i] = THRESHOLDS[c*PE + pe][(i<<(N-stage)) + 2**SN-1];
+						end
+					end
+				end : genThreshCst
+
+				if((CF == 1) && (stage == 0)) begin
+					assign	Thresh = threshs[0];
+				end
+				else begin
 					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
-					always @(posedge clk) begin
-						if(we)  Threshs[addr] <= p.val;
-						Thresh <= Threshs[addr];
+					always_ff @(posedge clk) begin
+						Thresh <= threshs[addr];
 					end
 				end
-			end : blkThreshMem
+
+			end : blkThresh
 
 			// Pipeline State
 			pipe_t  P = '{ op: NOP, default: 'x };
