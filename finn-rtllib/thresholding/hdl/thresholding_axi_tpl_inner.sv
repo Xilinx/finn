@@ -39,7 +39,7 @@ module $MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 
 	int unsigned  SIGNED,	// signed inputs
 	int unsigned  FPARG,	// floating-point inputs: [sign] | exponent | mantissa
-	int unsigned  BIAS,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+	int  BIAS,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	logic [K-1:0]  THRESHOLDS[C][2**N-1] = $THRESHOLDS$,
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write

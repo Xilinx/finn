@@ -135,7 +135,7 @@ module thresholding_axi #(
 	thresholding #(
 		.N(N), .K(K), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
-		.THRESHOLDS(THRESHOLDS)
+		.THRESHOLDS(THRESHOLDS), .USE_CONFIG(USE_AXILITE)
 	) impl (
 		.clk(ap_clk), .rst(!ap_rst_n),
 
