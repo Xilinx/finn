@@ -678,7 +678,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         dilation = self.get_nodeattr("Dilation")
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
-        depthwise = self.get_nodeattr("depthwise")
 
         k_h, k_w = k
         h, w = ifm_dim
@@ -713,7 +712,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ]
 
         # re-use default controller loop structure
-        code_gen_dict["$IS_DEPTHWISE$"] = ["1"] if depthwise else ["0"]
         loop_h_iterations = out_dim_h
         loop_w_iterations = out_dim_w
         loop_kh_iterations = channel_factor
@@ -731,20 +729,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KH"]
             loop_kh_iterations -= 1  # -1 because state is initial state
 
-        # set head and tail address increment values
-        tail_incr_w = (stride_w - 1) * channel_factor + 1
-        tail_incr_h = (
-            (skip_columns + (kernel_width - 1)) * channel_factor + 1
-        ) + (  # remaining line
-            (stride_h - 1) * w * channel_factor
-        )  # skip lines
-        tail_incr_last_window = stride_w * channel_factor
-
+        # set head address increment values
         addr_incr_end_simd = 1
         addr_incr_end_window_elem = 1
         addr_incr_end_window_row = 1
-        addr_incr_end_window = tail_incr_w
-        addr_incr_end_row = tail_incr_h
+        addr_incr_end_window = (stride_w - 1) * channel_factor + 1
+        addr_incr_end_row = ((skip_columns + (kernel_width - 1)) * channel_factor + 1) + (
+            (stride_h - 1) * w * channel_factor
+        )
 
         # add init value for CURRENT_ELEM counter = last elem of first window
         code_gen_dict["$FIRST_WRITE_ELEM$"] = [str(buffer_min_size - 1)]
@@ -775,9 +767,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     abs(addr_incr_end_window_row) + 1,
                     abs(addr_incr_end_window) + 1,
                     abs(addr_incr_end_row) + 1,
-                    abs(tail_incr_w) + 1,
-                    abs(tail_incr_h) + 1,
-                    abs(tail_incr_last_window) + 1,
                 )
             )
         )
@@ -787,9 +776,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
         code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
         code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
-        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
-        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
-        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
+        # not used, set to zero:
+        code_gen_dict["$TAIL_INCR_W$"] = ["0"]
+        code_gen_dict["$TAIL_INCR_H$"] = ["0"]
+        code_gen_dict["$TAIL_INCR_LAST$"] = ["0"]
+        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
 
         code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
@@ -968,8 +959,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # choose implementation style
         if mmv_out > 1 or (k_h == 1 and k_w == 1):
             impl_style = "parallel"
-            if depthwise:
+            if depthwise or (k_h == 1 and k_w == 1):
                 # allow SIMD < IFM_CH in depthwise mode (VVAU supports the resulting data layout)
+                # also allowed for 1x1 kernel since depthwise and non-depthwise are equivalent
                 assert ifm_ch % simd == 0, "Constraint violated: SIMD must divide IFMChannels"
             else:
                 assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
