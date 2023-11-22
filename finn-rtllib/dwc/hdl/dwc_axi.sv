@@ -36,8 +36,8 @@ module dwc_axi #(
 	int unsigned  OBITS
 )(
 	//- Global Control ------------------
-	input	logic  clk,
-	input	logic  rst,
+	input	logic  ap_clk,
+	input	logic  ap_rst_n,
 
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
@@ -72,8 +72,8 @@ module dwc_axi #(
 		logic [$clog2(K):0]  ACnt = K-1;	// (empty) K-1, ..., 0, -1 (full/valid)
 		dat_t  BDat = 'x;
 		logic  BRdy =  1;
-		always_ff @(posedge clk) begin
-			if(rst) begin
+		always_ff @(posedge ap_clk) begin
+			if(ap_rst_n) begin
 				ADat <= 'x;
 				ACnt <= K-1;
 				BDat <= 'x;
@@ -118,8 +118,8 @@ module dwc_axi #(
 		logic  BRdy =  1;
 		dat_t  CDat = 'x;
 		logic  CVld =  0;
-		always_ff @(posedge clk) begin
-			if(rst) begin
+		always_ff @(posedge ap_clk) begin
+			if(ap_rst_n) begin
 				ADat <= 'x;
 				ACnt <=  1;
 				BDat <= 'x;
