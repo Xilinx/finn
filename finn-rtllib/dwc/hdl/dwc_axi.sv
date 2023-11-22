@@ -49,6 +49,8 @@ module dwc_axi #(
 	output	logic  m_axis_tvalid,
 	output	logic [OBITS-1:0]  m_axis_tdata
 );
+	uwire  clk = ap_clk;
+	uwire  rst = !ap_rst_n;
 
 	if(IBITS == OBITS) begin : genNoop
 		assign	s_axis_tready = m_axis_tready;
@@ -72,8 +74,8 @@ module dwc_axi #(
 		logic [$clog2(K):0]  ACnt = K-1;	// (empty) K-1, ..., 0, -1 (full/valid)
 		dat_t  BDat = 'x;
 		logic  BRdy =  1;
-		always_ff @(posedge ap_clk) begin
-			if(ap_rst_n) begin
+		always_ff @(posedge clk) begin
+			if(rst) begin
 				ADat <= 'x;
 				ACnt <= K-1;
 				BDat <= 'x;
@@ -118,8 +120,8 @@ module dwc_axi #(
 		logic  BRdy =  1;
 		dat_t  CDat = 'x;
 		logic  CVld =  0;
-		always_ff @(posedge ap_clk) begin
-			if(ap_rst_n) begin
+		always_ff @(posedge clk) begin
+			if(rst) begin
 				ADat <= 'x;
 				ACnt <=  1;
 				BDat <= 'x;
