@@ -34,7 +34,7 @@ def _suitable_node(node):
 class InsertDWC(Transformation):
     """Add data width converters between layers where necessary."""
 
-    def __init__(self, use_rtl_variant=False):
+    def __init__(self, use_rtl_variant=True):
         super().__init__()
         self.use_rtl_variant = use_rtl_variant
 
