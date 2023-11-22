@@ -56,6 +56,9 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter_rtl import (
+    StreamingDataWidthConverter_rtl,
+)
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
@@ -75,6 +78,7 @@ custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
+custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
 custom_op["Pool_Batch"] = Pool_Batch
