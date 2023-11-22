@@ -61,7 +61,7 @@ module dwc_axi_tb;
 		dat_t [K-1:0]  m_axis_tdata;
 
 		dwc_axi #(.IBITS(IBITS), .OBITS(OBITS)) dut (
-			.clk, .rst,
+			.ap_clk(clk), .ap_rst_n(!rst),
 			.s_axis_tready, .s_axis_tvalid, .s_axis_tdata,
 			.m_axis_tready, .m_axis_tvalid, .m_axis_tdata
 		);
@@ -134,7 +134,7 @@ module dwc_axi_tb;
 		dat_t  m_axis_tdata;
 
 		dwc_axi #(.IBITS(IBITS), .OBITS(OBITS)) dut (
-			.clk, .rst,
+			.ap_clk(clk), .ap_rst_n(!rst),
 			.s_axis_tready, .s_axis_tvalid, .s_axis_tdata,
 			.m_axis_tready, .m_axis_tvalid, .m_axis_tdata
 		);
