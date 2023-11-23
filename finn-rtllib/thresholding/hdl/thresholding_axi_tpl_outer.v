@@ -41,6 +41,7 @@ module thresholding_axi_tpl_outer #(
 	parameter  FPARG  = 0,			// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
+	parameter  THRESHOLDS_PATH = $THRESHOLDS_PATH$,	// Directory with initial threshold data
 	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write
 
 	parameter  O_BITS = $O_BITS$
@@ -93,6 +94,7 @@ module thresholding_axi_tpl_outer #(
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
 		.BIAS(BIAS),
+		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE)
 	) core (
 		.ap_clk(ap_clk), .ap_rst_n(ap_rst_n),

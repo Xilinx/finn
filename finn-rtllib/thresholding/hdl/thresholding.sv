@@ -61,8 +61,8 @@ module thresholding #(
 	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,  // offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	// Initial Thresholds (per channel)
-	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
+	// Initial Thresholds
+	parameter  THRESHOLDS_PATH = "",
 	bit  USE_CONFIG = 1,
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
@@ -194,17 +194,13 @@ module thresholding #(
 			val_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
 
-				uwire val_t  threshs[CF * 2**stage];
-				if(USE_CONFIG) begin : genThreshMem
-					val_t  Threshs[CF * 2**stage];
-					initial begin
-						for(int unsigned  c = 0; c < CF; c++) begin
-							for(int unsigned  i = 0; i < 2**stage; i++) begin
-								Threshs[(c << stage) + i] = THRESHOLDS[c*PE + pe][(i<<(N-stage)) + 2**SN-1];
-							end
-						end
-					end
+				val_t  Threshs[CF * 2**stage];
+				if(THRESHOLDS_PATH != "") begin
+					localparam  FILE = $sformatf("%s/threshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage);
+					initial  $readmemh(FILE, Threshs);
+				end
 
+				if(USE_CONFIG) begin : genThreshMem
 					uwire  we = (p.op ==? WR) && cs;
 					if((CF == 1) && (stage == 0)) begin
 						always @(posedge clk) begin
@@ -217,24 +213,15 @@ module thresholding #(
 							if(we)  Threshs[addr] <= p.val;
 						end
 					end
-
-					assign	threshs = Threshs;
 				end : genThreshMem
-				else begin : genThreshCst
-					for(genvar  c = 0; c < CF; c++) begin
-						for(genvar  i = 0; i < 2**stage; i++) begin
-							assign	threshs[(c << stage) + i] = THRESHOLDS[c*PE + pe][(i<<(N-stage)) + 2**SN-1];
-						end
-					end
-				end : genThreshCst
 
 				if((CF == 1) && (stage == 0)) begin
-					assign	Thresh = threshs[0];
+					assign	Thresh = Threshs[0];
 				end
 				else begin
 					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
 					always_ff @(posedge clk) begin
-						Thresh <= threshs[addr];
+						Thresh <= Threshs[addr];
 					end
 				end
 

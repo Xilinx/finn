@@ -32,17 +32,17 @@
  */
 
 module thresholding_axi_tpl_inner #(
-	int unsigned  N,	// output precision
-	int unsigned  K,	// input/threshold precision
-	int unsigned  C,	// Channels
-	int unsigned  PE,	// Processing Parallelism, requires C = k*PE
+	int unsigned  N = 4,	// output precision
+	int unsigned  K = 9,	// input/threshold precision
+	int unsigned  C = 6,	// Channels
+	int unsigned  PE = 2,	// Processing Parallelism, requires C = k*PE
 
-	int unsigned  SIGNED,	// signed inputs
-	int unsigned  FPARG,	// floating-point inputs: [sign] | exponent | mantissa
-	int  BIAS,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+	int unsigned  SIGNED = 1,	// signed inputs
+	int unsigned  FPARG = 0,	// floating-point inputs: [sign] | exponent | mantissa
+	int  BIAS = 0,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	logic [K-1:0]  THRESHOLDS[C][2**N-1] = $THRESHOLDS$,
-	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
+	parameter  THRESHOLDS_PATH = "../../../data",
+	bit  USE_AXILITE = 1,	// Implement AXI-Lite for threshold read/write
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
@@ -95,7 +95,7 @@ module thresholding_axi_tpl_inner #(
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
 		.BIAS(BIAS),
-		.THRESHOLDS(THRESHOLDS),
+		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE)
 	) core (
 		.ap_clk, .ap_rst_n,
