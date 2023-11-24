@@ -259,7 +259,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         ) as f:
             f.write(template)
 
-        sv_files = ["dwc_axi.sv"]
+        sv_files = ["dwc_axi.sv", "dwc.sv"]
         for sv_file in sv_files:
             shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
@@ -280,6 +280,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         verilog_paths = [code_gen_dir]
         verilog_files = [
             "dwc_axi.sv",
+            "dwc.sv",
             self.get_nodeattr("gen_top_module") + ".v",
         ]
 
@@ -301,6 +302,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
 
         sourcefiles = [
             "dwc_axi.sv",
+            "dwc.sv",
             self.get_nodeattr("gen_top_module") + ".v",
         ]
 
