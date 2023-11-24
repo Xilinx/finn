@@ -39,13 +39,13 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 
 try:
     from pyverilator import PyVerilator
@@ -101,7 +101,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 {"auto", "block", "distributed", "ultra"},
             ),
             # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, "")
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -114,10 +114,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         fm = self.get_nodeattr("Channels")
         # put weights into the shape expected by calculate_matvec_accumulator_range
         weights = weights.reshape(fm, k_h * k_w).transpose()
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-        else:
-            thresholds = None
         idt = self.get_input_datatype()
 
         (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
@@ -289,7 +285,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
-# TODO: fix exp_cycles estimations --> depends on fpga_part and clk
+    # TODO: fix exp_cycles estimations --> depends on fpga_part and clk
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
@@ -451,7 +447,8 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
-                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
+                weight_filename_rtl = self.get_decoupled_weight_filename(abspath=False)
+                weight_filename_rtl = code_gen_dir + "/" + weight_filename_rtl
                 self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception(
@@ -622,7 +619,8 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         return intf_names
 
     def code_generation_ipi(self):
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
@@ -653,9 +651,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
             sourcefiles = [
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-                ),
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
                 rtllib_dir + "mvu_vvu_axi.sv",
                 rtllib_dir + "replay_buffer.sv",
                 rtllib_dir + "mvu_4sx4u.sv",
@@ -664,7 +660,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 rtllib_dir + "mvu_vvu_lut.sv",
             ]
             for f in sourcefiles:
-                cmd.append("add_files -norecurse %s" % (f))
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
@@ -690,7 +686,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
+                    self.get_decoupled_weight_filename(abspath=False),
                     self.get_nodeattr("ram_style"),
                     node_name,
                     strm_inst,
@@ -747,9 +743,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
             sourcefiles = [
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-                ),
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
                 rtllib_dir + "mvu_vvu_axi.sv",
                 rtllib_dir + "replay_buffer.sv",
                 rtllib_dir + "mvu_4sx4u.sv",
@@ -836,7 +830,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
-# TODO: fix estimations
+    # TODO: fix estimations
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -886,11 +880,9 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
         )
         acc_luts = acc_bits
-        return int(
-            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts)) + c2
-        )
+        return int(c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts)) + c2)
 
-# TODO: fix estimations
+    # TODO: fix estimations
     def dsp_estimation(self):
         # multiplication
         P = self.get_nodeattr("PE")
@@ -965,9 +957,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
 
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # add general parameters to dictionary
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
-            self.get_verilog_top_module_name()
-        ]
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
@@ -980,16 +970,12 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             code_gen_line = "\n".join(code_gen_dict[key])
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-            ),
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
-            ),
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
             "w",
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
@@ -1019,9 +1005,10 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
                 or fpgapart[0:5] == "xqrvc"
             )
-            assert (is_dsp_targeted and is_versal), "DSP-based (RTL) VVU currently only supported on Versal (DSP58) devices"
+            assert (
+                is_dsp_targeted and is_versal
+            ), "DSP-based (RTL) VVU currently only supported on Versal (DSP58) devices"
             return "mvu_vvu_8sx9_dsp58"
-                
 
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
@@ -1034,16 +1021,14 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("Channels"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
         code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
-        code_gen_dict["$ACTIVATION_WIDTH$"] = [
-            str(self.get_input_datatype(0).bitwidth())
-        ]
+        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
         code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
-        #code_gen_dict["$FORCE_BEHAVIORAL$"] = [str(0)]
+        # code_gen_dict["$FORCE_BEHAVIORAL$"] = [str(0)]
 
         return template_path, code_gen_dict
 
@@ -1072,3 +1057,19 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
 
         return sim
+
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # Path to (System-)Verilog files used by top-module & path to top-module
+        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
+        return verilog_paths
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/{}_wrapper.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
+        )
+        return verilog_file

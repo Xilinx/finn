@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import os
 import shutil
@@ -34,7 +33,13 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -42,7 +47,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 class StreamingDataWidthConverter_rtl(HLSCustomOp):
     """Class that corresponds to finn-hlslib StreamingDataWidthConverter_ParallelWindow_Batch
-    function. To be inserted between an RTL-SWG with parallel window mode enabled and a 
+    function. To be inserted between an RTL-SWG with parallel window mode enabled and a
     VVU."""
 
     def get_nodeattr_types(self):
@@ -60,7 +65,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
             "Kernel": ("ints", True, []),
             "Mode": ("s", False, ""),
             # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, "")
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -246,7 +251,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         assert context[node.output[0]].shape == tuple(
             exp_shape
         ), """Output
-        shape doesn't match expected shape, should be same as input shape"""        
+        shape doesn't match expected shape, should be same as input shape"""
 
     def prepare_codegen_default(self):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_axi_wrapper.v"
@@ -268,13 +273,11 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
 
         template_path, code_gen_dict = self.prepare_codegen_default()
         # add general parameters to dictionary
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
-            self.get_verilog_top_module_name()
-        ]
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
-        
+
         # apply code generation to template
         with open(template_path, "r") as f:
             template_wrapper = f.read()
@@ -283,14 +286,13 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
             code_gen_line = "\n".join(code_gen_dict[key])
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-                ),
-                "w"
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"), "w"
         ) as f:
             f.write(template_wrapper)
 
-        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_parallelwindow.sv", code_gen_dir)
+        shutil.copy2(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_parallelwindow.sv", code_gen_dir
+        )
         shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_upsample.sv", code_gen_dir)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
@@ -298,25 +300,29 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        return [rtllib_dir, code_gen_dir]
+
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        
+
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/")
         source_files = [
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-            ),
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             rtllib_dir + "dwc_parallelwindow.sv",
-            rtllib_dir + "dwc_upsample.sv"
+            rtllib_dir + "dwc_upsample.sv",
         ]
 
-        cmd = []
-        
-        # source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        # cmd.append("file mkdir %s" % source_target)
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
+
         for f in source_files:
-            cmd += ["add_files -norecurse %s" % (f)]
+            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
@@ -324,6 +330,12 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
 
         return cmd
 
+    def hls_sname(self):
+        """Get the naming convention used by Vitis HLS for stream signals
+        Example: the TDATA for a stream called "out" would be out_V_TDATA.
+        """
+        # no additional prefix/suffix in interface names since this is an RTL component
+        return ""
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
