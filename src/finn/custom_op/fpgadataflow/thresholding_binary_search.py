@@ -321,9 +321,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # The thresholding core needs to know this when comparing weights to inputs
         if self.get_input_datatype().signed():
             code_gen_dict["$SIGNED$"] = [str(1)]
-
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
+            o_bits = math.ceil(2**o_bitwidth + bias)
+        code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         if bias >= 0:
             o_bits = math.ceil(math.log2(2**o_bitwidth + bias))

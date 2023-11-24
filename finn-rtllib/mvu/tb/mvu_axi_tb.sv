@@ -31,24 +31,24 @@
  * @brief	Testbench for MVU AXI-lite interface wrapper.
  *****************************************************************************/
 
-module mvu_vvu_axi_tb();
+module mvu_axi_tb();
 
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
 	localparam bit IS_MVU = 0;
 	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
 	localparam int unsigned MW = 36;
-	localparam int unsigned MH = 1;
-	localparam int unsigned SIMD = 3;
+	localparam int unsigned MH = 4;
+	localparam int unsigned SIMD = 36;
 	localparam int unsigned PE = 4;
-	localparam int unsigned SEGMENTLEN = 1.0;
+	localparam int unsigned SEGMENTLEN = 2.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
-	localparam int unsigned ACTIVATION_WIDTH = 8;
-	localparam int unsigned WEIGHT_WIDTH = 6;
+	localparam int unsigned ACTIVATION_WIDTH = 4;
+	localparam int unsigned WEIGHT_WIDTH = 4;
 	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
-	localparam bit SIGNED_ACTIVATIONS = 1;
+	localparam bit SIGNED_ACTIVATIONS = 0;
 	// Simulation constants
 	localparam int unsigned NF = IS_MVU ? MH/PE : 1;
 	localparam int unsigned SF = IS_MVU ? MW/SIMD : MW/(SIMD*PE);
@@ -238,4 +238,4 @@ module mvu_vvu_axi_tb();
 		.m_axis_output_tready(outputs.rdy)
 	);
 
-endmodule : mvu_vvu_axi_tb
+endmodule : mvu_axi_tb

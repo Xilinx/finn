@@ -401,6 +401,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 target_cycles_per_frame,
                 mvau_wwidth_max=cfg.mvau_wwidth_max,
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
+                fpga_part=cfg._resolve_fpga_part(),
             )
         )
         # extract the suggested configuration and save it as json
@@ -473,7 +474,10 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
 def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert layers implemented in HLS to an equivalent specialized RTL
     implementation if possible."""
-    specialize_to_rtl_transforms = [to_rtl.InferRTLMatrixVectorActivation()]
+    specialize_to_rtl_transforms = [
+        to_rtl.InferRTLMatrixVectorActivation(),
+        to_rtl.InferRTLVectorVectorActivation(),
+    ]
     for trn in specialize_to_rtl_transforms:
         model = model.transform(trn)
     return model
