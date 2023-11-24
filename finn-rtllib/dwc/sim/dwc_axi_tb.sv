@@ -33,7 +33,7 @@
  *****************************************************************************/
 module dwc_axi_tb;
 
-	localparam int unsigned  DBITS = 4;
+	localparam int unsigned  DBITS = 8;
 	localparam int unsigned  K     = 3;
 	typedef logic [DBITS-1:0]  dat_t;
 

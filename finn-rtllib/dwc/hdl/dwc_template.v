@@ -29,7 +29,13 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-module $TOP_MODULE_NAME$(
+module $TOP_MODULE_NAME$ #(
+	parameter  IBITS = $IBITS$,
+	parameter  OBITS = $OBITS$,
+
+	parameter  AXI_IBITS = (IBITS+7)/8 * 8,
+	parameter  AXI_OBITS = (OBITS+7)/8 * 8
+)(
 	//- Global Control ------------------
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -40,17 +46,17 @@ module $TOP_MODULE_NAME$(
 	//- AXI Stream - Input --------------
 	output	in0_V_TREADY,
 	input	in0_V_TVALID,
-	input	[$IBITS$-1:0]  in0_V_TDATA,
+	input	[AXI_IBITS-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
 	input	out_V_TREADY,
 	output	out_V_TVALID,
-	output	[$OBITS$-1:0]  out_V_TDATA
+	output	[AXI_OBITS-1:0]  out_V_TDATA
 );
 
 	dwc_axi #(
-		.IBITS($IBITS$),
-		.OBITS($OBITS$)
+		.IBITS(IBITS),
+		.OBITS(OBITS)
 	) impl (
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
