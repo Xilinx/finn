@@ -63,7 +63,7 @@
  );
 
     case(MODE)
-        "parallelwindow" : 
+        "parallel_window" :
             dwc_parallelwindow #(
                 .IN_WIDTH(IN_WIDTH), .OUT_WIDTH(OUT_WIDTH), .SIMD(SIMD), .PE(PE), .CHANNELS(CHANNELS),
                 .KERNEL_PROD(KERNEL_PROD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH)
@@ -90,6 +90,7 @@
                 .m_axis_output_tvalid(out_V_TVALID),
                 .m_axis_output_tready(out_V_TREADY)
             );
+        // TODO add default case and error out?
     endcase
 
  endmodule // $MODULE_NAME_AXI_WRAPPER$
