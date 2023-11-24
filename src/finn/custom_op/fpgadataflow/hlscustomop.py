@@ -238,7 +238,7 @@ class HLSCustomOp(CustomOp):
         verilog_paths = self.get_all_verilog_paths()
         for verilog_path in verilog_paths:
             for f in os.listdir(verilog_path):
-                if f.endswith(".v"):
+                if f.endswith(".v") or f.endswith(".sv"):
                     if abspath:
                         verilog_files += [verilog_path + "/" + f]
                     else:
