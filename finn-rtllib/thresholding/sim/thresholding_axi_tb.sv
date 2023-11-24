@@ -57,7 +57,6 @@ module thresholding_axi_tb #(
 	localparam int unsigned C_BITS = C < 2? 1 : $clog2(C);
 
 	localparam int unsigned MST_STRM_WROUNDS = 503;
-	localparam bit  DYNAMIC_CONFIG = 0;
 
 	typedef int unsigned  threshs_t[C][2**N-1];
 	function threshs_t init_thresholds();
@@ -111,8 +110,7 @@ module thresholding_axi_tb #(
 	uwire  ovld;
 	uwire [PE-1:0][N-1:0]  odat;
 
-	localparam threshs_t  THRESHS_STATIC = DYNAMIC_CONFIG? '{ default: '{ default: 'x } } : THRESHS;
-	thresholding_axi #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(0), .THRESHOLDS(THRESHS_STATIC), .USE_AXILITE(1)) dut (
+	thresholding_axi #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(0), .USE_AXILITE(1)) dut (
 		.ap_clk(clk), .ap_rst_n(!rst),
 
 		// Configuration
@@ -161,43 +159,41 @@ module thresholding_axi_tb #(
 		@(posedge clk iff !rst);
 
 		// Threshold Configuration
-		if(DYNAMIC_CONFIG) begin : blkConfig
-			for(int unsigned  c = 0; c < C; c+=PE) begin
-				automatic addr_t  addr = 0;
-				if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = c/PE;
-				for(int unsigned  pe = 0; pe < PE; pe++) begin
-					if(PE > 1)  addr[N+:$clog2(PE)] = pe;
-					for(int unsigned  t = 0; t < 2**N-1; t++) begin
-						addr[0+:N] = t;
-						fork
-							begin
-								s_axilite_AWVALID <= 1;
-								s_axilite_AWADDR  <= { addr, 2'b00 };
-								@(posedge clk iff s_axilite_AWREADY);
-								s_axilite_AWVALID <= 0;
-								s_axilite_AWADDR  <= 'x;
+		for(int unsigned  c = 0; c < C; c+=PE) begin
+			automatic addr_t  addr = 0;
+			if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = c/PE;
+			for(int unsigned  pe = 0; pe < PE; pe++) begin
+				if(PE > 1)  addr[N+:$clog2(PE)] = pe;
+				for(int unsigned  t = 0; t < 2**N-1; t++) begin
+					addr[0+:N] = t;
+					fork
+						begin
+							s_axilite_AWVALID <= 1;
+							s_axilite_AWADDR  <= { addr, 2'b00 };
+							@(posedge clk iff s_axilite_AWREADY);
+							s_axilite_AWVALID <= 0;
+							s_axilite_AWADDR  <= 'x;
+						end
+						begin
+							s_axilite_WVALID <= 1;
+							s_axilite_WDATA  <= THRESHS[c+pe][t];
+							@(posedge clk iff s_axilite_WREADY);
+							s_axilite_WVALID <= 0;
+							s_axilite_WDATA  <= 'x;
+						end
+						begin
+							s_axilite_BREADY <= 1;
+							@(posedge clk iff s_axilite_BVALID);
+							assert(s_axilite_BRESP == '0) else begin
+								$error("Error on parameter write.");
+								$stop;
 							end
-							begin
-								s_axilite_WVALID <= 1;
-								s_axilite_WDATA  <= THRESHS[c+pe][t];
-								@(posedge clk iff s_axilite_WREADY);
-								s_axilite_WVALID <= 0;
-								s_axilite_WDATA  <= 'x;
-							end
-							begin
-								s_axilite_BREADY <= 1;
-								@(posedge clk iff s_axilite_BVALID);
-								assert(s_axilite_BRESP == '0) else begin
-									$error("Error on parameter write.");
-									$stop;
-								end
-								s_axilite_BREADY <= 0;
-							end
-						join
-					end
+							s_axilite_BREADY <= 0;
+						end
+					join
 				end
 			end
-		end : blkConfig
+		end
 
 		fork
 			// Intermittent configuration readback

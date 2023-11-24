@@ -48,8 +48,8 @@ module thresholding_axi #(
 	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	// Initial Thresholds (per channel)
-	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
+	// Initial Thresholds
+	parameter  THRESHOLDS_PATH = "",
 
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
 
@@ -103,12 +103,13 @@ module thresholding_axi #(
 	// AXI-lite Configuration Interface
 	uwire  cfg_en;
 	uwire  cfg_we;
-	uwire [ADDR_BITS-1:0]  cfg_a;
+	uwire [ADDR_BITS-3:0]  cfg_a;
 	uwire [K        -1:0]  cfg_d;
 	uwire  cfg_rack;
 	uwire [K        -1:0]  cfg_q;
 
 	if(USE_AXILITE) begin
+		uwire [ADDR_BITS-1:0]  cfg_a0;
 		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
 			.aclk(ap_clk), .aresetn(ap_rst_n),
 
@@ -119,9 +120,16 @@ module thresholding_axi #(
 			.arready(s_axilite_ARREADY), .arvalid(s_axilite_ARVALID), .araddr(s_axilite_ARADDR), .arprot('x),
 			.rready(s_axilite_RREADY),   .rvalid(s_axilite_RVALID),   .rresp(s_axilite_RRESP),   .rdata(s_axilite_RDATA),
 
-			.ip_en(cfg_en), .ip_wen(cfg_we), .ip_addr(cfg_a), .ip_wdata(cfg_d),
+			.ip_en(cfg_en), .ip_wen(cfg_we), .ip_addr(cfg_a0), .ip_wdata(cfg_d),
 			.ip_rack(cfg_rack), .ip_rdata(cfg_q)
 		);
+		assign	cfg_a = cfg_a0[ADDR_BITS-3:0];
+		always_ff @(posedge ap_clk) begin
+			assert(!ap_rst_n || !cfg_en || (cfg_a0[ADDR_BITS-2+:2] === 3'h0)) else begin
+				$error("%m: Spurious high address bits.");
+				$stop;
+			end
+		end
 	end
 	else begin
 		assign	cfg_en =  0;
@@ -135,7 +143,7 @@ module thresholding_axi #(
 	thresholding #(
 		.N(N), .K(K), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
-		.THRESHOLDS(THRESHOLDS), .USE_CONFIG(USE_AXILITE)
+		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE)
 	) impl (
 		.clk(ap_clk), .rst(!ap_rst_n),
 

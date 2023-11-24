@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-import sys
 import warnings
 from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.core.datatype import DataType
@@ -280,18 +279,32 @@ class Thresholding_Binary_Search(HLSCustomOp):
             thresholds,
             wdt,
             bw_hexdigit,
-            prefix="'h",
+            prefix="",
         )
-        # massage generated thresholds string to fit SystemVerilog array formatting
-        orig_printops = np.get_printoptions()
-        np.set_printoptions(threshold=sys.maxsize)
-        t_str = np.array2string(t_packed, separator=", ")
-        np.set_printoptions(**orig_printops)
-        t_str = t_str.replace("[", "'{")
-        t_str = t_str.replace("]", "}")
-        t_str = t_str.replace('"', "")
 
-        code_gen_dict["$THRESHOLDS$"] = [t_str]
+        t_path = self.get_nodeattr("code_gen_dir_ipgen") + "/threshs"
+        os.makedirs(t_path)
+        pe = self.get_nodeattr("PE")
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        num_channels = self.get_nodeattr("NumChannels")  # number of channels
+
+        channel_fold = int(num_channels / pe)
+
+        for stage in range(o_bitwidth):
+            sn = o_bitwidth - stage - 1
+            for pe_value in range(pe):
+                thresh_file = t_path + "/threshs_%s_%s.dat" % (pe_value, stage)
+                threshs = np.zeros([channel_fold * (2**stage)], dtype="object")
+                for ch in range(channel_fold):
+                    for i in range(2**stage):
+                        threshs[(ch << stage) + i] = t_packed[ch * pe + pe_value][
+                            (i << (o_bitwidth - stage)) + 2**sn - 1
+                        ]
+                with open(thresh_file, "w") as f:
+                    for val in threshs:
+                        f.write(val + "\n")
+        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '"']
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -301,12 +314,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
 
         # Identify the module variables
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        num_channels = self.get_nodeattr("NumChannels")  # number of channels
         bias = self.get_nodeattr("activation_bias")  # activation bias value
-        pe = self.get_nodeattr("PE")
-        o_bitwidth = DataType[output_data_type].bitwidth()
         i_bitwidth = DataType[input_data_type].bitwidth()
 
         code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
