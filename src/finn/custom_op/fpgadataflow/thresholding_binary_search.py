@@ -323,8 +323,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             code_gen_dict["$SIGNED$"] = [str(1)]
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
-            o_bits = math.ceil(2**o_bitwidth + bias)
-        code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         if bias >= 0:
             o_bits = math.ceil(math.log2(2**o_bitwidth + bias))
@@ -333,7 +331,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
             )
 
-        code_gen_dict["$O_BITS$"] = [str(o_bits)]
+        code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
