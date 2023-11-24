@@ -2,9 +2,9 @@ name: SingularityQuicktest
 
 on:
   pull_request:
-    branches: [ apptainer_testing ]
+    branches: [ dev ]
   push:
-    branches: [ apptainer_testing ]
+    branches: [ dev ]
 
 jobs:
   build_quicktest_singularity:
