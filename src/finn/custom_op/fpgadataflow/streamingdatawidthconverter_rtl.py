@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,14 +41,10 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-# does not do anything at the ONNX node-by-node level, and input-output
-# tensor shapes are the same. performs data width conversion at the rtlsim level
 
-
-class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
-    """Class that corresponds to finn-hlslib StreamingDataWidthConverter_ParallelWindow_Batch
-    function. To be inserted between an RTL-SWG with parallel window mode enabled and a
-    VVU."""
+class StreamingDataWidthConverter_rtl(HLSCustomOp):
+    """Class that corresponds to finn-rtllib datawidth converter
+    module."""
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -59,11 +55,6 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
             "outWidth": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
-            "SIMD": ("i", True, 0),
-            "PE": ("i", True, 0),
-            "Channels": ("i", True, 0),
-            "Kernel": ("ints", True, []),
-            "Mode": ("s", False, ""),
             # attribute to save top module name - not user configurable
             "gen_top_module": ("s", False, ""),
         }
@@ -86,7 +77,26 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         oshape = self.get_nodeattr("shape")
         return oshape
 
+    def check_divisible_iowidths(self):
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        # the rtl module only supports
+        # stream widths that are divisible by
+        # integer width ratios
+        iwidth_d = iwidth % owidth == 0
+        owidth_d = owidth % iwidth == 0
+        assert (
+            iwidth_d or owidth_d
+        ), """RTL implementation of DWC requires
+        stream widths that are integer width ratios
+        from each other. Input width is set to %s
+        and output width is set to %s """ % (
+            iwidth,
+            owidth,
+        )
+
     def get_folded_input_shape(self, ind=0):
+        self.check_divisible_iowidths()
         iwidth = self.get_nodeattr("inWidth")
         ishape = self.get_normal_input_shape()
         dummy_t = np.random.randn(*ishape)
@@ -106,6 +116,7 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         return dummy_t.shape
 
     def get_folded_output_shape(self, ind=0):
+        self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
         oshape = self.get_normal_output_shape()
         dummy_t = np.random.randn(*oshape)
@@ -159,31 +170,20 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
-        info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
-            info_messages.append("Attribute backend is set correctly")
-        else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
-
-        # verify the number of inputs
-        if len(self.onnx_node.input) == 1:
-            info_messages.append("The number of inputs is correct")
-        else:
-            info_messages.append("""StreamingDWC needs 1 data input""")
-
-        return info_messages
+        pass
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        exp_shape = self.get_normal_input_shape()
+        exp_ishape = self.get_normal_input_shape()
+        exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
 
-        # TODO ensure codegen dir exists
         if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            raise Exception(
+                """cppsim not possible for StreamingDataWidthConverter_rtl,
+                please set exec_mode to rtlsim"""
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -196,164 +196,93 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == tuple(exp_shape), "Input shape does not match expected shape."
+        assert inp.shape == tuple(
+            exp_ishape
+        ), """Input shape doesn't
+        match expected shape."""
+        export_idt = self.get_input_datatype()
 
-        if self.get_input_datatype() == DataType["BIPOLAR"]:
-            # store bipolar activations as binary
-            inp = (inp + 1) / 2
-            export_idt = DataType["BINARY"]
-        else:
-            export_idt = self.get_input_datatype()
-        # reshape input into folded shape
         reshaped_input = inp.reshape(folded_ishape)
-        # make copy before saving array
-        reshaped_input = reshaped_input.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
-        if mode == "cppsim":
-            output = inp
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
-            context[node.output[0]] = output
+        sim = self.get_rtlsim()
+        nbits = self.get_instream_width()
+        rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+        super().reset_rtlsim(sim)
+        super().toggle_clk(sim)
+        rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+        odt = export_idt
+        target_bits = odt.bitwidth()
+        packed_bits = self.get_outstream_width()
+        out_npy_path = "{}/output.npy".format(code_gen_dir)
+        out_shape = self.get_folded_output_shape()
+        rtlsim_output_to_npy(rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+        # load and reshape output
+        output = np.load(out_npy_path)
+        output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+        context[node.output[0]] = output
 
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(exp_shape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to "rtlsim" """.format(
-                    mode
-                )
-            )
-        # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType["BIPOLAR"]:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
         assert context[node.output[0]].shape == tuple(
-            exp_shape
-        ), """Output
-        shape doesn't match expected shape, should be same as input shape"""
+            exp_oshape
+        ), """Output shape doesn't match expected shape."""
 
-    def prepare_codegen_default(self):
-        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_axi_wrapper.v"
-
-        code_gen_dict = {}
-        code_gen_dict["$IN_WIDTH$"] = [str(self.get_nodeattr("inWidth"))]
-        code_gen_dict["$OUT_WIDTH$"] = [str(self.get_nodeattr("outWidth"))]
-        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
-        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
-        code_gen_dict["$CHANNELS$"] = [str(self.get_nodeattr("Channels"))]
-        code_gen_dict["$KERNEL_PROD$"] = [str(np.prod(self.get_nodeattr("Kernel")))]
-        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
-        code_gen_dict["$MODE$"] = [self.get_nodeattr("Mode")]
-
-        return template_path, code_gen_dict
+    def get_template_values(self):
+        topname = self.get_verilog_top_module_name()
+        ibits = self.get_instream_width()
+        obits = self.get_outstream_width()
+        code_gen_dict = {
+            "IBITS": int(ibits),
+            "OBITS": int(obits),
+            "TOP_MODULE_NAME": topname,
+        }
+        return code_gen_dict
 
     def generate_hdl(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        template_path, code_gen_dict = self.prepare_codegen_default()
-        # add general parameters to dictionary
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
+        rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/hdl"
+        template_path = rtlsrc + "/dwc_template.v"
+        code_gen_dict = self.get_template_values()
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
-        # apply code generation to template
+        # apply code generation to templates
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
-            template_wrapper = f.read()
-        for key in code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
-            template_wrapper = template_wrapper.replace(key, code_gen_line)
+            template = f.read()
+        for key_name in code_gen_dict:
+            key = "$%s$" % key_name
+            template = template.replace(key, str(code_gen_dict[key_name]))
+
         with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"), "w"
+            os.path.join(code_gen_dir, self.get_verilog_top_module_name() + ".v"),
+            "w",
         ) as f:
-            f.write(template_wrapper)
+            f.write(template)
 
-        shutil.copy2(
-            os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_parallelwindow.sv", code_gen_dir
-        )
-        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/dwc_upsample.sv", code_gen_dir)
-
+        sv_files = ["dwc_axi.sv", "dwc.sv"]
+        for sv_file in sv_files:
+            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def get_all_verilog_paths(self):
-        "Return list of all folders containing Verilog code for this node."
-
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/")
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        return [rtllib_dir, code_gen_dir]
-
-    def code_generation_ipi(self):
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/")
-        source_files = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-            rtllib_dir + "dwc_parallelwindow.sv",
-            rtllib_dir + "dwc_upsample.sv",
-        ]
-
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
-
-        for f in source_files:
-            cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
-        cmd += [
-            "create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
-
-        return cmd
-
-    def hls_sname(self):
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        # despite being an RTL op, the interface naming here follows the HLS
-        # style and has a V suffix for the stream interface names
-        return "V"
-
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs"""
-        return 0
-
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path and returns
         a PyVerilator wrapper around it."""
+        # Modified to use generated (System-)Verilog instead of HLS output products
 
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/dwc"]
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper.v"]
+        verilog_paths = [code_gen_dir]
+        verilog_files = [
+            "dwc_axi.sv",
+            "dwc.sv",
+            self.get_nodeattr("gen_top_module") + ".v",
+        ]
 
         # build the Verilator emu library
         sim = PyVerilator.build(
@@ -365,8 +294,28 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
-
         return sim
+
+    def code_generation_ipi(self):
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        sourcefiles = [
+            "dwc_axi.sv",
+            "dwc.sv",
+            self.get_nodeattr("gen_top_module") + ".v",
+        ]
+
+        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+
+        cmd = []
+        for f in sourcefiles:
+            cmd += ["add_files -norecurse %s" % (f)]
+        cmd += [
+            "create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+        ]
+        return cmd
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Normally: Generates C++ code and tcl script for IP generation.
@@ -374,6 +323,7 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         self.generate_hdl()
 
     def ipgen_singlenode_code(self):
+        """Normally: Builds the bash script for IP generation."""
         pass
 
     def code_generation_cppsim(self, model):

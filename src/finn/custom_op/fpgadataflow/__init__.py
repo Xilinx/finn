@@ -49,7 +49,9 @@ from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
-from finn.custom_op.fpgadataflow.matrixvectoractivation_rtl import MatrixVectorActivation_rtl
+from finn.custom_op.fpgadataflow.matrixvectoractivation_rtl import (
+    MatrixVectorActivation_rtl,
+)
 from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
@@ -57,7 +59,12 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
-from finn.custom_op.fpgadataflow.streamingdatawidthconverter_parallelwindow_batch import StreamingDataWidthConverter_rtl
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter_parallelwindow_batch import (
+    StreamingDataWidthConverter_ParallelWindow_rtl,
+)
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter_rtl import (
+    StreamingDataWidthConverter_rtl,
+)
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
@@ -67,7 +74,9 @@ from finn.custom_op.fpgadataflow.thresholding_binary_search import (
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
-from finn.custom_op.fpgadataflow.vectorvectoractivation_rtl import VectorVectorActivation_rtl
+from finn.custom_op.fpgadataflow.vectorvectoractivation_rtl import (
+    VectorVectorActivation_rtl,
+)
 
 custom_op = dict()
 
@@ -82,6 +91,9 @@ custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
+custom_op[
+    "StreamingDataWidthConverter_ParallelWindow_rtl"
+] = StreamingDataWidthConverter_ParallelWindow_rtl
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
