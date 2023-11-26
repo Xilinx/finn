@@ -32,10 +32,6 @@ void accl_out(
     bool leftover = num_bits % accl_width != 0;
     int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
 
-    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, false);
-
-    // TODO: Doing it like this is probably not optimal. It seems like we're reinventing a
-    // DWC here.
     send: for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % stream_width == 0) {
             stream_word = in.read();
@@ -54,6 +50,8 @@ void accl_out(
     if (num_bits < num_transfer_bits) {
         data.push(accl_word, 0);
     }
+
+    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, false);
 
 #ifdef CPPSIM
     std::cerr << "accl_out waiting on ack" << std::endl;

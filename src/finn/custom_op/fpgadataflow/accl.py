@@ -75,8 +75,12 @@ class ACCLOp(HLSCustomOp):
                 emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
                 world_size = self.get_nodeattr("worldSize")
 
-                subprocess.run(["/usr/bin/cmake", "."],
-                               cwd=emulator_dir, stdout=subprocess.PIPE)
+                # Make sure the emulator itself is built
+                subprocess.run(
+                    ["/usr/bin/cmake", "."],
+                    cwd=emulator_dir,
+                    stdout=subprocess.PIPE
+                )
 
                 emulator = subprocess.Popen([
                     "python3",
@@ -88,10 +92,7 @@ class ACCLOp(HLSCustomOp):
             executable_path = self.get_nodeattr("executable_path")
             if executable_path == "":
                 raise Exception(
-                    """
-Found no executable for this node, did you run the codegen and
-compilation transformations?
-                """
+                    f"Executable for {self.onnx_node.name} at {executable_path} seems to be missing."
                 )
 
             p = subprocess.Popen(
@@ -224,8 +225,6 @@ class ACCLOut(ACCLOp):
             "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
         ]
-
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def strm_decl(self):
         start_port = self.get_nodeattr("startPort")
