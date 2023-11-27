@@ -1,3 +1,4 @@
+import warnings
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
@@ -39,8 +40,9 @@ def _is_parallel_window_mode(producer, consumer):
 class InsertDWC(Transformation):
     """Add data width converters between layers where necessary."""
 
-    def __init__(self):
+    def __init__(self, use_rtl_variant=True):
         super().__init__()
+        self.use_rtl_variant = use_rtl_variant
 
     def apply(self, model):
         graph = model.graph
@@ -86,11 +88,20 @@ class InsertDWC(Transformation):
                             dwc_in_width = n0.get_outstream_width()
                             # determine dwc outwidth
                             dwc_out_width = n1.get_instream_width()
-                            # use hls mode by default since it supports more configs
-                            # vivado mode can be manually enabled by user, but does not
-                            # support e.g. node-by-node rtlsim neded for
-                            # characterization-based FIFO sizing
-                            impl_style = "hls"
+                            if self.use_rtl_variant:
+                                # check if rtl variant can be used
+                                iwidth_d = dwc_in_width % dwc_out_width == 0
+                                owidth_d = dwc_out_width % dwc_in_width == 0
+                                if iwidth_d or owidth_d:
+                                    node_optype = "StreamingDataWidthConverter_rtl"
+                                else:
+                                    warnings.warn(
+                                        "DWC cannot be implemented as RTL variant, default to hls"
+                                    )
+                                    node_optype = "StreamingDataWidthConverter_Batch"
+                                    self.use_rtl_variant = False
+                            else:
+                                node_optype = "StreamingDataWidthConverter_Batch"
 
                             # determine shape for dwc
                             dwc_shape = n0.get_normal_output_shape()
@@ -104,40 +115,27 @@ class InsertDWC(Transformation):
                                 dwc_shape,
                             )
                             graph.value_info.append(dwc_output_tensor)
-                            
-                            if _is_parallel_window_mode(n0, consumer):
-                                simd = n1.get_nodeattr("SIMD")
-                                pe = n1.get_nodeattr("PE")
-                                channels = n1.get_nodeattr("Channels")
-                                kernel = n1.get_nodeattr("Kernel")
-                                dwc_node = oh.make_node(
-                                    "StreamingDataWidthConverter_ParallelWindow_Batch",
-                                    [output_name],
-                                    [dwc_output_tensor.name],
-                                    domain="finn.custom_op.fpgadataflow",
-                                    backend="fpgadataflow",
-                                    shape=dwc_shape,
-                                    inWidth=dwc_in_width,
-                                    outWidth=dwc_out_width,
-                                    dataType=str(dtype.name),
-                                    SIMD=simd,
-                                    PE=pe,
-                                    Channels=channels,
-                                    Kernel=kernel,
-                                )
-                            else:    
-                                dwc_node = oh.make_node(
-                                    "StreamingDataWidthConverter_Batch",
-                                    [output_name],
-                                    [dwc_output_tensor.name],
-                                    domain="finn.custom_op.fpgadataflow",
-                                    backend="fpgadataflow",
-                                    shape=dwc_shape,
-                                    inWidth=dwc_in_width,
-                                    outWidth=dwc_out_width,
-                                    dataType=str(dtype.name),
-                                    impl_style=impl_style,
-                                )
+
+                            dwc_node = oh.make_node(
+                                node_optype,
+                                [output_name],
+                                [dwc_output_tensor.name],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                shape=dwc_shape,
+                                inWidth=dwc_in_width,
+                                outWidth=dwc_out_width,
+                                dataType=str(dtype.name),
+                            )
+                            # if not rtl variant is selected
+                            # use hls mode by default since it supports more configs
+                            # vivado mode can be manually enabled by user, but does not
+                            # support e.g. node-by-node rtlsim neded for
+                            # characterization-based FIFO sizing
+                            if not self.use_rtl_variant:
+                                impl_attr = oh.make_attribute("impl_style", "hls")
+                                dwc_node.attribute.append(impl_attr)
+
                             # insert dwc
                             graph.node.insert(node_ind + 1, dwc_node)
 
