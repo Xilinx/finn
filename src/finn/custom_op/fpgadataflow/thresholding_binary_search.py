@@ -282,8 +282,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             prefix="",
         )
 
-        t_path = self.get_nodeattr("code_gen_dir_ipgen") + "/threshs"
-        os.makedirs(t_path)
+        t_path = self.get_nodeattr("code_gen_dir_ipgen")
         pe = self.get_nodeattr("PE")
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
         o_bitwidth = DataType[output_data_type].bitwidth()
@@ -294,7 +293,11 @@ class Thresholding_Binary_Search(HLSCustomOp):
         for stage in range(o_bitwidth):
             sn = o_bitwidth - stage - 1
             for pe_value in range(pe):
-                thresh_file = t_path + "/threshs_%s_%s.dat" % (pe_value, stage)
+                thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
+                    self.onnx_node.name,
+                    pe_value,
+                    stage,
+                )
                 threshs = np.zeros([channel_fold * (2**stage)], dtype="object")
                 for ch in range(channel_fold):
                     for i in range(2**stage):
@@ -304,7 +307,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 with open(thresh_file, "w") as f:
                     for val in threshs:
                         f.write(val + "\n")
-        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '/"']
+        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '/%s_"' % self.onnx_node.name]
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
