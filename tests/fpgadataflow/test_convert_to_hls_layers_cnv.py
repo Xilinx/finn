@@ -26,10 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
+import importlib_resources as importlib
 import numpy as np
 import os
 import torch
@@ -86,8 +85,9 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     model = model.transform(Streamline())
     model = model.transform(InferDataLayouts())
     # load one of the test vectors
-    fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
-    input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
+    with importlib.as_file(ref) as fn:
+        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     # generate expected value from streamlined net

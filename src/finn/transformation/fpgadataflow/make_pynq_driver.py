@@ -26,9 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
-import pkg_resources as pk
-
 import numpy as np
 import os
 import qonnx
@@ -89,8 +86,8 @@ class MakePYNQDriver(Transformation):
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
 
         # create the base FINN driver -- same for all accels
-        driver_base_template = pk.resource_filename(
-            "finn.qnn-data", "templates/driver/driver_base.py"
+        driver_base_template = (
+            os.environ["FINN_ROOT"] + "/src/finn/qnn-data/templates/driver/driver_base.py"
         )
         driver_base_py = pynq_driver_dir + "/driver_base.py"
         shutil.copy(driver_base_template, driver_base_py)
@@ -268,7 +265,9 @@ class MakePYNQDriver(Transformation):
 
         # add validate.py to run full top-1 test (only for suitable networks)
         validate_py = pynq_driver_dir + "/validate.py"
-        validate_template = pk.resource_filename("finn.qnn-data", "templates/driver/validate.py")
+        validate_template = (
+            os.environ["FINN_ROOT"] + "/src/finn/qnn-data/templates/driver/validate.py"
+        )
         shutil.copy(validate_template, validate_py)
 
         # generate weight files for runtime-writable layers

@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import numpy as np
 import os
 import shutil
@@ -94,7 +92,7 @@ def prepare_stitched_ip_for_verilator(model):
 
     # use custom version of axis infrastructure vh
     # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
-    custom_vh = pk.resource_filename("finn.qnn-data", "verilog/custom_axis_infrastructure.vh")
+    custom_vh = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/verilog/custom_axis_infrastructure.vh"
     shutil.copy(custom_vh, verilog_header_dir + "/axis_infrastructure_v1_1_0.vh")
     for fn in all_verilog_srcs:
         if fn.endswith(".vh"):
@@ -131,7 +129,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
     verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
     build_dir = make_build_dir("verilator_fifosim_")
-    fifosim_cpp_fname = pk.resource_filename("finn.qnn-data", "cpp/verilator_fifosim.cpp")
+    fifosim_cpp_fname = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cpp/verilator_fifosim.cpp"
     with open(fifosim_cpp_fname, "r") as f:
         fifosim_cpp_template = f.read()
     assert len(model.graph.input) == 1, "Only a single input stream is supported"
