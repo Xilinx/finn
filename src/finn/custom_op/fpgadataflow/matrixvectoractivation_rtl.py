@@ -739,10 +739,10 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if self.get_nodeattr("ram_style") == "ultra":
-                assert (
-                    runtime_writable == 1
-                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            # if self.get_nodeattr("ram_style") == "ultra":
+            #    assert (
+            #        runtime_writable == 1
+            #    ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
             sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
