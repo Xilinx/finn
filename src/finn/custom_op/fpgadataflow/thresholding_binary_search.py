@@ -304,7 +304,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 with open(thresh_file, "w") as f:
                     for val in threshs:
                         f.write(val + "\n")
-        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '"']
+        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '/"']
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [

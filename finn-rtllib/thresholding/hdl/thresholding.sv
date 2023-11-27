@@ -196,7 +196,7 @@ module thresholding #(
 
 				val_t  Threshs[CF * 2**stage];
 				if(THRESHOLDS_PATH != "") begin
-					initial  $readmemh($sformatf("%s/threshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
+					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
 				end
 
 				if(USE_CONFIG) begin : genThreshMem
