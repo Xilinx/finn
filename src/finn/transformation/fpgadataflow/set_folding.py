@@ -122,6 +122,7 @@ class SetFolding(Transformation):
             "DuplicateStreams_Batch",
             "GlobalAccPool_Batch",
             "Thresholding_Batch",
+            "Thresholding_Binary_Search",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
@@ -130,7 +131,7 @@ class SetFolding(Transformation):
         simd_ops = [
             "DownSampler",
             "FMPadding_Batch",
-            "FMPadding_Batch_rtl",
+            "FMPadding_rtl",
             "ConvolutionInputGenerator",
             "ConvolutionInputGenerator1D",
             "ConvolutionInputGenerator_rtl",
@@ -250,7 +251,8 @@ class SetFolding(Transformation):
                             and node_inst.get_nodeattr("SIMD") > 1
                         ):
                             swu_node_inst.set_nodeattr("parallel_window", 1)
-                            swu_node_inst.set_nodeattr("SIMD", max_pe)
+                            pe = node_inst.get_nodeattr("PE")
+                            swu_node_inst.set_nodeattr("SIMD", pe)
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                             pe = node_inst.get_nodeattr("PE")
@@ -319,6 +321,7 @@ class SetFolding(Transformation):
                         target_cycles_per_frame=perf_dict["max_cycles"],
                         mvau_wwidth_max=self.mvau_wwidth_max,
                         two_pass_relaxation=False,
+                        fpga_part=self.fpga_part,
                     )
                 )
 
