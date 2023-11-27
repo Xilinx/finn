@@ -344,7 +344,6 @@ class CreateStitchedIP(Transformation):
         if accl_out_node is None:
             tie_off("sts_from_cclo_0", "cmd_to_cclo_0")
 
-
         self.intf_names["s_axis"] += ["sts_from_cclo_0", "data_from_cclo_0"]
         self.intf_names["m_axis"] += ["cmd_from_cclo_0", "data_to_cclo_0"]
 

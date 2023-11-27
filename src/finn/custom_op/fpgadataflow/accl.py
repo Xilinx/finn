@@ -224,7 +224,7 @@ class ACCLOut(ACCLOp):
             '#pragma HLS INTERFACE axis port=in0_{}'.format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
-            "#pragma HLS INTERFACE ap_ctrl_none port=return",
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
         ]
 
     def strm_decl(self):
@@ -255,7 +255,11 @@ class ACCLOut(ACCLOp):
         dest = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            '''accl_out<{}, {}, {}>(
+            '''
+            while (in0_{}.empty());
+            '''.format(self.hls_sname()),
+            '''
+            accl_out<{}, {}, {}>(
                 {},
                 comm_adr,
                 dpcfg_adr,
