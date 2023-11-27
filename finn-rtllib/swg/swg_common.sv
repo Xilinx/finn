@@ -195,8 +195,7 @@ for (genvar e=0; e<DEPTH; e++)
 
 always @ (posedge clk) begin
     if (shift_enable) begin
-        for (int i=DEPTH-1; i>0; i--)
-            Data[i] <= Data[i-1];
+        if(DEPTH > 1)  Data[DEPTH-1:1] <= Data[DEPTH-2:0];
         Data[0] <= shift_in;
     end
 end
