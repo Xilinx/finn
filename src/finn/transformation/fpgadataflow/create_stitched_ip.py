@@ -425,6 +425,10 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
             )
+            tcl.append(
+                "report_utilization -hierarchical -hierarchical_depth 5 "
+                "-file %s_partition_util.xml -format xml" % block_name
+            )
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
