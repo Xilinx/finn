@@ -203,9 +203,16 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         mstyle = self.get_nodeattr("ram_style")
         if (mmode == "decoupled" and mstyle != "ultra") or (mmode == "external"):
             return 0
-        width_multiplier = math.ceil(mem_width / 72)
-        depth_multiplier = math.ceil(omega / 4096)
-        return width_multiplier * depth_multiplier
+            # TODO sanity-check all regions
+        # TODO for Versal only, only 4kx72 mode for UltraScale
+        if mem_width <= 9:
+            return (math.ceil(omega / 32768)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 8192:
+            return (math.ceil(omega / 16384)) * (math.ceil(mem_width / 18))
+        elif mem_width <= 36 or omega > 4096:
+            return (math.ceil(omega / 8192)) * (math.ceil(mem_width / 36))
+        else:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 72))
 
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
