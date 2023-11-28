@@ -216,7 +216,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_exp_cycles(self):
-        return 0
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
