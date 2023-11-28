@@ -66,8 +66,7 @@ module thresholding #(
 	bit  USE_CONFIG = 1,
 
 	// Force Use of On-Chip Memory Blocks
-	int unsigned  DEPTH_TRIGGER_URAM = 0,	// if non-zero, local mems of this depth or more go into URAM (prio)
-	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
+	parameter THRES_RAM_STYLE = "auto",
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -198,11 +197,8 @@ module thresholding #(
 			val_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
 				localparam int unsigned  DEPTH = CF * 2**stage;
-				localparam  RAM_STYLE =
-					DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
-					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" : "auto";
 
-				(* RAM_STYLE = RAM_STYLE *)
+				(* RAM_STYLE = THRES_RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
