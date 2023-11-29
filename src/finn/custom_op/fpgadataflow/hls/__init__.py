@@ -31,6 +31,7 @@ from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_hls import FMPadding_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
+from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 
 custom_op = dict()
 
@@ -41,3 +42,4 @@ custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
 custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_hls"] = FMPadding_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
+custom_op["LabelSelect_hls"] = LabelSelect_hls

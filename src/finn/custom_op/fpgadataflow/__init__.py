@@ -52,6 +52,7 @@ from finn.custom_op.fpgadataflow.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
+from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
@@ -109,3 +110,4 @@ custom_op["AddStreams"] = AddStreams
 custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
+custom_op["LabelSelect"] = LabelSelect
