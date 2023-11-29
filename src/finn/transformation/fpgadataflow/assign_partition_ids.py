@@ -24,7 +24,7 @@ class AssignPartitionIDs(Transformation):
 
         floorplan = floorplans[0]
 
-        model.set_metadata_prop("world_size", str(self.ndevices))
+        model.set_metadata_prop("worldSize", str(self.ndevices))
 
         for node in model.graph.node:
             node_inst = getCustomOp(node)

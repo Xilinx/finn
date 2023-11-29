@@ -1,21 +1,18 @@
 import math
-import numpy as np
-import warnings
-import time
-import threading
-import traceback
-from collections import defaultdict
+import os
 import psutil
+import subprocess
+import threading
+import time
+import traceback
+import warnings
+from collections import defaultdict
 
+import numpy as np
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-
-from IPython.core.debugger import set_trace
-
-import subprocess
-import os
 
 accl_word_size = 512
 
@@ -72,33 +69,32 @@ class ACCLOp(HLSCustomOp):
         with ACCLOp.lock:
             barrier = ACCLOp.barriers[edge_name]
 
-        idx = barrier.wait()
+        timeout_s = 5
+        idx = barrier.wait(timeout=timeout_s)
 
         emulator = None
         try:
+            if executable_path == "":
+                name = self.onnx_node.name
+                raise Exception(
+                    f"Executable for {name} at {executable_path} seems to be missing."
+                )
+
             if idx == 0:
                 emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
                 world_size = self.get_nodeattr("worldSize")
 
-                # Make sure the emulator itself is built
+                # Make sure the emulator binary is built before we start it
                 subprocess.run(
                     ["/usr/bin/cmake", "."],
                     cwd=emulator_dir,
                     stdout=subprocess.PIPE
                 )
-
                 emulator = subprocess.Popen([
-                    "python3",
-                    "run.py",
-                    f"-n {world_size}",
-                    "--no-kernel-loopback"
+                    "python3", "run.py", f"-n {world_size}", "--no-kernel-loopback"
                 ], cwd=emulator_dir)
 
             executable_path = self.get_nodeattr("executable_path")
-            if executable_path == "":
-                raise Exception(
-                    f"Executable for {self.onnx_node.name} at {executable_path} seems to be missing."
-                )
 
             p = subprocess.Popen(
                 executable_path,
@@ -112,11 +108,11 @@ class ACCLOp(HLSCustomOp):
                 if "CCLO BFM started" in line:
                     break
             else:
-                raise Exception("Process did not signal that CCLO was started")
+                raise Exception("Process did not signal that CCLO BFM started")
 
-            barrier.wait()
-            p.communicate("...")
-            barrier.wait()
+            barrier.wait(timeout=timeout_s)
+            p.communicate("...", timeout=timeout_s)
+            barrier.wait(timeout=timeout_s)
         except Exception:
             print(traceback.format_exc())
             barrier.abort()
@@ -238,14 +234,37 @@ class ACCLOut(ACCLOp):
         world_size = self.get_nodeattr("worldSize")
 
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
-            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> in0_{};'.format(self.get_stream_width(), self.hls_sname()),
-            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
-            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size),
-            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
-            'ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
+            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo");',
+            'hlslib::Stream<command_word> sts_from_cclo("sts_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_to_cclo("data_to_cclo");',
+            'hls::stream<ap_uint<{}>> in0_{};'.format(
+                self.get_stream_width(), self.hls_sname()
+            ),
+            # These are only included for cppsim, so we can put our testing related stuff
+            # here. We initialize the CCLO BFM and then wait until the we receive input
+            # from Python, this way we know that the other node is ready as well.
+            '''
+            std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input(
+                {},
+                {},
+                {},
+                cmd_to_cclo,
+                sts_from_cclo,
+                data_from_cclo,
+                data_to_cclo
+            );
+            '''.format(start_port, rank, world_size),
+            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(
+                world_size, rank, start_port
+            ),
             'bool wait_for_ack = true;',
+            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
+            '''
+            ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr(
+                {ACCL::dataType::int32, ACCL::dataType::int32}
+            );
+            ''',
         ]
 
     def docompute(self):
@@ -284,10 +303,7 @@ class ACCLOut(ACCLOp):
 
         if mode != "cppsim":
             raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim")""".format(
-                    mode
-                )
+                "ACCL nodes can only be executed using cppsim currently"
             )
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -312,8 +328,7 @@ class ACCLOut(ACCLOp):
             reshaped_input,
         )
 
-        # Execute node in a new thread so execution can continue to the receiving ACCLIn
-        # node.
+        # Execute node in a new thread so execution can continue to the receiving node.
         self.thread = threading.Thread(
             target=self.execute_op,
             args=(self.onnx_node.output[0],)
@@ -400,9 +415,8 @@ class ACCLIn(ACCLOp):
             '#pragma HLS INTERFACE axis port=data_from_cclo',
             '#pragma HLS INTERFACE axis port=out_{}'.format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dummy bundle=control",
+            "#pragma HLS INTERFACE ap_ctrl_none port=return",
         ]
-
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def strm_decl(self):
         start_port = self.get_nodeattr("startPort")
@@ -412,10 +426,24 @@ class ACCLIn(ACCLOp):
         assert world_size != 0
 
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
-            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> out_{};'.format(self.get_stream_width(), self.hls_sname()),
-            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size),
+            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo");',
+            'hlslib::Stream<command_word> sts_from_cclo("sts_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_to_cclo("data_to_cclo");',
+            'hls::stream<ap_uint<{}>> out_{};'.format(
+                self.get_stream_width(), self.hls_sname()
+            ),
+            '''
+            std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input(
+                {},
+                {},
+                {},
+                cmd_to_cclo,
+                sts_from_cclo,
+                data_from_cclo,
+                data_to_cclo
+            );
+            '''.format(start_port, rank, world_size),
         ]
 
     def docompute(self):
@@ -450,10 +478,7 @@ class ACCLIn(ACCLOp):
 
         if mode != "cppsim":
             raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim")""".format(
-                    mode
-                )
+                "ACCL nodes can only be executed using cppsim currently"
             )
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -508,8 +533,10 @@ class ACCLIn(ACCLOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            'void {}(STREAM<stream_word> &data_from_cclo, hls::stream<ap_uint<{}>> &out_{}, ap_uint<32> dummy)'
-            .format(
+            '''void {}(
+                STREAM<stream_word> &data_from_cclo,
+                hls::stream<ap_uint<{}>> &out_{}
+            )''' .format(
                 self.onnx_node.name,
                 self.get_outstream_width(),
                 self.hls_sname()

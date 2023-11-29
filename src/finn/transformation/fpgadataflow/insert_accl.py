@@ -48,7 +48,7 @@ class InsertACCL(Transformation):
             if out == tensor_name:
                 producer.output[idx] = producer_out.name
 
-        world_size = int(model.get_metadata_prop("world_size"))
+        world_size = int(model.get_metadata_prop("worldSize"))
 
         accl_out = oh.make_node(
             "ACCLOut",
