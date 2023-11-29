@@ -99,8 +99,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            # string defining memory type
-            "ram_style": ("s", False, "auto", {"auto", "distributed", "ultra", "block"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -350,8 +348,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
-
-        code_gen_dict["$THRES_RAM_STYLE$"] = ['"%s"' % str(self.get_nodeattr("ram_style"))]
 
         return code_gen_dict
 

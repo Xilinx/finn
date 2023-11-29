@@ -45,7 +45,8 @@ module $MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 	bit  USE_AXILITE = 1,	// Implement AXI-Lite for threshold read/write
 
 	// Force Use of On-Chip Memory Blocks
-	parameter THRES_RAM_STYLE = "auto",
+	int unsigned  DEPTH_TRIGGER_URAM = 0,	// if non-zero, local mems of this depth or more go into URAM (prio)
+	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
@@ -100,7 +101,8 @@ module $MODULE_NAME_AXI_WRAPPER$_tpl_inner #(
 		.BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE),
-		.THRES_RAM_STYLE(THRES_RAM_STYLE)
+		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM),
+		.DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM)
 	) core (
 		.ap_clk, .ap_rst_n,
 

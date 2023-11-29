@@ -45,7 +45,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write
 
 	// Force Use of On-Chip Memory Blocks
-	parameter THRES_RAM_STYLE = $THRES_RAM_STYLE$,
+	parameter  DEPTH_TRIGGER_URAM = $DEPTH_TRIGGER_URAM$,	// if non-zero, local mems of this depth or more go into URAM (prio)
+	parameter  DEPTH_TRIGGER_BRAM = $DEPTH_TRIGGER_BRAM$,	// if non-zero, local mems of this depth or more go into BRAM
 
 	parameter  O_BITS = $O_BITS$
 )(
@@ -99,7 +100,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 		.BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE),
-		.THRES_RAM_STYLE(THRES_RAM_STYLE)
+		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM),
+		.DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM)
 	) core (
 		.ap_clk(ap_clk), .ap_rst_n(ap_rst_n),
 
