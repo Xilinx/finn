@@ -69,10 +69,6 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
 
         return info_messages
 
-    def get_exp_cycles(self):
-        # Channels/PE * batch size * fmdim * fmdim
-        return np.prod(self.get_folded_output_shape()[:-1])
-
     def generate_params(self, model, path):
         n_outputs = self.get_num_output_streams()
         inp_streams = []
