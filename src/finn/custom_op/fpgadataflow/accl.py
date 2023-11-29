@@ -256,9 +256,6 @@ class ACCLOut(ACCLOp):
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
             '''
-            while (in0_{}.empty());
-            '''.format(self.hls_sname()),
-            '''
             accl_out<{}, {}, {}>(
                 {},
                 comm_adr,

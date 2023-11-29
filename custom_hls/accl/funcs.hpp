@@ -19,6 +19,7 @@ void accl_out(
 ) {
     STREAM<stream_word> data_from_cclo;
 
+    accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
     ap_uint<accl_width> accl_word;
@@ -50,7 +51,6 @@ void accl_out(
         data.push(accl_word, 0);
     }
 
-    accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
     accl.stream_put(num_transfer_bits / 32, 9, destination, 0, false);
 
 #ifdef CPPSIM

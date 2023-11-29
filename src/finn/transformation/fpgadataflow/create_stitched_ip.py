@@ -43,6 +43,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.custom_op.fpgadataflow.accl import ACCLOp, accl_word_size
 
 
 def is_external_input(model, node, i):
@@ -86,7 +87,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], accl_interface=False):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -101,7 +102,6 @@ class CreateStitchedIP(Transformation):
         self.clock_reset_are_external = False
         self.create_cmds = []
         self.connect_cmds = []
-        self.accl_interface = accl_interface
         # keep track of top-level interface names
         self.intf_names = {
             "clk": [],
@@ -280,10 +280,12 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def setup_accl_interface(self, model):
-        has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
-
+        # For now we assume that there will always be two unused streams that can be tied
+        # off by connecting them together.
         unused_src = None
         unused_sink = None
+
+        has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
 
         if has_accl_in:
             self.connect_cmds.append("set_property name data_from_cclo_0 [get_bd_intf_ports s_axis_0]")
@@ -344,8 +346,14 @@ class CreateStitchedIP(Transformation):
         if accl_out_node is None:
             tie_off("sts_from_cclo_0", "cmd_to_cclo_0")
 
-        self.intf_names["s_axis"] += ["sts_from_cclo_0", "data_from_cclo_0"]
-        self.intf_names["m_axis"] += ["cmd_from_cclo_0", "data_to_cclo_0"]
+        self.intf_names["s_axis"] += [
+            ("sts_from_cclo_0", 32),
+            ("data_from_cclo_0", accl_word_size)
+        ]
+        self.intf_names["m_axis"] += [
+            ("cmd_from_cclo_0", 32),
+            ("data_to_cclo_0", accl_word_size)
+        ]
 
     def apply(self, model):
         # ensure non-relative readmemh .dat files
@@ -417,7 +425,11 @@ class CreateStitchedIP(Transformation):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
 
-        if self.accl_interface:
+        has_accl_node = any(
+            issubclass(type(getCustomOp(node)), ACCLOp)
+            for node in model.graph.node
+        )
+        if has_accl_node:
             self.setup_accl_interface(model)
 
         if self.signature:
