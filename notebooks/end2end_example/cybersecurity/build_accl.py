@@ -22,7 +22,7 @@ np.save(open("expected_output.npy", "wb"), out)
 model_dir = os.environ['FINN_ROOT'] + "/notebooks/end2end_example/cybersecurity"
 model_file = model_dir + "/cybsec-mlp-ready.onnx"
 
-estimates_output_dir = "command_after_loop"
+estimates_output_dir = "three_boards"
 
 os.environ["RTLSIM_TRACE_DEPTH"] = "3"
 
@@ -60,7 +60,7 @@ cfg_splits = build.DataflowBuildConfig(
     verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
     shell_flow_type     = build_cfg.ShellFlowType.VITIS_ALVEO,
     board               = "U55C",
-    num_boards          = 2,
+    num_boards          = 3,
     # start_step="step_create_stitched_ip",
     save_intermediate_models = True,
 )

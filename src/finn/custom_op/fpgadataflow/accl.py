@@ -20,6 +20,7 @@ import os
 accl_word_size = 512
 
 class ACCLOp(HLSCustomOp):
+    lock = threading.Lock()
     barriers = defaultdict(lambda: threading.Barrier(2))
 
     def __init__(self, onnx_node, **kwargs):
@@ -68,7 +69,11 @@ class ACCLOp(HLSCustomOp):
         self.set_nodeattr("executable_path", code_gen_dir + "/node_model")
 
     def execute_op(self, edge_name):
-        idx = ACCLOp.barriers[edge_name].wait()
+        with ACCLOp.lock:
+            barrier = ACCLOp.barriers[edge_name]
+
+        idx = barrier.wait()
+
         emulator = None
         try:
             if idx == 0:
@@ -109,12 +114,12 @@ class ACCLOp(HLSCustomOp):
             else:
                 raise Exception("Process did not signal that CCLO was started")
 
-            ACCLOp.barriers[edge_name].wait()
+            barrier.wait()
             p.communicate("...")
-            idx = ACCLOp.barriers[edge_name].wait()
+            barrier.wait()
         except Exception:
             print(traceback.format_exc())
-            ACCLOp.barriers[edge_name].abort()
+            barrier.abort()
         finally:
             if emulator is not None:
                 parent_proc = psutil.Process(emulator.pid)

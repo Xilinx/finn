@@ -229,6 +229,7 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
 
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     for i, node in enumerate(sdp_nodes):
+        # TODO: Make the output dir match the rank of the partition
         local_cfg.output_dir = f"{cfg.output_dir}/{i}"
 
         node_inst = getCustomOp(node)
