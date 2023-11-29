@@ -29,6 +29,7 @@
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
+from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.checksum import CheckSum
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
@@ -103,3 +104,4 @@ custom_op["FMPadding_rtl"] = FMPadding_rtl
 
 custom_op["FMPadding"] = FMPadding
 custom_op["AddStreams"] = AddStreams
+custom_op["ChannelwiseOp"] = ChannelwiseOp

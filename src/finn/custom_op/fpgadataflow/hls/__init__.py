@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
+from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_hls import FMPadding_hls
 
 custom_op = dict()
@@ -35,3 +36,4 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["FMPadding_hls"] = FMPadding_hls
 custom_op["AddStreams_hls"] = AddStreams_hls
+custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
