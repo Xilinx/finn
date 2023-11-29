@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
+from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
@@ -105,3 +106,4 @@ custom_op["FMPadding_rtl"] = FMPadding_rtl
 custom_op["FMPadding"] = FMPadding
 custom_op["AddStreams"] = AddStreams
 custom_op["ChannelwiseOp"] = ChannelwiseOp
+custom_op["DuplicateStreams"] = DuplicateStreams
