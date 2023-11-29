@@ -200,7 +200,9 @@ module thresholding #(
 				localparam int unsigned  DEPTH = CF * 2**stage;
 				localparam  RAM_STYLE =
 					DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
-					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" : "auto";
+					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" :
+					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
+					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
 				(* RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
