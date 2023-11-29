@@ -22,7 +22,7 @@ np.save(open("expected_output.npy", "wb"), out)
 model_dir = os.environ['FINN_ROOT'] + "/notebooks/end2end_example/cybersecurity"
 model_file = model_dir + "/cybsec-mlp-ready.onnx"
 
-estimates_output_dir = "output_estimates_only"
+estimates_output_dir = "command_after_loop"
 
 os.environ["RTLSIM_TRACE_DEPTH"] = "3"
 
@@ -41,7 +41,7 @@ steps = [
     "step_generate_estimate_reports",
     "step_hls_codegen",
     "step_hls_ipgen",
-    "step_set_fifo_depths",
+    # "step_set_fifo_depths",
     "step_create_stitched_ip",
 ]
 
