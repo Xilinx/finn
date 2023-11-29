@@ -49,7 +49,7 @@ from finn.util.test import soft_verify_topk
 
 def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, labels])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, k])
+    outp = helper.make_tensor_value_info("outp", TensorProto.INT64, [1, k])
 
     labelselect_node = helper.make_node(
         "LabelSelect",

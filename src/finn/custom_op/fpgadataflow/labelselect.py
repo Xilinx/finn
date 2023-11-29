@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -98,7 +99,15 @@ class LabelSelect(HWCustomOp):
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpected input shape."
-        return super().make_const_shape_op(oshape)
+        return helper.make_node(
+            "RandomNormal",
+            inputs=[],
+            outputs=[self.onnx_node.output[0]],
+            mean=0.0,
+            scale=1.0,
+            dtype=TensorProto.INT64,
+            shape=list(oshape),
+        )
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
