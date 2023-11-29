@@ -209,7 +209,7 @@ def test_attention_heads_split_cppsim(seq, dim, heads, dtype):
 # Number of input elements to be split, i.e., size of embedding dimension
 @pytest.mark.parametrize("dim", [32])
 # Number of heads to split the input into
-@pytest.mark.parametrize("heads", [4])
+@pytest.mark.parametrize("heads", [1, 2, 4, 8])
 # Datatypes to simulate
 @pytest.mark.parametrize("dtype", ["UINT8"])
 # This is a slow running fpgadataflow type of test which requires vivado
@@ -289,7 +289,7 @@ def test_attention_heads_merge_python(seq, dim, heads, dtype):
     o_produced = execute_onnx(model, context)["out"]
 
     # Compare expected to produced output
-    assert (o_produced == o_expected).all()  # noqa
+    assert (o_produced == o_expected).all()  # noqa: Unresolved "all" warning
 
 
 # Sequence length to simulate, i.e., number of individual inputs to be split
@@ -339,7 +339,7 @@ def test_attention_heads_merge_cppsim(seq, dim, heads, dtype):
     o_produced = execute_onnx(model, context)["out"]
 
     # Compare expected to produced output
-    assert (o_produced == o_expected).all()  # noqa
+    assert (o_produced == o_expected).all()  # noqa: Unresolved "all" warning
 
 
 # Sequence length to simulate, i.e., number of individual inputs to be split
@@ -347,7 +347,7 @@ def test_attention_heads_merge_cppsim(seq, dim, heads, dtype):
 # Number of input elements to be split, i.e., size of embedding dimension
 @pytest.mark.parametrize("dim", [32])
 # Number of heads to split the input into
-@pytest.mark.parametrize("heads", [4])
+@pytest.mark.parametrize("heads", [1, 2, 4, 8])
 # Datatypes to simulate
 @pytest.mark.parametrize("dtype", ["UINT8"])
 # This is a slow running fpgadataflow type of test which requires vivado
@@ -390,4 +390,4 @@ def test_attention_heads_merge_rtlsim(seq, dim, heads, dtype):
     o_produced = execute_onnx(model, context)["out"]
 
     # Compare expected to produced output
-    assert (o_produced == o_expected).all()  # noqa
+    assert (o_produced == o_expected).all()  # noqa: Unresolved "all" warning

@@ -8,13 +8,16 @@ from onnx import NodeProto  # noqa
 # Helper for creating ONNX nodes
 from onnx import helper as oh  # noqa
 
-# Derive custom operators form the FINN base custom op
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 # QONNX/FINN datatypes
 from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper  # noqa
+
+# Converts inputs/outputs to/from RTL simulation format
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+# Derive custom operators form the FINN base custom op
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 
 # Splitting of attention heads (after input projections) custom operator
@@ -179,8 +182,60 @@ class SplitMultiHeads(HLSCustomOp):
             context[name] = out.reshape(self.get_normal_output_shape(ind=i))
 
     # Executes multi-head slicing in RTL simulation
-    def _execute_node_rtlsim(self, context, graph):
-        raise NotImplementedError("RTL Simulation is not implemented yet")
+    def _execute_node_rtlsim(self, context, graph):  # noqa: graph unused
+        # Get the node wrapped by this custom op
+        node = self.onnx_node
+        # Input data is stored in numpy files in the code generation dictionary
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # Get the input out of the execution context
+        #   Note: Shape must be either seq x 1 x dim or seq x dim
+        inp = context[node.input[0]]
+        # Validate the shape of the input
+        assert inp.shape == self.get_normal_input_shape(ind=0), \
+            f"Input shape mismatch for {node.input[0]}"
+        # Reshape the input into folded form
+        inp = inp.reshape(self.get_folded_input_shape(ind=0))
+        # Path to store the intermediate input in numpy format
+        filename = os.path.join(code_gen_dir, "in.npy")
+        # Save the folded inputs to file to be used by simulation
+        np.save(filename, inp)
+        # Start collecting inputs/outputs to the RTL simulation in a dictionary
+        #   Note: Prepare one output list per head
+        io_dict = {
+            "inputs": {}, "outputs": {f"out{i}": [] for i in range(self.heads)}
+        }
+        # Type and width of the input tensor
+        dtype = self.get_input_datatype(ind=0)
+        width = self.get_instream_width(ind=0)
+        # Convert inputs to RTL simulation format
+        io_dict["inputs"]["in"] = npy_to_rtlsim_input(filename, dtype, width)
+
+        # Setup PyVerilator simulation of the node
+        sim = self.get_rtlsim()
+        # Reset the RTL simulation
+        super().reset_rtlsim(sim)
+        super().toggle_clk(sim)
+        # Run the RTL Simulation
+        self.rtlsim_multi_io(sim, io_dict)
+
+        # Enumerate the node outputs
+        for i, name in enumerate(node.output):
+            # Collect the output from RTL simulation
+            out = io_dict["outputs"][f"out{i}"]
+            # Type and sizes of the output tensor
+            dtype = self.get_output_datatype(ind=i)
+            width = self.get_outstream_width(ind=i)
+            shape = self.get_folded_output_shape(ind=i)
+            # Path to store the intermediate numpy file
+            filename = os.path.join(code_gen_dir, f"out{i}.npy")
+            # Convert from RTL simulation format to numpy format
+            rtlsim_output_to_npy(
+                out, filename, dtype, shape, width, dtype.bitwidth()
+            )
+            # Load the generated output numpy file
+            out = np.load(filename)
+            # Reshape the folded output and insert into the execution context
+            context[name] = out.reshape(self.get_normal_output_shape(ind=i))
 
     # Executes multi-head slicing in simulation (either python c++ or rtl sim)
     def execute_node(self, context, graph):
@@ -274,8 +329,11 @@ class SplitMultiHeads(HLSCustomOp):
     # could/should be called on any output stream of this operator
     def get_number_output_values(self):
         # Elements over all but the last dimension of the output folded along
-        # the embedding dimension
-        return np.prod(self.get_folded_output_shape()[:-1])
+        # the embedding dimension. Need to count across the number of heads, as
+        # RTL simulation actually counts individual inputs, not cycles with
+        # inputs, i.e., producing N heads outputs per cycle in parallel, count
+        # N outputs per cycle...
+        return np.prod(self.get_folded_output_shape()[:-1]) * self.heads
 
     # Note: End of shape and datatype utilities
 
@@ -316,17 +374,20 @@ class SplitMultiHeads(HLSCustomOp):
             # Generate function call reading from file into the input stream
             #   Note: Inputs are always represented as numpy floats
             f'npy2apintstream<IPacked, IType, IType::width, float>(',
-            f'  "{code_gen_dir}/in.npy", in, false',
-            ');'
+            f'"{code_gen_dir}/in.npy", in_{self.hls_sname()}, false',
+            f');'
         ]
 
     # Generates C++ code for declaring all streams involved in C++ simulation
     # for testing
     def strm_decl(self):
         # Declare input and output streams
+        # Note: Assumes stream type aliases to be set in defines
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            # Note: Assumes stream type aliases to be set in defines
-            "IStream in;", *(f"OStream out{i};" for i in range(self.heads))
+            # There is one input datastream
+            f"IStream in_{self.hls_sname()};",
+            # There is one output datastream per head
+            *(f"OStream out{i}_{self.hls_sname()};" for i in range(self.heads))
         ]
 
     # Generates C++ code for calling the computation part of the operator
@@ -337,6 +398,10 @@ class SplitMultiHeads(HLSCustomOp):
             # Assemble a C++ indexing/bit-slicing string
             return f"({i + 1} * OPacked::width - 1, {i} * OPacked::width)"
 
+        # Generates the name of the ith output stream
+        def out(i):
+            return f"out{i}_{self.hls_sname()}"
+
         # Write the body of the head-splitting top-level function
         self.code_gen_dict["$DOCOMPUTE$"] = [
             # Repeat for the number of inputs
@@ -345,10 +410,10 @@ class SplitMultiHeads(HLSCustomOp):
             # Pipeline the steps of this loop
             f"#pragma HLS pipeline II=1 style=flp",
             # Read the next input element from the stream
-            f"const auto x = in.read();",
+            f"const auto x = in_{self.hls_sname()}.read();",
             # Split the next element from the input stream into the number of
             # output elements per head and write into the corresponding stream
-            *(f"out{i}.write(x{split(i)});" for i in range(self.heads)),
+            *(f"{out(i)}.write(x{split(i)});" for i in range(self.heads)),
             # End of for-loop over repetitions body
             f"}}"
         ]
@@ -369,6 +434,11 @@ class SplitMultiHeads(HLSCustomOp):
         }}}"""
         # Start collecting function calls to write the output data stream
         self.code_gen_dict["$DATAOUTSTREAM$"] = []
+
+        # Generates the name of the ith output stream
+        def out(i):
+            return f"out{i}_{self.hls_sname()}"
+
         # Generate code for each output stream
         for i in range(self.heads):
             # Append each reading/writing function call
@@ -377,7 +447,7 @@ class SplitMultiHeads(HLSCustomOp):
                 # file
                 #   Note: Outputs are always represented as numpy floats
                 f'apintstream2npy<OPacked, OType, OType::width, float>(',
-                f'  out{i}, {shape}, "{code_gen_dir}/out{i}.npy", false',
+                f'{out(i)}, {shape}, "{code_gen_dir}/out{i}.npy", false',
                 f');'
             ]
 
@@ -399,9 +469,9 @@ class SplitMultiHeads(HLSCustomOp):
             # Note: Assumes stream type aliases to be set in defines
             f"void {self.onnx_node.name} (",
             # Input HLS stream
-            f"  IStream &in", ",".join([
+            f"  IStream &in_{self.hls_sname()}, ", ",".join([
             # One output HLS stream per head  # noqa: Formatting
-            f"  OStream &out{i}" for i in range(self.heads)
+            f"  OStream &out{i}_{self.hls_sname()}" for i in range(self.heads)
             ]),
             f")",
             # @formatter:off
@@ -414,13 +484,13 @@ class SplitMultiHeads(HLSCustomOp):
         # the top-level function arguments
         self.code_gen_dict["$PRAGMAS$"] = [
             # Connect the input stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=in"
+            f"#pragma HLS INTERFACE axis port=in_{self.hls_sname()}"
         ]
         # Connect each output stream with an axi stream interface
         for i in range(self.heads):
             # Add new interface directive for the output stream
             self.code_gen_dict["$PRAGMAS$"] += [
-                f"#pragma HLS INTERFACE axis port=out{i}"
+                f"#pragma HLS INTERFACE axis port=out{i}_{self.hls_sname()}"
             ]
         # No block-level I/O protocol for the function return value
         self.code_gen_dict["$PRAGMAS$"].append(
@@ -598,8 +668,66 @@ class MergeMultiHeads(HLSCustomOp):
         )
 
     # Executes multi-head slicing in RTL simulation
-    def _execute_node_rtlsim(self, context, graph):
-        raise NotImplementedError("RTL Simulation is not implemented yet")
+    def _execute_node_rtlsim(self, context, graph):  # noqa: graph unused
+        # Get the node wrapped by this custom op
+        node = self.onnx_node
+        # Input data is stored in numpy files in the code generation dictionary
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        # Start collecting inputs/outputs to the RTL simulation in a dictionary
+        #   Note: Prepare one output list per head
+        io_dict = {
+            "inputs": {}, "outputs": {"out": []}
+        }
+
+        # Enumerate the node outputs
+        for i, name in enumerate(node.input):
+            # Get the input out of the execution context
+            #   Note: Shape must be either 1 x seq x dim or seq x dim
+            inp = context[name]
+            # Validate the shape of the input
+            assert inp.shape == self.get_normal_input_shape(ind=i), \
+                f"Input shape mismatch for {name}"
+            # Reshape the input into folded form
+            inp = inp.reshape(self.get_folded_input_shape(ind=i))
+            # Path to store the intermediate input in numpy format
+            filename = os.path.join(code_gen_dir, f"in{i}.npy")
+            # Save the folded inputs to file to be used by simulation
+            np.save(filename, inp)
+            # Type and width of the input tensor
+            dtype = self.get_input_datatype(ind=i)
+            width = self.get_instream_width(ind=i)
+            # Convert inputs to RTL simulation format
+            io_dict["inputs"][f"in{i}"] = npy_to_rtlsim_input(
+                filename, dtype, width
+            )
+
+        # Setup PyVerilator simulation of the node
+        sim = self.get_rtlsim()
+        # Reset the RTL simulation
+        super().reset_rtlsim(sim)
+        super().toggle_clk(sim)
+        # Run the RTL Simulation
+        self.rtlsim_multi_io(sim, io_dict)
+
+        # Collect the output from RTL simulation
+        out = io_dict["outputs"]["out"]
+        # Type and sizes of the output tensor
+        dtype = self.get_output_datatype(ind=0)
+        width = self.get_outstream_width(ind=0)
+        shape = self.get_folded_output_shape(ind=0)
+        # Path to store the intermediate numpy file
+        filename = os.path.join(code_gen_dir, "out.npy")
+        # Convert from RTL simulation format to numpy format
+        rtlsim_output_to_npy(
+            out, filename, dtype, shape, width, dtype.bitwidth()
+        )
+        # Load the output numpy file generated by the RTL simulation
+        out = np.load(filename)
+        # Reshape the folded output and insert into the execution context
+        context[node.output[0]] = out.reshape(
+            self.get_normal_output_shape(ind=0)
+        )
 
     # Executes multi-head slicing in simulation (either python c++ or rtl sim)
     def execute_node(self, context, graph):
@@ -739,23 +867,27 @@ class MergeMultiHeads(HLSCustomOp):
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs are always represented as numpy floats
                 f'npy2apintstream<IPacked, IType, IType::width, float>(',
-                f'  "{code_gen_dir}/in{i}.npy", in{i}, false',
-                ');'
+                f'"{code_gen_dir}/in{i}.npy", in{i}_{self.hls_sname()}, false',
+                f');'
             ]
 
     # Generates C++ code for declaring all streams involved in C++ simulation
     # for testing
     def strm_decl(self):
         # Declare input and output streams
+        # Note: Assumes stream type aliases to be set in defines
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            # Note: Assumes stream type aliases to be set in defines
-            "OStream out;", *(f"IStream in{i};" for i in range(self.heads))
+            # There is one output stream
+            f"OStream out_{self.hls_sname()};",
+            # There is one input stream per head
+            *(f"IStream in{i}_{self.hls_sname()};" for i in range(self.heads))
         ]
 
     # Generates C++ code for calling the computation part of the operator
     def docompute(self):
         reversed_reads = ", ".join([
-            f"in{i}.read()" for i in reversed(range(self.heads))
+            f"in{i}_{self.hls_sname()}.read()"
+            for i in reversed(range(self.heads))
         ])
 
         # Write the body of the head-splitting top-level function
@@ -768,7 +900,7 @@ class MergeMultiHeads(HLSCustomOp):
             # Read the next input element from each input stream and concatenate
             # using the comma operator overload of ap_uint, writing into the
             # output stream
-            f"out.write(({reversed_reads}));"
+            f"out_{self.hls_sname()}.write(({reversed_reads}));"
             # End of for-loop over repetitions body
             f"}}"
         ]
@@ -793,8 +925,8 @@ class MergeMultiHeads(HLSCustomOp):
             # Generate function call reading from stream into the output file
             #   Note: Outputs are always represented as numpy floats
             f'apintstream2npy<OPacked, OType, OType::width, float>(',
-            f'  out, {shape}, "{code_gen_dir}/out.npy", false',
-            ');',
+            f'out_{self.hls_sname()}, {shape}, "{code_gen_dir}/out.npy", false',
+            f');',
         ]
 
     # Generates C++ code for saving the output of C++ simulation to a file in
@@ -815,9 +947,9 @@ class MergeMultiHeads(HLSCustomOp):
             # Note: Assumes stream type aliases to be set in defines
             f"void {self.onnx_node.name} (",
             # Output HLS stream
-            f"  OStream &out", ",".join([
+            f"  OStream &out_{self.hls_sname()}, ", ",".join([
             # One input HLS stream per head  # noqa: Formatting
-            f"  IStream &in{i}" for i in range(self.heads)
+            f"  IStream &in{i}_{self.hls_sname()}" for i in range(self.heads)
             ]),
             f")",
             # @formatter:off
@@ -830,13 +962,13 @@ class MergeMultiHeads(HLSCustomOp):
         # the top-level function arguments
         self.code_gen_dict["$PRAGMAS$"] = [
             # Connect the output stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=out"
+            f"#pragma HLS INTERFACE axis port=out_{self.hls_sname()}"
         ]
         # Connect each input stream with an axi stream interface
         for i in range(self.heads):
             # Add new interface directive for the input stream
             self.code_gen_dict["$PRAGMAS$"] += [
-                f"#pragma HLS INTERFACE axis port=in{i}"
+                f"#pragma HLS INTERFACE axis port=in{i}_{self.hls_sname()}"
             ]
         # No block-level I/O protocol for the function return value
         self.code_gen_dict["$PRAGMAS$"].append(
