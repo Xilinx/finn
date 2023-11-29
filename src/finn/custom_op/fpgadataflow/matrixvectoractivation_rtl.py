@@ -966,10 +966,12 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
         # 0.741 ns seems the worst-case delay through first DSP
         # 0.605 ns seems to be (on average) delay for all subsequent DSPs
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605)
+        # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        assert (clk > 0.741), "Infeasible clk target of {} ns has been set, consider lowering the targeted clock frequency!".format(clk)
+        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
         max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
-        return max(1, dsp_chain_len)
+        return dsp_chain_len
 
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
@@ -1051,7 +1053,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
-        code_gen_dict["$FORCE_BEHAVIORAL$"] = [str(0)]
 
         return template_path, code_gen_dict
 
