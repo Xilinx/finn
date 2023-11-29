@@ -63,13 +63,12 @@ module mvu_vvu_axi #(
 	bit M_REG_LUT = 1,
 
 	// Safely deducible parameters
-	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	localparam int unsigned INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
-	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
-	localparam int unsigned INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
-	localparam int unsigned SF = MW/SIMD,
-	localparam int unsigned NF = IS_MVU ? MH/PE : 1,
-	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
+	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+	localparam int unsigned  INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
+	localparam int unsigned  WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
+	localparam int unsigned  INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
+	localparam int unsigned	 OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8,
+	localparam bit           SIMD_UNEVEN = SIMD % 2
 )
 (
 	// Global Control
@@ -129,17 +128,11 @@ module mvu_vvu_axi #(
 			end
 		end
 
-		//- Pumping Constraints ---------
-		if(PUMPED_COMPUTE) begin
-			if(SIMD % 2 != 0) begin
-				$error("Odd SIMD=%0d is incompatible with pumped compute.", SIMD);
-				$finish;
-			end
-		end
 	end
 
-	uwire clk = ap_clk;
-	uwire rst = !ap_rst_n;
+	uwire  clk = ap_clk;
+	uwire  clk2x = ap_clk2x;
+	uwire  rst = !ap_rst_n;
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
@@ -175,17 +168,11 @@ module mvu_vvu_axi #(
 		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
 		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
 		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i, P_1), ..., (S_i, P_i)
-		for(genvar  pe = 0; pe < (IS_MVU? 1:PE); pe++) begin
+		for(genvar  pe = 0; pe < ACT_PE; pe++) begin
 			for(genvar  simd = 0; simd < SIMD; simd++) begin
-				assign	amvau_i[pe][simd] = amvau[];	// TODO: Do the right thing as below here.
+				assign	amvau_i[pe][simd] = amvau[simd*ACT_PE+pe];
 			end
 		end
-
-		localparam int num_of_elements = INPUT_STREAM_WIDTH/ACTIVATION_WIDTH;
-		for (genvar i=0; i<num_of_elements; i++) begin : genRewire
-			assign  amvau_i[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH] =
-									amvau[(i/SIMD + (i*PE % num_of_elements) + 1) * ACTIVATION_WIDTH : (i/SIMD + (i*PE % num_of_elements)) * ACTIVATION_WIDTH];
-		end : genRewire
 	end : genVVUInput
 
 	//- Flow Control Bracket around Compute Core ----------------------------
@@ -199,7 +186,8 @@ module mvu_vvu_axi #(
 	uwire  ovld;
 	uwire dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  DSP_SIMD = SIMD/(PUMPED_COMPUTE+1);
+		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD; 
+		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
@@ -242,6 +230,7 @@ module mvu_vvu_axi #(
 			logic  Zero = 1;
 			dsp_w_t  W[1:0] = '{ default: 'x };
 			dsp_a_t  A[1:0] = '{ default: 'x };
+
 			always_ff @(posedge clk2x) begin
 				if(rst) begin
 					En   <= 0;
@@ -256,12 +245,12 @@ module mvu_vvu_axi #(
 						if(en) begin
 							Last <= '{ alast && avld, 1'b0 };
 							Zero <= !istb;
-							for(int unsigned  simd = 0; simd < SIMD; simd++) begin
+							for(int unsigned  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin
 								for(int unsigned  pe = 0; pe < PE; pe++) begin
-									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= mvu_w[pe][simd];
+									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : mvu_w[pe][simd];
 								end
 								for(int unsigned  pe = 0; pe < ACT_PE; pe++) begin
-									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= amvau_i[pe][simd];
+									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : amvau_i[pe][simd];
 								end
 							end
 						end
@@ -293,7 +282,7 @@ module mvu_vvu_axi #(
 				end
 				else begin
 					if(dsp_vld)  P <= dsp_p;
-					Vld <= dsp_vld || (Vld && !Active);
+					Vld <= dsp_vld || (Vld && Active);
 				end
 			end
 			assign	ovld = Vld;
