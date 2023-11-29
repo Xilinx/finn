@@ -99,6 +99,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # memory type for threshold storage - note that BST has complex
+            # memory structure and it's not the case that the entire memory
+            # gets mapped to this kind of resource
+            "ram_style": ("s", False, "auto", {"auto", "distributed", "ultra", "block"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -348,6 +352,18 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
+
+        # (depth_trigger_uram, depth_trigger_bram)
+        ram_style_to_depth_triggers = {
+            "auto": (0, 0),
+            "distributed": (0, 0),
+            "ultra": (4096, 0),
+            "block": (0, 1024),
+        }
+        ram_style = self.get_nodeattr("ram_style")
+        (depth_trigger_uram, depth_trigger_bram) = ram_style_to_depth_triggers[ram_style]
+        code_gen_dict["$DEPTH_TRIGGER_URAM$"] = [str(depth_trigger_uram)]
+        code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
 
         return code_gen_dict
 
