@@ -224,7 +224,7 @@ class ACCLOut(ACCLOp):
             '#pragma HLS INTERFACE axis port=in0_{}'.format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+            "#pragma HLS INTERFACE s_axilite port=return bundle=control",
         ]
 
     def strm_decl(self):
