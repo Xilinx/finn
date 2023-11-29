@@ -33,83 +33,121 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 
+from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
+from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 
-class SpecializeFMPadding(Transformation):
-    """Convert FMPadding layer to FMPadding_hls or FMPadding_rtl."""
+restricted_layers = []
+restricted_layers.append("MatrixVectorActivation")
+restricted_layers.append("VectorVectorActivation")
 
-    def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "FMPadding":
-                pad_input = node.input[0]
-                pad_output = node.output[0]
-                pad_inst = getCustomOp(node)
-                impl_style = pad_inst.get_nodeattr("preferred_impl_style")
-                if impl_style == "":
-                    impl_style = "rtl"
-                optype = node.op_type + "_" + impl_style
-                new_node = helper.make_node(
-                    optype,
-                    [pad_input],
-                    [pad_output],
-                    domain="finn.custom_op.fpgadataflow." + impl_style,
+
+def _determine_impl_style(node):
+    optype = node.op_type
+
+    # if rtl variant has specific restrictions
+    # use always the hls variant for now
+    if optype in restricted_layers:
+        return "hls"
+
+    # check if there is an HLS or RTL variant or both
+    hls_variant = optype + "_hls" in hls_variants.keys()
+    rtl_variant = optype + "_rtl" in rtl_variants.keys()
+
+    # check if user has specified a preferred_impl_style
+    inst = getCustomOp(node)
+    impl_style = inst.get_nodeattr("preferred_impl_style")
+
+    # if impl_style not set, for "simple" layers always try
+    # to use rtl variant if available
+    if impl_style == "":
+        if rtl_variant:
+            return "rtl"
+        # but if no rtl variant, set impl_style to hls
+        elif hls_variant:
+            return "hls"
+        # if there is neither an rtl nor hls variant
+        # throw error
+        else:
+            raise Exception(
+                """Node {} with optype {} has no hw implementation variant)""".format(
+                    node.name, optype
                 )
-                # add all attributes
-                for attribute in node.attribute:
-                    if attribute.name != "preferred_impl_style":
-                        new_node.attribute.append(attribute)
-                graph.node.insert(node_ind, new_node)
-                # remove old nodes
-                graph.node.remove(node)
-                graph_modified = True
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+            )
 
-
-class SpecializeAddStreams(Transformation):
-    """Convert AddStreams layer to Addstreams_hls. There is no RTL variant of this node"""
-
-    def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "AddStreams":
-                add_input0 = node.input[0]
-                add_input1 = node.input[1]
-                add_output = node.output[0]
-                add_inst = getCustomOp(node)
-                impl_style = add_inst.get_nodeattr("preferred_impl_style")
-                if impl_style == "rtl":
-                    warn_str = """There is no RTL variant of %s. Node %s will automatically be
+    # check if user setting can be fulfilled
+    # otherwise change impl_style
+    if impl_style == "hls":
+        if hls_variant:
+            return "hls"
+        elif rtl_variant:
+            warn_str = """There is no HLS variant of %s. Node %s will automatically be
+                        set to RTL variant.""" % (
+                node.op_type,
+                node.name,
+            )
+            warnings.warn(warn_str)
+            return "rtl"
+        else:
+            raise Exception(
+                """Node {} with optype {} has no hw implementation variant)""".format(
+                    node.name, optype
+                )
+            )
+    elif impl_style == "rtl":
+        if rtl_variant:
+            return "rtl"
+        elif hls_variant:
+            warn_str = """There is no RTL variant of %s. Node %s will automatically be
                         set to HLS variant.""" % (
-                        node.op_type,
-                        node.name,
-                    )
-                    warnings.warn(warn_str)
-                if impl_style == "" or impl_style == "rtl":
-                    impl_style = "hls"
-                optype = node.op_type + "_" + impl_style
-                new_node = helper.make_node(
-                    optype,
-                    [add_input0, add_input1],
-                    [add_output],
-                    domain="finn.custom_op.fpgadataflow." + impl_style,
+                node.op_type,
+                node.name,
+            )
+            warnings.warn(warn_str)
+            return "hls"
+        else:
+            raise Exception(
+                """Node {} with optype {} has no hw implementation variant)""".format(
+                    node.name, optype
                 )
-                # add all attributes
-                for attribute in node.attribute:
-                    if attribute.name != "preferred_impl_style":
-                        new_node.attribute.append(attribute)
-                graph.node.insert(node_ind, new_node)
-                # remove old nodes
-                graph.node.remove(node)
-                graph_modified = True
+            )
+    else:
+        raise Exception(
+            """Invalid value for attribute preferred_impl_style! Is currently set to: {}
+            has to be set to one of the following value ("hls", "rtl")""".format(
+                impl_style
+            )
+        )
+
+
+class SpecializeLayers(Transformation):
+    """Specialize all layers to either HLS or RTL variants"""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            # Skip nodes that are not hw layers
+            if not node.domain == "finn.custom_op.fpgadataflow":
+                continue
+            node_ind += 1
+            impl_style = _determine_impl_style(node)
+            optype = node.op_type + "_" + impl_style
+
+            new_node = helper.make_node(
+                optype,
+                node.input,
+                node.output,
+                domain="finn.custom_op.fpgadataflow." + impl_style,
+            )
+            # add all attributes
+            for attribute in node.attribute:
+                if attribute.name != "preferred_impl_style":
+                    new_node.attribute.append(attribute)
+            graph.node.insert(node_ind, new_node)
+            # remove old nodes
+            graph.node.remove(node)
+            graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())

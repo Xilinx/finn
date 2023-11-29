@@ -44,7 +44,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeAddStreams
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_addstreams_modelwrapper(ch, pe, idt):
@@ -106,7 +106,7 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
 
     model = make_addstreams_modelwrapper(ch, pe, idt)
     model.save("addstreams_hw.onnx")
-    model = model.transform(SpecializeAddStreams())
+    model = model.transform(SpecializeLayers())
     model.save("addstreams_hls.onnx")
 
     if exec_mode == "cppsim":

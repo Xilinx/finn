@@ -47,7 +47,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeFMPadding
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -129,7 +129,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     odim_w = idim_w + pad_w
 
     model = make_single_fmpadding_modelwrapper(impl_style, idim, pad, num_ch, simd, idt)
-    model = model.transform(SpecializeFMPadding())
+    model = model.transform(SpecializeLayers())
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
