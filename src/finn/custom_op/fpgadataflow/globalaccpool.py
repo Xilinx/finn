@@ -152,4 +152,9 @@ class GlobalAccPool(HWCustomOp):
         return int(np.prod(self.get_folded_input_shape()[:-1]) + folds)
 
     def execute_node(self, context, graph):
-        pass
+        # simulate behavior with Python functionality
+        node = self.onnx_node
+        inp_values = context[node.input[0]]
+        oshape = context[node.output[0]].shape
+        result = np.apply_over_axes(np.sum, inp_values, [1, 2])
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

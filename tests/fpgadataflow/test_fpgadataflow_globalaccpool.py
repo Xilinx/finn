@@ -102,7 +102,16 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
 
+    # prepare input data and execute
+    input_dict = prepare_inputs(x, idt)
+    expected_y = np.sum(x, axis=(1, 2)).flatten()
+
     model = make_accpool_modelwrapper(ch, pe, imdim, idt, impl_style)
+
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert (y == expected_y).all(), "HW layer verification failed"
+
     model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
@@ -118,10 +127,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
     y = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_y = np.sum(x, axis=(1, 2)).flatten()
 
     assert (y == expected_y).all(), exec_mode + " failed"
 
