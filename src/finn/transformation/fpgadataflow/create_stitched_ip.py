@@ -43,13 +43,12 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.custom_op.fpgadataflow.accl import ACCLOp, accl_word_size
 
 
 def is_external_input(model, node, i):
     # indicate whether input i of node should be made external
     # True only if input is unconnected and has no initializer
-    # Only exception is second input of FC layers when mem_mode is external
+    # Only esception is second input of FC layers when mem_mode is external
     node_inst = getCustomOp(node)
     producer = model.find_producer(node.input[i])
     if producer is None:
@@ -279,101 +278,6 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
         self.connect_cmds.append("assign_bd_address")
 
-    def setup_accl_interface(self, model):
-        unused_src = None
-        unused_sink = None
-
-        has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
-
-        if has_accl_in:
-            self.connect_cmds.append(
-                "set_property name data_from_cclo_0 [get_bd_intf_ports s_axis_0]"
-            )
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 s_axis_0"
-            )
-            unused_src = "s_axis_0"
-        else:
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 data_from_cclo_0"
-            )
-            unused_src = "data_from_cclo_0"
-
-        accl_out_node = None
-        for node in model.graph.node:
-            if node.op_type == "ACCLOut":
-                accl_out_node = node
-                break
-
-        if accl_out_node is not None:
-            self.connect_cmds.append(
-                "set_property name data_to_cclo_0 [get_bd_intf_ports m_axis_0]"
-            )
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 m_axis_0"
-            )
-            # TODO: In a case where we have multiple nodes that access the cmd interface
-            # we will need to add an arbiter for this.
-            self.connect_cmds += [
-                "make_bd_intf_pins_external [get_bd_intf_pins {}/{}]".format(
-                    accl_out_node.name,
-                    pin_name
-                )
-                for pin_name in ["cmd_to_cclo", "sts_from_cclo", "s_axi_control"]
-            ]
-            self.connect_cmds.append(
-                "create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0"
-            )
-            self.connect_cmds.append(
-                "connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins {}/wait_for_ack]"
-                .format(accl_out_node.name)
-            )
-            unused_sink = "m_axis_0"
-        else:
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo_0"
-            )
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo_0"
-            )
-            self.connect_cmds.append(
-                "create_bd_intf_port -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo_0"
-            )
-            unused_sink = "data_to_cclo_0"
-        tie_off_cmd = accl_out_node is not None
-
-        def tie_off(a, b):
-            fifo_name = f"tie_off_{a}_{b}"
-            self.connect_cmds.append(
-                f"""
-                create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 {fifo_name}
-                connect_bd_net [get_bd_ports ap_clk] [get_bd_pins {fifo_name}/s_axis_aclk]
-                connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins {fifo_name}/s_axis_aresetn]
-                connect_bd_intf_net [get_bd_intf_pins {fifo_name}/S_AXIS] [get_bd_intf_pins {a}]
-                connect_bd_intf_net [get_bd_intf_pins {fifo_name}/M_AXIS] [get_bd_intf_pins {b}]
-                """
-            )
-
-        # Tie off the unused ports with a fifo so that they will not get removed from the
-        # interface of the generated IP.
-        tie_off(unused_src, unused_sink)
-        if accl_out_node is None:
-            tie_off("sts_from_cclo_0", "cmd_to_cclo_0")
-
-        self.intf_names["s_axis"] += [
-            ("sts_from_cclo_0", 32),
-            ("data_from_cclo_0", accl_word_size)
-        ]
-        self.intf_names["m_axis"] += [
-            ("cmd_from_cclo_0", 32),
-            ("data_to_cclo_0", accl_word_size)
-        ]
-
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
@@ -382,9 +286,9 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA", "ACCLIn"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
-                """First node is not StreamingFIFO, IODMA or ACCLIn.
+                """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
@@ -443,13 +347,6 @@ class CreateStitchedIP(Transformation):
             for i in range(len(node.output)):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
-
-        has_accl_node = any(
-            issubclass(type(getCustomOp(node)), ACCLOp)
-            for node in model.graph.node
-        )
-        if has_accl_node:
-            self.setup_accl_interface(model)
 
         if self.signature:
             # extract number of checksum layer from graph
