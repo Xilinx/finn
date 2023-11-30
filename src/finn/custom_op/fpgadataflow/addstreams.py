@@ -141,7 +141,16 @@ class AddStreams(HWCustomOp):
         return np.prod(self.get_folded_output_shape()[:-1])
 
     def execute_node(self, context, graph):
-        pass
+        # simulate behavior using Python
+        node = self.onnx_node
+        inp0_values = context[node.input[0]]
+        inp1_values = context[node.input[1]]
+        oshape = context[node.output[0]].shape
+        ishape0 = inp0_values.shape
+        ishape1 = inp1_values.shape
+        assert ishape0 == ishape1, "Shapes of inputs should be the same for Addstreams"
+        result = inp0_values + inp1_values
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

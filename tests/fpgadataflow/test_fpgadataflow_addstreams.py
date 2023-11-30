@@ -105,9 +105,18 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     x2 = gen_finn_dt_tensor(idt, (1, ch))
 
     model = make_addstreams_modelwrapper(ch, pe, idt)
-    model.save("addstreams_hw.onnx")
+
+    # prepare input data
+    input_dict = prepare_inputs(x1, x2)
+    oshape = model.get_tensor_shape("outp")
+    y = x1 + x2
+    y_expected = y.reshape(oshape)
+
+    # test verification flow before specializing layer
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), "Execution of hw layer failed"
+
     model = model.transform(SpecializeLayers())
-    model.save("addstreams_hls.onnx")
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -122,12 +131,6 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data
-    input_dict = prepare_inputs(x1, x2)
-
-    oshape = model.get_tensor_shape("outp")
-    y = x1 + x2
-    y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     y_produced = y_produced.reshape(y_expected.shape)
