@@ -144,7 +144,16 @@ class DuplicateStreams(HWCustomOp):
         return np.prod(self.get_folded_output_shape()[:-1])
 
     def execute_node(self, context, graph):
-        pass
+        # passing input to both outputs to make
+        # abstraction layer executable
+        node = self.onnx_node
+        inp = context[node.input[0]]
+        exp_shape = self.get_normal_input_shape()
+
+        output = inp
+        output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
+        for outp in node.output:
+            context[outp] = output
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

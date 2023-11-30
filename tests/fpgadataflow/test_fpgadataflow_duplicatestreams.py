@@ -117,6 +117,17 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
     x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
 
     model = make_dupstreams_modelwrapper(ch, pe, imdim, idt, n_dupl, impl_style)
+
+    # prepare input data and execute
+    input_dict = prepare_inputs(x, idt)
+
+    # check behavior of hw abstraction layer
+    output_dict = oxe.execute_onnx(model, input_dict)
+    expected_y = x
+    for i in range(n_dupl):
+        y = output_dict["outp%d" % i]
+        assert (y == expected_y).all(), "HW layer execution failed"
+
     model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
@@ -132,11 +143,8 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
     output_dict = oxe.execute_onnx(model, input_dict)
 
-    expected_y = x
     for i in range(n_dupl):
         y = output_dict["outp%d" % i]
         assert (y == expected_y).all(), exec_mode + " failed"
