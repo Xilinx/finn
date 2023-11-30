@@ -67,6 +67,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
 )
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
+from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
@@ -111,3 +112,4 @@ custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
+custom_op["StreamingMaxPool"] = StreamingMaxPool

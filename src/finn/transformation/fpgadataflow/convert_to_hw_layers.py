@@ -32,11 +32,67 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.onnx import nchw_to_nhwc
+
+
+class InferStreamingMaxPool(Transformation):
+    """Convert MaxPoolNHWC layers to StreamingMaxPool HW layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MaxPoolNHWC":
+                mp_input = node.input[0]
+                mp_output = node.output[0]
+                mp_in_shape = model.get_tensor_shape(mp_input)
+                # mp_out_shape = model.get_tensor_shape(mp_output)
+                dt = model.get_tensor_datatype(mp_input)
+                mp_inst = getCustomOp(node)
+                k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
+                ifm_ch = mp_in_shape[-1]
+                ifm_dim_h = mp_in_shape[1]
+                ifm_dim_w = mp_in_shape[2]
+                pe = 1
+                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
+                is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
+                is_divisable = (ifm_dim_h % k_h == 0) or (ifm_dim_w % k_w == 0)
+                is_bipolar = dt == DataType["BIPOLAR"]
+                pass_1d = is_1d and (not is_bipolar)
+                pass_2d = (not is_1d) and is_divisable
+                if pass_1d or pass_2d:
+                    # create equivalent StreamingMaxPool_Batch node
+                    new_node = helper.make_node(
+                        "StreamingMaxPool",
+                        [mp_input],
+                        [mp_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        PoolDim=(k_h, k_w),
+                        NumChannels=ifm_ch,
+                        ImgDim=(ifm_dim_h, ifm_dim_w),
+                        dataType=dt.name,
+                        PE=pe,
+                        CeilMode=ceil_mode,
+                        name="StreamingMaxPool_" + node.name,
+                    )
+                    graph.node.insert(node_ind, new_node)
+                    # remove old nodes
+                    graph.node.remove(node)
+                    graph_modified = True
+                else:
+                    warnings.warn(node.name + ": could not convert to HW")
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
 
 
 class InferAddStreamsLayer(Transformation):
