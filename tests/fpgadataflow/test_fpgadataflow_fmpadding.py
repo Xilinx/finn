@@ -128,8 +128,17 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
+    y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
+    expected_oshape = (1, odim_h, odim_w, num_ch)
+
     model = make_single_fmpadding_modelwrapper(impl_style, idim, pad, num_ch, simd, idt)
+
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert y_produced.shape == expected_oshape
+    assert (y_produced == y_expected).all(), "HW layer execution failed"
+
     model = model.transform(SpecializeLayers())
+
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -142,11 +151,8 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
         model = model.transform(PrepareRTLSim())
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_oshape = (1, odim_h, odim_w, num_ch)
+
     assert y_produced.shape == expected_oshape
-
-    y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
-
     assert (y_produced == y_expected).all()
 
     if mode == "rtlsim":

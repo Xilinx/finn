@@ -161,4 +161,12 @@ class FMPadding(HWCustomOp):
         return np.prod(folded_oshape[:-1])
 
     def execute_node(self, context, graph):
-        pass
+        # simulate behavior with Python functionality
+        node = self.onnx_node
+        pad = self.get_nodeattr("Padding")
+        inp_values = context[node.input[0]]
+        oshape = context[node.output[0]].shape
+        result = np.pad(
+            inp_values, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
+        )
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
