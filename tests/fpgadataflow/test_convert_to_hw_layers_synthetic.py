@@ -189,7 +189,6 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(to_hw.InferLabelSelectLayer())
     model = model.transform(AbsorbConsecutiveTransposes())
     model = model.transform(InferDataTypes())
-    #    model = model.transform(to_hw.InferLabelSelectLayer())
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
 
     model = model.transform(SortGraph())
@@ -209,14 +208,37 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     dup_nodes = model.get_nodes_by_op_type("DuplicateStreams")
     assert len(dup_nodes) == 1
 
+    output_hw = oxe.execute_onnx(model, input_dict, True)
+
     model = model.transform(SpecializeLayers())
+
+    # check topology status
+
+    finn_nodes = model.get_finn_nodes()
+    assert len(finn_nodes) == 9
+    add_nodes = model.get_nodes_by_op_type("AddStreams_hls")
+    assert len(add_nodes) == 1
+    pool_nodes = model.get_nodes_by_op_type("GlobalAccPool_hls")
+    assert len(pool_nodes) == 1
+    label_nodes = model.get_nodes_by_op_type("LabelSelect_hls")
+    assert len(label_nodes) == 1
+    channelwise_nodes = model.get_nodes_by_op_type("ChannelwiseOp_hls")
+    assert len(channelwise_nodes) == 5
+    dup_nodes = model.get_nodes_by_op_type("DuplicateStreams_hls")
+    assert len(dup_nodes) == 1
 
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
 
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced_topk_hls = output_dict[model.graph.output[0].name]
+
+    # verify execution
+    outp_name = model.graph.output[0].name
+    # comparison before and after layer specialization
+    assert (output_dict[outp_name] == output_hw[outp_name]).all()
+    # comparison with golden output
+    produced_topk_hls = output_dict[outp_name]
     topk_input = output_dict[model.graph.node[-1].input[0]]
     assert soft_verify_topk(topk_input, produced_topk_hls, 5)
 
