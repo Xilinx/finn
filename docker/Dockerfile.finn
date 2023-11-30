@@ -33,11 +33,6 @@ ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
 
 WORKDIR /workspace
 
-# ENV http_proxy http://proxy.ethz.ch:3128
-# ENV https_proxy http://proxy.ethz.ch:3128
-# ENV HTTPS_PROXY http://proxy.ethz.ch:3128
-# ENV HTTP_PROXY http://proxy.ethz.ch:3128
-
 # some Vitis deps require a timezone to be specified, which hangs in Docker
 # use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
 ENV TZ="Europe/Dublin"
@@ -66,7 +61,6 @@ RUN apt-get update && \
     python3 \
     python-is-python3 \
     python3-pip
-
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
@@ -122,21 +116,23 @@ RUN pip install tokenize-rt==4.2.1
 # pyverilator
 RUN pip install tclwrapper==0.0.1
 
-# install accl dependencies
+# install accl and dependencies
+# for hls driver and the emulator the main branch should be fine
+RUN git clone https://github.com/Xilinx/ACCL
+
 RUN apt-get install -y \
     cmake \
+    doxygen \
+    libboost-dev \
     libjsoncpp-dev \
     libtclap-dev \
-    xvfb \
     libzmq3-dev \
-    doxygen
+    xvfb
 
 RUN git clone https://github.com/zeromq/zmqpp && \
     cd zmqpp && \
     make && \
     make install PREFIX=/usr/
-
-RUN apt-get install -y gdb libboost-dev
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"

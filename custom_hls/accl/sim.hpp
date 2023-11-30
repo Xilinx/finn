@@ -14,9 +14,7 @@ std::unique_ptr<ACCL::ACCL> init_accl(
     accl_network_utils::acclDesign design = accl_network_utils::acclDesign::AXIS3x;
 
     std::vector<ACCL::rank_t> ranks;
-    // TODO: Get the rxbuf size as a config parameter
     ranks = accl_network_utils::generate_ranks(true, rank, world_size, start_port, 16 * 1024);
-
     return accl_network_utils::initialize_accl(ranks, rank, true, design);
 }
 

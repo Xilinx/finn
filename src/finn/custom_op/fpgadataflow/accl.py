@@ -17,6 +17,7 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 accl_word_size = 512
 
 class ACCLOp(HLSCustomOp):
+    # Some synchronization primitives for executing the nodes in parallel
     lock = threading.Lock()
     barriers = defaultdict(lambda: threading.Barrier(2))
 
@@ -69,11 +70,12 @@ class ACCLOp(HLSCustomOp):
         with ACCLOp.lock:
             barrier = ACCLOp.barriers[edge_name]
 
-        timeout_s = 5
+        timeout_s = 20
         idx = barrier.wait(timeout=timeout_s)
 
         emulator = None
         try:
+            executable_path = self.get_nodeattr("executable_path")
             if executable_path == "":
                 name = self.onnx_node.name
                 raise Exception(
@@ -81,7 +83,7 @@ class ACCLOp(HLSCustomOp):
                 )
 
             if idx == 0:
-                emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
+                emulator_dir = f"{os.environ['ACCL_ROOT']}/test/model/emulator"
                 world_size = self.get_nodeattr("worldSize")
 
                 # Make sure the emulator binary is built before we start it
@@ -93,8 +95,6 @@ class ACCLOp(HLSCustomOp):
                 emulator = subprocess.Popen([
                     "python3", "run.py", f"-n {world_size}", "--no-kernel-loopback"
                 ], cwd=emulator_dir)
-
-            executable_path = self.get_nodeattr("executable_path")
 
             p = subprocess.Popen(
                 executable_path,

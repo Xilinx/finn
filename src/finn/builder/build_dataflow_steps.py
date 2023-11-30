@@ -53,7 +53,6 @@ from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.assign_partition_ids import AssignPartitionIDs
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -86,12 +85,9 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveFIFOSizes,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
-from finn.transformation.fpgadataflow.split_dataflow import SplitDataflow
-from finn.transformation.fpgadataflow.setup_accl_interface import SetupACCLInterface
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -432,28 +428,12 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(cfg.folding_config_file))
 
-    return model
-
-
-def step_assign_partition_ids(model: ModelWrapper, cfg: DataflowBuildConfig):
-    return model.transform(
-        AssignPartitionIDs(cfg.synth_clk_period_ns, cfg.board, cfg.num_boards)
-    )
-
-
-def step_insert_accl(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(InsertACCL())
-    model = model.transform(GiveUniqueNodeNames())
-
-    model.save('model.onnx')
-
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
         verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
-
     return model
 
 
@@ -520,11 +500,6 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
-    return model
-
-
-def step_split_dataflow(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(SplitDataflow())
     return model
 
 
@@ -661,10 +636,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             verify_model.set_metadata_prop("rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir))
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
-    return model
-
-def step_setup_accl_interface(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(SetupACCLInterface())
     return model
 
 
@@ -846,6 +817,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         copy_tree(driver_dir, deploy_dir + "/driver")
     return model
 
+
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
     "step_qonnx_to_finn": step_qonnx_to_finn,
@@ -855,16 +827,12 @@ build_dataflow_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
-    "step_assign_partition_ids": step_assign_partition_ids,
-    "step_insert_accl": step_insert_accl,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
-    "step_split_dataflow": step_split_dataflow,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
-    "step_setup_accl_interface": step_setup_accl_interface,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_pynq_driver": step_make_pynq_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,

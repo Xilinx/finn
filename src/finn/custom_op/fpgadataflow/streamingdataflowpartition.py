@@ -33,6 +33,7 @@ from finn.core.onnx_exec import execute_onnx
 
 # TODO move StreamingDataflowPartition to HLSCustomOp base class
 
+
 class StreamingDataflowPartition(CustomOp):
     """Class that corresponds to the meta/container node StreamingDataflowPartition
     which is a placeholder for a group of fpgadataflow nodes that have been separated
@@ -80,6 +81,7 @@ class StreamingDataflowPartition(CustomOp):
             for tname in ret.keys():
                 if tname not in [x.name for x in model.graph.output]:
                     context[node.name + "_" + tname] = ret[tname]
+        pass
 
     def verify_node(self):
         info_messages = []

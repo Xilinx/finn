@@ -39,7 +39,6 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator1d import (
 from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
-from finn.custom_op.fpgadataflow.distributed_dataflow import DistributedDataflow
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
@@ -96,6 +95,5 @@ custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["FMPadding_rtl"] = FMPadding_rtl
-custom_op["DistributedDataflow"] = DistributedDataflow
 custom_op["ACCLIn"] = ACCLIn
 custom_op["ACCLOut"] = ACCLOut

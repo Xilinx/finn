@@ -117,10 +117,8 @@ default_build_dataflow_steps = [
     "step_streamline",
     "step_convert_to_hls",
     "step_create_dataflow_partition",
-    "step_distribute_dataflow",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
-    "step_insert_accl",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
     "step_hls_codegen",
@@ -141,11 +139,8 @@ estimate_only_dataflow_steps = [
     "step_streamline",
     "step_convert_to_hls",
     "step_create_dataflow_partition",
-    "step_distribute_dataflow",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
-    "step_insert_accl",
-    "step_verify_with_cppsim",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
 ]
@@ -355,9 +350,6 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
-
-    #: If specified the model will be partitioned across the given number of boards
-    num_boards: Optional[int] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

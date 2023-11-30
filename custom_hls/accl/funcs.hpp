@@ -29,7 +29,6 @@ void accl_out(
     std::cerr << "accl_out starting to output data to rank " << destination << " (" << num_bits << " bits)" << std::endl;
 #endif
 
-    bool leftover = num_bits % accl_width != 0;
     int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
 
     send: for (int i = 0; i < num_bits - step + 1; i += step) {

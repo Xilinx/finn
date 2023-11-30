@@ -485,7 +485,8 @@ Found no executable for this node, did you run the codegen and
 compilation transformations?
             """
             )
-        subprocess.run(executable_path)
+        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
+        process_execute.communicate()
 
     def reset_rtlsim(self, sim):
         """Sets reset input in pyverilator to zero, toggles the clock and set it

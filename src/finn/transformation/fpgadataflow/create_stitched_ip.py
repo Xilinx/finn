@@ -280,8 +280,6 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def setup_accl_interface(self, model):
-        # For now we assume that there will always be two unused streams that can be tied
-        # off by connecting them together.
         unused_src = None
         unused_sink = None
 
@@ -292,13 +290,13 @@ class CreateStitchedIP(Transformation):
                 "set_property name data_from_cclo_0 [get_bd_intf_ports s_axis_0]"
             )
             self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave"
+                "create_bd_intf_port -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 s_axis_0"
             )
             unused_src = "s_axis_0"
         else:
             self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave"
+                "create_bd_intf_port -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 data_from_cclo_0"
             )
             unused_src = "data_from_cclo_0"
@@ -335,15 +333,15 @@ class CreateStitchedIP(Transformation):
             unused_sink = "m_axis_0"
         else:
             self.connect_cmds.append(
-                "create_bd_intf_port -mode Master"
+                "create_bd_intf_port -mode Master "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo_0"
             )
             self.connect_cmds.append(
-                "create_bd_intf_port -mode Slave"
+                "create_bd_intf_port -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo_0"
             )
             self.connect_cmds.append(
-                "create_bd_intf_port -mode Master"
+                "create_bd_intf_port -mode Master "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo_0"
             )
             unused_sink = "data_to_cclo_0"
@@ -477,10 +475,8 @@ class CreateStitchedIP(Transformation):
         # create block design and instantiate all layers
         block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
-
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
-
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
@@ -499,7 +495,6 @@ class CreateStitchedIP(Transformation):
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
         tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
-
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -523,7 +518,6 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
             )
-
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
@@ -703,11 +697,9 @@ close $ofile
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
-
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
         working_dir = os.environ["PWD"]
-
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))

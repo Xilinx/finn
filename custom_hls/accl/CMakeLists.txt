@@ -3,10 +3,12 @@ project(node_model)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_subdirectory(../../ACCL/test/model/bfm ${CMAKE_CURRENT_BINARY_DIR}/bfm)
-add_subdirectory(../../ACCL/driver/utils/accl_network_utils ${CMAKE_CURRENT_BINARY_DIR}/accl_network_utils)
+add_subdirectory($ENV{ACCL_ROOT}/test/model/bfm ${CMAKE_CURRENT_BINARY_DIR}/bfm)
+add_subdirectory($ENV{ACCL_ROOT}/driver/utils/accl_network_utils
+    ${CMAKE_CURRENT_BINARY_DIR}/accl_network_utils
+)
 
-file(GLOB NODE_SRCS ${CODE_GEN_DIR}/*.cpp ../../deps/cnpy/cnpy.cpp)
+file(GLOB NODE_SRCS ${CODE_GEN_DIR}/*.cpp $ENV{FINN_ROOT}/deps/cnpy/cnpy.cpp)
 
 add_executable(node_model ${NODE_SRCS})
 
