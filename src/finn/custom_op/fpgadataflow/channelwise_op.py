@@ -27,8 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import onnxruntime as rt
 import warnings
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -197,4 +200,35 @@ class ChannelwiseOp(HWCustomOp):
         return np.prod(self.get_folded_output_shape()[:-1])
 
     def execute_node(self, context, graph):
-        pass
+        # create a standard onnx node to help calculate the result
+        # depending on Func node attribute either a Mul or an Add node
+        node = self.onnx_node
+        func = self.get_nodeattr("Func")
+        inp_values = context[node.input[0]]
+        param_values = context[node.input[1]]
+        oshape = context[node.output[0]].shape
+        ishape = inp_values.shape
+        pshape = param_values.shape
+        inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, ishape)
+        param = helper.make_tensor_value_info(node.input[1], TensorProto.FLOAT, pshape)
+        outp = helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, oshape)
+        node_func = helper.make_node(
+            func.capitalize(),
+            inputs=node.input,
+            outputs=[node.output[0]],
+        )
+        graph_func = helper.make_graph(
+            nodes=[node_func],
+            name="single-add-exec",
+            inputs=[inp, param],
+            outputs=[outp],
+        )
+
+        opset_version = self.onnx_opset_version
+        opset_imports = [helper.make_opsetid("", opset_version)]
+        onnx_kwargs = {"opset_imports": opset_imports}
+        model_func = qonnx_make_model(graph_func, **onnx_kwargs)
+        idict = {node.input[0]: inp_values, node.input[1]: param_values}
+        sess = rt.InferenceSession(model_func.SerializeToString())
+        result = sess.run(None, idict)
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

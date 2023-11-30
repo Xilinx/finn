@@ -112,12 +112,33 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
 
     # generate input and param data
     x = gen_finn_dt_tensor(idt, tuple(vecs + [ich]))
-    # C = np.random.randint(idt.min(), idt.max() + 1, ich).astype(np.float32)
     C = gen_finn_dt_tensor(pdt, (ich))
 
     odt = act
 
+    # create model
     model = make_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
+
+    # package input data as dictionary
+    input_dict = {"inp": x}
+
+    oshape = model.get_tensor_shape("outp")
+
+    C_reshaped = np.broadcast_to(C.flatten(), x.shape)
+    if func == "add":
+        y = x + C_reshaped
+    elif func == "mul":
+        y = x * C_reshaped
+
+    y_expected = y.reshape(oshape)
+
+    # verify hw abstraction layer
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all(), "HW layer execution failed"
+
     model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
@@ -133,24 +154,12 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
     else:
         raise Exception("Unknown exec_mode")
 
-    # package input data as dictionary
-    input_dict = {"inp": x}
-
-    oshape = model.get_tensor_shape("outp")
-
-    C_reshaped = np.broadcast_to(C.flatten(), x.shape)
-    if func == "add":
-        y = x + C_reshaped
-    elif func == "mul":
-        y = x * C_reshaped
-
-    y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "cppsim failed"
+    assert (y_produced == y_expected).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
