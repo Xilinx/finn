@@ -25,10 +25,11 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+import numpy as np
+import onnxruntime as rt
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import roundup_to_integer_multiple
+from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -146,7 +147,37 @@ class LabelSelect(HWCustomOp):
         return self.get_nodeattr("K")
 
     def execute_node(self, context, graph):
-        pass
+        # create a standard add node to help calculate the result
+        node = self.onnx_node
+        k = self.get_nodeattr("K")
+
+        inp_values = context[node.input[0]]
+        oshape = context[node.output[0]].shape
+        ishape = inp_values.shape
+        inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, ishape)
+        k_inp = helper.make_tensor_value_info("k_inp", TensorProto.INT64, [1])
+        outp = helper.make_tensor_value_info(node.output[0], TensorProto.INT64, oshape)
+        val_outp = helper.make_tensor_value_info("val_outp", TensorProto.FLOAT, oshape)
+        node_topk = helper.make_node(
+            "TopK",
+            inputs=[node.input[0], "k_inp"],
+            outputs=["val_outp", node.output[0]],
+        )
+        graph_topk = helper.make_graph(
+            nodes=[node_topk],
+            name="single-add-exec",
+            inputs=[inp, k_inp],
+            outputs=[val_outp, outp],
+        )
+
+        opset_version = self.onnx_opset_version
+        opset_imports = [helper.make_opsetid("", opset_version)]
+        onnx_kwargs = {"opset_imports": opset_imports}
+        model_topk = qonnx_make_model(graph_topk, **onnx_kwargs)
+        idict = {node.input[0]: inp_values, "k_inp": [k]}
+        sess = rt.InferenceSession(model_topk.SerializeToString())
+        result = sess.run(None, idict)
+        context[node.output[0]] = np.asarray(result[1], dtype=np.float32).reshape(oshape)
 
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")

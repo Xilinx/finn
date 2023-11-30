@@ -110,8 +110,14 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
 
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, labels))
+    input_dict = prepare_inputs(x, idt)
 
     model = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert soft_verify_topk(x, y, k), "HW layer execution failed"
+
     model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
@@ -127,8 +133,6 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert soft_verify_topk(x, y, k), exec_mode + " failed"
