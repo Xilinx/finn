@@ -572,31 +572,20 @@ class MergeMultiHeads(HLSCustomOp):
         node = self.onnx_node
         # Squeeze single-element batch dimension from the output?
         squeezed = self.squeezed
+        # Assume unpacked inputs by default, here seq sill be the number of
+        # input feature maps
+        seq = self.num_inputs
         # Packed inputs a represented by a reshape operation consuming one
         # tensor
         if self.packed:
-            # Get the shape of the input tensor for inferring the number of
-            # heads and correctly propagating shapes
-            h, seq, dim = model.get_tensor_shape(node.input[0])
-            # Attribute heads must match wht is annotated at the input
-            assert h == self.heads, \
-                f"Shape annotation and number of heads differ: {node.name}"
-            # Distribute the heads into the embedding dimension
-            dim = self.heads * dim
-            # Create a new name for the temporary shape tensor
-            shape = model.make_new_valueinfo_name()
-            # Set the target shape of slices heads
-            model.set_initializer(
-                shape, np.asarray([seq, dim] if squeezed else [seq, 1, dim])
-            )
-            # Return a node simulating the shape effect of merging multi-heads
-            return oh.make_node(
-                "Reshape", [node.input[0], shape], [node.output[0]]
-            )
-        # If the inputs are not packed, the operation is represented as a concat
-        # operation consuming number of heads inputs concatenating along the
-        # last axis
-        return oh.make_node("Concat", node.input, node.output, axis=-1)
+            # Drop the heads-first dimension from packed inputs
+            seq = self.num_inputs[1:]
+        # Distribute the heads into the embedding dimension
+        dim = self.heads * self.num_elems
+        # Constant operation producing output of given shape
+        return super().make_const_shape_op(
+            [*seq, dim] if squeezed else [*seq, 1, dim]
+        )
 
     # Infers the datatype of the node output
     def infer_node_datatype(self, model: ModelWrapper):  # noqa

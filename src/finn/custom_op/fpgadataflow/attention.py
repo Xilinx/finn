@@ -125,8 +125,20 @@ class ScaledDotProductAttention(HLSCustomOp):
     def make_shape_compatible_op(self, model):
         # Infer the output shape from the input shapes
         o_shape = (self.get_nodeattr("QLen"), self.get_nodeattr("VDim"))
+        # Get the node wrapped by this custom op
+        node = self.onnx_node
+        # Get the shape of the input tensor for inferring the number of
+        # heads and correctly propagating shapes
+        shape = model.get_tensor_shape(node.input[0])
+        # Determine the rank of the input tensor to support batched and
+        # non-batched inputs
+        rank = len(shape)
         # Constant operation producing output of given shape
-        return super().make_const_shape_op(o_shape)
+        #   Note: Rank == 3 allows for propagating yet unrolled multi-attention
+        #   heads.
+        return super().make_const_shape_op(
+            (shape[0], *o_shape) if (rank == 3) else o_shape
+        )
 
     # Infers the output data types and updates the input datatypes of the node
     def infer_node_datatype(self, model):
