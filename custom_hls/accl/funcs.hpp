@@ -8,7 +8,7 @@ const size_t accl_width = 512;
 
 template<unsigned int stream_width, unsigned int num_bits, unsigned int step>
 void accl_out(
-    unsigned int destination,
+    unsigned int dest_rank,
     ap_uint<32> comm_adr,
     ap_uint<32> dpcfg_adr,
     STREAM<command_word> &cmd_to_cclo,
@@ -19,14 +19,20 @@ void accl_out(
 ) {
     STREAM<stream_word> data_from_cclo;
 
-    accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
+    ap_uint<32> cflags = 0;
+    ap_uint<32> sflags = 3;
+    accl_hls::ACCLCommand accl(
+        cmd_to_cclo, sts_from_cclo,
+        comm_adr, dpcfg_adr,
+        cflags, sflags
+    );
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
     ap_uint<accl_width> accl_word;
     ap_uint<stream_width> stream_word;
 
 #ifdef CPPSIM
-    std::cerr << "accl_out starting to output data to rank " << destination << " (" << num_bits << " bits)" << std::endl;
+    std::cerr << "accl_out starting to output data to rank " << dest_rank << " (" << num_bits << " bits)" << std::endl;
 #endif
 
     int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
@@ -50,7 +56,17 @@ void accl_out(
         data.push(accl_word, 0);
     }
 
-    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, false);
+
+    unsigned int data_from_cclo_id = 9;
+
+    // Currently the hls driver does not allow us to call stream_put in a non-blocking
+    // way. So we call the lower level function directly.
+    accl.start_call(
+        ACCL_SEND, num_transfer_bits / 32,
+        comm_adr, dest_rank, 0, data_from_cclo_id, 
+        dpcfg_adr, cflags, sflags | 0x2, 
+        0, 0, 0
+    );
 
 #ifdef CPPSIM
     std::cerr << "accl_out waiting on ack" << std::endl;
