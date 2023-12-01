@@ -497,6 +497,29 @@ class SplitMultiHeads(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
 
+    # Returns the names of input and output interfaces grouped by protocol
+    def get_verilog_top_module_intf_names(self):
+        # Start collecting interface names in a dictionary starting with clock
+        # and reset
+        intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}  # noqa
+        # AXI stream input interfaces
+        intf_names["s_axis"] = [
+            # Just one input stream
+            (f"in_{self.hls_sname()}", self.get_instream_width_padded(ind=0)),
+        ]
+        # AXI stream output interfaces
+        intf_names["m_axis"] = [
+            # One output stream per head
+            (f"out{i}_{self.hls_sname()}",
+             self.get_outstream_width_padded(ind=i)) for i in range(self.heads)
+        ]
+        # No AXI-MM, AXI-Lite or protocol-less interfaces
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        # Return the interface name dictionary
+        return intf_names
+
 
 # Merging of attention heads (before output projections) custom operator
 class MergeMultiHeads(HLSCustomOp):
@@ -963,3 +986,26 @@ class MergeMultiHeads(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    # Returns the names of input and output interfaces grouped by protocol
+    def get_verilog_top_module_intf_names(self):
+        # Start collecting interface names in a dictionary starting with clock
+        # and reset
+        intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}  # noqa
+        # AXI stream input interfaces
+        intf_names["s_axis"] = [
+            # One input stream per head
+            (f"in{i}_{self.hls_sname()}",
+             self.get_instream_width_padded(ind=i)) for i in range(self.heads)
+        ]
+        # AXI stream output interfaces
+        intf_names["m_axis"] = [
+            # Just one output stream
+            (f"out_{self.hls_sname()}", self.get_outstream_width_padded(ind=0)),
+        ]
+        # No AXI-MM, AXI-Lite or protocol-less interfaces
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        # Return the interface name dictionary
+        return intf_names
