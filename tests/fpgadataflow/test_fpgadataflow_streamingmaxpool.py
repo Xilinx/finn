@@ -94,7 +94,7 @@ def prepare_inputs(input_tensor):
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 10])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 3])  # 1,3
+@pytest.mark.parametrize("ifm_ch", [1, 3])
 # pe
 @pytest.mark.parametrize("pe", [1, 3])
 # ceil mode

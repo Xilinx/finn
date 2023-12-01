@@ -199,6 +199,11 @@ class StreamingMaxPool(HWCustomOp):
         # convert i/o NHWC -> NCHW
         inp_values = np.transpose(inp_values, (0, 3, 1, 2))
         dummy_out = np.transpose(dummy_out, (0, 3, 1, 2))
+        # handle 1d case
+        ishape = inp_values.shape
+        if ishape[2] == 1 or ishape[3] == 1:
+            inp_values = inp_values.reshape(ishape[0], ishape[1], ishape[2] * ishape[3])
+            kernel_shape = [kernel_shape[0] * kernel_shape[1]]
         # execute as regular MaxPool
         inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, inp_values.shape)
         outp = helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, dummy_out.shape)
