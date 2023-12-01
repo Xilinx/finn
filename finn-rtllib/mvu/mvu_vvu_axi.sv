@@ -63,14 +63,13 @@ module mvu_vvu_axi #(
 	bit M_REG_LUT = 1,
 
 	// Safely deducible parameters
-	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	localparam int unsigned  INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
-	localparam int unsigned  WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
-	localparam int unsigned  INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
-	localparam int unsigned	 OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8,
-	localparam bit           SIMD_UNEVEN = SIMD % 2
-)
-(
+	localparam int unsigned  WEIGHT_STREAM_WIDTH    = PE * SIMD * WEIGHT_WIDTH,
+	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
+	localparam int unsigned  INPUT_STREAM_WIDTH     = (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
+	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8,
+	localparam bit  		 SIMD_UNEVEN = SIMD % 2
+)(
 	// Global Control
 	input	logic  ap_clk,
 	input	logic  ap_clk2x,	// synchronous, double-speed clock; only used for PUMPED_COMPUTE
@@ -128,6 +127,13 @@ module mvu_vvu_axi #(
 			end
 		end
 
+		// //- Pumping Constraints ---------
+		// if(PUMPED_COMPUTE) begin
+		// 	if(SIMD % 2 != 0) begin
+		// 		$error("Odd SIMD=%0d is incompatible with pumped compute.", SIMD);
+		// 		$finish;
+		// 	end
+		// end
 	end
 
 	uwire  clk = ap_clk;
