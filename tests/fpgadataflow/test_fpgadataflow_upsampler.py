@@ -48,12 +48,13 @@ from torch import nn
 import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import InferUpsample
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferUpsample
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 
@@ -82,29 +83,6 @@ class ForceDataTypeForTensors(Transformation):
 
 _to_chan_last_args = (0, 2, 3, 1)
 _to_chan_first_args = (0, 3, 1, 2)
-
-
-class TransposeUpsampleIO(Transformation):
-    """
-    Converts the inputs outputs for all Upsample and Resize nodes
-    from NCHW to NHWC.
-    """
-
-    def apply(self, model):
-        graph = model.graph
-        for n in graph.node:
-            if n.op_type == "Upsample" or n.op_type == "Resize":
-                # Set input shape
-                inp = n.input[0]
-                NCHW_shape = model.get_tensor_shape(inp)
-                NHWC_shape = [NCHW_shape[idx] for idx in _to_chan_last_args]
-                model.set_tensor_shape(inp, NHWC_shape)
-                # Set output shape
-                out = n.output[0]
-                NCHW_shape = model.get_tensor_shape(out)
-                NHWC_shape = [NCHW_shape[idx] for idx in _to_chan_last_args]
-                model.set_tensor_shape(out, NHWC_shape)
-        return model, False
 
 
 class PyTorchTestModel(nn.Module):
@@ -173,7 +151,6 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
 
     # Prep model for execution
     model = ModelWrapper(export_path)
-    # model = model.transform(TransposeUpsampleIO())
     model = model.transform(MakeInputChannelsLast())
     model = model.transform(InferDataLayouts())
     model = model.transform(absorb.AbsorbTransposeIntoResize())
@@ -186,8 +163,18 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
 
     # Check that all nodes are UpsampleNearestNeighbour_Batch nodes
     for n in model.get_finn_nodes():
-        node_check = n.op_type == "UpsampleNearestNeighbour_Batch"
-        assert node_check, "All nodes should be UpsampleNearestNeighbour_Batch nodes."
+        node_check = n.op_type == "UpsampleNearestNeighbour"
+        assert node_check, "All nodes should be UpsampleNearestNeighbour nodes."
+
+    test_in_transposed = test_in.numpy().transpose(_to_chan_last_args)
+    input_dict = {model.graph.input[0].name: test_in_transposed}
+
+    # Run sim
+    output_dict = oxe.execute_onnx(model, input_dict, True)
+    test_result = output_dict[model.graph.output[0].name]
+    output_matches = np.isclose(golden_result, test_result, atol=atol).all()
+
+    model = model.transform(SpecializeLayers())
 
     # Prep sim
     if exec_mode == "cppsim":
@@ -204,8 +191,6 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
         raise Exception("Unknown exec_mode")
 
     # Run sim
-    test_in_transposed = test_in.numpy().transpose(_to_chan_last_args)
-    input_dict = {model.graph.input[0].name: test_in_transposed}
     output_dict = oxe.execute_onnx(model, input_dict, True)
     test_result = output_dict[model.graph.output[0].name]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()

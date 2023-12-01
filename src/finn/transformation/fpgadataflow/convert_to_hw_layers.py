@@ -37,7 +37,105 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
+
+
+class InferUpsample(Transformation):
+    """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Upsample" or n.op_type == "Resize":
+                # Extract mode and scales and input shape
+                mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                if n.op_type == "Upsample":
+                    scales = model.get_initializer(n.input[1])
+                else:
+                    scales = model.get_initializer(n.input[2])
+                in_shape = model.get_tensor_shape(n.input[0])
+
+                dt = model.get_tensor_datatype(n.input[0])
+                if not dt.is_integer():
+                    warnings.warn(
+                        "%s: Input not int. Can't infer UpsampleNearestNeighbour." % n.name
+                    )
+                    continue
+
+                if model.get_tensor_layout(n.input[0]) != DataLayout.NHWC:
+                    warnings.warn(
+                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour." % n.name
+                    )
+                    continue
+
+                # Check that the parameters are okay
+                assert mode == "nearest", (
+                    "%s: Upsampling is only supported for the mode nearest." % n.name
+                )
+                assert len(in_shape) == 4, "Upsampling is only supported for 4D inputs."
+                assert scales.shape == (4,), (
+                    "%s: Upsampling is only supported for 4D scales." % n.name
+                )
+                assert (scales >= 1).all(), (
+                    n.name + ": Upsampling is only supported for scales "
+                    "which are larger or equal 1 in all dimensions."
+                )
+
+                # Assumes nhwc layout for scales and input
+                is_scale_square_2d = scales[1] == scales[2]
+                is_scale_1d = scales[1] > 1 and scales[2] == 1
+                assert is_scale_square_2d or is_scale_1d, (
+                    "%s: Upsampling only supported for 1D H, or 2D square scaling" % n.name
+                )
+                assert scales[0] == scales[3] == 1, (
+                    n.name + ": Upsampling is only supported for scales with "
+                    "the first and last dimensions being 1 in NHWC."
+                )
+                spatial_scale = scales[1]
+                assert spatial_scale == int(spatial_scale), (
+                    "%s: Upsampling is only supported for integer scales." % n.name
+                )
+                is_shape_square_2d = in_shape[1] == in_shape[2]
+                is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
+
+                assert is_shape_square_2d or is_shape_1d, (
+                    "%s: Upsampling is only supported for 1D H or 2D square inputs." % n.name
+                )
+
+                # Extract information for HW node
+                IFMDim = in_shape[1]
+                OFMDim = int(round(in_shape[1] * spatial_scale))
+                NumChannels = in_shape[-1]
+                numInputVectors = in_shape[0]
+                inputDataType = dt.name
+                dim_mode = 0 if is_shape_square_2d else 1
+
+                # Insert the HWCustomOp node
+                Upsample_HW_node = helper.make_node(
+                    "UpsampleNearestNeighbour",
+                    [n.input[0]],
+                    [n.output[0]],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    OFMDim=OFMDim,
+                    IFMDim=IFMDim,
+                    NumChannels=NumChannels,
+                    inputDataType=inputDataType,
+                    numInputVectors=numInputVectors,
+                    DimMode=dim_mode,
+                    name="UpsampleNearestNeighbour_" + n.name,
+                )
+
+                # Remove the old node
+                graph.node.insert(node_ind, Upsample_HW_node)
+                # remove old nodes
+                graph.node.remove(n)
+                graph_modified = True
+        return (model, graph_modified)
 
 
 class InferStreamingMaxPool(Transformation):

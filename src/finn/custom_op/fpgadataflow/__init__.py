@@ -71,7 +71,8 @@ from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
-from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
+from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
+from finn.custom_op.fpgadataflow.upsampler_batch import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
 custom_op = dict()
@@ -113,3 +114,4 @@ custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
 custom_op["StreamingMaxPool"] = StreamingMaxPool
+custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
