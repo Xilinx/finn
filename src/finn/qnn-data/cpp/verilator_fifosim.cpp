@@ -34,11 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 #include "verilated_vcd_c.h"
 #include "Vfinn_design_wrapper.h"
 
-#ifdef DEBUG
-#define TRACE(x) x
-#else
-#define TRACE(x) ;
-#endif
+@TRACE_DEF@
 
 using namespace std;
 
@@ -121,7 +117,7 @@ void reset() {
 
 int main(int argc, char *argv[]) {
     top = construct();
-    TRACE(tfp = start_vcd_trace(top, "trace.vcd"));
+    TRACE(tfp = start_vcd_trace(top, @TRACE_FILENAME@));
     unsigned n_iters_per_input = @ITERS_PER_INPUT@;
     unsigned n_iters_per_output = @ITERS_PER_OUTPUT@;
     unsigned n_inputs = @N_INPUTS@;

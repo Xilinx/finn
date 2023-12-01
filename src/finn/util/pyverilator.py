@@ -127,6 +127,18 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     driver to drive the input stream. Useful for FIFO sizing, latency
     and throughput measurement."""
 
+    trace_depth = get_rtlsim_trace_depth()
+    trace_args = ["--trace", "--trace-depth", str(trace_depth)]
+    trace_file = model.get_metadata_prop("rtlsim_trace")
+    trace_def = "#define TRACE(x) x"
+    if trace_file is None:
+        # disable tracing entirely to speed-up compilation and emulation
+        trace_file = '""'
+        trace_def = "#define TRACE(x) ;"
+        trace_args = []
+    else:
+        trace_file = '"%s"' % trace_file
+
     build_dir = make_build_dir("verilator_fifosim_")
     prepare_stitched_ip_for_verilator(model, build_dir)
     verilog_header_dir = build_dir + "/pyverilator_vh"
@@ -165,6 +177,8 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "N_INPUTS": n_inputs,
         "MAX_ITERS": max_iters,
         "FIFO_DEPTH_LOGGING": fifo_log,
+        "TRACE_FILENAME": trace_file,
+        "TRACE_DEF": trace_def,
     }
 
     for key, val in template_dict.items():
@@ -218,6 +232,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "--threads",
         "4",
         *xpm_args,
+        *trace_args,
     ]
 
     proc_env = os.environ.copy()
