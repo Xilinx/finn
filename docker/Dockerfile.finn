@@ -118,9 +118,8 @@ RUN pip install tclwrapper==0.0.1
 
 # install accl and dependencies
 # for hls driver and the emulator the main branch should be fine
-RUN git clone https://github.com/Xilinx/ACCL
-
-RUN apt-get install -y \
+RUN apt-get update && \
+    apt-get install -y \
     cmake \
     doxygen \
     libboost-dev \
@@ -133,6 +132,8 @@ RUN git clone https://github.com/zeromq/zmqpp && \
     cd zmqpp && \
     make && \
     make install PREFIX=/usr/
+
+RUN git clone https://github.com/Xilinx/ACCL
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"

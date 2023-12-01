@@ -90,7 +90,7 @@ set config_bnnlibdir "$::env(FINN_ROOT)/deps/finn-hlslib"
 puts "finn-hlslib dir: $config_bnnlibdir"
 set config_customhlsdir "$::env(FINN_ROOT)/custom_hls"
 puts "custom HLS dir: $config_customhlsdir"
-set config_acclhlsdir "$::env(FINN_ROOT)/ACCL/driver/hls"
+set config_acclhlsdir "$::env(ACCL_ROOT)/driver/hls"
 puts "ACCL HLS dir: $config_acclhlsdir"
 set config_toplevelfxn "$TOPFXN$"
 set config_clkperiod $CLKPERIOD$
