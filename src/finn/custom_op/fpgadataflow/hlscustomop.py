@@ -142,6 +142,7 @@ class HLSCustomOp(CustomOp):
         Each block must have at most one aximm and one axilite."""
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
+        intf_names["clk2x"] = ["ap_clk2x"]
         intf_names["rst"] = ["ap_rst_n"]
         sname = self.hls_sname()
         intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
