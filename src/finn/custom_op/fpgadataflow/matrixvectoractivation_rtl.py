@@ -73,6 +73,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
             "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
+            "pumpedCompute": ("i", False, 0, {0, 1}),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -779,6 +780,9 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            if self.get_nodeattr("pumpedCompute"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append("create_bd_pin -dir I -type clk2x /%s/%s" % (node_name, clk2x_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
@@ -858,6 +862,11 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, clk_name, node_name, node_name, clk_name)
             )
+            if self.get_nodeattr("pumpedCompute"):
+                cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+            )               
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                 "[get_bd_intf_pins %s/%s/%s]"
@@ -1040,6 +1049,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumpedCompute"))]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
