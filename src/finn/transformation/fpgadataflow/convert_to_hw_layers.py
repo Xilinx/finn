@@ -53,10 +53,15 @@ class InferStreamingMaxPool(Transformation):
                 mp_input = node.input[0]
                 mp_output = node.output[0]
                 mp_in_shape = model.get_tensor_shape(mp_input)
-                # mp_out_shape = model.get_tensor_shape(mp_output)
                 dt = model.get_tensor_datatype(mp_input)
                 mp_inst = getCustomOp(node)
                 k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
+                s_h, s_w = mp_inst.get_nodeattr("strides")
+                if k_h != s_h or k_w != s_w:
+                    warn_str = """Stride is not equal to kernel. Node cannot be converted to
+                        StreamingMaxPool layer."""
+                    warnings.warn(warn_str)
+                    continue
                 ifm_ch = mp_in_shape[-1]
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]

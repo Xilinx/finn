@@ -194,6 +194,7 @@ class StreamingMaxPool(HWCustomOp):
         # create a standard add node to help calculate the result
         node = self.onnx_node
         kernel_shape = self.get_nodeattr("PoolDim")
+        ceil_mode = self.get_nodeattr("CeilMode")
         inp_values = context[node.input[0]]
         dummy_out = context[node.output[0]]
         # convert i/o NHWC -> NCHW
@@ -213,6 +214,7 @@ class StreamingMaxPool(HWCustomOp):
             outputs=[node.output[0]],
             kernel_shape=kernel_shape,
             strides=kernel_shape,
+            ceil_mode=ceil_mode,
         )
         graph_mp = helper.make_graph(
             nodes=[node_mp],
