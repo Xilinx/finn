@@ -32,6 +32,7 @@ from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStream
 from finn.custom_op.fpgadataflow.hls.fmpadding_hls import FMPadding_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
+from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls import StreamingMaxPool_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
 
@@ -45,5 +46,6 @@ custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_hls"] = FMPadding_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
 custom_op["LabelSelect_hls"] = LabelSelect_hls
+custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls

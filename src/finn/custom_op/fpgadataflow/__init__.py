@@ -45,7 +45,6 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
-from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
 from finn.custom_op.fpgadataflow.fmpadding_rtl import FMPadding_rtl
@@ -66,6 +65,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
 )
+from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
@@ -104,7 +104,6 @@ custom_op["UpsampleNearestNeighbour_Batch"] = UpsampleNearestNeighbour_Batch
 custom_op["Lookup"] = Lookup
 custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
-custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["FMPadding_rtl"] = FMPadding_rtl
 
 custom_op["FMPadding"] = FMPadding
@@ -113,5 +112,6 @@ custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
+custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
