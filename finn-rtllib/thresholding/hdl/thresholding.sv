@@ -44,11 +44,11 @@
  *  accompanied by a channel selector.
  *
  *  Parameter Layout as seen on AXI-Lite (row by row):
- *            | Base               \   Offs  |   0    1    2  ...   N-2     N-1
- *   ---------+------------------------------+----------------------------------
- *    Chnl #0 |   0                          |  T_0  T_1  T_2 ... T_{N-2}    'x
- *    Chnl #1 |   N                          |  T_0  T_1  T_2 ... T_{N-2}    'x
- *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*N |  T_0  T_1  T_2 ... T_{N-2}    'x
+ *            | Base                \    Offs  |   0    1    2  ...   2^N-2   2^N-1
+ *   ---------+--------------------------------+------------------------------------
+ *    Chnl #0 |   0                            |  T_0  T_1  T_2 ... T_{2^N-2}  'x
+ *    Chnl #1 |   2^N                          |  T_0  T_1  T_2 ... T_{2^N-2}  'x
+ *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*2^N |  T_0  T_1  T_2 ... T_{2^N-2}  'x
  *
  *****************************************************************************/
 module thresholding #(
@@ -200,7 +200,9 @@ module thresholding #(
 				localparam int unsigned  DEPTH = CF * 2**stage;
 				localparam  RAM_STYLE =
 					DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
-					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" : "auto";
+					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" :
+					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
+					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
 				(* RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
