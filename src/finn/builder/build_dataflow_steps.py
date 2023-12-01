@@ -482,7 +482,7 @@ def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(trn)
     
     # If double-pumping enabled, annotate relevant MVU/VVU layers
-    if cfg.enable_double_pump:
+    if cfg.enable_pumped_compute:
         for n in model.graph.node:
             if n.op_type in ["MatrixVectorActivation_rtl", "VectorVectorActivation_rtl"]:
                 getCustomOp(n).set_nodeattr("pumpedCompute", 1)
