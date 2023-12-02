@@ -41,5 +41,3 @@ std::unique_ptr<CCLO_BFM> init_cclo_and_wait_for_input(
 
     return cclo;
 }
-
-

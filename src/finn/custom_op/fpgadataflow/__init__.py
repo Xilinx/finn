@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.accl import ACCLIn, ACCLOut
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.checksum import CheckSum
@@ -62,8 +63,6 @@ from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
-
-from finn.custom_op.fpgadataflow.accl import ACCLIn, ACCLOut
 
 custom_op = dict()
 

@@ -1,20 +1,18 @@
 import math
+import numpy as np
 import os
 import psutil
 import subprocess
 import threading
-import time
 import traceback
 import warnings
 from collections import defaultdict
-
-import numpy as np
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 accl_word_size = 512
+
 
 class ACCLOp(HLSCustomOp):
     # Some synchronization primitives for executing the nodes in parallel
@@ -54,7 +52,8 @@ class ACCLOp(HLSCustomOp):
         build_dir = code_gen_dir
         os.makedirs(build_dir, exist_ok=True)
 
-        subprocess.run([
+        subprocess.run(
+            [
                 "/usr/bin/cmake",
                 f"{os.environ['FINN_ROOT']}/custom_hls/accl",
                 f"-DCODE_GEN_DIR={code_gen_dir}",
@@ -78,33 +77,25 @@ class ACCLOp(HLSCustomOp):
             executable_path = self.get_nodeattr("executable_path")
             if executable_path == "":
                 name = self.onnx_node.name
-                raise Exception(
-                    f"Executable for {name} at {executable_path} seems to be missing."
-                )
+                raise Exception(f"Executable for {name} at {executable_path} seems to be missing.")
 
             if idx == 0:
                 emulator_dir = f"{os.environ['ACCL_ROOT']}/test/model/emulator"
                 world_size = self.get_nodeattr("worldSize")
 
                 # Make sure the emulator binary is built before we start it
-                subprocess.run(
-                    ["/usr/bin/cmake", "."],
+                subprocess.run(["/usr/bin/cmake", "."], cwd=emulator_dir, stdout=subprocess.PIPE)
+                emulator = subprocess.Popen(
+                    ["python3", "run.py", f"-n {world_size}", "--no-kernel-loopback"],
                     cwd=emulator_dir,
-                    stdout=subprocess.PIPE
                 )
-                emulator = subprocess.Popen([
-                    "python3", "run.py", f"-n {world_size}", "--no-kernel-loopback"
-                ], cwd=emulator_dir)
 
             p = subprocess.Popen(
-                executable_path,
-                stdout=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                encoding="utf-8"
+                executable_path, stdout=subprocess.PIPE, stdin=subprocess.PIPE, encoding="utf-8"
             )
 
             while line := p.stdout.readline():
-                print(line, end='')
+                print(line, end="")
                 if "CCLO BFM started" in line:
                     break
             else:
@@ -129,9 +120,7 @@ class ACCLOp(HLSCustomOp):
         stream_width = self.get_stream_width()
         nelems = np.prod(oshape)
         nbits = nelems * itype_bits
-        assert (
-            nbits % stream_width == 0
-        ), "ACCL: total transfer size must be word multiple"
+        assert nbits % stream_width == 0, "ACCL: total transfer size must be word multiple"
         ovalues = nbits // stream_width
         return ovalues
 
@@ -169,19 +158,19 @@ class ACCLOp(HLSCustomOp):
     def defines(self, mode):
         # Do the includes here as well as they have dependencies on the defines
         self.code_gen_dict["$DEFINES$"] = []
-        if mode == 'cppsim':
+        if mode == "cppsim":
             self.code_gen_dict["$DEFINES$"] += [
                 "#define CPPSIM",
                 '#include "cclo_bfm.h"',
                 '#include "accl/sim.hpp"',
             ]
-        elif mode == 'ipgen':
+        elif mode == "ipgen":
             self.code_gen_dict["$DEFINES$"] += [
-                '#define ACCL_SYNTHESIS',
+                "#define ACCL_SYNTHESIS",
             ]
 
         self.code_gen_dict["$DEFINES$"] += [
-            '#include <accl_hls.h>',
+            "#include <accl_hls.h>",
             '#include "accl/funcs.hpp"',
         ]
 
@@ -191,6 +180,7 @@ class ACCLOp(HLSCustomOp):
 
     def verify_node(self):
         ...
+
 
 class ACCLOut(ACCLOp):
     def get_instream_width(self, ind=0):
@@ -219,10 +209,10 @@ class ACCLOut(ACCLOp):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            '#pragma HLS INTERFACE axis port=cmd_to_cclo',
-            '#pragma HLS INTERFACE axis port=sts_from_cclo',
-            '#pragma HLS INTERFACE axis port=data_to_cclo',
-            '#pragma HLS INTERFACE axis port=in0_{}'.format(self.hls_sname()),
+            "#pragma HLS INTERFACE axis port=cmd_to_cclo",
+            "#pragma HLS INTERFACE axis port=sts_from_cclo",
+            "#pragma HLS INTERFACE axis port=data_to_cclo",
+            "#pragma HLS INTERFACE axis port=in0_{}".format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=return bundle=control",
@@ -238,13 +228,11 @@ class ACCLOut(ACCLOp):
             'hlslib::Stream<command_word> sts_from_cclo("sts_from_cclo");',
             'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo");',
             'hlslib::Stream<stream_word, 512> data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> in0_{};'.format(
-                self.get_stream_width(), self.hls_sname()
-            ),
+            "hls::stream<ap_uint<{}>> in0_{};".format(self.get_stream_width(), self.hls_sname()),
             # These are only included for cppsim, so we can put our testing related stuff
             # here. We initialize the CCLO BFM and then wait until the we receive input
             # from Python, this way we know that the other node is ready as well.
-            '''
+            """
             std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input(
                 {},
                 {},
@@ -254,17 +242,19 @@ class ACCLOut(ACCLOp):
                 data_from_cclo,
                 data_to_cclo
             );
-            '''.format(start_port, rank, world_size),
-            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(
+            """.format(
+                start_port, rank, world_size
+            ),
+            "std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});".format(
                 world_size, rank, start_port
             ),
-            'bool wait_for_ack = true;',
-            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
-            '''
+            "bool wait_for_ack = true;",
+            "ap_uint<32> comm_adr = accl->get_communicator_addr();",
+            """
             ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr(
                 {ACCL::dataType::int32, ACCL::dataType::int32}
             );
-            ''',
+            """,
         ]
 
     def docompute(self):
@@ -279,7 +269,7 @@ class ACCLOut(ACCLOp):
         dest = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            '''
+            """
             accl_out<{}, {}, {}>(
                 {},
                 comm_adr,
@@ -289,12 +279,14 @@ class ACCLOut(ACCLOp):
                 data_to_cclo,
                 in0_{},
                 wait_for_ack
-            );'''.format(stream_width, num_bits, step, dest, self.hls_sname()),
-            '''
+            );""".format(
+                stream_width, num_bits, step, dest, self.hls_sname()
+            ),
+            """
             #ifdef CPPSIM
             cclo->stop();
             #endif
-            ''',
+            """,
         ]
 
     def execute_node(self, context, graph):
@@ -302,9 +294,7 @@ class ACCLOut(ACCLOp):
         node = self.onnx_node
 
         if mode != "cppsim":
-            raise Exception(
-                "ACCL nodes can only be executed using cppsim currently"
-            )
+            raise Exception("ACCL nodes can only be executed using cppsim currently")
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
 
@@ -318,9 +308,7 @@ class ACCLOut(ACCLOp):
         if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             reshaped_input = (reshaped_input + 1) / 2
-            export_idt = DataType["BINARY"]
-        else:
-            export_idt = self.get_input_datatype()
+
         # make copy before saving the array
         reshaped_input = reshaped_input.copy()
         np.save(
@@ -329,10 +317,7 @@ class ACCLOut(ACCLOp):
         )
 
         # Execute node in a new thread so execution can continue to the receiving node.
-        self.thread = threading.Thread(
-            target=self.execute_op,
-            args=(self.onnx_node.output[0],)
-        )
+        self.thread = threading.Thread(target=self.execute_op, args=(self.onnx_node.output[0],))
         self.thread.start()
 
     def read_npy_data(self):
@@ -356,11 +341,11 @@ class ACCLOut(ACCLOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def dataoutstrm(self):
-        self.code_gen_dict["$DATAOUTSTREAM$"] = ['']
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [""]
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            '''void {}(
+            """void {}(
                 STREAM<command_word> &cmd_to_cclo,
                 STREAM<command_word> &sts_from_cclo,
                 STREAM<stream_word> &data_to_cclo,
@@ -368,11 +353,8 @@ class ACCLOut(ACCLOp):
                 ap_uint<32> dpcfg_adr,
                 hls::stream<ap_uint<{}>> &in0_{},
                 bool wait_for_ack
-            )'''
-            .format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.hls_sname()
+            )""".format(
+                self.onnx_node.name, self.get_instream_width(), self.hls_sname()
             )
         ]
 
@@ -384,6 +366,7 @@ class ACCLOut(ACCLOp):
         intf_names["axilite"] = ["s_axi_control"]
 
         return intf_names
+
 
 class ACCLIn(ACCLOp):
     def get_instream_width(self, ind=0):
@@ -412,8 +395,8 @@ class ACCLIn(ACCLOp):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            '#pragma HLS INTERFACE axis port=data_from_cclo',
-            '#pragma HLS INTERFACE axis port=out_{}'.format(self.hls_sname()),
+            "#pragma HLS INTERFACE axis port=data_from_cclo",
+            "#pragma HLS INTERFACE axis port=out_{}".format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dummy bundle=control",
             "#pragma HLS INTERFACE ap_ctrl_none port=return",
         ]
@@ -430,10 +413,8 @@ class ACCLIn(ACCLOp):
             'hlslib::Stream<command_word> sts_from_cclo("sts_from_cclo");',
             'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo");',
             'hlslib::Stream<stream_word, 512> data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> out_{};'.format(
-                self.get_stream_width(), self.hls_sname()
-            ),
-            '''
+            "hls::stream<ap_uint<{}>> out_{};".format(self.get_stream_width(), self.hls_sname()),
+            """
             std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input(
                 {},
                 {},
@@ -443,7 +424,9 @@ class ACCLIn(ACCLOp):
                 data_from_cclo,
                 data_to_cclo
             );
-            '''.format(start_port, rank, world_size),
+            """.format(
+                start_port, rank, world_size
+            ),
         ]
 
     def docompute(self):
@@ -458,18 +441,14 @@ class ACCLIn(ACCLOp):
         source = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'accl_in<{}, {}, {}>({}, data_from_cclo, out_{});'.format(
-                stream_width,
-                num_bits,
-                step,
-                source,
-                self.hls_sname()
+            "accl_in<{}, {}, {}>({}, data_from_cclo, out_{});".format(
+                stream_width, num_bits, step, source, self.hls_sname()
             ),
-            '''
+            """
             #ifdef CPPSIM
             cclo->stop();
             #endif
-            ''',
+            """,
         ]
 
     def execute_node(self, context, graph):
@@ -477,11 +456,7 @@ class ACCLIn(ACCLOp):
         node = self.onnx_node
 
         if mode != "cppsim":
-            raise Exception(
-                "ACCL nodes can only be executed using cppsim currently"
-            )
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            raise Exception("ACCL nodes can only be executed using cppsim currently")
 
         self.execute_op(self.onnx_node.input[0])
 
@@ -493,15 +468,13 @@ class ACCLIn(ACCLOp):
             context[node.output[0]] = out
         oshape = self.get_normal_output_shape()
 
-        assert (
-            context[node.output[0]].shape == oshape
-        ), """Output shape is not as expected"""
+        assert context[node.output[0]].shape == oshape, """Output shape is not as expected"""
 
     def read_npy_data(self):
-        self.code_gen_dict["$READNPYDATA$"] = ['']
+        self.code_gen_dict["$READNPYDATA$"] = [""]
 
     def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = ['']
+        self.code_gen_dict["$SAVEASCNPY$"] = [""]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -533,13 +506,11 @@ class ACCLIn(ACCLOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            '''void {}(
+            """void {}(
                 STREAM<stream_word> &data_from_cclo,
                 hls::stream<ap_uint<{}>> &out_{}
-            )''' .format(
-                self.onnx_node.name,
-                self.get_outstream_width(),
-                self.hls_sname()
+            )""".format(
+                self.onnx_node.name, self.get_outstream_width(), self.hls_sname()
             )
         ]
 
@@ -550,4 +521,3 @@ class ACCLIn(ACCLOp):
         intf_names["axilite"] = ["s_axi_control"]
 
         return intf_names
-

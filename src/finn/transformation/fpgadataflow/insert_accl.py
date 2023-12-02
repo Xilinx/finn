@@ -1,14 +1,9 @@
-import math
-import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
-from qonnx.util.basic import get_by_name
 
-from IPython.core.debugger import set_trace
-from finn.util.visualization import showInNetron
 
 class InsertACCL(Transformation):
     def insert_at(self, model, tensor_name, producer, consumer):
@@ -23,7 +18,8 @@ class InsertACCL(Transformation):
         consumer_rank = consumer_inst.get_nodeattr("device_id")
 
         # Nodes are on same device, no need to insert accl nodes
-        if producer_rank == consumer_rank: return False
+        if producer_rank == consumer_rank:
+            return False
 
         tensor_shape = model.get_tensor_shape(tensor_name)
         tensor_dtype = model.get_tensor_datatype(tensor_name)
@@ -100,7 +96,8 @@ class InsertACCL(Transformation):
         for producer in model.graph.node:
             for tensor_name in producer.output:
                 consumer = model.find_consumer(tensor_name)
-                if consumer is None: continue
+                if consumer is None:
+                    continue
                 potential_comm_pairs.append((tensor_name, producer, consumer))
 
         modified = False
@@ -112,4 +109,3 @@ class InsertACCL(Transformation):
             model = model.transform(SortGraph())
 
         return (model, modified)
-

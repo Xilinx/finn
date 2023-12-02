@@ -63,8 +63,8 @@ void accl_out(
     // way. So we call the lower level function directly.
     accl.start_call(
         ACCL_SEND, num_transfer_bits / 32,
-        comm_adr, dest_rank, 0, data_from_cclo_id, 
-        dpcfg_adr, cflags, sflags | 0x2, 
+        comm_adr, dest_rank, 0, data_from_cclo_id,
+        dpcfg_adr, cflags, sflags | 0x2,
         0, 0, 0
     );
 

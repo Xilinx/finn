@@ -1,20 +1,19 @@
 import pytest
-import numpy as np
 
+import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
-from qonnx.transformation.infer_shapes import InferShapes
 
 from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.fpgadataflow.accl import ACCLIn, ACCLOut
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.custom_op.fpgadataflow.accl import ACCLOut, ACCLIn
+
 
 def generate_model(shape, dt):
     num_layers = len(shape) - 1
@@ -52,13 +51,10 @@ def generate_model(shape, dt):
 
         layers.append(layer)
 
-    graph = helper.make_graph(
-        nodes=layers, name="fclayer_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=layers, name="fclayer_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
-
 
     for i in range(num_layers - 1):
         act = helper.make_tensor_value_info(f"act_{i}", TensorProto.FLOAT, [1, shape[i + 1]])
@@ -74,6 +70,7 @@ def generate_model(shape, dt):
 
     return model
 
+
 data_types = [
     DataType["BIPOLAR"],
     DataType["UINT8"],
@@ -83,6 +80,7 @@ shapes = [
     [4, 16, 4],
     [4, 4 * 467, 4],
 ]
+
 
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
@@ -98,7 +96,6 @@ def test_two_layers(shape, dt):
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
 
-
     if dt == DataType["BIPOLAR"]:
         lo, hi = -1, 1
     elif dt == DataType["UINT8"]:
@@ -107,19 +104,15 @@ def test_two_layers(shape, dt):
         assert False
     input_tensor_npy = np.random.randint(lo, hi, size=(1, shape[0])).astype(np.float32)
 
-    ret = execute_onnx(
-        model,
-        {"inp": input_tensor_npy},
-        return_full_exec_context=True
-    )
+    ret = execute_onnx(model, {"inp": input_tensor_npy}, return_full_exec_context=True)
     for producer in model.graph.node:
-        if not isinstance(getCustomOp(producer), ACCLOut): continue
+        if not isinstance(getCustomOp(producer), ACCLOut):
+            continue
         assert len(producer.output) == 1
         consumer = model.find_consumer(producer.output[0])
         assert isinstance(getCustomOp(consumer), ACCLIn)
-        assert len(consumer.output) == 1 
+        assert len(consumer.output) == 1
         assert len(producer.input) == 1
         before_transmission = ret[producer.input[0]].flatten()
         after_transmission = ret[consumer.output[0]].flatten()
         assert (before_transmission == after_transmission).all()
-
