@@ -64,7 +64,7 @@ def get_folding_cfg(depth=65536):
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize("depth", [16384, 65536, 45000])
-@pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
+@pytest.mark.parametrize("force_python_rtlsim", [True, False])
 def test_split_large_fifos(depth, force_python_rtlsim):
     tmp_output_dir = fetch_test_model("tfc")
     folding_cfg = get_folding_cfg(depth)
