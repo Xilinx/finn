@@ -113,6 +113,9 @@ void reset() {
         toggle_clk();
     }
     top->ap_rst_n = 1;
+    for(unsigned i = 0; i < 10; i++) {
+        toggle_clk();
+    }
 }
 
 int main(int argc, char *argv[]) {
