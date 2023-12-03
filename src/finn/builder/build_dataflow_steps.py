@@ -530,7 +530,7 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 def step_measure_nodebynode_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
-    nodebynode_perf = DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+    nodebynode_perf = DataflowOutputType.RTLSIM_PERFORMANCE_NODEBYNODE in cfg.generate_outputs
     if nodebynode_perf:
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)

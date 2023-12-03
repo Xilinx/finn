@@ -59,6 +59,7 @@ class DataflowOutputType(str, Enum):
     ESTIMATE_REPORTS = "estimate_reports"
     OOC_SYNTH = "out_of_context_synth"
     RTLSIM_PERFORMANCE = "rtlsim_performance"
+    RTLSIM_PERFORMANCE_NODEBYNODE = "rtlsim_performance_nodebynode"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
