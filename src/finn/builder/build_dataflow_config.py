@@ -126,6 +126,7 @@ default_build_dataflow_steps = [
     "step_generate_estimate_reports",
     "step_hls_codegen",
     "step_hls_ipgen",
+    "step_measure_nodebynode_rtlsim_performance",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",

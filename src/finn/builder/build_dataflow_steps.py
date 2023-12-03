@@ -519,38 +519,48 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     nodebynode_verify = (
         VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps()
     )
-    nodebynode_perf = DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
-    if nodebynode_perf or nodebynode_verify:
+    if nodebynode_verify:
         # prepare node-by-node rtlsim
         nodebynode_rtlsim_model = model.transform(GiveUniqueNodeNames())
         nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(PrepareRTLSim())
         nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(SetExecMode("rtlsim"))
-        if nodebynode_verify:
-            verify_step(nodebynode_rtlsim_model, cfg, "node_by_node_rtlsim", need_parent=True)
-        if nodebynode_perf and (not nodebynode_verify):
-            # generate random inputs to run node-by-node rtlsim
-            idict = {}
-            for i in nodebynode_rtlsim_model.graph.input:
-                inm = i.name
-                idt = nodebynode_rtlsim_model.get_tensor_datatype(inm)
-                ishp = nodebynode_rtlsim_model.get_tensor_shape(inm)
-                idict[inm] = gen_finn_dt_tensor(idt, ishp)
-            execute_onnx(nodebynode_rtlsim_model, idict)
-        # we now have per-node rtlsim cycle counts, either from verification
-        # or from execution with a random input tensor. pull out and report
+        verify_step(nodebynode_rtlsim_model, cfg, "node_by_node_rtlsim", need_parent=True)
+
+    return model
+
+
+def step_measure_nodebynode_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
+    nodebynode_perf = DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+    if nodebynode_perf:
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        # prepare node-by-node rtlsim
+        nodebynode_rtlsim_model = model.transform(GiveUniqueNodeNames())
+        nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(PrepareRTLSim())
+        nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(SetExecMode("rtlsim"))
+        # generate random inputs to run node-by-node rtlsim
+        idict = {}
+        for i in nodebynode_rtlsim_model.graph.input:
+            inm = i.name
+            idt = nodebynode_rtlsim_model.get_tensor_datatype(inm)
+            ishp = nodebynode_rtlsim_model.get_tensor_shape(inm)
+            idict[inm] = gen_finn_dt_tensor(idt, ishp)
+        execute_onnx(nodebynode_rtlsim_model, idict)
+        # we now have per-node rtlsim cycle counts,
+        # from execution with a random input tensor. pull out and report
         nodebynode_perf_rept = {}
-        for node in model.graph.node:
+        for node in nodebynode_rtlsim_model.graph.node:
             inst = getCustomOp(node)
             cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
             cycles_estimate = inst.get_nodeattr("cycles_estimate")
-            nodebynode_perf_rept[node.onnx_node.name] = {
+            nodebynode_perf_rept[node.name] = {
                 "cycles_rtlsim": cycles_rtlsim,
                 "cycles_estimate": cycles_estimate,
+                "cycles_diff_rtlsim_estimate": cycles_rtlsim - cycles_estimate,
             }
             with open(report_dir + "/nodebynode_rtlsim_performance.json", "w") as f:
                 json.dump(nodebynode_perf_rept, f, indent=2)
-
-    return model
+    return nodebynode_rtlsim_model
 
 
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -888,6 +898,7 @@ build_dataflow_step_lookup = {
     "step_specialize_to_rtl": step_specialize_to_rtl,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
+    "step_measure_nodebynode_rtlsim_performance": step_measure_nodebynode_rtlsim_performance,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
