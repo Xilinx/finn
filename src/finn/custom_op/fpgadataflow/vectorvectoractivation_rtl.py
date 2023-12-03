@@ -67,6 +67,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             "Channels": ("i", True, 0),
             "Kernel": ("ints", True, []),  # [H, W]
             "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
+            "pumpedCompute": ("i", False, 0, {0, 1}),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -638,6 +639,9 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            if self.get_nodeattr("pumpedCompute"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append("create_bd_pin -dir I -type clk2x /%s/%s" % (node_name, clk2x_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
@@ -713,6 +717,11 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, clk_name, node_name, node_name, clk_name)
             )
+            if self.get_nodeattr("pumpedCompute"):
+                cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+            )  
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                 "[get_bd_intf_pins %s/%s/%s]"
@@ -989,10 +998,12 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
         # 0.741 ns seems the worst-case delay through first DSP
         # 0.605 ns seems to be (on average) delay for all subsequent DSPs
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605)
+        # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        assert (clk > 0.741), "Infeasible clk target of {} ns has been set, consider lowering the targeted clock frequency!".format(clk)
+        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
         max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
-        return max(1, dsp_chain_len)
+        return dsp_chain_len
 
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
@@ -1016,6 +1027,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(0)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumpedCompute"))]
         mw = int(np.prod(self.get_nodeattr("Kernel")))
         code_gen_dict["$MW$"] = [str(mw)]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("Channels"))]
@@ -1028,7 +1040,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
-        # code_gen_dict["$FORCE_BEHAVIORAL$"] = [str(0)]
 
         return template_path, code_gen_dict
 
