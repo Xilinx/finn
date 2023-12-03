@@ -208,40 +208,35 @@ module mvu_vvu_axi #(
 	endcase
 
 //-------------------- Output register slice --------------------\\
-	struct packed {
+	// Make `en`computation independent from external inputs.
+	// Drive all outputs from registers.
+	typedef struct packed {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	} A = '{ vld: 0, default: 'x};
+	} buf_t;
+	buf_t  A = '{ vld: 0, default: 'x };	// side-step register used when encountering backpressure
+	buf_t  B = '{ vld: 0, default: 'x };	// ultimate output register
 
-	assign en = !A.vld || !ovld;
+	assign	en = !A.vld || !ovld;
+	uwire  b_load = !B.vld || m_axis_output_tready;
 
-	uwire  b_load;
 	always_ff @(posedge clk) begin
-		if(rst)		A <= '{ vld: 0, default: 'x };
-		else if(!A.vld || b_load) begin
-			A.vld <= ovld && en;
-			for(int unsigned  i = 0; i < PE; i++) begin
-				// CR-1148862:
-				// A.dat[i] <= odat[i];
-				automatic logic [ACCU_WIDTH-1:0]  v = odat[i];
-				A.dat[i] <= v[ACCU_WIDTH-1:0];
+		if(rst) begin
+			A <= '{ vld: 0, default: 'x };
+			B <= '{ vld: 0, default: 'x };
+		end
+		else begin
+			if(!A.vld)  A.dat <= odat;
+			A.vld <= (ovld || A.vld) && !b_load;
+
+			if(b_load) begin
+				B <= '{
+					vld: A.vld || ovld,
+					dat: A.vld? A.dat : odat
+				};
 			end
 		end
 	end
-
-	struct packed {
-		logic vld;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	} B = '{ vld: 0, default: 'x};
-
-	assign	b_load = !B.vld || m_axis_output_tready;
-	always_ff @(posedge clk) begin
-		if(rst)		B <= '{ vld: 0, default: 'x };
-		else begin
-			if(b_load)	B <= '{ vld: A.vld, dat: A.dat};
-		end
-	end
-
 	assign	m_axis_output_tvalid = B.vld;
 	assign	m_axis_output_tdata  = B.dat;
 
