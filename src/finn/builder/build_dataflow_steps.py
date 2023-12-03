@@ -48,6 +48,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup_model
 from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
@@ -515,12 +516,40 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
 
-    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+    nodebynode_verify = (
+        VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps()
+    )
+    nodebynode_perf = DataflowOutputType.RTLSIM_PERFORMANCE in cfg.generate_outputs
+    if nodebynode_perf or nodebynode_verify:
         # prepare node-by-node rtlsim
-        verify_model = model.transform(GiveUniqueNodeNames())
-        verify_model = verify_model.transform(PrepareRTLSim())
-        verify_model = verify_model.transform(SetExecMode("rtlsim"))
-        verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
+        nodebynode_rtlsim_model = model.transform(GiveUniqueNodeNames())
+        nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(PrepareRTLSim())
+        nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(SetExecMode("rtlsim"))
+        if nodebynode_verify:
+            verify_step(nodebynode_rtlsim_model, cfg, "node_by_node_rtlsim", need_parent=True)
+        if nodebynode_perf and (not nodebynode_verify):
+            # generate random inputs to run node-by-node rtlsim
+            idict = {}
+            for i in nodebynode_rtlsim_model.graph.input:
+                inm = i.name
+                idt = nodebynode_rtlsim_model.get_tensor_datatype(inm)
+                ishp = nodebynode_rtlsim_model.get_tensor_shape(inm)
+                idict[inm] = gen_finn_dt_tensor(idt, ishp)
+            execute_onnx(nodebynode_rtlsim_model, idict)
+        # we now have per-node rtlsim cycle counts, either from verification
+        # or from execution with a random input tensor. pull out and report
+        nodebynode_perf_rept = {}
+        for node in model.graph.node:
+            inst = getCustomOp(node)
+            cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+            cycles_estimate = inst.get_nodeattr("cycles_estimate")
+            nodebynode_perf_rept[node.onnx_node.name] = {
+                "cycles_rtlsim": cycles_rtlsim,
+                "cycles_estimate": cycles_estimate,
+            }
+            with open(report_dir + "/nodebynode_rtlsim_performance.json", "w") as f:
+                json.dump(nodebynode_perf_rept, f, indent=2)
+
     return model
 
 
