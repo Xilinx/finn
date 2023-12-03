@@ -139,14 +139,15 @@ def verify_step(
     bsize_out = exp_out_npy_all.shape[0]
     assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
     all_res = True
+    assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
+    # parent model may not be needed (see need_parent)
+    parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
+    child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
+    model.save(child_model_fn)
     for b in range(bsize_in):
         in_npy = np.expand_dims(in_npy_all[b], axis=0)
         exp_out_npy = np.expand_dims(exp_out_npy_all[b], axis=0)
         if need_parent:
-            assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
-            parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
-            child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
-            model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
             out_tensor_name = parent_model.graph.output[0].name
             exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
@@ -175,6 +176,9 @@ def verify_step(
                 out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
             else:
                 out_dict = execute_onnx(model, inp_dict, True)
+            # model may be have been updated by e.g. rtlsim node-by-node cycle
+            # count attributes, so re-save
+            model.save(child_model_fn)
             out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
