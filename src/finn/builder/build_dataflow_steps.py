@@ -560,7 +560,8 @@ def step_measure_nodebynode_rtlsim_performance(model: ModelWrapper, cfg: Dataflo
             }
             with open(report_dir + "/nodebynode_rtlsim_performance.json", "w") as f:
                 json.dump(nodebynode_perf_rept, f, indent=2)
-    return nodebynode_rtlsim_model
+        model = nodebynode_rtlsim_model
+    return model
 
 
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
