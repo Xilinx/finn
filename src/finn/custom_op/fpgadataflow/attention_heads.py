@@ -27,6 +27,12 @@ class SplitMultiHeads(HLSCustomOp):
         # Just forward all arguments to the init method of the CustomOp base
         super().__init__(onnx_node, **kwargs)
 
+        # Need to override the default depths of outputs FIFOs here as these
+        # depend on the number of heads, which are not known during calls to
+        # get_nodeattr_types.
+        if not self.get_nodeattr("outFIFODepths"):
+            self.set_nodeattr("outFIFODepths", [2 for _ in range(self.heads)])
+
     # Defines attributes which must be present on this node
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
@@ -46,7 +52,12 @@ class SplitMultiHeads(HLSCustomOp):
             "num_inputs": ("ints", True, [1]),
             # Possible execution modes for simulating this node
             #   Note: Override to support python mode
-            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim", "python"})
+            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim", "python"}),
+
+            # Input and output FIFO depths for multi-I/O nodes
+            #   Note: Need to override here as there multiple outputs
+            "inFIFODepths": ("ints", False, [2]),
+            "outFIFODepths": ("ints", False, []),  # Default will be override
         })
         # Return updated attribute dictionary
         return attrs
@@ -528,6 +539,12 @@ class MergeMultiHeads(HLSCustomOp):
         # Just forward all arguments to the init method of the CustomOp base
         super().__init__(onnx_node, **kwargs)
 
+        # Need to override the default depths of input FIFOs here as these
+        # depend on the number of heads, which are not known during calls to
+        # get_nodeattr_types.
+        if not self.get_nodeattr("inFIFODepths"):
+            self.set_nodeattr("inFIFODepths", [2 for _ in range(self.heads)])
+
     # Defines attributes which must be present on this node
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
@@ -549,7 +566,12 @@ class MergeMultiHeads(HLSCustomOp):
             "squeezed": ("i", True, 0),
             # Possible execution modes for simulating this node
             #   Note: Override to support python mode
-            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim", "python"})
+            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim", "python"}),
+
+            # Input and output FIFO depths for multi-I/O nodes
+            #   Note: Need to override here as there multiple inputs
+            "inFIFODepths": ("ints", False, []),  # Default will be override
+            "outFIFODepths": ("ints", False, [2]),
         })
         # Return updated attribute dictionary
         return attrs
