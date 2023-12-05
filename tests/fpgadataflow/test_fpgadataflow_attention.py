@@ -33,24 +33,9 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 
-
 # Softmax function on numpy arrays with overflow handling matching the HLS
 # operator
-def softmax(x, axis):
-    # For overflow handling, find the maximum value along axis and place ones at
-    # each occurrence
-    max_ones = (x == np.max(x, axis=axis, keepdims=True)).astype(np.float32)
-    # Count the occurrences of the maximum along the normalization axis
-    max_counts = np.sum(max_ones, axis=axis, keepdims=True)
-    # Exponential of the input
-    exp = np.exp(x)
-    # Compute the total along axis
-    total = np.sum(exp, axis=1, keepdims=True)
-    # Detect overflow of the summation
-    overflow = np.isinf(total)
-    # Replace overflows by equal weight given to all instances of the maximum
-    # input value. For non overflow just compute normal softmax
-    return np.where(overflow, max_ones / max_counts, exp / total)
+from finn.custom_op.fpgadataflow.attention import softmax
 
 
 # Python/Numpy model of the scaled dot-product attention operator as it is (will

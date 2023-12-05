@@ -18,6 +18,25 @@ from qonnx.core.modelwrapper import ModelWrapper  # noqa
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions  # noqa
 
 
+# Softmax function on numpy arrays with overflow handling matching the HLS
+# operator
+def softmax(x, axis):
+    # For overflow handling, find the maximum value along axis and place ones at
+    # each occurrence
+    max_ones = (x == np.max(x, axis=axis, keepdims=True)).astype(np.float32)
+    # Count the occurrences of the maximum along the normalization axis
+    max_counts = np.sum(max_ones, axis=axis, keepdims=True)
+    # Exponential of the input
+    exp = np.exp(x)
+    # Compute the total along axis
+    total = np.sum(exp, axis=1, keepdims=True)
+    # Detect overflow of the summation
+    overflow = np.isinf(total)
+    # Replace overflows by equal weight given to all instances of the maximum
+    # input value. For non overflow just compute normal softmax
+    return np.where(overflow, max_ones / max_counts, exp / total)
+
+
 # Scaled Dot-Product Attention Custom Operator
 #   Note: Single head attention
 class ScaledDotProductAttention(HLSCustomOp):
@@ -212,9 +231,81 @@ class ScaledDotProductAttention(HLSCustomOp):
 
     # Executes the attention operator in python mode simulation
     def _execute_node_python(self, context, graph):  # noqa: graph unused
-        # TODO: Implement rtlsim mode
-        raise NotImplementedError(
-            "exec_mode python is not implemented yet!"
+        # Multithreshold activations
+        from qonnx.custom_op.general.multithreshold import multithreshold # noqa
+
+        # Get the node wrapped by this custom op
+        node = self.onnx_node
+
+        # Read the input from the execution context and reshape to match the
+        # expected folding
+        q = context[node.input[0]].reshape(self.get_normal_input_shape(ind=0))
+        k = context[node.input[1]].reshape(self.get_normal_input_shape(ind=1))
+        v = context[node.input[2]].reshape(self.get_normal_input_shape(ind=2))
+
+        # Quantization activation function following the query and key
+        # multiplication
+        def act_qk_matmul(x):
+            # Only applies if this is specified as a thresholding activation
+            if self.get_nodeattr("ActQKMatMul") == "thresholds":
+                # Get the thresholds initializer by name from ordered list of
+                # optional inputs
+                thresholds = context[
+                    self.get_input_name_by_name("thresholds_qk_matmul")
+                ]
+                # Applies thresholding activation in python to the input
+                return multithreshold(x, thresholds)
+            # If not thresholds, assume identity function
+            return x
+
+        # Quantization activation function following the softmax normalization
+        def act_a_softmax(x):
+            # Only applies if this is specified as a thresholding activation
+            if self.get_nodeattr("ActASoftmax") == "thresholds":
+                # Get the thresholds initializer by name from ordered list of
+                # optional inputs
+                thresholds = context[
+                    self.get_input_name_by_name("thresholds_a_softmax")
+                ]
+                # Applies thresholding activation in python to the input
+                return multithreshold(x, thresholds)
+            # If not thresholds, assume identity function
+            return x
+
+        # Quantization activation function following the attention and values
+        # multiplication
+        def act_av_matmul(x):
+            # Only applies if this is specified as a thresholding activation
+            if self.get_nodeattr("ActAVMatMul") == "thresholds":
+                # Get the thresholds initializer by name from ordered list of
+                # optional inputs
+                thresholds = context[
+                    self.get_input_name_by_name("thresholds_av_matmul")
+                ]
+                # Applies thresholding activation in python to the input
+                return multithreshold(x, thresholds)
+            # If not thresholds, assume identity function
+            return x
+
+        # Get the datatype produced by the first matmul after quantization
+        qk_dtype = DataType[self.get_nodeattr("OutQKMatMul")]
+        # Scale used to dequantize the qk matrix before computing the softmax in
+        # floating point
+        dequant = 1.0 / (qk_dtype.get_num_possible_values() - 1)
+
+        # 1. Queries and keys multiplication followed by quantizing activation
+        # function
+        qk = act_qk_matmul(np.matmul(q, k.T))
+        # Softmax-normalization of the attention weights followed by quantizing
+        # activation function
+        a = act_a_softmax(softmax(dequant * qk, axis=1))
+        # 2. Attention weights and values matmul followed by quantization
+        # activation function
+        out = act_av_matmul(np.matmul(a, v))
+
+        # Insert the results into the execution context
+        context[self.onnx_node.output[0]] = out.reshape(
+            self.get_normal_output_shape(ind=0)
         )
 
     # Executes the attention operator in C++ mode simulation
