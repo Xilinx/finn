@@ -334,9 +334,8 @@ class StreamingDataWidthConverter_ParallelWindow_rtl(HLSCustomOp):
         """Get the naming convention used by Vitis HLS for stream signals
         Example: the TDATA for a stream called "out" would be out_V_TDATA.
         """
-        # despite being an RTL op, the interface naming here follows the HLS
-        # style and has a V suffix for the stream interface names
-        return "V"
+        # no additional prefix/suffix in interface names since this is an RTL component
+        return ""
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""

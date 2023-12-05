@@ -234,6 +234,9 @@ class DataflowBuildConfig:
     #: very high performance.
     mvau_wwidth_max: Optional[int] = 36
 
+    #: (Optional) Double-pump DSP58s in MVU/VVU layers if possible
+    enable_pumped_compute: Optional[bool] = False
+
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HLS layers,
     #: instead of being part of MatrixVectorActivation layer. This gives larger
