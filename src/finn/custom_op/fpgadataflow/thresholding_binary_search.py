@@ -40,8 +40,10 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
     find_next_power_of_2,
+    get_memutil_alternatives,
     get_rtlsim_trace_depth,
     make_build_dir,
+    mem_primitives_versal,
     pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.data_packing import (
@@ -102,9 +104,47 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # memory depth triggers for threshold storage
             "depth_trigger_uram": ("i", False, 0),
             "depth_trigger_bram": ("i", False, 0),
+            # enable uniform thres optimization
+            "uniform_thres": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_pe_mem_geometries(self):
+        pe = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        wdt_bits = wdt.bitwidth()
+        odt = self.get_output_datatype()
+        odt_bits = odt.bitwidth()
+        t_channels = self.get_nodeattr("NumChannels")
+        cf = t_channels / pe
+        is_uniform = self.get_nodeattr("uniform_thres")
+        if is_uniform:
+            ret = [(odt_bits - x, cf * (2**x)) for x in range(1, odt_bits)]
+        else:
+            ret = [(wdt_bits, (cf) * 2**x) for x in range(odt_bits)]
+        return ret
+
+    def get_memory_estimate(self):
+        res_dict = {}
+        depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
+        pe = self.get_nodeattr("PE")
+        ret = self.get_pe_mem_geometries()
+        for mem_cfg in ret:
+            (width, depth) = mem_cfg
+            primitives = mem_primitives_versal
+            if depth_trigger_bram != 0 or depth_trigger_uram != 0:
+                if depth >= depth_trigger_bram and depth < depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "BRAM" in k}
+                elif depth >= depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
+            alts = get_memutil_alternatives(mem_cfg, primitives)
+            primary_alt = alts[0]
+            res_type = primary_alt[0]
+            res_count, eff, waste = primary_alt[1]
+            res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
+        return res_dict
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
