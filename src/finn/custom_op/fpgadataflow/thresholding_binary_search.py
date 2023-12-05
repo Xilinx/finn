@@ -266,6 +266,23 @@ class Thresholding_Binary_Search(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
+    def get_all_meminit_filenames(self, abspath=False):
+        "Return a list of all .dat memory initializer files used for this node"
+        dat_files = []
+        t_path = self.get_nodeattr("code_gen_dir_ipgen") if abspath else "."
+        pe = self.get_nodeattr("PE")
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        for stage in range(o_bitwidth):
+            for pe_value in range(pe):
+                thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
+                    self.onnx_node.name,
+                    pe_value,
+                    stage,
+                )
+                dat_files.append(thresh_file)
+        return dat_files
+
     def prepare_codegen_rtl_values(self, model):
         """All dictionary values produced in this function are to replace
         their key value(s) in the RTL template files"""
@@ -311,7 +328,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 with open(thresh_file, "w") as f:
                     for val in threshs:
                         f.write(val + "\n")
-        code_gen_dict["$THRESHOLDS_PATH$"] = ['"' + str(t_path) + '/%s_"' % self.onnx_node.name]
+        code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [

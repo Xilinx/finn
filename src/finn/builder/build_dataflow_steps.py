@@ -560,7 +560,8 @@ def step_measure_nodebynode_rtlsim_performance(model: ModelWrapper, cfg: Dataflo
             }
             with open(report_dir + "/nodebynode_rtlsim_performance.json", "w") as f:
                 json.dump(nodebynode_perf_rept, f, indent=2)
-    return nodebynode_rtlsim_model
+        model = nodebynode_rtlsim_model
+    return model
 
 
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -698,7 +699,8 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
             os.makedirs(report_dir, exist_ok=True)
-            verify_model.set_metadata_prop("rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir))
+            rtlsim_trace_path = os.path.abspath("%s/verify_rtlsim.vcd" % (report_dir))
+            verify_model.set_metadata_prop("rtlsim_trace", rtlsim_trace_path)
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
@@ -732,9 +734,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         if cfg.verify_save_rtlsim_waveforms:
             # set depth to 3 for layer-by-layer visibility
             os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            rtlsim_trace_path = os.path.abspath(
+                "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
+            )
             rtlsim_model.set_metadata_prop(
                 "rtlsim_trace",
-                "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs),
+                rtlsim_trace_path,
             )
 
         if force_python_rtlsim:
