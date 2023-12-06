@@ -105,7 +105,9 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "depth_trigger_uram": ("i", False, 0),
             "depth_trigger_bram": ("i", False, 0),
             # enable uniform thres optimization
-            "uniform_thres": ("i", False, 0),
+            # doesn't actually do anything yet, only
+            # for resource estimations
+            "uniform_thres": ("i", False, 0, {0, 1}),
             # enable deep pipelining for easier timing closure
             # setting to 0 may save some FFs but otherwise leave on
             "deep_pipeline": ("i", False, 1, {0, 1}),
@@ -144,7 +146,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                     primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
             alts = get_memutil_alternatives(mem_cfg, primitives)
             primary_alt = alts[0]
-            res_type = primary_alt[0]
+            res_type = primary_alt[0].split("_")[0]
             res_count, eff, waste = primary_alt[1]
             res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
         return res_dict
@@ -182,10 +184,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return []
 
     def bram_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("BRAM", 0)
+
+    def uram_estimation(self):
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("URAM", 0)
 
     def lut_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("LUTRAM", 0)
 
     def get_input_datatype(self, ind=0):
         return DataType[self.get_nodeattr("inputDataType")]
@@ -652,8 +660,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = [("s_axis", self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("m_axis", self.get_outstream_width_padded())]
+        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
