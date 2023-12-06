@@ -95,6 +95,7 @@ class CreateStitchedIP(Transformation):
         self.has_s_axis = False
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
+        self.clock2x_is_external = False
         self.create_cmds = []
         self.connect_cmds = []
         # keep track of top-level interface names
