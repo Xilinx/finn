@@ -45,7 +45,7 @@
  * @param PENDING	maximum number of feature maps in the FINN dataflow pipeline
  * @param ILEN		number of input transactions per IFM
  * @param OLEN		number of output transactions per OFM
- * @param KO           number of subwords within output payload vector
+ * @param KO		number of subwords within output payload vector
  * @param TI		type of input payload vector
  * @param TO		type of output payload vector
  *******************************************************************************/
@@ -53,6 +53,7 @@
 #include <hls_stream.h>
 #include <ap_int.h>
 #include <ap_axi_sdata.h>
+#include <algorithm>
 
 // Example Module Configuration
 constexpr unsigned  PENDING = @PENDING@;  // Max. feature maps in flight
@@ -64,7 +65,8 @@ using  TO = @TO@;  // OFM transaction word
 
 //---------------------------------------------------------------------------
 // Utility Functions
-static constexpr unsigned clog2(unsigned  x)  { return x<2? 0 : 1+clog2((x+1)/2); }
+static constexpr unsigned clog2  (unsigned  x) { return  x<2? 0 : 1+clog2((x+1)/2); }
+static constexpr unsigned clog2nz(unsigned  x) { return  std::max(1u, clog2(x)); }
 
 template<typename  T>
 static void move(
@@ -158,7 +160,7 @@ void instrument(
 
 	// Input Feed & Generation
 	constexpr unsigned  LFSR_WIDTH = (TI::width+15)/16 * 16;
-	static ap_uint<clog2(ILEN)>  icnt = 0;
+	static ap_uint<clog2nz(ILEN)>  icnt = 0;
 	static ap_uint<LFSR_WIDTH>  lfsr;
 #pragma HLS reset variable=icnt
 #pragma HLS reset variable=lfsr off
@@ -191,7 +193,7 @@ void instrument(
 	}
 
 	// Output Tracking
-	static ap_uint<clog2(OLEN)>  ocnt = 0;
+	static ap_uint<clog2nz(OLEN)>  ocnt = 0;
 #pragma HLS reset variable=ocnt
 	static clock_t  ts1 = 0;	// last output timestamp
 	static clock_t  last_latency = 0;
