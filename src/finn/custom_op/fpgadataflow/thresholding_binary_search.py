@@ -106,6 +106,9 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "depth_trigger_bram": ("i", False, 0),
             # enable uniform thres optimization
             "uniform_thres": ("i", False, 0),
+            # enable deep pipelining for easier timing closure
+            # setting to 0 may save some FFs but otherwise leave on
+            "deep_pipeline": ("i", False, 1, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -411,9 +414,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        deep_pipeline = self.get_nodeattr("deep_pipeline")
         code_gen_dict["$DEPTH_TRIGGER_URAM$"] = [str(depth_trigger_uram)]
         code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
-
+        code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
 
     def get_rtl_file_list(self):
@@ -422,8 +426,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "axilite_if.v",
             "thresholding.sv",
             "thresholding_axi.sv",
-            "thresholding_axi_tpl_inner.sv",
-            "thresholding_axi_tpl_outer.v",
+            "thresholding_template_wrapper.v",
         ]
 
     def get_rtl_file_paths(self):
