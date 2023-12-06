@@ -31,7 +31,7 @@
  * @brief	Verilog wrapper for IP packaging.
  */
 
-module thresholding_axi_tpl_outer #(
+module thresholding_template_wrapper #(
 	parameter  N = $N$,	// output precision
 	parameter  K = $M$,	// input/threshold precision
 	parameter  C = $C$,	// Channels
@@ -47,11 +47,12 @@ module thresholding_axi_tpl_outer #(
 	// Force Use of On-Chip Memory Blocks
 	parameter  DEPTH_TRIGGER_URAM = $DEPTH_TRIGGER_URAM$,	// if non-zero, local mems of this depth or more go into URAM (prio)
 	parameter  DEPTH_TRIGGER_BRAM = $DEPTH_TRIGGER_BRAM$,	// if non-zero, local mems of this depth or more go into BRAM
+	parameter  DEEP_PIPELINE = $DEEP_PIPELINE$,	// [bit] extra pipeline stages for easier timing closure
 
 	parameter  O_BITS = $O_BITS$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:s_axis:m_axis, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -83,17 +84,17 @@ module thresholding_axi_tpl_outer #(
 	output [ 1:0]  s_axilite_RRESP,
 
 	//- AXI Stream - Input --------------
-	output  s_axis_tready,
-	input   s_axis_tvalid,
-	input [((PE*K+7)/8)*8-1:0]  s_axis_tdata,
+	output  in0_V_tready,
+	input   in0_V_tvalid,
+	input [((PE*K+7)/8)*8-1:0]  in0_V_tdata,
 
 	//- AXI Stream - Output -------------
-	input   m_axis_tready,
-	output  m_axis_tvalid,
-	output [((PE*O_BITS+7)/8)*8-1:0]  m_axis_tdata
+	input   out_V_tready,
+	output  out_V_tvalid,
+	output [((PE*O_BITS+7)/8)*8-1:0]  out_V_tdata
 );
 
-	thresholding_axi_tpl_inner #(
+	thresholding_axi #(
 		.N(N), .K(K), .C(C), .PE(PE),
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
@@ -101,7 +102,8 @@ module thresholding_axi_tpl_outer #(
 		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM),
-		.DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM)
+		.DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
+		.DEEP_PIPELINE(DEEP_PIPELINE)
 	) core (
 		.ap_clk(ap_clk), .ap_rst_n(ap_rst_n),
 
@@ -111,8 +113,8 @@ module thresholding_axi_tpl_outer #(
 
 		.s_axilite_ARVALID(s_axilite_ARVALID), .s_axilite_ARREADY(s_axilite_ARREADY), .s_axilite_ARADDR(s_axilite_ARADDR),
 		.s_axilite_RVALID(s_axilite_RVALID), .s_axilite_RREADY(s_axilite_RREADY), .s_axilite_RDATA(s_axilite_RDATA), .s_axilite_RRESP(s_axilite_RRESP),
-		.s_axis_tready(s_axis_tready), .s_axis_tvalid(s_axis_tvalid), .s_axis_tdata(s_axis_tdata),
-		.m_axis_tready(m_axis_tready), .m_axis_tvalid(m_axis_tvalid), .m_axis_tdata(m_axis_tdata)
+		.s_axis_tready(in0_V_tready), .s_axis_tvalid(in0_V_tvalid), .s_axis_tdata(in0_V_tdata),
+		.m_axis_tready(out_V_tready), .m_axis_tvalid(out_V_tvalid), .m_axis_tdata(out_V_tdata)
 	);
 
-endmodule // thresholding_axi_tpl_outer
+endmodule // thresholding_template_wrapper
