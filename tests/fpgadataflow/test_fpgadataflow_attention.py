@@ -15,7 +15,9 @@ from onnx import TensorProto, helper
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model  # noqa qonnx
 # dependency is specified in setup.cfg as well as in fetch-repos.sh
 # QONNX datatypes
-from qonnx.core.datatype import DataType, IntType, BaseDataType  # noqa
+from qonnx.core.datatype import (  # noqa
+    DataType, IntType, FloatType, BaseDataType
+)
 # Wrapper around ONNX model with some graph manipulation utility
 from qonnx.core.modelwrapper import ModelWrapper  # noqa
 # Execute onnx model graphs
@@ -75,6 +77,9 @@ class MockScaledDotProductAttention:
     OutQKMatMul: IntType = DataType["UINT4"]
     # Activation function type of the Query x Key multiplication
     ActQKMatMul: str = "thresholds"
+    # Output bias to be applied to the thresholding activation following
+    # the Query x Key multiplication
+    BiasActQKMatMul: float = 0.0
 
     # Datatype of accumulator elements of the Attention x Value
     # multiplication
@@ -84,10 +89,24 @@ class MockScaledDotProductAttention:
     OutAVMatMul: IntType = DataType["UINT4"]
     # Activation function type of the Attention x Value multiplication
     ActAVMatMul: str = "thresholds"
+    # Output bias to be applied to the thresholding activation following
+    # the Attention x Value multiplication
+    BiasActAVMatMul: float = 0.0
 
+    # Scale factor preceding the softmax normalization to dequantize the
+    # input
+    DequantSoftmax: float = 1.0
+    # Datatype of softmax normalization before applying activation or
+    # type cast. THis is called Acc to stick to the naming scheme of the
+    # MatMul operators before.
+    #   Note: Currently this is ALWAYS floats
+    AccASoftmax: FloatType = DataType["FLOAT32"]
     # Activation function type of the softmax normalization of the
     # attention weights
     ActASoftmax: str = "thresholds"
+    # Output bias to be applied to the thresholding activation following
+    # the softmax normalization of the attention weights
+    BiasActASoftmax: float = 0.0
 
     # Initializes those parameters which depend on the initial configuration,
     # which is set by the generated __init__
@@ -172,7 +191,7 @@ class MockScaledDotProductAttention:
     # function simulating quantization via thresholding
     def softmax(self, attention):
         # Input and output scale factors for float <-> int conversion
-        iscale = 1.0 / (self.OutQKMatMul.get_num_possible_values() - 1)
+        iscale = self.DequantSoftmax
         # Scale the inputs, normalize using softmax and activate via thresholds
         return multithreshold(
             softmax(iscale * attention, axis=1), self.a_thresholds
@@ -352,7 +371,10 @@ def test_attention_cppsim(
         AccQKMatMul=DataType["UINT22"],
         OutQKMatMul=DataType["UINT8"],
         AccAVMatMul=DataType["UINT22"],
-        OutAVMatMul=OType
+        OutAVMatMul=OType,
+        # Dequantizer scale, factor to convert the whole UINT8 range to floats
+        # in range 0.0 to 1.0
+        DequantSoftmax=1.0 / (DataType["UINT8"].get_num_possible_values() - 1)
     )
 
     # Create a QONNX model wrapper for testing
@@ -459,7 +481,10 @@ def test_attention_rtlsim(
         AccQKMatMul=DataType["UINT22"],
         OutQKMatMul=DataType["UINT8"],
         AccAVMatMul=DataType["UINT22"],
-        OutAVMatMul=OType
+        OutAVMatMul=OType,
+        # Dequantizer scale, factor to convert the whole UINT8 range to floats
+        # in range 0.0 to 1.0
+        DequantSoftmax=1.0 / (DataType["UINT8"].get_num_possible_values() - 1)
     )
 
     # Create a QONNX model wrapper for testing

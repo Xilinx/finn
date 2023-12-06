@@ -85,6 +85,9 @@ class ScaledDotProductAttention(HLSCustomOp):
             "OutQKMatMul": ("s", False, "UINT32"),
             # Activation function type of the Query x Key multiplication
             "ActQKMatMul": ("s", False, "none", {"none", "thresholds"}),
+            # Output bias to be applied to the thresholding activation following
+            # the Query x Key multiplication
+            "BiasActQKMatMul": ("f", False, 0.0),
 
             # Datatype of accumulator elements of the Attention x Value
             # multiplication
@@ -94,8 +97,14 @@ class ScaledDotProductAttention(HLSCustomOp):
             "OutAVMatMul": ("s", False, "UINT32"),
             # Activation function type of the Attention x Value multiplication
             "ActAVMatMul": ("s", False, "none", {"none", "thresholds"}),
+            # Output bias to be applied to the thresholding activation following
+            # the Attention x Value multiplication
+            "BiasActAVMatMul": ("f", False, 0.0),
 
 
+            # Scale factor preceding the softmax normalization to dequantize the
+            # input
+            "DequantSoftmax": ("f", False, 1.0),
             # Datatype of softmax normalization before applying activation or
             # type cast. THis is called Acc to stick to the naming scheme of the
             # MatMul operators before.
@@ -104,6 +113,9 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Activation function type of the softmax normalization of the
             # attention weights
             "ActASoftmax": ("s", False, "none", {"none", "thresholds"}),
+            # Output bias to be applied to the thresholding activation following
+            # the softmax normalization of the attention weights
+            "BiasActASoftmax": ("f", False, 0.0),
 
             # Mode used for providing the attention mask: There can be no mask,
             # a mask sent as the fourth input or a causal attention mask which
@@ -253,8 +265,11 @@ class ScaledDotProductAttention(HLSCustomOp):
                 thresholds = context[
                     self.get_input_name_by_name("thresholds_qk_matmul")
                 ]
+                # Activation value, i.e., bias applied after thresholding
+                # activation
+                bias = self.get_nodeattr("BiasActQKMatMul")
                 # Applies thresholding activation in python to the input
-                return multithreshold(x, thresholds)
+                return multithreshold(x, thresholds) + bias
             # If not thresholds, assume identity function
             return x
 
@@ -267,8 +282,11 @@ class ScaledDotProductAttention(HLSCustomOp):
                 thresholds = context[
                     self.get_input_name_by_name("thresholds_a_softmax")
                 ]
+                # Activation value, i.e., bias applied after thresholding
+                # activation
+                bias = self.get_nodeattr("BiasActASoftmax")
                 # Applies thresholding activation in python to the input
-                return multithreshold(x, thresholds)
+                return multithreshold(x, thresholds) + bias
             # If not thresholds, assume identity function
             return x
 
@@ -282,16 +300,17 @@ class ScaledDotProductAttention(HLSCustomOp):
                 thresholds = context[
                     self.get_input_name_by_name("thresholds_av_matmul")
                 ]
+                # Activation value, i.e., bias applied after thresholding
+                # activation
+                bias = self.get_nodeattr("BiasActAVMatMul")
                 # Applies thresholding activation in python to the input
-                return multithreshold(x, thresholds)
+                return multithreshold(x, thresholds) + bias
             # If not thresholds, assume identity function
             return x
 
-        # Get the datatype produced by the first matmul after quantization
-        qk_dtype = DataType[self.get_nodeattr("OutQKMatMul")]
         # Scale used to dequantize the qk matrix before computing the softmax in
         # floating point
-        dequant = 1.0 / (qk_dtype.get_num_possible_values() - 1)
+        dequant = self.get_nodeattr("DequantSoftmax")
 
         # 1. Queries and keys multiplication followed by quantizing activation
         # function
@@ -358,6 +377,7 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Executes the attention operator in RTL mode simulation
     def _execute_node_rtlsim(self, context, graph):  # noqa: graph unused
         # TODO: Implement rtlsim mode
+        # Note: Cannot even compile this right now due to missing float ips
         raise NotImplementedError(
             "exec_mode rtlsim is not implemented yet!"
         )
@@ -744,6 +764,13 @@ class ScaledDotProductAttention(HLSCustomOp):
             )
             # Get the datatype of the thresholds
             thresholds_dtype = DataType[self.get_nodeattr("AccQKMatMul")]
+            # Activation value, i.e., bias applied after thresholding activation
+            bias = self.get_nodeattr("BiasActQKMatMul")
+            # No support for floating-point bias
+            assert int(bias) == bias, "BiasActQKMatMul must be integer"
+            # Convert the bias to integer representation, so it can be used as a
+            # template argument
+            bias = int(bias)
             # Format the thresholds as C++ array code: QK matmul outputs fold
             # along the key-value sequence length dimension
             thresholds_qk_matmul, num = prepare_thresholds(
@@ -754,7 +781,12 @@ class ScaledDotProductAttention(HLSCustomOp):
             #   "defines" method
             act_qk_matmul = "\n".join([
                 f"ThresholdsActivation<",
-                f"    SeqFold, KVLen/SeqFold, {num}, AccQKMatMul, OutQKMatMul",
+                f" SeqFold,",
+                f" KVLen/SeqFold,"
+                f" {num},"
+                f" AccQKMatMul,"
+                f" OutQKMatMul,"
+                f" {bias}",
                 f">"
             ])
 
@@ -767,6 +799,13 @@ class ScaledDotProductAttention(HLSCustomOp):
             )
             # Get the datatype of the thresholds
             thresholds_dtype = DataType[self.get_nodeattr("AccAVMatMul")]
+            # Activation value, i.e., bias applied after thresholding activation
+            bias = self.get_nodeattr("BiasActAVMatMul")
+            # No support for floating-point bias
+            assert int(bias) == bias, "BiasActAVMatMul must be integer"
+            # Convert the bias to integer representation, so it can be used as a
+            # template argument
+            bias = int(bias)
             # Format the thresholds as C++ array code: AV matmul outputs fold
             # along the value embedding dimension
             thresholds_av_matmul, num = prepare_thresholds(
@@ -777,7 +816,12 @@ class ScaledDotProductAttention(HLSCustomOp):
             #   "defines" method
             act_av_matmul = "\n".join([
                 f"ThresholdsActivation<",
-                f"    EmbFold, VDim/EmbFold, {num}, AccAVMatMul, OutAVMatMul",
+                f" EmbFold,"
+                f" VDim/EmbFold,"
+                f" {num},"
+                f" AccAVMatMul,"
+                f" OutAVMatMul,"
+                f" {bias}"
                 f">"
             ])
 
@@ -790,6 +834,13 @@ class ScaledDotProductAttention(HLSCustomOp):
             )
             # Get the datatype of the thresholds
             thresholds_dtype = DataType[self.get_nodeattr("AccASoftmax")]
+            # Activation value, i.e., bias applied after thresholding activation
+            bias = self.get_nodeattr("BiasActASoftmax")
+            # No support for floating-point bias
+            assert int(bias) == bias, "BiasActASoftmax must be integer"
+            # Convert the bias to integer representation, so it can be used as a
+            # template argument
+            bias = int(bias)
             # Format the thresholds as C++ array code: Softmax outputs fold
             # along the key-value sequence length dimension
             thresholds_a_softmax, num = prepare_thresholds(
@@ -800,7 +851,12 @@ class ScaledDotProductAttention(HLSCustomOp):
             #   "defines" method
             act_a_softmax = "\n".join([
                 f"ThresholdsActivation<",
-                f"    SeqFold, KVLen/SeqFold, {num}, AccASoftmax, AType",
+                f" SeqFold,"
+                f" KVLen/SeqFold,"
+                f" {num},"
+                f" AccASoftmax,"
+                f" AType,"
+                f" {bias}",
                 f">"
             ])
 
@@ -808,6 +864,10 @@ class ScaledDotProductAttention(HLSCustomOp):
         with open(f"{code_gen_dir}/params.hpp", "w") as file:
             # Write lines of C++ code separated by newlines to the file
             file.write("\n".join([
+                # Scale factor preceding the softmax activation function to
+                # dequantize the input to floating-point representation
+                f"static const float dequant_softmax ="
+                f" {self.get_nodeattr('DequantSoftmax')};",
                 # Add type definition and threshold initialization of the
                 # query-key matmul activation
                 f"using ActQKMatMul = {act_qk_matmul};",
@@ -995,8 +1055,10 @@ class ScaledDotProductAttention(HLSCustomOp):
             # threshold parameters
             # Note: Assumes "Attention" to be aliased appropriate configuration
             #   in defines with.
+            # Note: Assumes parameters to be generated in 'generate_params' and
+            #   made available via include/defines before.
             f"Attention attention {{",
-            f"    act_qk_matmul, act_av_matmul, act_a_softmax",
+            f"    act_qk_matmul, act_av_matmul, act_a_softmax, dequant_softmax",
             f"}};",
             # Connect the attention operator to the input and output streams
             f"attention("
