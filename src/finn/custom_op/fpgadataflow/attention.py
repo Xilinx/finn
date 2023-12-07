@@ -29,7 +29,7 @@ def softmax(x, axis):
     # Exponential of the input
     exp = np.exp(x)
     # Compute the total along axis
-    total = np.sum(exp, axis=1, keepdims=True)
+    total = np.sum(exp, axis=axis, keepdims=True)
     # Detect overflow of the summation
     overflow = np.isinf(total)
     # Replace overflows by equal weight given to all instances of the maximum
