@@ -61,7 +61,6 @@ def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_styl
         inWidth=inWidth,
         outWidth=outWidth,
         dataType=str(finn_dtype.name),
-        rtlsim_trace="dwc.vcd",
     )
     if not use_rtl_variant:
         # add additional attribute
