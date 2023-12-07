@@ -40,8 +40,10 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
     find_next_power_of_2,
+    get_memutil_alternatives,
     get_rtlsim_trace_depth,
     make_build_dir,
+    mem_primitives_versal,
     pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.data_packing import (
@@ -102,9 +104,52 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # memory depth triggers for threshold storage
             "depth_trigger_uram": ("i", False, 0),
             "depth_trigger_bram": ("i", False, 0),
+            # enable uniform thres optimization
+            # doesn't actually do anything yet, only
+            # for resource estimations
+            "uniform_thres": ("i", False, 0, {0, 1}),
+            # enable deep pipelining for easier timing closure
+            # setting to 0 may save some FFs but otherwise leave on
+            "deep_pipeline": ("i", False, 1, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_pe_mem_geometries(self):
+        pe = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        wdt_bits = wdt.bitwidth()
+        odt = self.get_output_datatype()
+        odt_bits = odt.bitwidth()
+        t_channels = self.get_nodeattr("NumChannels")
+        cf = t_channels / pe
+        is_uniform = self.get_nodeattr("uniform_thres")
+        if is_uniform:
+            ret = [(odt_bits - x, cf * (2**x)) for x in range(1, odt_bits)]
+        else:
+            ret = [(wdt_bits, (cf) * 2**x) for x in range(odt_bits)]
+        return ret
+
+    def get_memory_estimate(self):
+        res_dict = {}
+        depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
+        pe = self.get_nodeattr("PE")
+        ret = self.get_pe_mem_geometries()
+        for mem_cfg in ret:
+            (width, depth) = mem_cfg
+            primitives = mem_primitives_versal
+            if depth_trigger_bram != 0 or depth_trigger_uram != 0:
+                if depth >= depth_trigger_bram and depth < depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "BRAM" in k}
+                elif depth >= depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
+            alts = get_memutil_alternatives(mem_cfg, primitives)
+            primary_alt = alts[0]
+            res_type = primary_alt[0].split("_")[0]
+            res_count, eff, waste = primary_alt[1]
+            res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
+        return res_dict
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
@@ -139,10 +184,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return []
 
     def bram_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("BRAM", 0)
+
+    def uram_estimation(self):
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("URAM", 0)
 
     def lut_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("LUTRAM", 0)
 
     def get_input_datatype(self, ind=0):
         return DataType[self.get_nodeattr("inputDataType")]
@@ -371,9 +422,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        deep_pipeline = self.get_nodeattr("deep_pipeline")
         code_gen_dict["$DEPTH_TRIGGER_URAM$"] = [str(depth_trigger_uram)]
         code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
-
+        code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
 
     def get_rtl_file_list(self):
@@ -382,8 +434,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "axilite_if.v",
             "thresholding.sv",
             "thresholding_axi.sv",
-            "thresholding_axi_tpl_inner.sv",
-            "thresholding_axi_tpl_outer.v",
+            "thresholding_template_wrapper.v",
         ]
 
     def get_rtl_file_paths(self):
@@ -609,8 +660,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = [("s_axis", self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("m_axis", self.get_outstream_width_padded())]
+        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []

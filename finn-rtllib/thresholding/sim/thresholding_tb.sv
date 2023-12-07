@@ -41,6 +41,8 @@ module thresholding_tb #(
 
 	localparam int unsigned  CF = C/PE	// Channel Fold
 );
+    localparam bit  DEEP_PIPELINE = 1;
+
 	localparam int unsigned  MST_STRM_WROUNDS = 507;
 	localparam bit  THROTTLED = 1;
 
@@ -85,7 +87,7 @@ module thresholding_tb #(
 		uwire  ovld;
 		uwire [PE-1:0][N-1:0]  odat;
 
-		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1)) dut (
+		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)) dut (
 			.clk, .rst,
 
 			// Configuration
@@ -165,7 +167,7 @@ module thresholding_tb #(
 					cfg_we <= 'x;
 					cfg_a  <= 'x;
 					@(posedge clk);
-					if(($urandom()%37) == 0) begin
+					if(($urandom()%41) == 0) begin
 						automatic addr_t  addr = $urandom()%(N-1);
 						if(PE > 1)  addr[N+:$clog2(PE)] = $urandom()%PE;
 						if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
@@ -194,7 +196,7 @@ module thresholding_tb #(
 				end
 			join_any
 			done <= 1;
-			repeat(N+6)  @(posedge clk);
+			repeat((DEEP_PIPELINE+1)*N+6)  @(posedge clk);
 
 			assert(QW.size() == 0) else begin
 				$error("[%0d] Missing %0d outputs.", i, QW.size());

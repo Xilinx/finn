@@ -68,6 +68,7 @@ module thresholding #(
 	// Force Use of On-Chip Memory Blocks
 	int unsigned  DEPTH_TRIGGER_URAM = 0,	// if non-zero, local mems of this depth or more go into URAM (prio)
 	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
+	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -128,14 +129,15 @@ module thresholding #(
 	//	- configuration always takes precedence
 	//	- number of pending thresholding ops capped to N+3
 	//	  across pipeline and output FIFO: pipe:N + A:1 + B:1 + 1
+	localparam int unsigned  MAX_PENDING = (DEEP_PIPELINE+1)*N + 3;
 	pipe_t  pipe[PE][N+1];
 	if(1) begin : blkFeed
 
 		// Thresholding Input Guard ensuring Output FIFO is never overrun
-		logic signed [$clog2(N+3):0]  GuardSem = N+2;	// N+2, N+1, ..., 0, -1
+		logic signed [$clog2(MAX_PENDING):0]  GuardSem = MAX_PENDING-1;	// MAX_PENDING-1, ..., 0, -1
 		uwire  th_full = GuardSem[$left(GuardSem)];
 		always_ff @(posedge clk) begin
-			if(rst)  GuardSem <= N+2;
+			if(rst)  GuardSem <= MAX_PENDING-1;
 			else begin
 				automatic logic  dec = !(USE_CONFIG && cfg_en) && !th_full && ivld;
 				automatic logic  inc = ovld && ordy;
@@ -267,12 +269,28 @@ module thresholding #(
 					endcase
 				end
 			end : blkSignedFloat
+
+			// Pipeline State Update
+			pipe_t  pp;
 			always_comb begin
-				automatic pipe_t  pp = P;
+				pp = P;
 				if(P.op !=? CFG)  pp.ptr[SN] = cmp;
 				if(Reval)         pp.val = Thresh;
-				pipe[pe][stage+1] = pp;
 			end
+
+			// Pipeline State Forward (potentially additional register)
+			pipe_t  pf;
+			if(!DEEP_PIPELINE)  assign  pf = pp;
+			else begin
+				pipe_t  Pf = '{ op: NOP, default: 'x };
+				always_ff @(posedge clk) begin
+					if(rst)  Pf <= '{ op: NOP, default: 'x };
+					else     Pf <= pp;
+				end
+				assign	pf = Pf;
+			end
+
+			assign	pipe[pe][stage+1] = pf;
 
 		end : genPE
 	end : genStages
@@ -294,7 +312,7 @@ module thresholding #(
 	//	- Depth of N + Output Reg to allow pipe to drain entirely under backpressure
 	//	- Typically mapped to an SRL shift register
 	if(1) begin : blkStreamOutput
-		localparam int unsigned  A_DEPTH = N+2;
+		localparam int unsigned  A_DEPTH = MAX_PENDING - 1;
 		logic        [PE-1 : 0][N-1 : 0]  ADat[A_DEPTH];
 		logic signed [$clog2(A_DEPTH):0]  APtr = '1;	// -1, 0, 1, ..., A_DEPTH-1
 		uwire  avld = !APtr[$left(APtr)];
