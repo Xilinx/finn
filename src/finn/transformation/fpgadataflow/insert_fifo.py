@@ -45,7 +45,7 @@ def _is_fifo_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node) is True and node.op_type != "TLastMarker":
             if _is_fifo_node(node) is False:
                 return True
             else:

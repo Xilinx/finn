@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,6 +46,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_hook import InsertHook
+from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -135,10 +137,14 @@ def create_two_fc_model():
 
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-def test_fpgadataflow_checksum():
+@pytest.mark.parametrize("tlast", [0, 1])
+def test_fpgadataflow_checksum(tlast):
     # use a graph consisting of two fc layers to test
     # checksum node insertion
     model = create_two_fc_model()
+
+    if tlast:
+        model = model.transform(InsertTLastMarker())
 
     # set checksum output hook
     for n in model.graph.node:
@@ -148,29 +154,36 @@ def test_fpgadataflow_checksum():
     model = model.transform(InsertHook())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferShapes())
 
-    assert (
-        len(model.get_nodes_by_op_type("CheckSum")) == 2
-    ), """Insertion of
-        checksum layers was unsuccessful"""
+    if tlast:
+        assert (
+            len(model.get_nodes_by_op_type("CheckSum")) == 3
+        ), """Insertion of
+            checksum layers was unsuccessful"""
+    else:
+        assert (
+            len(model.get_nodes_by_op_type("CheckSum")) == 2
+        ), """Insertion of
+            checksum layers was unsuccessful"""
 
     # to verify the functionality of the checksum layer
     # cppsim and rtlsim will be compared
 
     x = gen_finn_dt_tensor(DataType["INT32"], (1, 4))
-
-    # cppsim
-    model = model.transform(SetExecMode("cppsim"))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
     inp = {"global_in": x}
-    y_cppsim = oxe.execute_onnx(model, inp, return_full_exec_context=True)
-    checksum0_cppsim = y_cppsim["CheckSum_0_out1"]
-    checksum1_cppsim = y_cppsim["CheckSum_1_out1"]
 
-    # in this test case scenario the checksums are equal
-    assert checksum0_cppsim == checksum1_cppsim, "CheckSums are not equal"
+    if not tlast:
+        model = model.transform(InferShapes())
+        # cppsim
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        y_cppsim = oxe.execute_onnx(model, inp, return_full_exec_context=True)
+        checksum0_cppsim = y_cppsim["CheckSum_0_out1"]
+        checksum1_cppsim = y_cppsim["CheckSum_1_out1"]
+
+        # in this test case scenario the checksums are equal
+        assert checksum0_cppsim == checksum1_cppsim, "CheckSums are not equal"
 
     # rtlsim
     model = model.transform(InsertFIFO(True))
@@ -206,16 +219,25 @@ def test_fpgadataflow_checksum():
     checksum0_drain = int(drain[0])
     checksum1_drain = int(drain[1])
 
-    assert (
-        checksum0_rtlsim == checksum0_cppsim
-    ), """The first checksums do not
-        match in cppsim vs. rtlsim"""
-    assert (
-        checksum1_rtlsim == checksum1_cppsim
-    ), """The second checksums do not
-        match in cppsim vs. rtlsim"""
+    if not tlast:
+        assert (
+            checksum0_rtlsim == checksum0_cppsim
+        ), """The first checksums do not
+            match in cppsim vs. rtlsim"""
+        assert (
+            checksum1_rtlsim == checksum1_cppsim
+        ), """The second checksums do not
+            match in cppsim vs. rtlsim"""
 
     assert checksum0_drain == 0, "Drain read doesn't match drain write for first checksum"
     assert checksum1_drain == 0, "Drain read doesn't match drain write for second checksum"
+
+    if tlast:
+        # TODO: write check for third checksum after tlastmarker
+        # checksum2_rtlsim = int(checksums[2])
+        checksum2_drain = int(drain[2])
+        # in this test case scenario the checksums are equal
+        assert checksum0_rtlsim == checksum1_rtlsim, "CheckSums are not equal"
+        assert checksum2_drain == 0, "Drain read doesn't match drain write for third checksum"
 
     # TODO: test for drain set to true

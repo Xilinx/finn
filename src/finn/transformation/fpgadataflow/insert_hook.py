@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -83,10 +84,14 @@ class InsertHook(Transformation):
                             if len(consumers) == 1:
                                 if consumers[0].op_type == "CheckSum":
                                     continue
-                            n0_normal_oshape = n0.get_normal_output_shape()
+                            if n.op_type == "TLastMarker":
+                                n0_normal_oshape = model.get_tensor_shape(n.output[0])
+                                n0_odt = model.get_tensor_datatype(n.output[0])
+                            else:
+                                n0_normal_oshape = n0.get_normal_output_shape()
+                                n0_odt = n0.get_output_datatype()
                             n0_folded_oshape = n0.get_folded_output_shape()
-                            n0_odt = n0.get_output_datatype()
-                            items_per_word = n0.get_nodeattr("PE")
+                            items_per_word = n0_folded_oshape[-1]
                             words_per_frame = np.prod(n0_folded_oshape[:-1])
                             chk_otensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
@@ -104,11 +109,21 @@ class InsertHook(Transformation):
                                 outputs=[chk_otensor.name, chk_result.name],
                                 domain="finn.custom_op.fpgadataflow",
                                 backend="fpgadataflow",
-                                words_per_frame=words_per_frame,
                                 items_per_word=items_per_word,
                                 inputDataType=str(n0_odt.name),
                                 folded_shape=n0_folded_oshape,
                             )
+                            # add node attributes in case preceeding node is tlast marker
+                            if n.op_type == "TLastMarker":
+                                tlast = oh.make_attribute("tlast", 1)
+                                chk_node.attribute.append(tlast)
+                            else:
+                                words_per_frame = oh.make_attribute(
+                                    "words_per_frame", np.prod(n0_folded_oshape[:-1])
+                                )
+                                chk_node.attribute.append(words_per_frame)
+                                tlast = oh.make_attribute("tlast", 0)
+                                chk_node.attribute.append(tlast)
                             # insert checksum node
                             graph.node.insert(node_ind + 1, chk_node)
                             # insert newly-created tensors

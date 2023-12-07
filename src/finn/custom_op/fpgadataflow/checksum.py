@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -44,13 +45,15 @@ class CheckSum(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             # number of data words in a frame
-            "words_per_frame": ("i", True, 0),
+            "words_per_frame": ("i", False, 0),
             # subword count per data word
             "items_per_word": ("i", True, 0),
             # FINN DataTypes for input
             "inputDataType": ("s", True, ""),
             # folded shape of input/output
             "folded_shape": ("ints", True, []),
+            # set to 1 if signal has tlast
+            "tlast": ("i", True, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -213,14 +216,20 @@ class CheckSum(HLSCustomOp):
             )
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "checksum.hpp"']
+        tlast = self.get_nodeattr("tlast")
+        if tlast:
+            self.code_gen_dict["$GLOBALS$"] = ['#include "checksum_tlast.hpp"']
+        else:
+            self.code_gen_dict["$GLOBALS$"] = ['#include "checksum.hpp"']
 
     def defines(self, var):
+        tlast = self.get_nodeattr("tlast")
         items_per_word = self.get_nodeattr("items_per_word")
-        words_per_frame = self.get_nodeattr("words_per_frame")
         word_size = self.get_instream_width()
         my_defines = []
-        my_defines.append("#define WORDS_PER_FRAME {}".format(words_per_frame))
+        if not tlast:
+            words_per_frame = self.get_nodeattr("words_per_frame")
+            my_defines.append("#define WORDS_PER_FRAME {}".format(words_per_frame))
         my_defines.append("#define ITEMS_PER_WORD {}".format(items_per_word))
         my_defines.append("#define WORD_SIZE {}".format(word_size))
         self.code_gen_dict["$DEFINES$"] = my_defines
@@ -249,26 +258,46 @@ class CheckSum(HLSCustomOp):
         )
 
     def strm_decl(self):
+        tlast = self.get_nodeattr("tlast")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+        if tlast:
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::axis<ap_uint<{}>, 0, 0, 0>> in0_{} ("in0_{}");'.format(
+                    self.get_instream_width(), self.hls_sname(), self.hls_sname()
+                )
             )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::axis<ap_uint<{}>, 0, 0, 0>> out_{} ("out_{}");'.format(
+                    self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+                )
             )
-        )
+        else:
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                    self.get_instream_width(), self.hls_sname(), self.hls_sname()
+                )
+            )
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                    self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+                )
+            )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
         # set drain = false for cppsim
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<1> drain = false;")
 
     def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_%s, out_%s, chk, drain);"""
-            % (self.hls_sname(), self.hls_sname())
-        ]
+        tlast = self.get_nodeattr("tlast")
+        if tlast:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """checksum_tlast<ITEMS_PER_WORD>(in0_%s, out_%s, chk, drain);"""
+                % (self.hls_sname(), self.hls_sname())
+            ]
+        else:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_%s, out_%s, chk, drain);"""
+                % (self.hls_sname(), self.hls_sname())
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -306,12 +335,22 @@ class CheckSum(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_{},
-            hls::stream<T> &out_{}, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
-                self.onnx_node.name, self.hls_sname(), self.hls_sname()
-            )
-        ]
+        tlast = self.get_nodeattr("tlast")
+        if tlast:
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<hls::axis<ap_uint<WORD_SIZE>, 0, 0, 0>> &in0_{},
+                hls::stream<hls::axis<ap_uint<WORD_SIZE>, 0, 0, 0>> &out_{},
+                ap_uint<32> &chk, ap_uint<1> &drain)""".format(
+                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                )
+            ]
+        else:
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_{},
+                hls::stream<T> &out_{}, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
+                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                )
+            ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
