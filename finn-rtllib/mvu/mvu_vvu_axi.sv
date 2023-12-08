@@ -243,6 +243,6 @@ module mvu_vvu_axi #(
 	end
 
 	assign	m_axis_output_tvalid = B.vld;
-	assign	m_axis_output_tdata  = B.dat;
+	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
 
 endmodule : mvu_vvu_axi
