@@ -67,7 +67,8 @@ module mvu_vvu_axi #(
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
-	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE*ACCU_WIDTH,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (OUTPUT_STREAM_WIDTH + 7)/8 * 8,
 	localparam bit  		 SIMD_UNEVEN = SIMD % 2
 )(
 	// Global Control
@@ -395,6 +396,6 @@ module mvu_vvu_axi #(
 		end
 	end
 	assign	m_axis_output_tvalid = B.vld;
-	assign	m_axis_output_tdata  = B.dat;
+	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
 
 endmodule : mvu_vvu_axi
