@@ -67,7 +67,8 @@ module mvu_vvu_axi #(
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
-	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE*ACCU_WIDTH,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (OUTPUT_STREAM_WIDTH + 7)/8 * 8,
 	localparam bit  		 SIMD_UNEVEN = SIMD % 2
 )(
 	// Global Control
@@ -242,8 +243,6 @@ module mvu_vvu_axi #(
 					En   <= 0;
 					Last <= '{ default: 1'b0 };
 					Zero <=  1;
-					W <= '{ default: 'x };
-					A <= '{ default: 'x };
 				end
 				else begin
 					if(Active) begin
@@ -251,23 +250,52 @@ module mvu_vvu_axi #(
 						if(en) begin
 							Last <= '{ alast && avld, 1'b0 };
 							Zero <= !istb;
-							for(int unsigned  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin
-								for(int unsigned  pe = 0; pe < PE; pe++) begin
-									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : mvu_w[pe][simd];
-								end
-								for(int unsigned  pe = 0; pe < ACT_PE; pe++) begin
-									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : amvau_i[pe][simd];
-								end
-							end
-						end
-					end
-					else if(En) begin
-						Last <= '{ 'x, Last[1] };
-						W    <= '{ 'x, W[1] };
-						A    <= '{ 'x, A[1] };
 					end
 				end
 			end
+
+			for(genvar  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin : genSIMDRegW
+				for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
+					always_ff @(posedge clk2x) begin
+						if(rst) begin
+							W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= '{ default: 'x };
+						end
+						else begin
+							if(Active) begin
+								if(en) begin
+									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : mvu_w[pe][simd];
+								end
+							end
+							else if(En) begin
+								W[1][pe][simd % DSP_SIMD] <= 'x;
+								W[0][pe][simd % DSP_SIMD] <= W[1][pe][simd % DSP_SIMD];
+							end
+						end
+					end
+				end : genPERegW
+			end : genSIMDRegW
+
+			for(genvar  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin : genSIMDRegA
+				for(genvar  pe = 0; pe < ACT_PE; pe++) begin : genPERegA
+					always_ff @(posedge clk2x) begin
+						if(rst) begin
+							A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= '{ default: 'x };
+						end
+						else begin
+							if(Active) begin
+								if(en) begin
+									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : amvau_i[pe][simd];
+								end
+							end
+							else if(En) begin
+								A[1][pe][simd % DSP_SIMD] <= 'x;
+								A[0][pe][simd % DSP_SIMD] <= A[1][pe][simd % DSP_SIMD];
+							end
+						end
+					end
+				end : genPERegA
+			end : genSIMDRegA
+
 			assign	dsp_en = En;
 
 			assign	dsp_last = Last[0];
@@ -364,6 +392,6 @@ module mvu_vvu_axi #(
 		end
 	end
 	assign	m_axis_output_tvalid = B.vld;
-	assign	m_axis_output_tdata  = B.dat;
+	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
 
 endmodule : mvu_vvu_axi
