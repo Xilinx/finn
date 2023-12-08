@@ -781,7 +781,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             #   "defines" method
             act_qk_matmul = "\n".join([
                 f"ThresholdsActivation<",
-                f" SeqFold,",
+                f" SeqFold,"
                 f" KVLen/SeqFold,"
                 f" {num},"
                 f" AccQKMatMul,"

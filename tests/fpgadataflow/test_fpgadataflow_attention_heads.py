@@ -5,22 +5,22 @@ import pytest  # noqa pytest dependecy is listed in setup.cfg
 import numpy as np
 
 # Protobuf onnx graph node type
-from onnx import NodeProto, TensorProto  # noqa
+from onnx import TensorProto
 # Helper for creating ONNX nodes
-from onnx import helper as oh  # noqa
+from onnx import helper as oh
 
 # QONNX/FINN datatypes
 from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
 # QONNX wrapper to ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper  # noqa
+from qonnx.core.modelwrapper import ModelWrapper  # noqa: qonnx
 # Execute onnx model graphs
-from qonnx.core.onnx_exec import execute_onnx  # noqa
+from qonnx.core.onnx_exec import execute_onnx  # noqa: qonnx
 # Utility for wrapping onnx graphs and generating tensor of FINN datatypes
-from qonnx.util.basic import qonnx_make_model, gen_finn_dt_tensor  # noqa
+from qonnx.util.basic import qonnx_make_model, gen_finn_dt_tensor  # noqa: qonnx
 
 # Graph transformation giving unique names to each node in a QONNX model graph
-from qonnx.transformation.general import GiveUniqueNodeNames  # noqa
+from qonnx.transformation.general import GiveUniqueNodeNames  # noqa: qonnx
 
 # FINN graph transformations for preparing simulation (cppsim or rtlsim)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -137,8 +137,6 @@ def mock_merge_multi_heads(seq, dim, heads, dtype):
 @pytest.mark.parametrize("dtype", ["UINT8"])
 # This is a slow running fpgadataflow type of test which requires vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
 # Tests splitting of tensors to multiple attention heads using python mode
 # execution
 #   Note: No actual attention operation is performed
@@ -161,7 +159,7 @@ def test_attention_heads_split_python(seq, dim, heads, dtype):
     # Validate each output separately
     for i, out in enumerate((f"out{i}" for i in range(heads))):
         # Compare expected (retrieved by index) to produced (retrieve by key)
-        assert (o_produced[out] == o_expected[i]).all()
+        assert (o_produced[out] == o_expected[i]).all()  # noqa: "all" warning
 
 
 # Sequence length to simulate, i.e., number of individual inputs to be split
@@ -201,7 +199,7 @@ def test_attention_heads_split_cppsim(seq, dim, heads, dtype):
     # Validate each output separately
     for i, out in enumerate((f"out{i}" for i in range(heads))):
         # Compare expected (retrieved by index) to produced (retrieve by key)
-        assert (o_produced[out] == o_expected[i]).all()
+        assert (o_produced[out] == o_expected[i]).all()  # noqa: "all" warning
 
 
 # Sequence length to simulate, i.e., number of individual inputs to be split
@@ -242,7 +240,7 @@ def test_attention_heads_split_rtlsim(seq, dim, heads, dtype):
     # Validate each output separately
     for i, out in enumerate((f"out{i}" for i in range(heads))):
         # Compare expected (retrieved by index) to produced (retrieve by key)
-        assert (o_produced[out] == o_expected[i]).all()
+        assert (o_produced[out] == o_expected[i]).all()  # noqa: "all" warning
 
 
 # Sequence length to simulate, i.e., number of individual inputs to be split
@@ -259,8 +257,6 @@ def test_attention_heads_split_rtlsim(seq, dim, heads, dtype):
 @pytest.mark.vivado
 # This is a slow running fpgadataflow type of test which requires vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
 # Tests merging of tensors from multiple attention heads using python mode
 # execution
 #   Note: No actual attention operation is performed

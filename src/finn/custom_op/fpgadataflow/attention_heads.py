@@ -167,7 +167,7 @@ class SplitMultiHeads(HLSCustomOp):
 
     # Executes multi-head slicing in C++ simulation
     def _execute_node_cppsim(self, context, graph):  # noqa: graph unused
-        # Get the node wrapped by this custom op
+        # Get the node wrapped by this custom op  # noqa Duplicate
         node = self.onnx_node
         # Input data is stored in numpy files in the code generation dictionary
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -194,7 +194,7 @@ class SplitMultiHeads(HLSCustomOp):
 
     # Executes multi-head slicing in RTL simulation
     def _execute_node_rtlsim(self, context, graph):  # noqa: graph unused
-        # Get the node wrapped by this custom op
+        # Get the node wrapped by this custom op    # noqa Duplicate
         node = self.onnx_node
         # Input data is stored in numpy files in the code generation dictionary
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -430,10 +430,10 @@ class SplitMultiHeads(HLSCustomOp):
         ]
 
     # Generates C++ code for reading the output stream and converting back to
-    # numpy format for testing in C** simulation
+    # numpy format for testing in C++ simulation
     def dataoutstrm(self):
-        # Output data will be stored in numpy files in the code generation
-        # dictionary
+        # Output data will be stored in numpy files in the  # noqa Duplicate
+        # code generation dictionary
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         # Get the expected shape of the folded output array formatted as a C++
         # vector initializer
@@ -510,8 +510,8 @@ class SplitMultiHeads(HLSCustomOp):
 
     # Returns the names of input and output interfaces grouped by protocol
     def get_verilog_top_module_intf_names(self):
-        # Start collecting interface names in a dictionary starting with clock
-        # and reset
+        # Start collecting interface names in a dictionary  # noqa Duplicate
+        # starting with clock and reset
         intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}  # noqa
         # AXI stream input interfaces
         intf_names["s_axis"] = [
@@ -613,8 +613,6 @@ class MergeMultiHeads(HLSCustomOp):
     #   Note: Propagates shape forward, i.e., never asks for the shape of the
     #   output, even if it seems easier.
     def make_shape_compatible_op(self, model: ModelWrapper):  # noqa
-        # Get the node wrapped by this custom op
-        node = self.onnx_node
         # Squeeze single-element batch dimension from the output?
         squeezed = self.squeezed
         # Assume unpacked inputs by default, here seq sill be the number of
