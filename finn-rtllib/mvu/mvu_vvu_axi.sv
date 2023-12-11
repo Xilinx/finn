@@ -250,6 +250,13 @@ module mvu_vvu_axi #(
 						if(en) begin
 							Last <= '{ alast && avld, 1'b0 };
 							Zero <= !istb;
+<<<<<<< HEAD
+=======
+						end
+					end
+					else if(En) begin
+						Last <= '{ 'x, Last[1] };
+>>>>>>> 4cb16a18d49e69f67fa1146748b735e1c5a9f3f6
 					end
 				end
 			end
