@@ -980,7 +980,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
         max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
-        return dsp_chain_len
+        #return dsp_chain_len
+        return 1
 
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
@@ -994,7 +995,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
                 or fpgapart[0:5] == "xqrvc"
             )
-            if act_width == 4 and weight_width == 4:
+            if (act_width == 4 and weight_width == 4) and not(is_versal):
                 return "mvu_4sx4u"
             else:
                 if is_versal:
