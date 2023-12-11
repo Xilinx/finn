@@ -488,7 +488,7 @@ def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
     ]
     for trn in specialize_to_rtl_transforms:
         model = model.transform(trn)
-    
+
     # If double-pumping enabled, annotate relevant MVU/VVU layers
     if cfg.enable_pumped_compute:
         for n in model.graph.node:
@@ -525,6 +525,10 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
 
+    return model
+
+
+def step_verify_nodebynode_rtlsim(model: ModelWrapper, cfg: DataflowBuildConfig):
     nodebynode_verify = (
         VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps()
     )
@@ -534,7 +538,6 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(PrepareRTLSim())
         nodebynode_rtlsim_model = nodebynode_rtlsim_model.transform(SetExecMode("rtlsim"))
         verify_step(nodebynode_rtlsim_model, cfg, "node_by_node_rtlsim", need_parent=True)
-
     return model
 
 
