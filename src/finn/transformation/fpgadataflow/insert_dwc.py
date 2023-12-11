@@ -35,13 +35,8 @@ def _suitable_node(node):
 
 
 def _is_parallel_window_mode(producer, consumer):
-    if producer.get_nodeattr("parallel_window") == 1 and consumer.op_type in [
-        "VectorVectorActivation",
-        "VectorVectorActivation_rtl",
-    ]:
-        return True
-    else:
-        return False
+    # disabled, TODO remove parallel DWC insertion logic entirely?
+    return False
 
 
 class InsertDWC(Transformation):
