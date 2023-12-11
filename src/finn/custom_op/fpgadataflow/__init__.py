@@ -39,6 +39,9 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator1d import (
 from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
+from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
+    ConvolutionInputGenerator_rtl_mmv,
+)
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
@@ -89,6 +92,7 @@ custom_op["MatrixVectorActivation_rtl"] = MatrixVectorActivation_rtl
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
+custom_op["ConvolutionInputGenerator_rtl_mmv"] = ConvolutionInputGenerator_rtl_mmv
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op[
