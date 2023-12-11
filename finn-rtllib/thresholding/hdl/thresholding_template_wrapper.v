@@ -84,14 +84,14 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	output [ 1:0]  s_axilite_RRESP,
 
 	//- AXI Stream - Input --------------
-	output  in0_V_tready,
-	input   in0_V_tvalid,
-	input [((PE*K+7)/8)*8-1:0]  in0_V_tdata,
+	output  in0_V_TREADY,
+	input   in0_V_TVALID,
+	input [((PE*K+7)/8)*8-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
-	input   out_V_tready,
-	output  out_V_tvalid,
-	output [((PE*O_BITS+7)/8)*8-1:0]  out_V_tdata
+	input   out_V_TREADY,
+	output  out_V_TVALID,
+	output [((PE*O_BITS+7)/8)*8-1:0]  out_V_TDATA
 );
 
 	thresholding_axi #(
@@ -113,8 +113,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 
 		.s_axilite_ARVALID(s_axilite_ARVALID), .s_axilite_ARREADY(s_axilite_ARREADY), .s_axilite_ARADDR(s_axilite_ARADDR),
 		.s_axilite_RVALID(s_axilite_RVALID), .s_axilite_RREADY(s_axilite_RREADY), .s_axilite_RDATA(s_axilite_RDATA), .s_axilite_RRESP(s_axilite_RRESP),
-		.s_axis_tready(in0_V_tready), .s_axis_tvalid(in0_V_tvalid), .s_axis_tdata(in0_V_tdata),
-		.m_axis_tready(out_V_tready), .m_axis_tvalid(out_V_tvalid), .m_axis_tdata(out_V_tdata)
+		.s_axis_tready(in0_V_TREADY), .s_axis_tvalid(in0_V_TVALID), .s_axis_tdata(in0_V_TDATA),
+		.m_axis_tready(out_V_TREADY), .m_axis_tvalid(out_V_TVALID), .m_axis_tdata(out_V_TDATA)
 	);
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$
