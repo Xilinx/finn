@@ -112,8 +112,8 @@ class CreateStitchedIP(Transformation):
     def _is_double_pumped(self, node):
         try:
             pumped_compute = getCustomOp(node).get_nodeattr("pumpedCompute")
-            return pumped_compute==1
-        except:
+            return pumped_compute == 1
+        except Exception:
             return False
 
     def connect_clk_rst(self, node):
@@ -420,7 +420,10 @@ class CreateStitchedIP(Transformation):
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
-        tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2*fclk_hz))
+        if self.clock2x_is_external:
+            tcl.append(
+                "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2 * fclk_hz)
+            )
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)
