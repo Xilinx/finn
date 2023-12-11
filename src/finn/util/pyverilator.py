@@ -171,6 +171,32 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
             fifo_ind += 1
     fifo_log = "\n".join(fifo_log)
 
+    toggle_single_clk = """
+    eval(top);
+    top->ap_clk = 1;
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    eval(top);
+    top->ap_clk = 0;
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    """
+
+    toggle_double_clk = """
+    eval(top);
+    top->ap_clk = 1;
+    top->ap_clk2x = 1;
+    eval(top);
+    top->ap_clk2x = 0;
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    eval(top);
+    top->ap_clk = 0;
+    top->ap_clk2x = 1;
+    eval(top);
+    top->ap_clk2x = 0;
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    """
+
+    is_double_pumped = eval(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] != []
+
     template_dict = {
         "ITERS_PER_INPUT": np.prod(ishape_folded[:-1]),
         "ITERS_PER_OUTPUT": np.prod(oshape_folded[:-1]),
@@ -179,6 +205,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "FIFO_DEPTH_LOGGING": fifo_log,
         "TRACE_FILENAME": trace_file,
         "TRACE_DEF": trace_def,
+        "TOGGLE_CLK": toggle_double_clk if is_double_pumped else toggle_single_clk
     }
 
     for key, val in template_dict.items():
