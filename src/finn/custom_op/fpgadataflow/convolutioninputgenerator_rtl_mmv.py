@@ -1124,9 +1124,10 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
 
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
 
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)

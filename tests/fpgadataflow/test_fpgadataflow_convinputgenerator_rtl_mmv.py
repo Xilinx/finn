@@ -158,7 +158,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-def test_fpgadataflow_slidingwindow_rtl(
+def test_fpgadataflow_slidingwindow_rtl_mmv(
     idt, k, ifm_dim, ifm_ch, stride, dilation, dw, simd, m, parallel_window, flip
 ):
     if flip:

@@ -39,7 +39,7 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator1d import (
 from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
-from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
+from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl_mmv import (
     ConvolutionInputGenerator_rtl_mmv,
 )
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
