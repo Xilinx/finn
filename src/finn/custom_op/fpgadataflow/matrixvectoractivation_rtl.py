@@ -964,7 +964,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
                 or fpgapart[0:5] == "xqrvc"
             )
-            if act_width == 4 and weight_width == 4:
+            if (act_width == 4 and weight_width == 4) and not(is_versal):
                 return "mvu_4sx4u"
             else:
                 if is_versal:

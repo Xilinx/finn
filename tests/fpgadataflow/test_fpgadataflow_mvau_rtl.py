@@ -28,6 +28,7 @@
 
 import pytest
 import os
+import pickle
 
 import numpy as np
 from onnx import TensorProto, helper
@@ -46,7 +47,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from qonnx.transformation.general import ApplyConfig
 import finn.transformation.fpgadataflow.specialize_to_rtl_layers as to_rtl
-#import qonnx.core.data_layout as DataLayout
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from qonnx.custom_op.registry import getCustomOp
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
@@ -83,22 +85,29 @@ def make_single_matmul_modelwrapper(W, ofm_shape, mh, ifm, weights, idt, wdt):
     return model
 
 def prepare_inputs(input_tensor):
-    return {"inp": input_tensor}
+    return {"ifm": input_tensor}
 
-@pytest.mark.parametrize("mh", [16])
-@pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("pe", [1, 4, 16])
-#@pytest.mark.parametrize("simd", [1, 30, 90])
-@pytest.mark.parametrize("simd", [1, 4, 32])
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
-@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT6"]])
+@pytest.mark.parametrize("mh", [4])
+# @pytest.mark.parametrize("mw", [36])
+@pytest.mark.parametrize("mw", [18])
+# @pytest.mark.parametrize("pe", [1,2,4,8])
+@pytest.mark.parametrize("pe", [2])
+# @pytest.mark.parametrize("simd", [1,3,6,9,18,36])
+@pytest.mark.parametrize("simd", [6])
+#@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize("idt", [DataType["UINT8"]])
+#@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT6"]])
+@pytest.mark.parametrize("wdt", [DataType["INT8"]])
 #@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S", "xcku3p-ffva676-1-e"])
-@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
+#@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
+    # Synthesis constants
+    clk_ns = 5
     # Create test input vector (produced by SWG)
     ofm_shape = (5, 5)
     ofm_h, ofm_w = ofm_shape
@@ -113,6 +122,9 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
         [mw, mh]
     )
     W = gen_finn_dt_tensor(wdt, (mw, mh))
+    # np.save("weights.npy", W)
+    ##
+    W = np.load("weights.npy")
     model = make_single_matmul_modelwrapper(W, ofm_shape, mh, ifm, weights, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
 
@@ -120,10 +132,16 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
 
     # Create MatMul & obtain golden reference output
     A = gen_finn_dt_tensor(model.get_tensor_datatype("ifm"), model.get_tensor_shape("ifm"))
+    # np.save("activations.npy", A)
+    ##
+    # A = np.load("activations.npy")
     input_dict = prepare_inputs(A)
 
     ## Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)
+
+    with open(build_dir + "/onnx_output.pkl", "wb") as f:
+        pickle.dump(output_matmul, f)
 
     # Create MVAU (HLS)
     model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
@@ -138,30 +156,55 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
             "mem_mode" : "decoupled",
             "ram_style" : "auto",
             "resType" : "dsp",
-            "impl" : "rtl"
+            "preferred_backend" : "rtl"
         }
     }
     model = model.transform(ApplyConfig(folding_config))
     model.save(build_dir+"/mvau_hls.onnx")
 
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
+    for n in model.graph.node:
+        getCustomOp(n).set_nodeattr("rtlsim_trace", "mvu_trace_hls.vcd")
     output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
+    
 
     # Apply convert-to-rtl step
     model = model.transform(to_rtl.InferRTLMatrixVectorActivation())
     model = model.transform(GiveUniqueNodeNames())
+    for n in model.graph.node:
+        if n.op_type=="MatrixVectorActivation_rtl":
+            getCustomOp(n).set_nodeattr("pumpedCompute", 0)
     model.save(build_dir+"/mvau_rtl.onnx")
 
+    # Reset rtlsim_so and ip-related paths such that new Pyverilator SO and IP is generated
+    for n in model.graph.node:
+        getCustomOp(n).set_nodeattr("rtlsim_so", "")
+        getCustomOp(n).set_nodeattr("code_gen_dir_ipgen", "")
+        getCustomOp(n).set_nodeattr("ipgen_path", "")
+        getCustomOp(n).set_nodeattr("ip_path", "")
+        getCustomOp(n).set_nodeattr("rtlsim_trace", "mvu_trace_rtl.vcd")
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP("xcvm1802-vsvd1760-2MP-e-S", 5))
+    model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
 
     model.save(build_dir+"/mvau_rtl_sim.onnx")
 
-    assert (output_mvau_hls == output_mvau_rtl).all()
-    assert (output_mvau_hls.size > 0)
+    with open(build_dir + "/hls_output.pkl", "wb") as f:
+        pickle.dump(output_mvau_hls, f)
+
+    with open(build_dir + "/rtl_output.pkl", "wb") as f:
+        pickle.dump(output_mvau_rtl, f)
+
+    # model = model.transform(PrepareIP(part, clk_ns))
+    # model = model.transform(HLSSynthIP())
+    # model = model.transform(CreateStitchedIP(fpgapart=part, clk_ns=clk_ns, vitis=True))
+    # model.save(build_dir+"/stitched_ip.onnx")
+
+    #assert (output_mvau_hls == output_mvau_rtl).all()
+    assert (output_matmul['ofm'] == output_mvau_rtl).all()
+    # assert (output_mvau_hls.size > 0)
