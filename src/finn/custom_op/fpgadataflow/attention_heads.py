@@ -1,5 +1,7 @@
 # Operating system stuff, e.g. paths
 import os
+# Python warning subsystem
+import warnings
 # Numpy math and arrays
 import numpy as np
 
@@ -132,14 +134,22 @@ class SplitMultiHeads(HLSCustomOp):
 
     # Infers the datatype of the node output
     def infer_node_datatype(self, model: ModelWrapper):  # noqa
-        # Get the node wrapped by this custom op
+        # Get the node wrapped by this custom op  # noqa Duplicate
         node = self.onnx_node
+        # Test for changing input datatype
+        if model.get_tensor_datatype(node.input[0]) != self.dtype:
+            # Get the new datatype
+            new_dtype = model.get_tensor_datatype(node.input[0])
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: dtype changing from {self.dtype} to {new_dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("dtype", new_dtype.name)
         # Propagate the type from the input to each output tensor
         for o in node.output:
-            # Slicing simply propagates the type of the input to the output
-            model.set_tensor_datatype(
-                o, model.get_tensor_datatype(node.input[0])
-            )
+            # Slicing simply propagates the dtype to the output
+            model.set_tensor_datatype(o, self.dtype)
 
     # Executes multi-head slicing in python
     def _execute_node_python(self, context, graph):  # noqa: graph unused
@@ -633,11 +643,23 @@ class MergeMultiHeads(HLSCustomOp):
     # Infers the datatype of the node output
     def infer_node_datatype(self, model: ModelWrapper):  # noqa
         # Get the node wrapped by this custom op
-        node = self.onnx_node
-        # Merging simply propagates the type of the input to the output
-        model.set_tensor_datatype(
-            node.output[0], model.get_tensor_datatype(node.input[0])
-        )
+        node = self.onnx_node   # noqa Duplicate
+        # Test for changing input datatype
+        if model.get_tensor_datatype(node.input[0]) != self.dtype:
+            # Get the new datatype
+            new_dtype = model.get_tensor_datatype(node.input[0])
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: dtype changing from {self.dtype} to {new_dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("dtype", new_dtype.name)
+        # All inputs must have the same datatype
+        assert all(
+            model.get_tensor_datatype(inp) == self.dtype for inp in node.input
+        ), f"{node.name}: All inputs must have the same datatype"
+        # Merging simply propagates the datatype to the output
+        model.set_tensor_datatype(node.output[0], self.dtype)
 
     # Executes multi-head merging in python
     def _execute_node_python(self, context, graph):  # noqa: graph unused

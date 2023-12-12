@@ -1,10 +1,10 @@
 # Operating system stuff, e.g. paths
 import os
+# Python warning subsystem
+import warnings
 # Numpy math and arrays
 import numpy as np
 
-# Protobuf onnx graph node type
-from onnx import NodeProto  # noqa
 # Helper for creating ONNX nodes
 from onnx import helper as oh  # noqa
 
@@ -12,7 +12,7 @@ from onnx import helper as oh  # noqa
 from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
 # QONNX wrapper to ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper  # noqa
+from qonnx.core.modelwrapper import ModelWrapper  # noqa qonnx
 
 # Converts inputs/outputs to/from RTL simulation format
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -100,14 +100,22 @@ class ReplicateStream(HLSCustomOp):
 
     # Infers the datatype of the node output
     def infer_node_datatype(self, model: ModelWrapper):  # noqa
-        # Get the node wrapped by this custom op
+        # Get the node wrapped by this custom op  # noqa Duplicate
         node = self.onnx_node
+        # Test for changing input datatype
+        if model.get_tensor_datatype(node.input[0]) != self.dtype:
+            # Get the new datatype
+            new_dtype = model.get_tensor_datatype(node.input[0])
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: dtype changing from {self.dtype} to {new_dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("dtype", new_dtype.name)
         # Propagate the type from the input to each output tensor
         for o in node.output:
-            # Replicating simply propagates the type of the input to the output
-            model.set_tensor_datatype(
-                o, model.get_tensor_datatype(node.input[0])
-            )
+            # Replicating simply propagates the dtype to the output
+            model.set_tensor_datatype(o, self.dtype)
 
     # Executes replicating inputs in python
     def _execute_node_python(self, context, graph):  # noqa: graph unused
