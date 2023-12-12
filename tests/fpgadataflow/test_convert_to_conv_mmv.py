@@ -50,6 +50,10 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.create_dataflow_partition import CreateDataflowPartition
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 
 
 
@@ -58,8 +62,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 @pytest.mark.vivado
 def test_convert_to_conv_mmv():
     depthwise = False
-    m = 3
-    conv_config = [[0,0,0,0], [224, 224], [3, 3], [2, 2], [1, 1]]
+    m = 2
+    conv_config = [[0,0,0,0], [224, 226], [3, 3], [2, 2], [1, 1]]
     pad, in_feature_dim, kernel_size, stride, dilation = conv_config
     np.random.seed(0)
     idt = DataType["UINT8"]
@@ -145,7 +149,7 @@ def test_convert_to_conv_mmv():
     new_model = new_model.transform(to_rtl.InferRTLMatrixVectorActivation())
     mvau_node = new_model.get_nodes_by_op_type("MatrixVectorActivation_rtl")[0]
     mvau_inst = getCustomOp(mvau_node)
-    mvau_inst.set_nodeattr("PE", 4) 
+    mvau_inst.set_nodeattr("PE", 8) 
     mvau_inst.set_nodeattr("SIMD", 27) 
 
 
@@ -159,44 +163,47 @@ def test_convert_to_conv_mmv():
     new_model = new_model.transform(InferShapes())
     new_model = new_model.transform(InferDataTypes())
 
+    new_model = new_model.transform(CreateDataflowPartition())
+    sdp_nodes = new_model.get_nodes_by_op_type("StreamingDataflowPartition")
+    assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
+    sdp_node = sdp_nodes[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    new_model = ModelWrapper(dataflow_model_filename)
+
     # DEBUG
     model.save("MMV_test_before.onnx")
     new_model.save("MMV_test_after.onnx")
 
+    fpga_part = "xcvc1902-vsva2197-2MP-e-S"
+
     # Stitched rtlsim
     # model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    new_model = new_model.transform(SetExecMode("rtlsim"))
+    #new_model = new_model.transform(SetExecMode("rtlsim"))
+    new_model = new_model.transform(InsertDWC())
     new_model = new_model.transform(GiveUniqueNodeNames())
-    new_model = new_model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 5))
+    new_model = new_model.transform(InsertAndSetFIFODepths(fpga_part, clk_ns=5.0))
+    new_model = new_model.transform(GiveUniqueNodeNames())
+    new_model = new_model.transform(PrepareIP(fpga_part, 5))
     new_model = new_model.transform(HLSSynthIP())
-    new_model = new_model.transform(PrepareRTLSim())
+    # new_model = new_model.transform(PrepareRTLSim())
     # Stitched rtlsim
-    # new_model = new_model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
-    # new_model.set_metadata_prop("exec_mode", "rtlsim")
+    new_model = new_model.transform(CreateStitchedIP(fpga_part, 5))
+    new_model.set_metadata_prop("exec_mode", "rtlsim")
+    new_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
+    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
 
     x = gen_finn_dt_tensor(idt, input_shape)
     inp_dict = {model.graph.input[0].name: x}
+    inp_dict_nhwc =  {new_model.graph.input[0].name: x.transpose(0,2,3,1)}
     # assert oxe.compare_execution(model, new_model, inp_dict)
     y_expected = oxe.execute_onnx(model, inp_dict)["top_out"]
     out_dict = oxe.execute_onnx(
         new_model,
-        inp_dict,
+        inp_dict_nhwc,
         return_full_exec_context=True,
         start_node=None,
         end_node=None,
     )
-    y_produced = out_dict["top_out"]
-    """ 
-    # DEBUG
-    f_debug = open(os.path.join("/home/felixj/WD/finn", "mmv_debug_result.log"), "w")
-    f_debug.write("expected:\n")
-    f_debug.write("%s\n" % str(y_expected))
-    f_debug.write("produced:\n")
-    f_debug.write("%s\n" % str(y_produced))
-    f_debug.write("full out dict:\n")
-    f_debug.write("%s\n" % str(out_dict))
-    f_debug.close() """
-
+    y_produced = out_dict["global_out"].transpose(0,3,1,2)
     assert (y_produced == y_expected).all()
-
-    # TODO: check rtlsim cycles
