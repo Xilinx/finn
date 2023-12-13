@@ -10,6 +10,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 def _is_dwc_node(node):
     if node.op_type in [
         "StreamingDataWidthConverter_Batch",
+        "StreamingDataWidthConverter_rtl",
         "StreamingDataWidthConverter_ParallelWindow_Batch",
     ]:
         return True

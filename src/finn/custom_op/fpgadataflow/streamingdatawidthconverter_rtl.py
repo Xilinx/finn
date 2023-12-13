@@ -108,10 +108,21 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         ielems = int(iwidth // ibits)
         ichannels = ishape[-1]
         new_shape = []
-        for i in ishape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ichannels // ielems))
-        new_shape.append(ielems)
+        if ielems <= ichannels:
+            # only channel folding
+            for i in ishape[:-1]:
+                new_shape.append(i)
+            new_shape.append(int(ichannels // ielems))
+            new_shape.append(ielems)
+        else:
+            # channel and w-dimension folding
+            # (e.g. MMV)
+            m = ielems // ichannels
+            for i in ishape[:-2]:
+                new_shape.append(i)
+            new_shape.append(int(ishape[-2] // m))
+            new_shape.append(ielems)
+
         dummy_t = dummy_t.reshape(new_shape)
         return dummy_t.shape
 
