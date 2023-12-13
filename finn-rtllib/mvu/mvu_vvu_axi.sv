@@ -271,8 +271,7 @@ module mvu_vvu_axi #(
 								end
 							end
 							else if(En) begin
-								W[1][pe][simd % DSP_SIMD] <= 'x;
-								W[0][pe][simd % DSP_SIMD] <= W[1][pe][simd % DSP_SIMD];
+								W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= simd / DSP_SIMD == 1 ? 'x : W[1][pe][simd % DSP_SIMD];
 							end
 						end
 					end
@@ -292,8 +291,7 @@ module mvu_vvu_axi #(
 								end
 							end
 							else if(En) begin
-								A[1][pe][simd % DSP_SIMD] <= 'x;
-								A[0][pe][simd % DSP_SIMD] <= A[1][pe][simd % DSP_SIMD];
+							  A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= simd / DSP_SIMD == 1 ? 'x : A[1][pe][simd % DSP_SIMD];
 							end
 						end
 					end
