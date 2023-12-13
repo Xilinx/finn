@@ -124,7 +124,9 @@ class ScaledDotProductAttention(HLSCustomOp):
 
             # Possible execution modes for simulating this node
             #   Note: Override to support python mode
-            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim", "python"}),
+            "exec_mode": (
+                "s", False, "python", {"", "rtlsim", "cppsim", "python"}
+            ),
 
             # Input and output FIFO depths for multi-I/O nodes
             #   Note: Need to override here as there are three inputs
