@@ -33,6 +33,7 @@ import shutil
 import subprocess
 import warnings
 from abc import abstractmethod
+from pathlib import Path
 from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io, toggle_clk
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
