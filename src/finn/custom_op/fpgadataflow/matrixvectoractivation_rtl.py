@@ -812,11 +812,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             )
             wmem = self.calc_wmem()
             padded_width = self.get_weightstream_width_padded()
-            if self.get_nodeattr("pumpedCompute"):
-                # double mem depth
-                wmem = int(wmem * 2)
-                # half stream width
-                padded_width = int(padded_width / 2)
             cmd.append(
                 "set_property -dict [list "
                 "CONFIG.DEPTH {%d} "
@@ -979,14 +974,14 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         # 0.741 ns seems the worst-case delay through first DSP
         # 0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
-        assert (
-            clk > 0.741
-        ), "Infeasible clk target of {} ns has been set, consider lowering the targeted clock frequency!".format(
-            clk
-        )
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
-        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
-        dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
+        # assert clk > 0.741, (
+        #    "Infeasible clk target of {} ns has been set, consider lowering".format(clk)
+        #    + " the targeted clock frequency!"
+        # )
+        # critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
+        # max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
+        # dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len
+        #                                       else max_chain_len
         # return dsp_chain_len
         return 1
 
