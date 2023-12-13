@@ -167,11 +167,11 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
         getCustomOp(n).set_nodeattr("ipgen_path", "")
         getCustomOp(n).set_nodeattr("ip_path", "")
         getCustomOp(n).set_nodeattr("rtlsim_trace", "mvu_trace_rtl.vcd")
-    #    model = model.transform(SetExecMode("rtlsim"))
-    #    model = model.transform(PrepareIP(part, clk_ns))
-    #    model = model.transform(HLSSynthIP())
-    #    model = model.transform(PrepareRTLSim())
-    #    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
 
     model.save(build_dir + "/mvau_rtl_sim.onnx")
 
@@ -186,13 +186,11 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     model = model.transform(CreateStitchedIP(fpgapart=part, clk_ns=clk_ns, vitis=True))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "mvu_trace_rtl_stitch.vcd")
     model.save(build_dir + "/stitched_ip.onnx")
     np.save("input.npy", A)
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
     # model.save(build_dir+"/stitched_ip.onnx")
 
     assert (output_mvau_hls == output_mvau_rtl).all()
-
-
-#    assert (output_matmul['ofm'] == output_mvau_rtl).all()
-# assert (output_mvau_hls.size > 0)
+    assert (output_mvau_rtl == output_mvau_rtl_stitch).all()
