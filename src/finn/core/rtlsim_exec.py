@@ -140,9 +140,12 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     os.chdir(rtlsim_dir)
 
     # reset and call rtlsim, including any pre/post hooks
-    reset_rtlsim(sim)
     if pre_hook is not None:
+        reset_rtlsim(sim)
         pre_hook(sim)
+        integrated_reset = False
+    else:
+        integrated_reset = True
     n_cycles = rtlsim_multi_io(
         sim,
         io_dict,
@@ -150,6 +153,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         trace_file=trace_file,
         sname="_",
         liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        do_reset=integrated_reset,
     )
     if post_hook is not None:
         post_hook(sim)
