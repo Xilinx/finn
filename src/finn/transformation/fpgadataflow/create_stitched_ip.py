@@ -517,16 +517,15 @@ close $fp"""
 }"""
             % vivado_stitch_proj_dir
         )
+        tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append(
+            "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
+            "[ipx::find_open_core %s]" % block_vlnv
+        )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
-            # replace source code with dcp
-            tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append(
-                "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
-                "[ipx::find_open_core %s]" % block_vlnv
-            )
             # copy and add DCP, stub, and xdc
             tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
             tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)
