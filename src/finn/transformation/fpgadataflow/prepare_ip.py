@@ -52,7 +52,10 @@ def _codegen_single_node(node, model, fpgapart, clk):
             # ensure that there is generated code inside the dir
             inst.code_generation_ipgen(model, fpgapart, clk)
         else:
-            warnings.warn("Using pre-existing code for %s" % node.name)
+            pass
+            # TODO print as information instead of warning, when we get a proper
+            # log system someday
+            # warnings.warn("Using pre-existing code for %s" % node.name)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
