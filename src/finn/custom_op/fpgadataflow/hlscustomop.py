@@ -31,7 +31,7 @@ import os
 import subprocess
 import warnings
 from abc import abstractmethod
-from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
+from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io, toggle_clk
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -491,15 +491,11 @@ compilation transformations?
     def reset_rtlsim(self, sim):
         """Sets reset input in pyverilator to zero, toggles the clock and set it
         back to one"""
-        sim.io.ap_rst_n = 0
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
-        sim.io.ap_rst_n = 1
+        reset_rtlsim(sim)
 
     def toggle_clk(self, sim):
         """Toggles the clock input in pyverilator once."""
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
+        toggle_clk(sim)
 
     def hls_sname(self):
         """Get the naming convention used by Vitis HLS for stream signals
