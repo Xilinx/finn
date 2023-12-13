@@ -91,7 +91,7 @@ def prepare_inputs(input_tensor):
 # @pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
-@pytest.mark.parametrize("double_pumped", [0])
+@pytest.mark.parametrize("double_pumped", [1, 0])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -166,6 +166,7 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
 
     model.save(build_dir + "/mvau_rtl_sim.onnx")
+    assert (output_matmul == output_mvau_rtl).all()
 
     #    with open(build_dir + "/hls_output.pkl", "wb") as f:
     #        pickle.dump(output_mvau_hls, f)
@@ -178,11 +179,10 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     model = model.transform(CreateStitchedIP(fpgapart=part, clk_ns=clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", build_dir + "mvu_trace_rtl_stitch.vcd")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "/mvu_trace_rtl_stitch.vcd")
     model.save(build_dir + "/stitched_ip.onnx")
     np.save("input.npy", A)
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
     # model.save(build_dir+"/stitched_ip.onnx")
 
-    assert (output_matmul == output_mvau_rtl).all()
-    assert (output_mvau_rtl == output_mvau_rtl_stitch).all()
+    assert (output_matmul == output_mvau_rtl_stitch).all()
