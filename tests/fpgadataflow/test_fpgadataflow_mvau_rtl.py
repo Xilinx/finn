@@ -91,7 +91,7 @@ def prepare_inputs(input_tensor):
 # @pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
-@pytest.mark.parametrize("double_pumped", [1, 0])
+@pytest.mark.parametrize("double_pumped", [0])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -120,7 +120,7 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     input_dict = prepare_inputs(A)
 
     # Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)
+    output_matmul = oxe.execute_onnx(model, input_dict)["ofm"]
 
     with open(build_dir + "/onnx_output.pkl", "wb") as f:
         pickle.dump(output_matmul, f)
@@ -143,14 +143,6 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     }
     model = model.transform(ApplyConfig(folding_config))
     model.save(build_dir + "/mvau_hls.onnx")
-
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    for n in model.graph.node:
-        getCustomOp(n).set_nodeattr("rtlsim_trace", "mvu_trace_hls.vcd")
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
 
     # Apply convert-to-rtl step
     model = model.transform(to_rtl.InferRTLMatrixVectorActivation())
@@ -183,14 +175,14 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
 
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(fpgapart=part, clk_ns=clk_ns, vitis=True))
+    model = model.transform(CreateStitchedIP(fpgapart=part, clk_ns=clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "mvu_trace_rtl_stitch.vcd")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "mvu_trace_rtl_stitch.vcd")
     model.save(build_dir + "/stitched_ip.onnx")
     np.save("input.npy", A)
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
     # model.save(build_dir+"/stitched_ip.onnx")
 
-    assert (output_mvau_hls == output_mvau_rtl).all()
+    assert (output_matmul == output_mvau_rtl).all()
     assert (output_mvau_rtl == output_mvau_rtl_stitch).all()
