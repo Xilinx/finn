@@ -473,6 +473,11 @@ class CreateStitchedIP(Transformation):
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
         )
+        if self.clock2x_is_external:
+            tcl.append(
+                "ipx::infer_bus_interface ap_clk2x xilinx.com:signal:clock_rtl:1.0 "
+                "[ipx::current_core]"
+            )
         # Allow user to customize clock in deployment of stitched IP
         tcl.append("set_property ipi_drc {ignore_freq_hz true} [ipx::current_core]")
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
@@ -548,16 +553,16 @@ close $fp"""
 }"""
             % vivado_stitch_proj_dir
         )
+        # replace source code with dcp
+        tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append(
+            "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
+            "[ipx::find_open_core %s]" % block_vlnv
+        )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
-            # replace source code with dcp
-            tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
-            tcl.append(
-                "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
-                "[ipx::find_open_core %s]" % block_vlnv
-            )
             # copy and add DCP, stub, and xdc
             tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
             tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)

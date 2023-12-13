@@ -33,7 +33,8 @@ import shutil
 import subprocess
 import warnings
 from abc import abstractmethod
-from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io, toggle_clk
+from pathlib import Path
+from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io, toggle_clk, toggle_neg_edge, toggle_pos_edge
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -602,19 +603,24 @@ compilation transformations?
         while not (output_observed):
             sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
             sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
-            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
-                inputs = inputs[1:]
 
             if inp2 is not None:
                 sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
                 sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
+
+            toggle_neg_edge(sim)
+
+            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
+                inputs = inputs[1:]
+
+            if inp2 is not None:
                 if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
                     inp2 = inp2[1:]
 
+            toggle_pos_edge(sim)
+
             if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
                 outputs = outputs + [sim.io[o_data]]
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
 
             observation_count = observation_count + 1
             no_change_count = no_change_count + 1
