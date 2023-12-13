@@ -823,12 +823,14 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 "CONFIG.WIDTH {%d} "
                 "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.PUMPED_MEMORY {%s} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     wmem,
                     padded_width,
                     self.get_decoupled_weight_filename(abspath=False),
                     self.get_nodeattr("ram_style"),
+                    self.get_nodeattr("pumpedCompute"),
                     node_name,
                     strm_inst,
                 )
