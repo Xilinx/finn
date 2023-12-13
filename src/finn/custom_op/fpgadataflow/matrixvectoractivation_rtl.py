@@ -572,8 +572,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                     k = 0
                     for i in range(len(weight_stream)):
                         weight = weight_stream[i]
-                        split_w_stream[k] = weight[: len(weight) // 2]
-                        split_w_stream[k + 1] = weight[len(weight) // 2 :]
+                        split_w_stream[k] = weight[len(weight) // 2 :]
+                        split_w_stream[k + 1] = weight[: len(weight) // 2]
                         k += 2
                     weight_stream = split_w_stream
                 with open(weight_file_name, "w") as f:
