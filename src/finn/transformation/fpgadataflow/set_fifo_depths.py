@@ -84,12 +84,13 @@ def optimize_depth(depth):
 
 
 class RemoveShallowFIFOs(Transformation):
-    """Remove small FIFOs as the streaming components have depth-2 FIFOs on the
-    input/outputs by default."""
+    """Remove zero-depth FIFOs The threshold used to be 2 instead of 0, but
+    with increasing number of FINN RTL components 2-depth FIFOs are still
+    important for decoupling.."""
 
     # TODO add unit test
 
-    def __init__(self, shallow_threshold=2):
+    def __init__(self, shallow_threshold=0):
         self.shallow_threshold = shallow_threshold
 
     def apply(self, model):
