@@ -104,17 +104,19 @@ inline void toggle_clk() {
 
 void reset() {
     top->ap_rst_n = 0;
-    for(unsigned i = 0; i < 10; i++) {
+    eval(top);
+    for(unsigned i = 0; i < 2; i++) {
         toggle_clk();
     }
     top->ap_rst_n = 1;
-    for(unsigned i = 0; i < 10; i++) {
+    for(unsigned i = 0; i < 2; i++) {
         toggle_clk();
     }
 }
 
 int main(int argc, char *argv[]) {
     top = construct();
+    @INIT_CLK@
     TRACE(tfp = start_vcd_trace(top, @TRACE_FILENAME@));
     unsigned n_iters_per_input = @ITERS_PER_INPUT@;
     unsigned n_iters_per_output = @ITERS_PER_OUTPUT@;

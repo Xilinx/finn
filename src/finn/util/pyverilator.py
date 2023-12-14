@@ -171,27 +171,38 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
             fifo_ind += 1
     fifo_log = "\n".join(fifo_log)
 
-    toggle_single_clk = """
-    eval(top);
+    init_single_clk = """
     top->ap_clk = 1;
-    TRACE(add_to_vcd_trace(tfp, main_time));
-    eval(top);
+    """
+
+    init_double_clk = """
+    top->ap_clk = 1;
+    top->ap_clk2x = 1;
+    """
+
+    toggle_single_clk = """
     top->ap_clk = 0;
+    eval(top);
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    top->ap_clk = 1;
+    eval(top);
     TRACE(add_to_vcd_trace(tfp, main_time));
     """
 
     toggle_double_clk = """
-    eval(top);
-    top->ap_clk = 1;
-    top->ap_clk2x = 1;
-    eval(top);
     top->ap_clk2x = 0;
-    TRACE(add_to_vcd_trace(tfp, main_time));
     eval(top);
+    TRACE(add_to_vcd_trace(tfp, main_time));
     top->ap_clk = 0;
     top->ap_clk2x = 1;
     eval(top);
+    TRACE(add_to_vcd_trace(tfp, main_time));
     top->ap_clk2x = 0;
+    eval(top);
+    TRACE(add_to_vcd_trace(tfp, main_time));
+    top->ap_clk = 1;
+    top->ap_clk2x = 1;
+    eval(top);
     TRACE(add_to_vcd_trace(tfp, main_time));
     """
 
@@ -205,7 +216,8 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "FIFO_DEPTH_LOGGING": fifo_log,
         "TRACE_FILENAME": trace_file,
         "TRACE_DEF": trace_def,
-        "TOGGLE_CLK": toggle_double_clk if is_double_pumped else toggle_single_clk
+        "TOGGLE_CLK": toggle_double_clk if is_double_pumped else toggle_single_clk,
+        "INIT_CLK": init_double_clk if is_double_pumped else init_single_clk,
     }
 
     for key, val in template_dict.items():
