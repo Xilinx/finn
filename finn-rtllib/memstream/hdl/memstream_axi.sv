@@ -114,7 +114,6 @@ module memstream_axi #(
 	// Streaming Memory Backend
 	localparam int unsigned  DEPTH_EFF = PUMPED_MEMORY? 2*DEPTH     : DEPTH;
 	localparam int unsigned  WIDTH_EFF = PUMPED_MEMORY? (WIDTH+1)/2 : WIDTH;
-	uwire  clk_mem;
 	uwire  mem_ce;
 	uwire  mem_we;
 	uwire [         31:0]  mem_a0;
@@ -125,8 +124,6 @@ module memstream_axi #(
 	uwire  mem_vld;
 	uwire [WIDTH_EFF-1:0]  mem_dat;
 	if(!PUMPED_MEMORY) begin : genUnpumped
-		assign	clk_mem = clk;
-
 		assign	mem_ce = config_ce;
 		assign	mem_we = config_we;
 		assign	mem_a0 = config_address;
@@ -138,9 +135,27 @@ module memstream_axi #(
 		assign	m_axis_0_tvalid = mem_vld;
 		assign	m_axis_0_tdata  = mem_dat;
 
+		memstream #(
+			.DEPTH(DEPTH_EFF),
+			.WIDTH(WIDTH_EFF),
+			.INIT_FILE(INIT_FILE),
+			.RAM_STYLE(RAM_STYLE)
+		) mem (
+			.clk(clk), .rst,
+
+			.config_address(mem_a0),
+			.config_ce(mem_ce),
+			.config_we(mem_we),
+			.config_d0(mem_d0),
+			.config_q0(mem_q0),
+			.config_rack(mem_rack),
+
+			.ordy(mem_rdy),
+			.ovld(mem_vld),
+			.odat(mem_dat)
+		);
 	end : genUnpumped
 	else begin : genPumped
-		assign	clk_mem = clk2x;
 
 		// Identifier of fast active clock edge coinciding with slow active clock edge
 		logic Active;
@@ -194,52 +209,57 @@ module memstream_axi #(
 		assign	config_q0   = Cfg2x_Q0[WIDTH-1:0];
 
 		// Assemble two consecutive stream outputs into one
-		logic [1:0]  SCnt = 0;
-		logic [2:0][WIDTH_EFF-1:0]  SBuf = 'x;
+		logic [3:0][WIDTH_EFF-1:0]  SBuf = 'x;
+		logic [2:0]  SCnt = 0;	// 0..4
+		logic  SVld = 0;
 		always_ff @(posedge clk2x) begin
 			if(rst) begin
-				SCnt <=  0;
 				SBuf <= 'x;
+				SCnt <=  0;
+				SVld <=  0;
 			end
 			else begin
-				automatic logic [1:0]  scnt = SCnt;
-				automatic logic [3:0][WIDTH_EFF-1:0]  sbuf = { {WIDTH_EFF{1'bx}}, SBuf };
+				automatic logic [4:0][WIDTH_EFF-1:0]  sbuf = { {WIDTH_EFF{1'bx}}, SBuf };
+				automatic logic [2:0]  scnt = SCnt;
+
 				sbuf[scnt] = mem_dat;
 				if(m_axis_0_tvalid && (Active && m_axis_0_tready)) begin
-					scnt[1] = 0;
-					sbuf[0] = sbuf[2];
+					scnt[2:1] = { 1'b0, scnt[2] };
+					sbuf[1:0] = sbuf[3:2];
 				end
 				scnt += mem_rdy && mem_vld;
+
+				SBuf <= sbuf[3:0];
 				SCnt <= scnt;
-				SBuf <= sbuf[2:0];
+				if(Active)  SVld <= |scnt[2:1];
 			end
 		end
-		assign	mem_rdy = (SCnt != 3);
-		assign	m_axis_0_tvalid = SCnt[1];
+		assign	mem_rdy = !SCnt[2];
+		assign	m_axis_0_tvalid = SVld;
 		assign	m_axis_0_tdata  = { SBuf[1][0+:WIDTH-WIDTH_EFF], SBuf[0] };
+
+		memstream #(
+			.DEPTH(DEPTH_EFF),
+			.WIDTH(WIDTH_EFF),
+			.INIT_FILE(INIT_FILE),
+			.RAM_STYLE(RAM_STYLE)
+		) mem (
+			.clk(clk2x), .rst,
+
+			.config_address(mem_a0),
+			.config_ce(mem_ce),
+			.config_we(mem_we),
+			.config_d0(mem_d0),
+			.config_q0(mem_q0),
+			.config_rack(mem_rack),
+
+			.ordy(mem_rdy),
+			.ovld(mem_vld),
+			.odat(mem_dat)
+		);
 	end : genPumped
 	if($bits(m_axis_0_tdata) > WIDTH) begin
 		assign	m_axis_0_tdata[$left(m_axis_0_tdata):WIDTH] = '0;
 	end
-
-	memstream #(
-		.DEPTH(DEPTH_EFF),
-		.WIDTH(WIDTH_EFF),
-		.INIT_FILE(INIT_FILE),
-		.RAM_STYLE(RAM_STYLE)
-	) mem (
-		.clk(clk_mem), .rst,
-
-		.config_address(mem_a0),
-		.config_ce(mem_ce),
-		.config_we(mem_we),
-		.config_d0(mem_d0),
-		.config_q0(mem_q0),
-		.config_rack(mem_rack),
-
-		.ordy(mem_rdy),
-		.ovld(mem_vld),
-		.odat(mem_dat)
-	);
 
 endmodule : memstream_axi
