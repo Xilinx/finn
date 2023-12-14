@@ -68,6 +68,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             "Kernel": ("ints", True, []),  # [H, W]
             "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
             "pumpedCompute": ("i", False, 0, {0, 1}),
+            "pumpedMemory": ("i", False, 0, {0, 1}),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -402,6 +403,15 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 # add zeroes to pad out file to 1024 entries
                 weight_stream = weight_tensor_pe_simd_flipped.flatten()
                 weight_stream = weight_stream.copy()
+                if self.get_nodeattr("pumpedMemory"):
+                    split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
+                    k = 0
+                    for i in range(len(weight_stream)):
+                        weight = weight_stream[i]
+                        split_w_stream[k] = weight[len(weight) // 2 :]
+                        split_w_stream[k + 1] = weight[: len(weight) // 2]
+                        k += 2
+                    weight_stream = split_w_stream
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
                         f.write(val + "\n")
@@ -639,9 +649,12 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
-            if self.get_nodeattr("pumpedCompute"):
+            # if we need a 2x clock for either compute or memory, instantiate the 2x clk port
+            if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
                 clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
                 cmd.append("create_bd_pin -dir I -type clk2x /%s/%s" % (node_name, clk2x_name))
+            else:
+                clk2x_name = None
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
@@ -686,12 +699,14 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 "CONFIG.WIDTH {%d} "
                 "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.PUMPED_MEMORY {%s} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
                     self.get_decoupled_weight_filename(abspath=False),
                     self.get_nodeattr("ram_style"),
+                    self.get_nodeattr("pumpedMemory"),
                     node_name,
                     strm_inst,
                 )
@@ -709,6 +724,18 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
+            # if using 2x pumped memory, connect the memstreamer's 2x clk input
+            # to the 2x clock port. otherwise connect it to the regular clock port.
+            if self.get_nodeattr("pumpedMemory"):
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk2x_name, node_name, strm_inst)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, strm_inst)
+                )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)
@@ -717,11 +744,18 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, clk_name, node_name, node_name, clk_name)
             )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. otherwise connect it to the regular clock port.
             if self.get_nodeattr("pumpedCompute"):
                 cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
-            )  
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk2x_name, node_name, node_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, node_name)
+                )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                 "[get_bd_intf_pins %s/%s/%s]"
@@ -999,11 +1033,18 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         # 0.741 ns seems the worst-case delay through first DSP
         # 0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
-        assert (clk > 0.741), "Infeasible clk target of {} ns has been set, consider lowering the targeted clock frequency!".format(clk)
+        """assert (
+            clk > 0.741
+        ), "Infeasible clk target of {} ns has been set, consider
+            lowering the targeted clock frequency!".format(
+            clk
+        )
         critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
         max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
-        return dsp_chain_len
+        return dsp_chain_len"""
+        # copying fixed behavior from RTL MVU
+        return 1
 
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
