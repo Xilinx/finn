@@ -288,6 +288,10 @@ class DataflowBuildConfig:
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
+    #: FIFOs deeper than this will use Vivado FIFO IP
+    #: (e.g. impl_style="vivado")
+    vivado_fifo_threshold: Optional[int] = 256
+
     #: Target clock frequency (in nanoseconds) for Vivado HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
     #: If not specified it will default to synth_clk_period_ns

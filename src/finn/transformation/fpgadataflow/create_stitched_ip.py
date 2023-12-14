@@ -553,7 +553,6 @@ close $fp"""
 }"""
             % vivado_stitch_proj_dir
         )
-        # replace source code with dcp
         tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)

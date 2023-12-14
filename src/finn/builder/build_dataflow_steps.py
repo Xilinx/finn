@@ -625,6 +625,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                     vivado_ram_style=cfg.large_fifo_mem_style,
+                    max_qsrl_depth=cfg.vivado_fifo_threshold,
                     force_python_sim=force_python_sim,
                 )
             )
