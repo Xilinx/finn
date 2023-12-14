@@ -92,11 +92,14 @@ def prepare_inputs(input_tensor):
 # @pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
-@pytest.mark.parametrize("double_pumped", [1, 0])
+@pytest.mark.parametrize("double_pumped_compute", [1, 0])
+@pytest.mark.parametrize("double_pumped_memory", [1, 0])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, double_pumped):
+def test_fpgadataflow_mvau_rtl(
+    mh, mw, pe, simd, idt, wdt, part, segmentlen, double_pumped_compute, double_pumped_memory
+):
     # Synthesis constants
     clk_ns = 5
     # Create test input vector (produced by SWG)
@@ -150,7 +153,8 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen, dou
     model = model.transform(GiveUniqueNodeNames())
     for n in model.graph.node:
         if n.op_type == "MatrixVectorActivation_rtl":
-            getCustomOp(n).set_nodeattr("pumpedCompute", double_pumped)
+            getCustomOp(n).set_nodeattr("pumpedCompute", double_pumped_compute)
+            getCustomOp(n).set_nodeattr("pumpedMemory", double_pumped_memory)
     model.save(build_dir + "/mvau_rtl.onnx")
 
     # Reset rtlsim_so and ip-related paths such that new Pyverilator SO and IP is generated
