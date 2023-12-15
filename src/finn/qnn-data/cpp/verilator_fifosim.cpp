@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
     unsigned latency = 0;
 
     bool exit_criterion = false;
+    bool timeout = false;
 
     cout << "Simulation starting" << endl;
     cout << "Number of inputs to write " << n_iters_per_input * n_inputs << endl;
@@ -164,13 +165,20 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        exit_criterion = ((n_in_txns >= n_iters_per_input * n_inputs) && (n_out_txns >= n_iters_per_output * n_inputs)) || ((iters-last_output_at) > max_iters);
+        timeout = ((iters-last_output_at) > max_iters);
+        exit_criterion = ((n_in_txns >= n_iters_per_input * n_inputs) && (n_out_txns >= n_iters_per_output * n_inputs)) || timeout;
     }
 
     TRACE(flush_vcd_trace(tfp));
     TRACE(stop_vcd_trace(tfp));
 
-    cout << "Simulation finished" << endl;
+    if(timeout) {
+        cout << "Simulation timed out" << endl;
+
+    } else {
+        cout << "Simulation finished successfully" << endl;
+    }
+
     cout << "Number of inputs consumed " << n_in_txns << endl;
     cout << "Number of outputs produced " << n_out_txns << endl;
     cout << "Number of clock cycles " << iters << endl;
@@ -182,6 +190,7 @@ int main(int argc, char *argv[]) {
     results_file << "cycles" << "\t" << iters << endl;
     results_file << "N" << "\t" << n_inputs << endl;
     results_file << "latency_cycles" << "\t" << latency << endl;
+    results_file << "timeout" << "\t" << (timeout ? 1 : 0) << endl;
 @FIFO_DEPTH_LOGGING@
     results_file.close();
 
