@@ -31,10 +31,9 @@ import os
 import re
 import shutil
 import subprocess
-import warnings
 from abc import abstractmethod
 from pathlib import Path
-from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io, toggle_clk, toggle_neg_edge, toggle_pos_edge
+from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -267,6 +266,7 @@ class HLSCustomOp(CustomOp):
             verilog_path=[single_src_dir],
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
+            auto_eval=False,
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
@@ -279,7 +279,7 @@ class HLSCustomOp(CustomOp):
         rtlsim_so = self.get_nodeattr("rtlsim_so")
         assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
         # create PyVerilator wrapper
-        sim = PyVerilator(rtlsim_so)
+        sim = PyVerilator(rtlsim_so, auto_eval=False)
         return sim
 
     def node_res_estimation(self):
@@ -547,15 +547,6 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
-    def reset_rtlsim(self, sim):
-        """Sets reset input in pyverilator to zero, toggles the clock and set it
-        back to one"""
-        reset_rtlsim(sim)
-
-    def toggle_clk(self, sim):
-        """Toggles the clock input in pyverilator once."""
-        toggle_clk(sim)
-
     def hls_sname(self):
         """Get the naming convention used by Vitis HLS for stream signals
         Example: the TDATA for a stream called "out" would be out_V_TDATA.
@@ -566,86 +557,18 @@ compilation transformations?
         """Runs the pyverilator simulation by passing the input values to the simulation,
         toggle the clock and observing the execution time. Function contains also an
         observation loop that can abort the simulation if no output value is produced
-        after 100 cycles."""
+        after LIVENESS_THRESHOLD cycles."""
 
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file != "":
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-            sim.start_vcd_trace(trace_file)
-        inputs = inp
-        outputs = []
-        sname = self.hls_sname()
-        o_ready = "out_" + sname + "_TREADY"
-        o_valid = "out_" + sname + "_TVALID"
-        o_data = "out_" + sname + "_TDATA"
-        in0_ready = "in0_" + sname + "_TREADY"
-        in0_valid = "in0_" + sname + "_TVALID"
-        in0_data = "in0_" + sname + "_TDATA"
-        in1_ready = "in1_" + sname + "_TREADY"
-        in1_valid = "in1_" + sname + "_TVALID"
-        in1_data = "in1_" + sname + "_TDATA"
+        io_dict = {
+            "inputs": {"in0": inp},
+            "outputs": {"out": []},
+        }
+        if inp2 is not None:
+            io_dict["inputs"]["in1"] = inp2
 
-        sim.io[o_ready] = 1
-
-        # observe if output is completely calculated
-        # observation_count will contain the number of cycles the calculation ran
-        num_out_values = self.get_number_output_values()
-        output_observed = False
-        observation_count = 0
-
-        # avoid infinite looping of simulation by aborting when there is no change in
-        # output values after 100 cycles
-        no_change_count = 0
-        old_outputs = outputs
-        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
-
-        while not (output_observed):
-            sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
-            sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
-
-            if inp2 is not None:
-                sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
-                sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
-
-            toggle_neg_edge(sim)
-
-            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
-                inputs = inputs[1:]
-
-            if inp2 is not None:
-                if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
-                    inp2 = inp2[1:]
-
-            toggle_pos_edge(sim)
-
-            if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
-                outputs = outputs + [sim.io[o_data]]
-
-            observation_count = observation_count + 1
-            no_change_count = no_change_count + 1
-
-            if len(outputs) == num_out_values:
-                self.set_nodeattr("cycles_rtlsim", observation_count)
-                output_observed = True
-
-            if no_change_count == liveness_threshold:
-                if old_outputs == outputs:
-                    if trace_file != "":
-                        sim.flush_vcd_trace()
-                        sim.stop_vcd_trace()
-                    raise Exception(
-                        "Error in simulation! Takes too long to produce output. "
-                        "Consider setting the LIVENESS_THRESHOLD env.var. to a "
-                        "larger value."
-                    )
-                else:
-                    no_change_count = 0
-                    old_outputs = outputs
-        if trace_file != "":
-            sim.flush_vcd_trace()
-            sim.stop_vcd_trace()
-        return outputs
+        self.rtlsim_multi_io(sim, io_dict)
+        output = io_dict["outputs"]["out"]
+        return output
 
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
@@ -663,6 +586,7 @@ compilation transformations?
             num_out_values,
             trace_file=trace_file,
             sname=sname,
+            do_reset=True,
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -820,109 +744,4 @@ compilation transformations?
 
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
-        # ensure rtlsim is ready
-        assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
-        if self.get_nodeattr("io_chrc_period") > 0:
-            warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
-            return
-        exp_cycles = self.get_exp_cycles()
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        n_outs = np.prod(self.get_folded_output_shape()[:-1])
-        if exp_cycles == 0:
-            # try to come up with an optimistic estimate
-            exp_cycles = min(n_inps, n_outs)
-        assert (
-            exp_cycles <= period
-        ), "Period %d too short to characterize %s : expects min %d cycles" % (
-            period,
-            self.onnx_node.name,
-            exp_cycles,
-        )
-        sim = self.get_rtlsim()
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
-        if override_rtlsim_dict is not None:
-            io_dict = override_rtlsim_dict
-        else:
-            io_dict = {
-                "inputs": {
-                    "in0": [0 for i in range(n_inps)],
-                },
-                "outputs": {"out": []},
-            }
-
-        # extra dicts to keep track of cycle-by-cycle transaction behavior
-        # note that we restrict key names to filter out weight streams etc
-        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
-        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
-
-        def monitor_txns(sim_obj):
-            for inp in txns_in:
-                in_ready = _read_signal(sim, inp + sname + "TREADY") == 1
-                in_valid = _read_signal(sim, inp + sname + "TVALID") == 1
-                if in_ready and in_valid:
-                    txns_in[inp].append(1)
-                else:
-                    txns_in[inp].append(0)
-            for outp in txns_out:
-                if (
-                    _read_signal(sim, outp + sname + "TREADY") == 1
-                    and _read_signal(sim, outp + sname + "TVALID") == 1
-                ):
-                    txns_out[outp].append(1)
-                else:
-                    txns_out[outp].append(0)
-
-        reset_rtlsim(sim)
-        total_cycle_count = rtlsim_multi_io(
-            sim,
-            io_dict,
-            n_outs,
-            sname=sname,
-            liveness_threshold=period,
-            hook_preclk=monitor_txns,
-        )
-        assert (
-            total_cycle_count <= period
-        ), """Total cycle count from rtl simulation is higher than
-            specified period, please set the period higher than {}""".format(
-            total_cycle_count
-        )
-        self.set_nodeattr("io_chrc_period", period)
-
-        def accumulate_char_fxn(chrc):
-            p = len(chrc)
-            ret = []
-            for t in range(2 * p):
-                if t == 0:
-                    ret.append(chrc[0])
-                else:
-                    ret.append(ret[-1] + chrc[t % p])
-            return np.asarray(ret, dtype=np.int32)
-
-        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
-        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
-        all_pad_in = []
-        all_pad_out = []
-        for in_idx, in_strm_nm in enumerate(txns_in.keys()):
-            txn_in = txns_in[in_strm_nm]
-            if len(txn_in) < period:
-                pad_in = period - len(txn_in)
-                txn_in += [0 for x in range(pad_in)]
-            txn_in = accumulate_char_fxn(txn_in)
-            all_txns_in[in_idx, :] = txn_in
-            all_pad_in.append(pad_in)
-
-        for out_idx, out_strm_nm in enumerate(txns_out.keys()):
-            txn_out = txns_out[out_strm_nm]
-            if len(txn_out) < period:
-                pad_out = period - len(txn_out)
-                txn_out += [0 for x in range(pad_out)]
-            txn_out = accumulate_char_fxn(txn_out)
-            all_txns_out[out_idx, :] = txn_out
-            all_pad_out.append(pad_out)
-
-        self.set_nodeattr("io_chrc_in", all_txns_in)
-        self.set_nodeattr("io_chrc_out", all_txns_out)
-        self.set_nodeattr("io_chrc_pads_in", all_pad_in)
-        self.set_nodeattr("io_chrc_pads_out", all_pad_out)
+        assert False, "Characterization-based FIFO sizing is broken and needs re-implementation"
