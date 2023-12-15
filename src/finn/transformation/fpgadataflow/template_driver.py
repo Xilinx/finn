@@ -62,6 +62,7 @@ import numpy as np
 import os
 from qonnx.core.datatype import DataType
 from driver_base import FINNExampleOverlay
+from pynq.pl_server.device import Device
 
 # dictionary describing the I/O of the FINN-generated accelerator
 io_shape_dict = {

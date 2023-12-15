@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,12 +42,17 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 
 
-def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
+def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style, use_rtl_variant):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
+    if use_rtl_variant:
+        optype = "StreamingDataWidthConverter_rtl"
+    else:
+        optype = "StreamingDataWidthConverter_Batch"
+
     DWC_node = helper.make_node(
-        "StreamingDataWidthConverter_Batch",
+        optype,
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -55,8 +61,11 @@ def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_styl
         inWidth=inWidth,
         outWidth=outWidth,
         dataType=str(finn_dtype.name),
-        impl_style=impl_style,
     )
+    if not use_rtl_variant:
+        # add additional attribute
+        impl_attr = helper.make_attribute("impl_style", impl_style)
+        DWC_node.attribute.append(impl_attr)
 
     graph = helper.make_graph(nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp])
 
@@ -85,18 +94,27 @@ def prepare_inputs(input_tensor, dt):
         ([1, 2, 8], 8, 16, DataType["INT2"], "vivado"),
     ],
 )
+@pytest.mark.parametrize("use_rtl_variant", [0, 1])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_rtlsim(config):
+def test_fpgadataflow_dwc_rtlsim(config, use_rtl_variant):
     shape, inWidth, outWidth, finn_dtype, impl_style = config
+
+    if use_rtl_variant:
+        iwidth_d = inWidth % outWidth == 0
+        owidth_d = outWidth % inWidth == 0
+        if not (iwidth_d or owidth_d):
+            pytest.skip("RTL variant only supports stream widths that are divisible by int ratios")
     test_fpga_part = "xc7z020clg400-1"
     target_clk_ns = 10.0
     # generate input data
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = make_single_dwc_modelwrapper(
+        shape, inWidth, outWidth, finn_dtype, impl_style, use_rtl_variant
+    )
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))

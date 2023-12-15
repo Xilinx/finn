@@ -37,12 +37,14 @@ test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
+pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
 pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
+pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 
 
@@ -51,10 +53,12 @@ pynq_native_port_width = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["Ultra96-V2"] = 128
 pynq_native_port_width["ZCU102"] = 128
 pynq_native_port_width["ZCU104"] = 128
 pynq_native_port_width["ZCU111"] = 128
 pynq_native_port_width["RFSoC2x2"] = 128
+pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 
 # Alveo device and platform mappings
@@ -68,7 +72,7 @@ alveo_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 alveo_default_platform = dict()
 alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
+alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
 alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
 alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
