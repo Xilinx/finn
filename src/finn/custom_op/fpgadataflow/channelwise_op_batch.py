@@ -425,8 +425,6 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             output = self.rtlsim(sim, inp)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()

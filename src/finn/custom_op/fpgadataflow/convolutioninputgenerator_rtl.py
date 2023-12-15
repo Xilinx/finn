@@ -458,8 +458,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
         rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
         odt = export_idt
         target_bits = odt.bitwidth()
@@ -1081,6 +1079,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             verilog_files,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
             verilog_path=verilog_paths,
+            auto_eval=False,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
         )

@@ -221,9 +221,6 @@ class StreamingConcat(HLSCustomOp):
                     reverse_inner=True,
                 )
                 io_dict["inputs"]["in%d" % i] = rtlsim_inp
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-
             self.rtlsim_multi_io(sim, io_dict)
             rtlsim_output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()

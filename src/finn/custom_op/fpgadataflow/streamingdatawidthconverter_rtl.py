@@ -219,8 +219,6 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
         rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
         odt = export_idt
         target_bits = odt.bitwidth()
@@ -317,6 +315,7 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
+            auto_eval=False,
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)

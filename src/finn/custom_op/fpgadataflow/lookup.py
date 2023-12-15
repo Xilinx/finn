@@ -415,8 +415,6 @@ class Lookup(HLSCustomOp):
             rtlsim_inp = npy_to_rtlsim_input(
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

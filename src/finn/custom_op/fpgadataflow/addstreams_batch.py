@@ -218,8 +218,6 @@ class AddStreams_Batch(HLSCustomOp):
             rtlsim_inp1 = npy_to_rtlsim_input(
                 "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()

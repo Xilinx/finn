@@ -54,7 +54,6 @@ except ModuleNotFoundError:
 # * depthwise SWG: (1, OFMDim_H, OFMDim_W, IFMChannels/SIMD, K_H, K_W, SIMD)
 
 
-
 class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
     """Class that does not correspond to one of the finn-hlslib ConvolutionInputGenerator
     (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
@@ -116,9 +115,9 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         # internally round up w dimension to support ifm_dim_w % M != 0
         # apply to h dimension in 1D case with non-normalized dummy dimension
         if ifm_dim_w == 1:
-            folded_ishape = (1, math.ceil(ifm_dim_h/m), ifm_dim_w, wf, simd*m)
+            folded_ishape = (1, math.ceil(ifm_dim_h / m), ifm_dim_w, wf, simd * m)
         else:
-            folded_ishape = (1, ifm_dim_h, math.ceil(ifm_dim_w/m), wf, simd*m)
+            folded_ishape = (1, ifm_dim_h, math.ceil(ifm_dim_w / m), wf, simd * m)
         return folded_ishape
 
     def get_normal_output_shape(self, ind=0):
@@ -148,9 +147,9 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         if self.get_nodeattr("parallel_window"):
             wf = int((ifm_ch) // simd)
             if ofm_dim_w == 1:
-                folded_oshape = (1, ofm_dim_h//m, ofm_dim_w, wf, m * k_h * k_w * simd)
+                folded_oshape = (1, ofm_dim_h // m, ofm_dim_w, wf, m * k_h * k_w * simd)
             else:
-                folded_oshape = (1, ofm_dim_h, ofm_dim_w//m, wf, m * k_h * k_w * simd)
+                folded_oshape = (1, ofm_dim_h, ofm_dim_w // m, wf, m * k_h * k_w * simd)
         else:
             wf = int((k_h * k_w * ifm_ch) // simd)
             folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
@@ -252,7 +251,9 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         if impl_style == "default":
             mmv_out = 1
             # compute minimal buffer length (assuming it holds 1 complete window)
-            buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+            ) * channel_factor
             # add additional buffer space in case of stride > 1
             # this minimizes cycle count as it allows an earlier pre-load of inputs
             buffer_depth = (
@@ -269,15 +270,17 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         elif impl_style == "parallel":
             mmv_out = m * k_h * k_w
             # integrated padding for w dimension
-            w = math.ceil(w/m) * m
+            w = math.ceil(w / m) * m
             # compute minimal buffer length (assuming it holds m complete windows)
-            buffer_min_len = (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1 + (m - 1) * stride_w
-            buffer_min_depth = math.ceil(buffer_min_len / mmv_in) # mmv_in = buffer width
+            buffer_min_len = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1 + (m - 1) * stride_w
+            )
+            buffer_min_depth = math.ceil(buffer_min_len / mmv_in)  # mmv_in = buffer width
             buffer_depth = buffer_min_depth + 1
         return buffer_depth
 
     def get_exp_cycles(self):
-        #TODO: incorporate m
+        # TODO: incorporate m
         impl_style = self.select_impl_style()
 
         if impl_style == "parallel":
@@ -335,7 +338,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         return int(exp_cycles)
 
     def bram_estimation(self):
-        #TODO: incorporate m
+        # TODO: incorporate m
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
         impl_style = self.select_impl_style()
@@ -396,7 +399,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
             return 0
 
     def lut_estimation(self):
-        #TODO: incorporate m
+        # TODO: incorporate m
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
         buffer_width = simd * self.get_input_datatype().bitwidth()
@@ -408,7 +411,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         return 300 + ram_luts
 
     def uram_estimation(self):
-        #TODO: incorporate m
+        # TODO: incorporate m
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
         impl_style = self.select_impl_style()
@@ -457,7 +460,8 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        # TODO: maybe disable this check to allow for IFMdim % M != 0 case where input comes from MMV-output capable node
+        # TODO: maybe disable this check to allow for IFMdim % M != 0
+        # case where input comes from MMV-output capable node
         assert (
             inp.shape == exp_ishape
         ), """Input shape doesn't match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
@@ -469,15 +473,16 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
             export_idt = self.get_input_datatype()
 
         # integrated padding for rtlsim input FM: pad w dimension to multiple of M
-        # during real-world operation, this amounts to don't-care data in the final AXI-S transaction
+        # during real-world operation, this amounts to don't-care data in the final
+        # AXI-S transaction
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         m = self.get_nodeattr("M")
         if ifm_dim_w == 1:
             pad = math.ceil(ifm_dim_h / m) * m - ifm_dim_h
-            inp = np.pad(inp, ((0,0),(0,pad),(0,0),(0,0)), 'constant')
+            inp = np.pad(inp, ((0, 0), (0, pad), (0, 0), (0, 0)), "constant")
         else:
             pad = math.ceil(ifm_dim_w / m) * m - ifm_dim_w
-            inp = np.pad(inp, ((0,0),(0,0),(0,pad),(0,0)), 'constant')
+            inp = np.pad(inp, ((0, 0), (0, 0), (0, pad), (0, 0)), "constant")
 
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -488,8 +493,6 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
         rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
         odt = export_idt
         target_bits = odt.bitwidth()
@@ -717,11 +720,13 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         mmv_out = m * k_h * k_w
 
         # integrated input feature map padding in w dimension (see folded shape)
-        w = math.ceil(w/m) * m
+        w = math.ceil(w / m) * m
 
         # compute minimal buffer length (assuming it holds m complete windows)
-        buffer_min_size = (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1 + (m - 1) * stride_w
-        buffer_min_size = math.ceil(buffer_min_size / mmv_in) # mmv_in = buffer width
+        buffer_min_size = (
+            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1 + (m - 1) * stride_w
+        )
+        buffer_min_size = math.ceil(buffer_min_size / mmv_in)  # mmv_in = buffer width
 
         buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
@@ -756,8 +761,10 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
 
         # set head and tail address increment values
         tail_incr_w = stride_w
-        tail_incr_h = (math.ceil((skip_columns + kernel_width + (m-1) * stride_w) / m) # remaining line
-                      + (stride_h - 1) * w // m)  # skip lines
+        tail_incr_h = (
+            math.ceil((skip_columns + kernel_width + (m - 1) * stride_w) / m)  # remaining line
+            + (stride_h - 1) * w // m
+        )  # skip lines
         tail_incr_last_window = stride_w
 
         addr_incr_end_simd = 1
@@ -777,7 +784,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
                     loop_kh_iterations - 2 + 1,
                     loop_kw_iterations - 2 + 1,
                     loop_simd_iterations - 2 + 1,
-                    1
+                    1,
                 )
             )
         )
@@ -826,9 +833,12 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
                 window_offset = window * stride_w
                 dilation_offset = 0
                 for kx in range(k_w):
-                    # init FIFO element (each element has m members to indicate if/where it is accessed within each of the m output windows)
+                    # init FIFO element (each element has m members to indicate if/where
+                    # it is accessed within each of the m output windows)
                     while len(reg_fifo) <= (window_offset + dilation_offset + kx):
-                        reg_fifo.append([-1] * m) # -1 = element is not part of the respective output window
+                        reg_fifo.append(
+                            [-1] * m
+                        )  # -1 = element is not part of the respective output window
 
                     # make entry for this particular element->output window mapping
                     reg_fifo[window_offset + dilation_offset + kx][window] = ky * k_w + kx
@@ -836,15 +846,20 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
                     # handle dilation
                     if kx < (k_w - 1):
                         for d in range(dilation_w - 1):
-                            # skip dilation_w - 1 elements by extending the FIFO (if elements are not already buffered for a previous window)
+                            # skip dilation_w - 1 elements by extending the FIFO (if elements
+                            # are not already buffered for a previous window)
                             dilation_offset = dilation_offset + 1
                             if len(reg_fifo) <= (window_offset + dilation_offset + kx):
-                                reg_fifo.append([-1] * m) # -1 = element is not part of the respective output window
+                                reg_fifo.append(
+                                    [-1] * m
+                                )  # -1 = element is not part of the respective output window
             reg_fifos.append(reg_fifo)
 
             # BRAM FIFO to buffer remaining line (+ skipped lines in dilated case)
             if ky < (k_h - 1):
-                fifo_depth = math.ceil(len(reg_fifo) / mmv_in) # mmv_in = width of FIFO, len(reg_fifo) = total number of required elements
+                fifo_depth = math.ceil(
+                    len(reg_fifo) / mmv_in
+                )  # mmv_in = width of FIFO, len(reg_fifo) = total number of required elements
                 fifo_size = fifo_depth * mmv_in
                 line_buffer_len = (w - fifo_size) + w * (dilation_h - 1)
                 assert line_buffer_len % mmv_in == 0, "ERROR, FM width not divisible by m"
@@ -917,7 +932,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
                             [{fifo_idx}*OUT_ELEM_WIDTH+:OUT_ELEM_WIDTH];""".format(
                                 out_idx=out_idx,
                                 fifo_id=fifo_id,
-                                fifo_idx=fifo_idx + fifo_idx_offset
+                                fifo_idx=fifo_idx + fifo_idx_offset,
                             )
                         )
                         out_idx = out_idx - 1
@@ -929,11 +944,11 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
                 # first FIFO containing newest elements -> input comes from input reg
                 for m in range(mmv_in):
                     code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
-                        """assign reg_fifo_{fifo_id}_in[{buf_elem}*OUT_ELEM_WIDTH+:OUT_ELEM_WIDTH] = data_in[{in_elem}*OUT_ELEM_WIDTH+:OUT_ELEM_WIDTH];""".format(
-                            fifo_id=i,
-                            in_elem=m,
-                            buf_elem=mmv_in - 1 - m # reverse order
+                        "assign reg_fifo_{fifo_id}_in[{buf_elem}".format(
+                            fifo_id=i, buf_elem=mmv_in - 1 - m  # reverse order
                         )
+                        + " *OUT_ELEM_WIDTH+:OUT_ELEM_WIDTH] "
+                        + " = data_in[{in_elem}*OUT_ELEM_WIDTH+:OUT_ELEM_WIDTH];".format(in_elem=m)
                     )
             else:
                 # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
@@ -986,11 +1001,13 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
             mmv_out = m * k_h * k_w
             assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
             if ofm_dim[1] == 1:
-                out_dim_w = ofm_dim[0] # normalize dim for 1D case
+                out_dim_w = ofm_dim[0]  # normalize dim for 1D case
             else:
                 out_dim_w = ofm_dim[1]
             assert out_dim_w % m == 0, "Constraint violated: output FM width not divisible by m"
-            assert out_dim_w // m > 2, "Constraint violated: output FM width too narrow for selected m"
+            assert (
+                out_dim_w // m > 2
+            ), "Constraint violated: output FM width too narrow for selected m"
         else:
             # mmv_in = 1
             mmv_out = 1
@@ -1040,7 +1057,9 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
             template_select = "/finn-rtllib/swg_mmv/swg_template_wrapper.v"
         with open(os.environ["FINN_ROOT"] + template_select, "r") as f:
             template_wrapper = f.read()
-        with open(os.environ["FINN_ROOT"] + "/finn-rtllib/swg_mmv/swg_template_axilite.v", "r") as f:
+        with open(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg_mmv/swg_template_axilite.v", "r"
+        ) as f:
             template_axilite = f.read()
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
@@ -1099,6 +1118,7 @@ class ConvolutionInputGenerator_rtl_mmv(HLSCustomOp):
         # build the Verilator emu library
         sim = PyVerilator.build(
             verilog_files,
+            auto_eval=False,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),

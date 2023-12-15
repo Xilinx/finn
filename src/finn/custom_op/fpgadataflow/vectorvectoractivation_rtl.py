@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import shutil
 import textwrap
 import warnings
 from qonnx.core.datatype import DataType
@@ -531,8 +532,6 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
 
             if mem_mode == "external" or mem_mode == "decoupled":
                 wnbits = self.get_weightstream_width()
@@ -1096,14 +1095,19 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         # Path to (System-)Verilog files used by top-module & path to top-module
         verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
         verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
+        single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
+        dat_files = self.get_all_meminit_filenames(abspath=True)
+        for dat_file in dat_files:
+            shutil.copy(dat_file, single_src_dir)
 
         # build the Verilator emu library
         sim = PyVerilator.build(
             verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            build_dir=single_src_dir,
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
+            auto_eval=False,
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)

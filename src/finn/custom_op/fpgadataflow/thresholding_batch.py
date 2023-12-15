@@ -517,8 +517,6 @@ class Thresholding_Batch(HLSCustomOp):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             if self.get_nodeattr("mem_mode") == "decoupled":
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
