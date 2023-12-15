@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import shutil
 import warnings
 from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.core.datatype import DataType
@@ -508,11 +509,15 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
         verilog_files = self.get_rtl_file_list()
+        dat_files = self.get_all_meminit_filenames(abspath=True)
+        single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
+        for dat_file in dat_files:
+            shutil.copy(dat_file, single_src_dir)
 
         # build the Verilator emulation library
         sim = PyVerilator.build(
             verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            build_dir=single_src_dir,
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_nodeattr("gen_top_module"),
