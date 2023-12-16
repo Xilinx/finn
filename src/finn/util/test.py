@@ -33,6 +33,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import re
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
@@ -184,3 +185,40 @@ def resize_smaller_side(target_pixels, img):
 def crop_center(size, img):
     """Crop central size*size window out of a PIL image."""
     return torchvision_util.center_crop(img, size)
+
+
+# adapted from:
+# https://stackoverflow.com/questions/5967500/how-to-correctly-sort-a-string-with-a-number-inside
+def atoi(text):
+    return int(text) if text.isdigit() else text
+
+
+def natural_keys(text):
+    """
+    alist.sort(key=natural_keys) sorts in human order
+    http://nedbatchelder.com/blog/200712/human_sorting.html
+    (See Toothy's implementation in the comments)
+    """
+    return [atoi(c) for c in re.split(r"(\d+)", text)]
+
+
+def node_by_node_comparison(
+    npz0, npz1, match_key_filter=lambda x: ("Threshold" in x and "_out0" in x)
+):
+    "Do a node-by-node tensor comparison from full execution context .npz files and print result"
+    dict0 = dict(np.load(npz0))
+    dict1 = dict(np.load(npz1))
+    match_d0 = sorted(
+        [(k, v) for k, v in dict0.items() if match_key_filter(k)], key=lambda x: natural_keys(x[0])
+    )
+    match_d1 = sorted(
+        [(k, v) for k, v in dict1.items() if match_key_filter(k)], key=lambda x: natural_keys(x[0])
+    )
+    min_match_count = min(len(match_d0), len(match_d1))
+    for i in range(min_match_count):
+        k0, t0 = match_d0[i]
+        k1, t1 = match_d1[i]
+        if t0.shape != t1.shape:
+            print("%s vs %s: shape mismatch (%s and %s)" % (k0, k1, str(t0.shape), str(t1.shape)))
+        else:
+            print("%s vs %s: %s" % (k0, k1, str((t0 == t1).all())))
