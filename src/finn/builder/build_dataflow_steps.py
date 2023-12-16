@@ -132,6 +132,10 @@ def verify_step(
     rtlsim_pre_hook=None,
 ):
     print("Running verification for " + step_name)
+    if cfg.verify_sanitize_quant_tensors:
+        os.environ["SANITIZE_QUANT_TENSORS"] = "1"
+    else:
+        os.environ["SANITIZE_QUANT_TENSORS"] = "0"
     verify_out_dir = cfg.output_dir + "/verification_output"
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
     os.makedirs(verify_out_dir, exist_ok=True)

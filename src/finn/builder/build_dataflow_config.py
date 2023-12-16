@@ -202,6 +202,10 @@ class DataflowBuildConfig:
     #: available options.
     verify_steps: Optional[List[VerificationStepType]] = None
 
+    #: (Optional) For any nodes marked with integer datatype annotations, sanitize their
+    #: values during execution for validation. See SANITIZE_QUANT_TENSORS in qonnx
+    verify_sanitize_quant_tensors: Optional[bool] = False
+
     #: (Optional) Name of .npy file that will be used as the input for
     #: verification. Only required if verify_steps is not empty.
     verify_input_npy: Optional[str] = "input.npy"
