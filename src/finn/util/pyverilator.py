@@ -180,19 +180,18 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     top->ap_clk2x = 1;
     """
 
-    toggle_single_clk = """
+    negedge_single_clk = """
     top->ap_clk = 0;
-    eval(top);
-    TRACE(add_to_vcd_trace(tfp, main_time));
-    top->ap_clk = 1;
     eval(top);
     TRACE(add_to_vcd_trace(tfp, main_time));
     """
 
-    toggle_double_clk = """
-    top->ap_clk2x = 0;
+    posedge_single_clk = """
+    top->ap_clk = 1;
     eval(top);
-    TRACE(add_to_vcd_trace(tfp, main_time));
+    """
+
+    negedge_double_clk = """
     top->ap_clk = 0;
     top->ap_clk2x = 1;
     eval(top);
@@ -200,10 +199,15 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     top->ap_clk2x = 0;
     eval(top);
     TRACE(add_to_vcd_trace(tfp, main_time));
+    """
+
+    posedge_double_clk = """
     top->ap_clk = 1;
     top->ap_clk2x = 1;
     eval(top);
     TRACE(add_to_vcd_trace(tfp, main_time));
+    top->ap_clk2x = 0;
+    eval(top);
     """
 
     is_double_pumped = eval(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] != []
@@ -216,7 +220,8 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "FIFO_DEPTH_LOGGING": fifo_log,
         "TRACE_FILENAME": trace_file,
         "TRACE_DEF": trace_def,
-        "TOGGLE_CLK": toggle_double_clk if is_double_pumped else toggle_single_clk,
+        "TOGGLE_CLK_NEGEDGE": negedge_single_clk if not is_double_pumped else negedge_double_clk,
+        "TOGGLE_CLK_POSEDGE": posedge_single_clk if not is_double_pumped else posedge_double_clk,
         "INIT_CLK": init_double_clk if is_double_pumped else init_single_clk,
     }
 
