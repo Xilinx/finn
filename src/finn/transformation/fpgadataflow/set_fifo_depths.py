@@ -241,7 +241,7 @@ class InsertAndSetFIFODepths(Transformation):
         clk_ns=10.0,
         max_qsrl_depth=256,
         max_depth=None,
-        swg_exception=True,
+        swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
     ):
