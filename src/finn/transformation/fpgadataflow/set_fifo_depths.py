@@ -320,6 +320,7 @@ class InsertAndSetFIFODepths(Transformation):
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         if self.force_python_sim:
+            assert False, "Python FIFO sim needs fixing to avoid simulation bugs"
             # do rtlsim in Python for FIFO sizing
             # calculate input frequency (number of cycles for each input word)
             first_node = getCustomOp(model.graph.node[0])
