@@ -444,3 +444,23 @@ def packed_bytearray_to_finnpy(
     )
 
     return ret
+
+
+def layout_nhwc_to_hw_depthwise(nhwc_tensor, total_kernel, channels, swg_simd_vvu_pe):
+    _, ofm_dim_h, ofm_dim_w, window_vol = nhwc_tensor.shape
+    nhwc_tensor = nhwc_tensor.reshape(
+        1, ofm_dim_h, ofm_dim_w, total_kernel, channels // swg_simd_vvu_pe, swg_simd_vvu_pe
+    )
+    ret_tensor = nhwc_tensor.transpose(0, 1, 2, 4, 3, 5)
+    ret_tensor = ret_tensor.reshape(1, ofm_dim_h, ofm_dim_w, channels * total_kernel)
+    return ret_tensor
+
+
+def layout_hw_depthwise_to_nhwc(hw_depthwise_tensor, total_kernel, channels, swg_simd_vvu_pe):
+    _, ofm_dim_h, ofm_dim_w, window_vol = hw_depthwise_tensor.shape
+    hw_depthwise_tensor = hw_depthwise_tensor.reshape(
+        1, ofm_dim_h, ofm_dim_w, channels // swg_simd_vvu_pe, total_kernel, swg_simd_vvu_pe
+    )
+    nhwc_tensor = hw_depthwise_tensor.transpose(0, 1, 2, 4, 3, 5)
+    nhwc_tensor = nhwc_tensor.reshape(1, ofm_dim_h, ofm_dim_w, window_vol)
+    return nhwc_tensor
