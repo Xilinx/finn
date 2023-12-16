@@ -576,6 +576,12 @@ compilation transformations?
         # signal name
         sname = "_" + self.hls_sname() + "_"
 
+        # chdir into rtlsim folder to find all .dat files etc
+        rtlsim_so = self.get_nodeattr("rtlsim_so")
+        so_dir = os.path.dirname(os.path.realpath(rtlsim_so))
+        olcwd = os.getcwd()
+        os.chdir(so_dir)
+
         trace_file = self.get_nodeattr("rtlsim_trace")
         if trace_file == "default":
             trace_file = self.onnx_node.name + ".vcd"
@@ -590,6 +596,7 @@ compilation transformations?
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+        os.chdir(olcwd)
 
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""
