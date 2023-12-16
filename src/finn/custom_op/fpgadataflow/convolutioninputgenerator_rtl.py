@@ -36,7 +36,11 @@ from qonnx.custom_op.general.im2col import compute_conv_output_dim
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    layout_hw_depthwise_to_nhwc,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 try:
     from pyverilator import PyVerilator
@@ -419,6 +423,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             return 0
 
     def execute_node(self, context, graph):
+        depthwise = self.get_nodeattr("depthwise")
+        k = self.get_nodeattr("ConvKernelDim")
+        total_kernel = np.prod(k)
+        simd = self.get_nodeattr("SIMD")
+        chans = self.get_nodeattr("IFMChannels")
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
@@ -468,6 +477,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # load and reshape output
         output = np.load(out_npy_path)
         output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+
+        if depthwise:
+            # transform depthwise layout used by HW into NHWC
+            output = layout_hw_depthwise_to_nhwc(output, total_kernel, chans, simd)
+
         context[node.output[0]] = output
 
         # binary -> bipolar if needed

@@ -42,6 +42,7 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import (
+    layout_nhwc_to_hw_depthwise,
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
@@ -471,6 +472,10 @@ class VectorVectorActivation_rtl(HLSCustomOp):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         mem_mode = self.get_nodeattr("mem_mode")
+        k = self.get_nodeattr("Kernel")
+        total_kernel = np.prod(k)
+        pe = self.get_nodeattr("PE")
+        chans = self.get_nodeattr("Channels")
         node = self.onnx_node
 
         # TODO ensure codegen dir exists
@@ -497,8 +502,11 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                     str(context[inputs].dtype) == "float32"
                 ), """Input datatype is
                 not float32 as expected."""
+                inp = context[inputs]
+                # transform conventional nhwc into depthwise layout used by HW
+                inp = layout_nhwc_to_hw_depthwise(inp, total_kernel, chans, pe)
                 expected_inp_shape = self.get_folded_input_shape()
-                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                reshaped_input = inp.reshape(expected_inp_shape)
                 if self.get_input_datatype() == DataType["BIPOLAR"]:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
@@ -516,18 +524,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             in_ind += 1
 
         if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType["BIPOLAR"]:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
-            ), "cppsim did not produce expected output shape"
+            assert False, "RTL components don't support cppsim"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -563,6 +560,8 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
             output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            # note that VVU produces standard NHWC output, despite using special layout
+            # for the input - so nothing extra needed here
             context[node.output[0]] = output
         else:
             raise Exception(

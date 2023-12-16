@@ -31,7 +31,11 @@ import os
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    layout_nhwc_to_hw_depthwise,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 
 class Pool_Batch(HLSCustomOp):
@@ -350,6 +354,10 @@ class Pool_Batch(HLSCustomOp):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        k = self.get_nodeattr("KernelSize")
+        total_kernel = np.prod(k)
+        pe = self.get_nodeattr("PE")
+        chans = self.get_nodeattr("Channels")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         folded_ishape = self.get_folded_input_shape()
@@ -369,6 +377,8 @@ class Pool_Batch(HLSCustomOp):
             )
 
         inp = context[node.input[0]]
+        # transform conventional nhwc into depthwise layout used by HW
+        inp = layout_nhwc_to_hw_depthwise(inp, total_kernel, chans, pe)
 
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
         assert (
