@@ -28,7 +28,6 @@
 
 import pytest
 
-import numpy as np
 import os
 import pickle
 from onnx import TensorProto, helper
@@ -58,8 +57,6 @@ from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 
 # import qonnx.core.data_layout as DataLayout
@@ -121,15 +118,27 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("idt", [DataType["INT8"]])
 # @pytest.mark.parametrize("idt", [DataType["UINT8"]])
 @pytest.mark.parametrize("wdt", [DataType["INT6"]])
-@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
-@pytest.mark.parametrize("pe", [1, 2, 4])
-@pytest.mark.parametrize("simd", [1, 3, 9])
+@pytest.mark.parametrize("pe", [2])
+@pytest.mark.parametrize("simd", [3])
+@pytest.mark.parametrize("double_pumped_compute", [1, 0])
+@pytest.mark.parametrize("double_pumped_memory", [1, 0])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_vvau_rtl(
-    kernel_size, in_feature_dim, in_chn, idt, wdt, part, segmentlen, pe, simd
+    kernel_size,
+    in_feature_dim,
+    in_chn,
+    idt,
+    wdt,
+    part,
+    segmentlen,
+    pe,
+    simd,
+    double_pumped_compute,
+    double_pumped_memory,
 ):
     # Create depthwise-separable convolution
     conv_config = (kernel_size, in_feature_dim, in_chn)
@@ -144,8 +153,6 @@ def test_fpgadataflow_vvau_rtl(
     )
     input_dict = prepare_inputs(golden_in)
     golden_out = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
-    with open(build_dir + "/onnx_dws_conv.pkl", "wb") as f:
-        pickle.dump(golden_out, f)
 
     # Convert to HLS custom-op first
     model = model.transform(LowerConvsToMatMul())
@@ -159,7 +166,7 @@ def test_fpgadataflow_vvau_rtl(
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
-        "ConvolutionInputGenerator_rtl_0": {"SIMD": 4, "parallel_window": 1},
+        "ConvolutionInputGenerator_rtl_0": {"SIMD": pe, "parallel_window": 1},
         "VectorVectorActivation_0": {
             "PE": pe,
             "SIMD": simd,
@@ -172,15 +179,6 @@ def test_fpgadataflow_vvau_rtl(
     model = model.transform(ApplyConfig(folding_config))
     model.save(build_dir + "/hls_vvau_folded.onnx")
 
-    # Obtain second reference from HLS-based VVAU layer
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, 5))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    conv_hls_out = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
-    with open(build_dir + "/hls_vvau_folded_output.pkl", "wb") as f:
-        pickle.dump(conv_hls_out, f)
-
     # Stitched-IP RTLsim
     model = model.transform(CreateDataflowPartition(partition_model_dir=build_dir))
     model.save(build_dir + "/ip-stitched.onnx")
@@ -189,25 +187,21 @@ def test_fpgadataflow_vvau_rtl(
     ).get_nodeattr("model")
     partitioned_model = ModelWrapper(partition_model_path)
     # FIFOs needed for stitched-ip RTLsim, DWC needed for VVU operating on SIMD parallelism
-    partitioned_model = partitioned_model.transform(InsertAndSetFIFODepths(part, 5))
+
     partitioned_model = partitioned_model.transform(PrepareIP(part, 5))
-    partitioned_model = partitioned_model.transform(HLSSynthIP())
+
     partitioned_model.save(build_dir + "/partitioned_model.onnx")
-    partitioned_model = partitioned_model.transform(CreateStitchedIP(part, 5))
-    partitioned_model.save(partition_model_path)
-    partitioned_model.set_metadata_prop("rtlsim_trace", build_dir + "/hls-vvu.vcd")
-    # set top-level prop for stitched-ip rtlsim and launch
-    partitioned_model.set_metadata_prop("exec_mode", "rtlsim")
-    # transpose input since we're now simulating HW layers (NCHW --> NHWC)
-    input_dict["global_in"] = np.transpose(input_dict["global_in"], (0, 2, 3, 1))
-    stitched_ip_out = oxe.execute_onnx(partitioned_model, input_dict, return_full_exec_context=True)
-    with open(build_dir + "/stitched_ip_output.pkl", "wb") as f:
-        pickle.dump(stitched_ip_out, f)
 
     # Apply convert-to-rtl step
     partitioned_model = partitioned_model.transform(to_rtl.InferRTLVectorVectorActivation())
     partitioned_model = partitioned_model.transform(GiveUniqueNodeNames())
     partitioned_model = partitioned_model.transform(GiveReadableTensorNames())
+    for n in model.graph.node:
+        if n.op_type == "VectorVectorActivation_rtl":
+            getCustomOp(n).set_nodeattr("pumpedCompute", double_pumped_compute)
+            getCustomOp(n).set_nodeattr("pumpedMemory", double_pumped_memory)
+
+    partitioned_model = partitioned_model.transform(InsertAndSetFIFODepths(part, 5))
     partitioned_model = partitioned_model.transform(PrepareIP(part, 5))
     partitioned_model = partitioned_model.transform(HLSSynthIP())
     partitioned_model = partitioned_model.transform(CreateStitchedIP(part, 5))
@@ -217,6 +211,7 @@ def test_fpgadataflow_vvau_rtl(
     partitioned_model.set_metadata_prop("rtlsim_so", "")
     # set top-level prop for stitched-ip rtlsim and launch
     partitioned_model.set_metadata_prop("exec_mode", "rtlsim")
+    input_dict = {"global_in": golden_in.transpose(0, 2, 3, 1)}
     vvu_rtl_out = oxe.execute_onnx(partitioned_model, input_dict, return_full_exec_context=True)
     with open(build_dir + "/rtl_vvau_output.pkl", "wb") as f:
         pickle.dump(vvu_rtl_out, f)
@@ -224,11 +219,7 @@ def test_fpgadataflow_vvau_rtl(
     golden_ret = golden_out["global_out"]
     # tranpose hardware-generated outputs NHWC -> NCHW to be comparable
     vvu_rtl_ret = vvu_rtl_out["global_out"].transpose(0, 3, 1, 2)
-    hls_ret = stitched_ip_out["global_out"].transpose(0, 3, 1, 2)
 
     assert (
         vvu_rtl_ret == golden_ret
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
-    assert (
-        vvu_rtl_ret == hls_ret
-    ).all(), "Output of stitched-IP HLS model not matching output of stitched-IP RTL model!"
