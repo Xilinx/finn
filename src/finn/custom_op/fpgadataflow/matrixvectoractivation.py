@@ -1355,6 +1355,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 "CONFIG.WIDTH {%d} "
                 "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.PUMPED_MEMORY {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
@@ -1376,6 +1377,10 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
             cmd.append(
