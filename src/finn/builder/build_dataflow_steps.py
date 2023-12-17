@@ -699,6 +699,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 cfg.synth_clk_period_ns,
                 vitis=cfg.stitched_ip_gen_dcp,
                 signature=cfg.signature,
+                breakout_streams=cfg.stitched_ip_breakout,
             )
         )
         # TODO copy all ip sources into output dir? as zip?
@@ -770,7 +771,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
             rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_dict["cycles"]
         else:
-            rtlsim_perf_dict = verilator_fifosim(rtlsim_model, rtlsim_bs)
+            rtlsim_perf_dict = verilator_fifosim(
+                rtlsim_model, rtlsim_bs, monitor_txn_counts=cfg.stitched_ip_breakout
+            )
             # keep keys consistent between the Python and C++-styles
             cycles = rtlsim_perf_dict["cycles"]
             clk_ns = float(rtlsim_model.get_metadata_prop("clk_ns"))
@@ -782,6 +785,14 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             for key, val in rtlsim_perf_dict.items():
                 if "max_count" in key:
                     del rtlsim_perf_dict[key]
+                if key.startswith("txn_") and cfg.stitched_ip_breakout:
+                    fnm = key.replace("txn_", "")
+                    node = [x for x in rtlsim_model.graph.node if x.name == fnm][0]
+                    inst = getCustomOp(node)
+                    expected_txns = rtlsim_bs * np.prod(inst.get_folded_output_shape()[:-1])
+                    expected_txns = int(expected_txns)
+                    rtlsim_perf_dict[key] = {"found": val, "expected": expected_txns}
+
         # estimate stable-state throughput based on latency+throughput
         if rtlsim_bs == 1:
             rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict[

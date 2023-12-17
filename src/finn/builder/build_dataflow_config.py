@@ -227,6 +227,10 @@ class DataflowBuildConfig:
     #: the full list of layer IP build directories. By default, synthesis will not run.
     stitched_ip_gen_dcp: Optional[bool] = False
 
+    #: (Optional) Break out intermediate FIFO outputs as AXI stream monitors
+    #: at the top level from stitched IP. Useful for debugging.
+    stitched_ip_breakout: Optional[bool] = False
+
     #: Insert a signature node to the stitched-IP to read/write information
     #: to the design: e.g. Customer signature, application signature, version
     signature: Optional[List[int]] = None
