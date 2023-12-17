@@ -82,7 +82,15 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self,
+        fpgapart,
+        clk_ns,
+        ip_name="finn_design",
+        vitis=False,
+        signature=[],
+        breakout_streams=False,
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -96,6 +104,7 @@ class CreateStitchedIP(Transformation):
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
         self.clock2x_is_external = False
+        self.breakout_streams = breakout_streams
         self.create_cmds = []
         self.connect_cmds = []
         # keep track of top-level interface names
@@ -375,6 +384,35 @@ class CreateStitchedIP(Transformation):
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
+
+        if self.breakout_streams:
+            for node in model.graph.node:
+                # if desired, break out FIFO outputs as top level
+                if "FIFO" in node.name:
+                    fifo_out = node_inst.get_verilog_top_module_intf_names()["m_axis"][i][0]
+                    breakout_ifname = "mon_%s" % (node.name)
+                    self.connect_cmds.append(
+                        (
+                            "create_bd_intf_port -mode Monitor -vlnv "
+                            "xilinx.com:interface:axis_rtl:1.0 %s"
+                        )
+                        % (breakout_ifname)
+                    )
+                    self.connect_cmds.append(
+                        "connect_bd_intf_net [get_bd_intf_ports %s] [get_bd_intf_pins %s/%s]"
+                        % (breakout_ifname, node.name, fifo_out)
+                    )
+                    fclk_mhz = 1 / (self.clk_ns * 0.001)
+                    fclk_hz = fclk_mhz * 1000000
+                    self.connect_cmds.append(
+                        "set_property -dict [list "
+                        "CONFIG.FREQ_HZ {%d} "
+                        "] [get_bd_intf_ports %s]"
+                        % (
+                            round(fclk_hz),
+                            breakout_ifname,
+                        )
+                    )
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
