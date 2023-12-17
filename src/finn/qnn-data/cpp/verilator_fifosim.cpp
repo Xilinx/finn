@@ -149,6 +149,7 @@ int main(int argc, char *argv[]) {
 
     bool exit_criterion = false;
     bool timeout = false;
+    bool input_finished = false;
 
     cout << "Simulation starting" << endl;
     cout << "Number of inputs to write " << n_iters_per_input * n_inputs << endl;
@@ -179,10 +180,12 @@ int main(int argc, char *argv[]) {
             update signals based on decisions in previous block, but don't examine anything
             so only write access in this block, no reading of signals
         */
-        if((n_in_txns == n_iters_per_input * n_inputs) && top->s_axis_0_tvalid == 1) {
+        if(!input_finished && (n_in_txns == n_iters_per_input * n_inputs)) {
             top->s_axis_0_tvalid = 0;
+            input_finished = true;
             cout << "All inputs written at cycle " << iters << endl;
-        } else {
+        }
+        if(!input_finished) {
             top->s_axis_0_tvalid = 1;
         }
         comb_update_and_trace();
