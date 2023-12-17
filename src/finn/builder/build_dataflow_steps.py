@@ -752,8 +752,8 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
         assert rtlsim_bs > 0, "rtlsim batch size must be >0"
         if cfg.verify_save_rtlsim_waveforms:
-            # set depth to 3 for layer-by-layer visibility
-            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            # set depth to 5 for layer-by-layer visibility
+            os.environ["RTLSIM_TRACE_DEPTH"] = "5"
             rtlsim_trace_path = os.path.abspath(
                 "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
             )
