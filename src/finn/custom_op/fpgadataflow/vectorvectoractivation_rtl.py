@@ -653,7 +653,7 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             # if we need a 2x clock for either compute or memory, instantiate the 2x clk port
             if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
                 clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-                cmd.append("create_bd_pin -dir I -type clk2x /%s/%s" % (node_name, clk2x_name))
+                cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk2x_name))
             else:
                 clk2x_name = None
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
