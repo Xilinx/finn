@@ -122,7 +122,7 @@ def prepare_stitched_ip_for_verilator(model, sim_dir):
     make_single_source_file(filtered_verilog_files, target_file)
 
 
-def verilator_fifosim(model, n_inputs, max_iters=100000000):
+def verilator_fifosim(model, n_inputs, max_iters=100000000, monitor_txn_counts=False):
     """Create a Verilator model of stitched IP and use a simple C++
     driver to drive the input stream. Useful for FIFO sizing, latency
     and throughput measurement."""
@@ -161,15 +161,38 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     fifo_log = []
     fifo_log_templ = '    results_file << "maxcount%s" << "\\t" '
     fifo_log_templ += "<< to_string(top->maxcount%s) << endl;"
+    txncount_init = []
+    txncount_init_templ = "    unsigned ntx_%s = 0;"
+    txncount_mon = []
+    txncount_mon_templ = (
+        "    ntx_%s += (top->mon_%s_tready == 1 && top->mon_%s_tvalid == 1) ? 1 : 0;"
+    )
+    txncount_log = []
+    txncount_log_templ = '    results_file << "txn_%s" << "\\t" << to_string(ntx_%s) << endl;'
     fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
     fifo_ind = 0
     for fifo_node in fifo_nodes:
+        fnm = fifo_node.name
         fifo_node = getCustomOp(fifo_node)
         if fifo_node.get_nodeattr("depth_monitor") == 1:
             suffix = "" if fifo_ind == 0 else "_%d" % fifo_ind
             fifo_log.append(fifo_log_templ % (suffix, suffix))
             fifo_ind += 1
+        if monitor_txn_counts:
+            txncount_init.append(txncount_init_templ % (fnm))
+            txncount_mon.append(txncount_mon_templ % (fnm, fnm, fnm))
+            txncount_log.append(txncount_log_templ % (fnm, fnm))
+
     fifo_log = "\n".join(fifo_log)
+
+    if not monitor_txn_counts:
+        txncount_init = ""
+        txncount_mon = ""
+        txncount_log = ""
+    else:
+        txncount_init = "\n".join(txncount_init)
+        txncount_mon = "\n".join(txncount_mon)
+        txncount_log = "\n".join(txncount_log)
 
     init_single_clk = """
     top->ap_clk = 1;
@@ -223,6 +246,9 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "TOGGLE_CLK_NEGEDGE": negedge_single_clk if not is_double_pumped else negedge_double_clk,
         "TOGGLE_CLK_POSEDGE": posedge_single_clk if not is_double_pumped else posedge_double_clk,
         "INIT_CLK": init_double_clk if is_double_pumped else init_single_clk,
+        "TXN_COUNTERS": txncount_init,
+        "TXN_MONITORS": txncount_mon,
+        "TXN_COUNT_LOGGING": txncount_log,
     }
 
     for key, val in template_dict.items():
