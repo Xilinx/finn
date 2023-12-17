@@ -391,9 +391,12 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             # SIMD & PE flipped
             weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.copy()
+            # regular
+            weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
+            weight_tensor_unflipped = weight_tensor_unflipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
-                np.save(weight_file_name, weight_tensor_simd_flipped)
+                np.save(weight_file_name, weight_tensor_unflipped)
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_weightstream_width()
