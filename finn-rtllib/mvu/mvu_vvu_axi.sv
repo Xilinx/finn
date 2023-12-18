@@ -229,7 +229,7 @@ module mvu_vvu_axi #(
 			if(1) begin : blkActive
 				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
 				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut(.O(clk_lut[0]), .I0(clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut(.O(clk_lut[1]), .I0(clk_lut[0]));
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut2(.O(clk_lut[1]), .I0(clk_lut[0]));
 				always_ff @(posedge clk2x)  Active <= clk_lut[1];
 			end : blkActive
 
