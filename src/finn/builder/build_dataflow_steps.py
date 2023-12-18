@@ -715,7 +715,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         estimate_network_performance = verify_model.analysis(dataflow_performance)
         prev_liveness = pyverilate_get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"])
+            cfg.rtlsim_timeout_cycles
         )
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
@@ -736,6 +736,10 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         assert (
             DataflowOutputType.STITCHED_IP in cfg.generate_outputs
         ), "rtlsim_perf needs stitched IP"
+        prev_liveness = pyverilate_get_liveness_threshold_cycles()
+        os.environ["LIVENESS_THRESHOLD"] = str(
+            cfg.rtlsim_timeout_cycles
+        )
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         # prepare ip-stitched rtlsim
@@ -753,8 +757,8 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
         assert rtlsim_bs > 0, "rtlsim batch size must be >0"
         if cfg.verify_save_rtlsim_waveforms:
-            # set depth to 5 for layer-by-layer visibility
-            os.environ["RTLSIM_TRACE_DEPTH"] = "5"
+            # set depth to 4 for layer-by-layer visibility
+            os.environ["RTLSIM_TRACE_DEPTH"] = "4"
             rtlsim_trace_path = os.path.abspath(
                 "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
             )
@@ -772,7 +776,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_dict["cycles"]
         else:
             rtlsim_perf_dict = verilator_fifosim(
-                rtlsim_model, rtlsim_bs, monitor_txn_counts=cfg.stitched_ip_breakout
+                rtlsim_model, rtlsim_bs, max_iters=cfg.rtlsim_timeout_cycles, monitor_txn_counts=cfg.stitched_ip_breakout
             )
             # keep keys consistent between the Python and C++-styles
             cycles = rtlsim_perf_dict["cycles"]
@@ -812,6 +816,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         if cfg.verify_save_rtlsim_waveforms:
             # restore original trace depth
             os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
+        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
 
     return model
 

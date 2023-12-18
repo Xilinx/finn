@@ -370,6 +370,10 @@ class DataflowBuildConfig:
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1
 
+    #: Override the timeout cycles for rtlsim (corresponding to 
+    #: LIVENESS_THRESHOLD env.var.)
+    rtlsim_timeout_cycles: Optional[int] = 1000000
+
     #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
