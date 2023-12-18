@@ -322,8 +322,10 @@ module mvu_vvu_axi #(
 					P   <= 'x;
 				end
 				else begin
-					if(dsp_vld)  P <= dsp_p;
-					Vld <= dsp_vld || (Vld && Active);
+					if (dsp_en) begin
+						if(dsp_vld)  P <= dsp_p;
+						Vld <= dsp_vld || (Vld && Active);
+					end
 				end
 			end
 			assign	ovld = Vld;
