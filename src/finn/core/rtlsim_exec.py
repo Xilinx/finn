@@ -134,6 +134,15 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     else:
         sim = PyVerilator(rtlsim_so, auto_eval=False)
 
+    # see if we have monitor outputs in the sim, indicated by the mon_ prefix
+    has_monitors = any([x.startswith("mon_") for x in sim.io.keys()])
+    mon_if_names = set()
+    if has_monitors:
+        for k in sim.io.keys():
+            if k.startswith("mon_"):
+                mon_if_names.add(k.split("_")[1])
+        io_dict["monitor"] = {("mon_" + k): [] for k in mon_if_names}
+
     rtlsim_dir = str(Path(rtlsim_so).parent.absolute())
     # cd into dir containing pyverilator .so to find meminit files there
     oldcwd = os.getcwd()
@@ -168,6 +177,22 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
             packed_output, None, o_dt, o_folded_shape, o_stream_w, o_dt.bitwidth()
         )
         execution_context[o_name] = o_folded_tensor.reshape(o_shape)
+
+    if has_monitors:
+        for k, v in io_dict["monitor"].items():
+            node_nm = k.replace("mon_", "")
+            node = [x for x in model.graph.node if x.name == node_nm][0]
+            o_name = node.output[0]
+            inst = getCustomOp(node)
+            o_folded_shape = inst.get_folded_output_shape()
+            o_stream_w = inst.get_outstream_width()
+            o_dt = model.get_tensor_datatype(o_name)
+            o_shape = model.get_tensor_shape(o_name)
+            packed_output = v
+            o_folded_tensor = rtlsim_output_to_npy(
+                packed_output, None, o_dt, o_folded_shape, o_stream_w, o_dt.bitwidth()
+            )
+            execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
     os.chdir(oldcwd)
