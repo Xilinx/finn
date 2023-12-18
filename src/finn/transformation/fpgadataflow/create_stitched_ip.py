@@ -511,11 +511,11 @@ class CreateStitchedIP(Transformation):
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
         )
-        if self.clock2x_is_external:
-            tcl.append(
-                "ipx::infer_bus_interface ap_clk2x xilinx.com:signal:clock_rtl:1.0 "
-                "[ipx::current_core]"
-            )
+        #if self.clock2x_is_external:
+        #    tcl.append(
+        #        "ipx::infer_bus_interface ap_clk2x xilinx.com:signal:clock_rtl:1.0 "
+        #        "[ipx::current_core]"
+        #    )
         # Allow user to customize clock in deployment of stitched IP
         tcl.append("set_property ipi_drc {ignore_freq_hz true} [ipx::current_core]")
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
