@@ -135,10 +135,10 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         sim = PyVerilator(rtlsim_so, auto_eval=False)
 
     # see if we have monitor outputs in the sim, indicated by the mon_ prefix
-    has_monitors = any([x.startswith("mon_") for x in sim.io.keys()])
+    has_monitors = any([x.startswith("mon_") for x in dir(sim.io)])
     mon_if_names = set()
     if has_monitors:
-        for k in sim.io.keys():
+        for k in dir(sim.io):
             if k.startswith("mon_"):
                 mon_if_names.add(k.split("_")[1])
         io_dict["monitor"] = {("mon_" + k): [] for k in mon_if_names}
