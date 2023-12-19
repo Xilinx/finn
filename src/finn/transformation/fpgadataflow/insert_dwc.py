@@ -99,7 +99,10 @@ class InsertDWC(Transformation):
                                     node_optype = "StreamingDataWidthConverter_rtl"
                                 else:
                                     warnings.warn(
-                                        "DWC cannot be implemented as RTL variant, default to hls"
+                                        "DWC between %s (owidth %d) and %s (iwidth %d) " % (
+                                            n.name, dwc_in_width, consumer.name, dwc_out_width
+                                        )
+                                        +"cannot be implemented as RTL variant, default to hls"
                                     )
                                     node_optype = "StreamingDataWidthConverter_Batch"
                                     self.use_rtl_variant = False
