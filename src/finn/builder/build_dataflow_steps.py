@@ -710,11 +710,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 def step_verify_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Verify stitched IP. Depends on the DataflowOutputType.STITCHED_IP output product."""
-
+    verify_model = model
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         assert (DataflowOutputType.STITCHED_IP in cfg.generate_outputs), "Need stitched IP to verify"
         # prepare ip-stitched rtlsim
-        verify_model = model
         verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
         # use critical path estimate to set rtlsim liveness threshold
         # (very conservative)
