@@ -224,12 +224,12 @@ module mvu_vvu_axi #(
 		else begin : genPumpedCompute
 			assign	dsp_clk = clk2x;
 
-			// Identify second fast cycle before active slow clock edge
+			// Identify second fast cycle just before active slow clock edge
 			logic  Active = 0;
 			if(1) begin : blkActive
 				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut(.O(clk_lut[0]), .I0(clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut2(.O(clk_lut[1]), .I0(clk_lut[0]));
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
 				always_ff @(posedge clk2x)  Active <= clk_lut[1];
 			end : blkActive
 
@@ -237,78 +237,53 @@ module mvu_vvu_axi #(
 			//	- Both fast cycles are controlled by the same enable state.
 			//	- A zero cycle is duplicated across both fast cycles.
 			//	- The last flag must be restricted to the second fast cycle.
-			logic  En = 0;
-			logic  Last[1:0] = '{ default: 1'b0 };
-			logic  Zero = 1;
-			dsp_w_t  W[1:0] = '{ default: 'x };
-			dsp_a_t  A[1:0] = '{ default: 'x };
 
+			dsp_w_t  W = 'x;
+			for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
+
+				uwire [2*DSP_SIMD-1:0][WEIGHT_WIDTH-1:0]  w;
+				for(genvar  i =    0; i <       SIMD; i++)  assign  w[i] = mvu_w[pe][i];
+				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  w[i] = 0;
+
+				always_ff @(posedge clk2x) begin
+					if(rst)      W[pe] <= 'x;
+					else if(en)  W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				end
+
+			end : genPERegW
+
+			dsp_a_t  A = 'x;
+			for(genvar  pe = 0; pe < ACT_PE; pe++) begin : genPERegA
+
+				uwire [2*DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  a;
+				for(genvar  i =    0; i <       SIMD; i++)  assign  a[i] = amvau_i[pe][i];
+				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  a[i] = 0;
+
+				always_ff @(posedge clk2x) begin
+					if(rst)      A[pe] <= 'x;
+					else if(en)  A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				end
+
+			end : genPERegA
+
+			logic  Zero = 1;
+			logic  Last = 0;
 			always_ff @(posedge clk2x) begin
 				if(rst) begin
-					En   <= 0;
-					Last <= '{ default: 1'b0 };
-					Zero <=  1;
+					Zero <= 1;
+					Last <= 0;
 				end
-				else begin
-					if(Active) begin
-						En <= en;
-						if(en) begin
-							Last <= '{ alast && avld, 1'b0 };
-							Zero <= !istb;
-						end
-					end
-					else if(En) begin
-						Last <= '{ 'x, Last[1] };
-					end
+				else if(en) begin
+					Zero <= !istb;
+					Last <= alast && avld && Active;
 				end
 			end
 
-			for(genvar  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin : genSIMDRegW
-				for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
-					always_ff @(posedge clk2x) begin
-						if(rst) begin
-							W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= '{ default: 'x };
-						end
-						else begin
-							if(Active) begin
-								if(en) begin
-									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : mvu_w[pe][simd];
-								end
-							end
-							else if(En) begin
-								W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= simd / DSP_SIMD == 1 ? 'x : W[1][pe][simd % DSP_SIMD];
-							end
-						end
-					end
-				end : genPERegW
-			end : genSIMDRegW
-
-			for(genvar  simd = 0; simd < EFFECTIVE_SIMD; simd++) begin : genSIMDRegA
-				for(genvar  pe = 0; pe < ACT_PE; pe++) begin : genPERegA
-					always_ff @(posedge clk2x) begin
-						if(rst) begin
-							A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= '{ default: 'x };
-						end
-						else begin
-							if(Active) begin
-								if(en) begin
-									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= (simd==EFFECTIVE_SIMD-1 && SIMD_UNEVEN) ? '0 : amvau_i[pe][simd];
-								end
-							end
-							else if(En) begin
-							  A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= simd / DSP_SIMD == 1 ? 'x : A[1][pe][simd % DSP_SIMD];
-							end
-						end
-					end
-				end : genPERegA
-			end : genSIMDRegA
-
-			assign	dsp_en = En;
-
-			assign	dsp_last = Last[0];
+			assign	dsp_en = en;
+			assign	dsp_last = Last;
 			assign	dsp_zero = Zero;
-			assign	dsp_w = W[0];
-			assign	dsp_a = A[0];
+			assign	dsp_w = W;
+			assign	dsp_a = A;
 
 			// Since no two consecutive last cycles will ever be asserted on the input,
 			// valid outputs will also always be spaced by, at least, one other cycle.
@@ -321,11 +296,9 @@ module mvu_vvu_axi #(
 					Vld <= 0;
 					P   <= 'x;
 				end
-				else begin
-					if (dsp_en) begin
-						if(dsp_vld)  P <= dsp_p;
-						Vld <= dsp_vld || (Vld && Active);
-					end
+				else if(en) begin
+					if(dsp_vld)  P <= dsp_p;
+					Vld <= dsp_vld || (Vld && !Active);
 				end
 			end
 			assign	ovld = Vld;
@@ -373,34 +346,38 @@ module mvu_vvu_axi #(
 //-------------------- Output register slice --------------------\\
 	// Make `en`computation independent from external inputs.
 	// Drive all outputs from registers.
-	typedef struct packed {
+	struct packed {
+		logic rdy;
+		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
+	}  A = '{ rdy: 1, default: 'x };	// side-step register used when encountering backpressure
+	struct packed {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	} buf_t;
-	buf_t  A = '{ vld: 0, default: 'x };	// side-step register used when encountering backpressure
-	buf_t  B = '{ vld: 0, default: 'x };	// ultimate output register
+	}  B = '{ vld: 0, default: 'x };	// ultimate output register
 
-	assign	en = !A.vld || !ovld;
+	assign	en = A.rdy;
 	uwire  b_load = !B.vld || m_axis_output_tready;
 
 	always_ff @(posedge clk) begin
 		if(rst) begin
-			A <= '{ vld: 0, default: 'x };
+			A <= '{ rdy: 1, default: 'x };
 			B <= '{ vld: 0, default: 'x };
 		end
 		else begin
-			if(!A.vld)  A.dat <= odat;
-			A.vld <= (ovld || A.vld) && !b_load;
+			if(A.rdy)  A.dat <= odat;
+			A.rdy <= (A.rdy && !ovld) || b_load;
 
 			if(b_load) begin
 				B <= '{
-					vld: A.vld || ovld,
-					dat: A.vld? A.dat : odat
+					vld: ovld || !A.rdy,
+					dat: A.rdy? odat : A.dat
 				};
 			end
 		end
 	end
 	assign	m_axis_output_tvalid = B.vld;
+	// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
+	// These extra bits should never be used. Why not 'x them out?
 	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
 
 endmodule : mvu_vvu_axi
