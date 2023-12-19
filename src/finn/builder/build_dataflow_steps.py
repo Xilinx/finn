@@ -705,9 +705,16 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         # TODO copy all ip sources into output dir? as zip?
         copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
+
+    return model
+
+def step_verify_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Verify stitched IP. Depends on the DataflowOutputType.STITCHED_IP output product."""
+
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
+        assert (DataflowOutputType.STITCHED_IP in cfg.generate_outputs), "Need stitched IP to verify"
         # prepare ip-stitched rtlsim
-        verify_model = deepcopy(model)
+        verify_model = model
         verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
         # use critical path estimate to set rtlsim liveness threshold
         # (very conservative)
@@ -724,7 +731,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             verify_model.set_metadata_prop("rtlsim_trace", rtlsim_trace_path)
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
-    return model
+    return verify_model
 
 
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
