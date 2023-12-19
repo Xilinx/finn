@@ -234,7 +234,10 @@ module mvu_vvu_axi #(
 				always_ff @(posedge clk2x)  Active <= clk_lut[1];
 			end : blkActive
 `else
-			always_ff @(posedge clk2x)  Active <= clk;
+			always_ff @(posedge clk2x) begin
+				if(rst)  Active <= 0;
+				else     Active <= !Active;
+			end
 `endif
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
@@ -311,13 +314,24 @@ module mvu_vvu_axi #(
 
 		case(COMPUTE_CORE)
 		"mvu_vvu_8sx9_dsp58":
+  if(PUMPED_COMPUTE) begin
 			mvu_vvu_8sx9_dsp58 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(DSP_SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 			.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(clk2x), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
+  end
+  else begin
+			mvu_vvu_8sx9_dsp58 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(DSP_SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
+			.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+				.clk(clk), .rst, .en(dsp_en),
+				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+				.vld(dsp_vld), .p(dsp_p)
+			);
+  end
 		"mvu_4sx4u":
 			mvu_4sx4u #(.PE(PE), .SIMD(DSP_SIMD), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 				.clk(dsp_clk), .rst, .en(dsp_en),
