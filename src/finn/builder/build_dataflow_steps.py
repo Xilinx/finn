@@ -816,6 +816,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             fclk_mhz = 1 / (clk_ns * 0.001)
             runtime_s = (stablestate_cycles * clk_ns) * (10**-9)
             rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_bs / runtime_s
+            rtlsim_perf_dict["stable_interval[cycles]"] = stablestate_cycles / rtlsim_bs
 
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
