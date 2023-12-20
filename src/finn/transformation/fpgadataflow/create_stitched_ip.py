@@ -324,14 +324,6 @@ class CreateStitchedIP(Transformation):
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
-        if model.graph.node[0].op_type == "StreamingFIFO":
-            firstfifo = getCustomOp(model.graph.node[0])
-            if firstfifo.get_nodeattr("impl_style") == "vivado":
-                warnings.warn(
-                    """First FIFO has impl_style=vivado, which may cause
-                    simulation glitches (e.g. dropping the first input sample
-                    after reset)."""
-                )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
