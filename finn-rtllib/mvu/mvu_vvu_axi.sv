@@ -226,19 +226,10 @@ module mvu_vvu_axi #(
 
 			// Identify second fast cycle just before active slow clock edge
 			logic  Active = 0;
-`ifndef VERILATOR
-			if(1) begin : blkActive
-				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
-				always_ff @(posedge clk2x)  Active <= clk_lut[1];
-			end : blkActive
-`else
 			always_ff @(posedge clk2x) begin
 				if(rst)  Active <= 0;
 				else     Active <= !Active;
 			end
-`endif
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
 			//	- A zero cycle is duplicated across both fast cycles.
