@@ -1035,17 +1035,17 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         # 0.605 ns seems to be (on average) delay for all subsequent DSPs
         if self.get_nodeattr("pumpedCompute"):
             ref_clk = clk / 2
+            simd_factor = 6
         else:
             ref_clk = clk
-        ref_clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+            simd_factor = 3
         if ref_clk <= 0.741:
             warnings.warn("Infeasible clk target of {} ns has been set, consider lowering".format(ref_clk)
             + " the targeted clock frequency!")
             return 1
         critical_path_dsps = np.floor((ref_clk - 0.741) / 0.605 + 1)
-        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
-        dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len
-                                              else max_chain_len
+        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / simd_factor)
+        dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
         return dsp_chain_len
 
     def _resolve_impl_style(self, fpgapart):
