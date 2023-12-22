@@ -58,6 +58,10 @@ class SynthOutOfContext(Transformation):
         for file in all_verilog_srcs:
             if any([file.endswith(x) for x in verilog_extensions]):
                 copy2(file, build_dir)
+        with open(vivado_stitch_proj_dir + "/all_meminit_srcs.txt", "r") as f:
+            all_meminit_srcs = f.read().split()
+        for file in all_meminit_srcs:
+            copy2(vivado_stitch_proj_dir + "/meminit/" + file, build_dir)
         ret = out_of_context_synth(
             build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
         )
