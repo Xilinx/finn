@@ -72,7 +72,7 @@ class Interface(ABC):
         self.external = external
 
     @abstractmethod
-    def connect(self, design: "Design", other: "Interface") -> None:
+    def connect(self, design: "Design", other: "Interface", is_self_input: bool = True) -> None:
         pass
 
     def __getitem__(self, key) -> Width:
@@ -108,10 +108,11 @@ class AXIInterface(Interface):
         super().__init__(name=name, external=external)
         self.delimiter = delimiter
 
-    def connect(self, design: "Design", other: "AXIInterface") -> None:
+    def connect(self, design: "Design", other: "AXIInterface", is_self_input: bool = True) -> None:
         assert not other.connected
         assert not self.connected
         assert not self.external
+
         # NOTE: It is possible that two axi interfaces do not have the same number of signals if
         # they are AXI4Streams. Some have tkeep and tlast some do not.
         if len(self.sub_signals) != len(other.sub_signals):
@@ -185,6 +186,58 @@ class AXI4Stream(AXIInterface):
             # NOTE: TLAST is always one bit and TKEEP is WIDTH(in bits)/8
             self.sub_signals["tlast"] = 1
             self.sub_signals["tkeep"] = width_adjusted >> 3
+
+    def connect(self, design: "Design", other: "AXI4Stream", is_self_input: bool = True) -> None:
+        assert not other.connected
+        assert not self.connected
+        assert not self.external
+
+        if self["tdata"] != other["tdata"]:
+            input: AXI4Stream = self if is_self_input else other
+            output: AXI4Stream = other if is_self_input else self
+            # We need to istantiate a converter here
+
+            # NOTE: TLast is based on the input stream.
+            # We consider it ok to leave it unconnected if the input does not have TLast.
+            input_to_output_converter = CoyoteBuild.create_converter(
+                "%s_to_%s" % (input.name, output.name),
+                input.tlast,
+                input["tdata"],
+                output["tdata"],
+            )
+
+            instantiation_name = "%s_inst" % input_to_output_converter.module_name
+            design.instantiations[instantiation_name] = Instantiation(
+                instantiation_name=instantiation_name,
+                ip=input_to_output_converter,
+            )
+
+            design.ips.add(design.instantiations[instantiation_name].ip)
+
+            assert isinstance(design.instantiations[instantiation_name]["s_axis"], AXI4Stream)
+            assert isinstance(design.instantiations[instantiation_name]["m_axis"], AXI4Stream)
+
+            s_axis_signal: AXIInterface = design.instantiations[instantiation_name]["s_axis"]  # type: ignore
+            m_axis_signal: AXIInterface = design.instantiations[instantiation_name]["m_axis"]  # type: ignore
+
+            if input.external:
+                AXIInterface.connect(s_axis_signal, design, input)
+            else:
+                AXIInterface.connect(input, design, s_axis_signal)
+
+            design.instantiations[instantiation_name]["aclk"].connect(
+                design, design.external_interface["aclk"]
+            )
+
+            design.instantiations[instantiation_name]["aresetn"].connect(
+                design, design.external_interface["aresetn"]
+            )
+
+            AXIInterface.connect(m_axis_signal, design, output)
+
+            return
+
+        AXIInterface.connect(self, design, other)
 
     def __str__(self):
         return "Interface type: AXI4Stream\n%s" % super().__str__()
@@ -946,9 +999,9 @@ class CoyoteBuild(Transformation):
                     config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % prev_base
 
                 if len(axilites_with_width) == 1:
-                    axilites_connections[
-                        "M%0.2d_AXI_%d" % (i, indices_count.get(i, 0))
-                    ] = signal_name
+                    axilites_connections["M%0.2d_AXI_%d" % (i, indices_count.get(i, 0))] = (
+                        signal_name
+                    )
                     indices_count[i] = indices_count.get(i, 0) + 1
                 else:
                     chain_interconnect_idx = i
@@ -1132,13 +1185,20 @@ class CoyoteBuild(Transformation):
                 s_axi_control_counter = s_axi_control_counter + 1
 
     def apply(self, model):
+        print("Wrapper file is: %s" % model.get_metadata_prop("wrapper_filename"))
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
-        model = model.transform(
-            CreateStitchedIPForCoyote(
-                fpga_part=self.fpga_part,
-                period_ns=self.period_ns,
-                signature=self.signature,
-            )
+        # model = model.transform(
+        #    CreateStitchedIPForCoyote(
+        #        fpga_part=self.fpga_part,
+        #        period_ns=self.period_ns,
+        #        signature=self.signature,
+        #    )
+        # )
+
+        # model.save("/pub/scratch/adegendt/automation/coyote_finn/cybersecurity/coyote_ip.onnx")
+
+        model = ModelWrapper(
+            "/pub/scratch/adegendt/automation/coyote_finn/cybersecurity/coyote_ip.onnx"
         )
 
         is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
@@ -1211,20 +1271,6 @@ class CoyoteBuild(Transformation):
             ip_repo_path=model.get_metadata_prop("vivado_stitch_proj") + "/ip",  # type: ignore
         )
 
-        axis_dwidth_convert_host_to_finn = CoyoteBuild.create_converter(
-            "host_to_finn",
-            not is_accl_mode,
-            512,
-            finn_kernel_ip[intf_names["s_axis"][0][0]]["tdata"],
-        )
-
-        axis_dwidth_convert_finn_to_host = CoyoteBuild.create_converter(
-            "finn_to_host",
-            not is_accl_mode,
-            finn_kernel_ip[intf_names["m_axis"][0][0]]["tdata"],
-            512,
-        )
-
         coyote_interface = ExternalInterface(
             interfaces=[
                 AXI4Lite(
@@ -1257,30 +1303,12 @@ class CoyoteBuild(Transformation):
         instantiations["finn_kernel_inst"] = Instantiation(
             instantiation_name="finn_kernel_inst", ip=finn_kernel_ip
         )
-        instantiations["axis_dwidth_convert_host_to_finn_inst"] = Instantiation(
-            instantiation_name="axis_dwidth_convert_host_to_finn_inst",
-            ip=axis_dwidth_convert_host_to_finn,
-        )
-
-        instantiations["axis_dwidth_convert_finn_to_host_inst"] = Instantiation(
-            instantiation_name="axis_dwidth_convert_finn_to_host_inst",
-            ip=axis_dwidth_convert_finn_to_host,
-        )
 
         instantiations["axi_crossbar_0_inst"] = Instantiation(
             instantiation_name="axi_crossbar_0_inst", ip=interconnect_bd
         )
 
         design = Design(instantiations, coyote_interface)
-
-        instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
-            design, instantiations["axis_dwidth_convert_finn_to_host_inst"]["s_axis"]
-        )
-
-        instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
-            design,
-            instantiations["axis_dwidth_convert_host_to_finn_inst"]["m_axis"],
-        )
 
         instantiations["finn_kernel_inst"][intf_names["clk"][0]].connect(
             design, coyote_interface["aclk"]
@@ -1290,28 +1318,12 @@ class CoyoteBuild(Transformation):
             design, coyote_interface["aresetn"]
         )
 
-        instantiations["axis_dwidth_convert_finn_to_host_inst"]["aclk"].connect(
-            design, coyote_interface["aclk"]
-        )
-
-        instantiations["axis_dwidth_convert_finn_to_host_inst"]["aresetn"].connect(
-            design, coyote_interface["aresetn"]
-        )
-
-        instantiations["axis_dwidth_convert_finn_to_host_inst"]["m_axis"].connect(
+        instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
             design, coyote_interface["axis_host_0_src"]
         )
 
-        instantiations["axis_dwidth_convert_host_to_finn_inst"]["aclk"].connect(
-            design, coyote_interface["aclk"]
-        )
-
-        instantiations["axis_dwidth_convert_host_to_finn_inst"]["aresetn"].connect(
-            design, coyote_interface["aresetn"]
-        )
-
-        instantiations["axis_dwidth_convert_host_to_finn_inst"]["s_axis"].connect(
-            design, coyote_interface["axis_host_0_sink"]
+        instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+            design, coyote_interface["axis_host_0_sink"], False
         )
 
         instantiations["axi_crossbar_0_inst"]["S00_AXI_0"].connect(
