@@ -54,7 +54,8 @@ export_path = "test_brevitas_deconv.onnx"
 def test_brevitas_QTransposeConv(ifm_ch, ofm_ch, mh, mw, padding, stride, kw, bias):
     kh = kw
     oh = stride * (mh - 1) - (2 * padding) + kh
-    assert oh % mh == 0, "Needs to be evenly divisible."
+    if oh % mh != 0:
+        pytest.skip("Skip test because oh needs to be divisible by mh")
     ishape = (1, ifm_ch, mh, mw)  # NCHW
     inp = torch.randn(ishape)
     b_deconv = qnn.QuantConvTranspose2d(
