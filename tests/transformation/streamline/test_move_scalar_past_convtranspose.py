@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -97,6 +97,7 @@ def test_move_scalar_past_conv(idim, stride, ifm_ch, ofm_ch, k, padding):
     np.random.seed(0)
     model.set_initializer("p1", *np.random.rand(1).astype(np.float32))
     model.set_initializer("p2", np.random.rand(*conv_param_shape).astype(np.float32))
+
     new_model = model.transform(MoveScalarMulPastConvTranspose())
     inp_dict = {"top_in": np.random.rand(*input_shape).astype(np.float32)}
 
