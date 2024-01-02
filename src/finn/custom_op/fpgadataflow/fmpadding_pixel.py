@@ -158,40 +158,23 @@ class FMPadding_Pixel(HLSCustomOp):
     def defines(self, var):
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
-        is_square_img = odim_h == odim_w
-        is_square_stride = stride_h == stride_w
-        if is_square_img and is_square_stride:
-            self.code_gen_dict["$DEFINES$"] = [
-                """
-                #define OutputDim {}\n
-                #define Stride {}\n
-                #define NumChannels {}\n
-                #define SIMD {}\n
-                """.format(
-                    odim_h,
-                    stride_h,
-                    self.get_nodeattr("NumChannels"),
-                    self.get_nodeattr("SIMD"),
-                )
-            ]
-        else:
-            self.code_gen_dict["$DEFINES$"] = [
-                """
-                #define OutputDim_x {}\n
-                #define OutputDim_y {}\n
-                #define Stride_x {}\n
-                #define Stride_y {}\n
-                #define NumChannels {}\n
-                #define SIMD {}\n
-                """.format(
-                    odim_w,
-                    odim_h,
-                    stride_w,
-                    stride_h,
-                    self.get_nodeattr("NumChannels"),
-                    self.get_nodeattr("SIMD"),
-                )
-            ]
+        self.code_gen_dict["$DEFINES$"] = [
+            """
+            #define OutputDim_x {}\n
+            #define OutputDim_y {}\n
+            #define Stride_x {}\n
+            #define Stride_y {}\n
+            #define NumChannels {}\n
+            #define SIMD {}\n
+            """.format(
+                odim_w,
+                odim_h,
+                stride_w,
+                stride_h,
+                self.get_nodeattr("NumChannels"),
+                self.get_nodeattr("SIMD"),
+            )
+        ]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -224,24 +207,13 @@ class FMPadding_Pixel(HLSCustomOp):
         in_t = self.get_input_datatype().get_hls_datatype_str()
         odim_h, odim_w = self.get_padded_odim()
         stride_h, stride_w = self.get_nodeattr("Stride")
-        is_square_img = odim_h == odim_w
-        is_square_stride = stride_h == stride_w
-
-        if is_square_img and is_square_stride:
-            hls_call = "FMPadding_Pixel"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<OutputDim, Stride, NumChannels, SIMD, {}> (in0, out);""".format(
-                    hls_call, in_t
-                )
-            ]
-        else:
-            hls_call = "FMPadding_Pixel_Nonsquare"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
-                SIMD, {}> (in0, out);""".format(
-                    hls_call, in_t
-                )
-            ]
+        hls_call = "FMPadding_Pixel_Nonsquare"
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
+            SIMD, {}> (in0, out);""".format(
+                hls_call, in_t
+            )
+        ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

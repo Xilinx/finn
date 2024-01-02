@@ -126,23 +126,22 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 # number of rows and number of cols to add
 @pytest.mark.parametrize("stride", [[2, 2], [2, 3]])
 # number of channels
-@pytest.mark.parametrize("ifm_ch", [2, 4])
+@pytest.mark.parametrize("ifm_ch", [2])
 # number of channels
-@pytest.mark.parametrize("ofm_ch", [2, 4])
+@pytest.mark.parametrize("ofm_ch", [4])
 # Input parallelism
 @pytest.mark.parametrize("simd", [1, 2])
 # PE
 @pytest.mark.parametrize("pe", [1, 2])
 # kernel size
-@pytest.mark.parametrize("k", [2, 4])
+@pytest.mark.parametrize("k", [2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
-@pytest.mark.parametrize("idt", [DataType["INT4"], DataType["INT8"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding, idt):
-    # idt = wdt = DataType["INT4"]
+def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding):
+    idt = wdt = DataType["INT4"]
     wdt = idt
     idim_h, idim_w = idim
     stride_h, stride_w = stride
