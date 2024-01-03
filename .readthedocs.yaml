@@ -1,4 +1,5 @@
-# Copyright (c) 2021, Xilinx
+# Copyright (c) 2021-2022, Xilinx
+# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,6 +31,12 @@
 # See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
 
 version: 2
+
+# Set the version of Python and other tools you might need
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.8"
 
 sphinx:
    configuration: docs/finn/conf.py
