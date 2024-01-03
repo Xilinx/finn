@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
@@ -43,10 +43,6 @@ from finn.transformation.fpgadataflow.convert_to_hls_layers import (
     InferConvInpGen,
     InferQuantizedMatrixVectorActivation,
 )
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
     InferPixelPaddingDeconv,
@@ -137,10 +133,12 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 @pytest.mark.parametrize("k", [2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+# exec mode
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding):
+def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding, exec_mode):
     idt = wdt = DataType["INT4"]
     wdt = idt
     idim_h, idim_w = idim
@@ -151,15 +149,16 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     else:
         convinpgen_rtl = True
 
+    if exec_mode == "cppsim" and convinpgen_rtl:
+        pytest.skip("ConvolutionInputGenerator_rtl has no cppsim, skipping cppsim")
+
     ref_model = set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding)
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
     odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
 
     input_tensor = gen_finn_dt_tensor(idt, [1, ifm_ch, idim_h, idim_w])
-    input_tensor_tr = input_tensor.transpose(0, 2, 3, 1)
     input_dict = {"inp": input_tensor}
-    input_dict_tr = {"global_in": input_tensor_tr}
 
     model = ref_model.transform(InferPixelPaddingDeconv())
     model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
@@ -179,9 +178,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
     # cppsim
-    if convinpgen_rtl:
-        print("ConvolutionInputGenerator_rtl has no cppsim, skipping cppsim")
-    else:
+    if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
@@ -190,22 +187,11 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
         assert (y_produced == y_expected).all()
 
     # rtlsim
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model.save("before_partition.onnx")
-    parent_model = model.transform(CreateDataflowPartition())
-    sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
-    assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
-    sdp_node = sdp_nodes[0]
-    sdp_node = getCustomOp(sdp_node)
-    dataflow_model_filename = sdp_node.get_nodeattr("model")
-    model = ModelWrapper(dataflow_model_filename)
-    model.save("after_partition.onnx")
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns, vitis=False))
-    model = model.transform(PrepareRTLSim())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(SetExecMode("rtlsim"))
-    model.save("stitched_ip.onnx")
-    y_produced = oxe.execute_onnx(model, input_dict_tr)["global_out"].transpose(0, 3, 1, 2)
-    assert y_produced.shape == expected_oshape
-    assert (y_produced == y_expected).all()
+    else:
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+        model = model.transform(SetExecMode("rtlsim"))
+        y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+        assert y_produced.shape == expected_oshape
+        assert (y_produced == y_expected).all()
