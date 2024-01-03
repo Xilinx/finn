@@ -70,7 +70,8 @@ class FMPadding_Pixel(HLSCustomOp):
         odim_h, odim_w = self.get_padded_odim()
         channels = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
-        exp_cycles = (channels / simd) * odim_h * odim_w
+        batch_size = self.get_nodeattr("numInputVectors")
+        exp_cycles = (channels / simd) * batch_size * odim_h * odim_w
         return int(exp_cycles)
 
     def get_normal_input_shape(self, ind=0):
