@@ -7,8 +7,14 @@ from qonnx.util.basic import get_by_name
 
 
 class InferPixelPaddingDeconv(Transformation):
-    def __init__(self):
-        super().__init__()
+    """
+    Lowering and conversion of ConvTranspose (NCHW) nodes to
+    FMPadding_Pixel + Im2Col + MatMul (NHWC) surrounded by Transpose nodes
+    note: this transformation produces a mix of hw layers and non hw layers
+    to implement this on an FPGA the Im2Col and MatMul nodes need to be converted to hw layers
+    after applying this transformation and the resulting transpose nodes need to be streamlined.
+    See deconv test case under tests/fpgadataflow for an example.
+    """
 
     def apply(self, model):
         graph = model.graph
@@ -17,6 +23,14 @@ class InferPixelPaddingDeconv(Transformation):
         for n in graph.node:
             node_ind += 1
             if n.op_type == "ConvTranspose":
+                # conversion currently only supported for group=1
+                group = get_by_name(n.attribute, "group").i
+                if group != 1:
+                    warnings.warn(
+                        "%s : Only group=1 is currently supported. Can't infer PixelPaddingDeconv."
+                        % n.name
+                    )
+                    continue
                 deconv_input = n.input[0]
                 deconv_output = n.output[0]
                 idt = model.get_tensor_datatype(deconv_input)
@@ -25,13 +39,6 @@ class InferPixelPaddingDeconv(Transformation):
                 k_w = get_by_name(n.attribute, "kernel_shape").ints[1]
                 stride_h = get_by_name(n.attribute, "strides").ints[0]
                 stride_w = get_by_name(n.attribute, "strides").ints[1]
-                group = get_by_name(n.attribute, "group").i
-                if group != 1:
-                    warnings.warn(
-                        "%s : Only group=1 is currently supported. Can't infer PixelPaddingDeconv."
-                        % n.name
-                    )
-                    continue
                 weight_name = n.input[1]
                 W_conv = model.get_initializer(weight_name)
                 ifm_ch = model.get_tensor_shape(n.input[0])[1]  # assume NCHW

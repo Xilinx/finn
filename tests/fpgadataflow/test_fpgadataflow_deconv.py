@@ -28,6 +28,7 @@
 
 import pytest
 
+import numpy as np
 import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -38,6 +39,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import (
     InferConvInpGen,
@@ -177,14 +179,12 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
 
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
+
     # cppsim
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
-        y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-        assert y_produced.shape == expected_oshape
-        assert (y_produced == y_expected).all()
 
     # rtlsim
     else:
@@ -192,6 +192,16 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
         model = model.transform(SetExecMode("rtlsim"))
-        y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-        assert y_produced.shape == expected_oshape
-        assert (y_produced == y_expected).all()
+
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert y_produced.shape == expected_oshape
+    assert (y_produced == y_expected).all()
+
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("FMPadding_Pixel")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert exp_cycles != 0
