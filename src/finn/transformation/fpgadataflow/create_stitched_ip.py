@@ -328,11 +328,23 @@ class CreateStitchedIP(Transformation):
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
-            meminit_files.extend(node_inst.get_all_meminit_filenames(abspath=True))
+            node_meminit_files = node_inst.get_all_meminit_filenames(abspath=True)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
+            source_target = "./ip/verilog/rtl_ops/%s" % node.name
+            # currently, the node.code_generation_ipi() produces the commands to
+            # copy the RTL files into the stitched IP directory
+            # TODO once we have an API for getting a list of RTL files for the node,
+            # do that here instead
             self.create_cmds += node_inst.code_generation_ipi()
+            # copy memory initialization files into stitched IP
+            for meminit_file in node_meminit_files:
+                self.create_cmds += [
+                    "add_files -copy_to %s -norecurse %s" % (source_target, meminit_file)
+                ]
+                meminit_files.append(source_target +"/"+ str(Path(meminit_file).name))
+
             self.connect_clk_rst(node)
             self.connect_ap_none_external(node)
             self.connect_axi(node)
@@ -411,15 +423,9 @@ class CreateStitchedIP(Transformation):
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
 
-        # create subdir and copy meminit files
-        meminit_subdir = vivado_stitch_proj_dir + "/meminit"
-        os.makedirs(meminit_subdir, exist_ok=True)
-        meminit_basenames = []
-        for meminit_file in meminit_files:
-            copy(meminit_file, meminit_subdir)
-            meminit_basenames.append(str(Path(meminit_file).name))
+        # dump a list of meminit files (used by verilator sim only)
         with open(vivado_stitch_proj_dir + "/all_meminit_srcs.txt", "w") as f:
-            f.write("\n".join(meminit_basenames))
+            f.write("\n".join(meminit_files))
 
         # start building the tcl script
         tcl = []
@@ -546,9 +552,8 @@ class CreateStitchedIP(Transformation):
             "set_property model_name %s_wrapper [ipx::get_file_groups "
             "xilinx_verilogsynthesis -of_objects [ipx::current_core]]" % block_name
         )
-        # copy Verilog & meminit sources
+        # copy Verilog sources
         tcl.append("file copy ./finn_vivado_stitch_proj.gen/sources_1/bd/finn_design ./ip/verilog")
-        tcl.append("file copy ./meminit ./ip")
         # build a list of all Verilog source files and generate all_verilog_srcs.txt
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && "
@@ -560,18 +565,14 @@ class CreateStitchedIP(Transformation):
 
         # open list of all dat files provided by FINN compiler
         # add to both synth and sim filesets
-        tcl.append(
-            """set fp [open all_meminit_srcs.txt r]
-set fset_sim [ipx::get_file_groups xilinx_verilogbehavioralsimulation]
-set fset_synth [ipx::get_file_groups xilinx_verilogsynthesis]
-while {[gets $fp line]>=0} {
-    set current_file [ipx::add_file meminit/$line $fset_sim]
-    set_property type "mif" $current_file
-    set current_file [ipx::add_file meminit/$line $fset_synth]
-    set_property type "mif" $current_file
-}
-close $fp"""
-        )
+        tcl.append("set fset_sim [ipx::get_file_groups xilinx_verilogbehavioralsimulation]")
+        tcl.append("set fset_synth [ipx::get_file_groups xilinx_verilogsynthesis]")
+        for meminit_file in meminit_files:
+            meminit_inside_ip = meminit_file.replace("./ip/verilog/rtl_ops", "./verilog/rtl_ops")
+            tcl.append("""set current_file [ipx::add_file %s $fset_sim]
+set_property type "mif" $current_file
+set current_file [ipx::add_file %s $fset_synth]
+set_property type "mif" $current_file""" % (meminit_inside_ip, meminit_inside_ip))
 
         # walk list of all Verilog files
         # replace path prefix, then add to both synth and sim filesets
