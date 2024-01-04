@@ -81,11 +81,10 @@ module memstream_axi_wrapper #(
 	output	[((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	localparam  INIT_FILTERED =
-`ifdef SYNTHESIS
-		RAM_STYLE == "ultra"? "" :
-`endif
-		INIT_FILE;
+	// Used to be set to "" when targeting pre-Versal
+	// URAMs to avoid synth errors, temporarily disabled
+	// TODO add appropriate define check here for Versal
+	localparam  INIT_FILTERED = INIT_FILE;
 
 	memstream_axi #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
