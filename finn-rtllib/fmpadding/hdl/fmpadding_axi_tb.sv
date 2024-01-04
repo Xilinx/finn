@@ -4,9 +4,10 @@ module fmpadding_axi_tb #(
 	int unsigned  YCOUNTER_BITS = 8,
 	int unsigned  NUM_CHANNELS  = 4,
 	int unsigned  SIMD          = 2,
+	int unsigned  MMV           = 1,
 	int unsigned  ELEM_BITS     = 4
 )();
-	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8);
+	localparam int unsigned  STREAM_BITS = 8*(1 + (MMV*SIMD*ELEM_BITS-1)/8);
 
 	//- Global Control ------------------
 	logic  clk = 0;
@@ -38,7 +39,7 @@ module fmpadding_axi_tb #(
 		.XCOUNTER_BITS(XCOUNTER_BITS),
 		.YCOUNTER_BITS(YCOUNTER_BITS),
 		.NUM_CHANNELS(NUM_CHANNELS),
-		.SIMD(SIMD),
+		.SIMD(SIMD), .MMV(MMV),
 		.INIT_XON(0), .INIT_XOFF(0), .INIT_XEND(0),
 		.INIT_YON(0), .INIT_YOFF(0), .INIT_YEND(0),
 		.ELEM_BITS(ELEM_BITS)

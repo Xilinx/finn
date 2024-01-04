@@ -65,6 +65,7 @@ class MatrixVectorActivation(HLSCustomOp):
         my_attrs = {
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
+            "M": ("i", False, 1),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
             "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
@@ -125,6 +126,23 @@ class MatrixVectorActivation(HLSCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_numInputVectors_mmv(self):
+        # support spatial parallelism by adjusting numInputVectors internally
+        # apply the M ('MMV') factor to the last dimension that is > 1
+        # for 2D conv: applies to W dimension [N,H,W] -> [N,H,W/M]
+        # for 1D conv: applies to either W or H dimension
+        # for FC: applies to N (batch) dimension (theoretic use case)
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        m = self.get_nodeattr("M")
+        for dim in reversed(range(len(vecs))):
+            if vecs[dim] > 1:
+                assert (
+                    vecs[dim] % m == 0
+                ), "Requirement spatial dim divisible by M is violated."
+                vecs[dim] = vecs[dim] // m
+                break
+        return vecs
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -389,12 +407,10 @@ class MatrixVectorActivation(HLSCustomOp):
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_inp_vec = self.get_numInputVectors_mmv()
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
-        # since mmv != 1 is not supported yet, we set mmv for now to 1
-        mmv = 1
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec)
         return int(exp_cycles)
 
     def get_input_datatype(self, ind=0):
@@ -422,12 +438,14 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
+        in_width = i_bits * self.get_nodeattr("SIMD") * m
         return in_width
 
     def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
-        out_width = o_bits * self.get_nodeattr("PE")
+        m = self.get_nodeattr("M")
+        out_width = o_bits * self.get_nodeattr("PE") * m
         return out_width
 
     def get_weightstream_width(self):
@@ -466,13 +484,14 @@ class MatrixVectorActivation(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
+        m = self.get_nodeattr("M")
         sf = mw // simd
         nf = mh // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
+        vecs = self.get_numInputVectors_mmv()
 
         if ind == 0:
             # calculate shape of input 0
-            folded_input_shape = tuple(vecs + [sf, simd])
+            folded_input_shape = tuple(vecs + [sf, simd * m])
         elif ind == 1 and self.get_nodeattr("mem_mode") == "external":
             # calculate shape of input 1 (weights)
             folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
@@ -484,9 +503,10 @@ class MatrixVectorActivation(HLSCustomOp):
     def get_folded_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
+        m = self.get_nodeattr("M")
         nf = mh // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_output_shape = tuple(vecs + [nf, pe])
+        vecs = self.get_numInputVectors_mmv()
+        folded_output_shape = tuple(vecs + [nf, pe * m])
         return folded_output_shape
 
     def get_normal_input_shape(self, ind=0):
@@ -509,6 +529,7 @@ class MatrixVectorActivation(HLSCustomOp):
         """Returns the template parameter values according to input, output and weight
         data types."""
         ret = dict()
+        m = self.get_nodeattr("M")
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
@@ -523,24 +544,36 @@ class MatrixVectorActivation(HLSCustomOp):
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
+        if inp_is_bipolar and m > 1:
+            raise Exception("M>1 not supported for bipolar inputs")
         # fill in TSrcI and TWeightI
         # TODO check these with Giulio
         # TODO handle non-bipolar binary inputs
+        # TODO support MMV for bipolar inputs
         if inp_is_bipolar and wt_is_bipolar:
             ret["TSrcI"] = "Recast<XnorMul>"
             ret["TWeightI"] = "Identity"
         elif (not inp_is_bipolar) and wt_is_bipolar:
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
+            if m > 1:
+                ret["TSrcI"] = "Slice_mmv<%s,%d>" % (inp_hls_str, m)
+            else:
+                ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Recast<Binary>"
         elif inp_is_bipolar and (not wt_is_bipolar):
             ret["TSrcI"] = "Recast<Binary>"
             ret["TWeightI"] = "Identity"
         elif (not inp_is_bipolar) and (not wt_is_bipolar):
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
+            if m > 1:
+                ret["TSrcI"] = "Slice_mmv<%s,%d>" % (inp_hls_str, m)
+            else:
+                ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Identity"
 
         # fill in TDstI
-        ret["TDstI"] = "Slice<%s>" % out_hls_str
+        if m > 1:
+            ret["TDstI"] = "Slice_mmv<%s,%d>" % (out_hls_str, m)
+        else:
+            ret["TDstI"] = "Slice<%s>" % out_hls_str
 
         return ret
 
@@ -1036,12 +1069,13 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             assert condition, msg
         mem_mode = self.get_nodeattr("mem_mode")
-        numInputVectors = list(self.get_nodeattr("numInputVectors"))
+        numInputVectors = self.get_numInputVectors_mmv()
+        m = self.get_nodeattr("M")
         numReps = np.prod(numInputVectors)
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n
             #define SIMD1 {}\n #define PE1 {}\n #define WMEM1 {}\n
-            #define TMEM1 {}\n #define numReps {}""".format(
+            #define TMEM1 {}\n #define numReps {}\n #define M {}""".format(
                 self.get_nodeattr("MW"),
                 self.get_nodeattr("MH"),
                 self.get_nodeattr("SIMD"),
@@ -1049,6 +1083,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 self.calc_wmem(),
                 self.calc_tmem(),
                 numReps,
+                m,
             )
         ]
         if mem_mode == "decoupled" or mem_mode == "external":
@@ -1126,6 +1161,7 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        m = self.get_nodeattr("M")
         map_to_hls_mult_style = {
             "auto": "ap_resource_dflt()",
             "lut": "ap_resource_lut()",
@@ -1138,19 +1174,61 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             threshs = "threshs"
         if mem_mode == "const":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_{}, out_{}, weights, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    self.hls_sname(),
-                    self.hls_sname(),
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
+            if m > 1:
+                multichan_width_in = self.get_instream_width() // m
+                multichan_width_out = self.get_outstream_width() // m
+
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """
+                    #pragma HLS dataflow
+                    hls::stream<MultiChanData<{ch}, {width_in}>> in_mmv("in_mmv");
+                    hls::stream<MultiChanData<{ch}, {width_out}>> out_mmv("out_mmv");
+                    PackMultiChanData<{ch}, {width_in}>(in0_{sname}, in_mmv, numReps);
+                    """.format(
+                        ch=m,
+                        width_in=multichan_width_in,
+                        width_out=multichan_width_out,
+                        sname=self.hls_sname(),
+                    )
+                ]
+
+                self.code_gen_dict["$DOCOMPUTE$"] += [
+                    """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, M, {}, {}, {}>
+                (in_mmv, out_mmv, weights, {}, numReps, {});""".format(
+                        tmpl_args["TSrcI"],
+                        tmpl_args["TDstI"],
+                        tmpl_args["TWeightI"],
+                        threshs,
+                        map_to_hls_mult_style[self.get_nodeattr("resType")],
+                    )
+                ]
+
+                self.code_gen_dict["$DOCOMPUTE$"] += [
+                    """
+                    FlattenMultiChanData<{ch}, {width_out}>(out_mmv, out_{sname}, numReps);
+                    """.format(
+                        ch=m,
+                        width_out=multichan_width_out,
+                        sname=self.hls_sname(),
+                    )
+                ]
+
+            else:
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
+                    (in0_{}, out_{}, weights, {}, numReps, {});""".format(
+                        tmpl_args["TSrcI"],
+                        tmpl_args["TDstI"],
+                        tmpl_args["TWeightI"],
+                        self.hls_sname(),
+                        self.hls_sname(),
+                        threshs,
+                        map_to_hls_mult_style[self.get_nodeattr("resType")],
+                    )
+                ]
         elif mem_mode == "decoupled" or mem_mode == "external":
+            if m > 1:
+                raise Exception("M>1 not supported in decoupled or external mem mode")
             wdt = self.get_weight_datatype()
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]

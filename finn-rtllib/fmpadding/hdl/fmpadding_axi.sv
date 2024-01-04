@@ -37,6 +37,7 @@ module fmpadding_axi #(
 	int unsigned  YCOUNTER_BITS,
 	int unsigned  NUM_CHANNELS,
 	int unsigned  SIMD,
+	int unsigned  MMV,
 	int unsigned  ELEM_BITS,
 	int unsigned  INIT_XON,
 	int unsigned  INIT_XOFF,
@@ -45,7 +46,7 @@ module fmpadding_axi #(
 	int unsigned  INIT_YOFF,
 	int unsigned  INIT_YEND,
 
-	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8)
+	localparam int unsigned  STREAM_BITS = 8*(1 + (MMV*SIMD*ELEM_BITS-1)/8)
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -107,7 +108,7 @@ module fmpadding_axi #(
 	// Actual Padding
 	fmpadding #(
 		.XCOUNTER_BITS(XCOUNTER_BITS), .YCOUNTER_BITS(YCOUNTER_BITS),
-		.NUM_CHANNELS(NUM_CHANNELS), .SIMD(SIMD),
+		.NUM_CHANNELS(NUM_CHANNELS), .SIMD(SIMD), .MMV(MMV),
 		.INIT_XON(INIT_XON), .INIT_XOFF(INIT_XOFF), .INIT_XEND(INIT_XEND),
 		.INIT_YON(INIT_YON), .INIT_YOFF(INIT_YOFF), .INIT_YEND(INIT_YEND),
 		.ELEM_BITS(ELEM_BITS)

@@ -37,6 +37,7 @@ module fmpadding #(
 	int unsigned  YCOUNTER_BITS,
 	int unsigned  NUM_CHANNELS,
 	int unsigned  SIMD,
+	int unsigned  MMV,
 	int unsigned  ELEM_BITS,
 	int unsigned  INIT_XON,
 	int unsigned  INIT_XOFF,
@@ -45,7 +46,8 @@ module fmpadding #(
 	int unsigned  INIT_YOFF,
 	int unsigned  INIT_YEND,
 
-	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8)
+	localparam int unsigned  STREAM_BITS = 8*(1 + (MMV*SIMD*ELEM_BITS-1)/8),
+	localparam int unsigned  BUFFER_OFFSET = INIT_XON % MMV
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -168,13 +170,18 @@ module fmpadding #(
 	//- X-Counter: image width ----------
 	xcount_t  XCount = 0;
 
-	assign	yen = xen && (XCount == XEnd);
+	assign	yen = xen && (XCount >= XEnd); // XCount can reach beyond XEnd when MMV > 1 (implicit end-of-line padding)
 	uwire  xclr = rst || yen;
 	always_ff @(posedge clk) begin
 		if(xclr)      XCount <= 0;
-		else if(xen)  XCount <= XCount + 1;
+		else if(xen)  XCount <= XCount + MMV;
 	end
-	uwire  xfwd = (XOn <= XCount) && (XCount < XOff);
+	uwire [MMV-1:0] xfwd;
+	generate
+		for (genvar m = 0; m < MMV; m = m + 1) begin
+			assign xfwd[m] = (XOn <= XCount + m) && (XCount + m < XOff);
+		end
+	endgenerate
 
 	//- Y-Counter: image height ---------
 	ycount_t  YCount = 0;
@@ -195,28 +202,84 @@ module fmpadding #(
 	buf_t  A = '{ vld: 0, dat: 'x };
 	buf_t  B = '{ vld: 0, dat: 'x };
 
-	uwire  fwd = xfwd && yfwd;
-	assign	sen = (m_axis_tready || !B.vld) && (s_axis_tvalid || A.vld || !fwd);
+	//generate
+		//if (BUFFER_OFFSET > 0) begin
+			//maybe use unpacked arrays of buf_t when mmv > 1
+			logic [SIMD*ELEM_BITS-1:0] C [BUFFER_OFFSET-1:0];
+		//end
+	//endgenerate
+
+	// in the final transaction(s) of each line, read from A or s_axis might not be needed,
+	// since all remaining data is already stored in C
+	uwire x_buf_complete = (XCount + BUFFER_OFFSET) >= XOff;
+
+	// TODO: verify correct operation if STREAM_BITS is padded to multiple of 8
+
+	uwire [MMV-1:0] fwd = xfwd & {MMV{yfwd}};
+	assign	sen = (m_axis_tready || !B.vld) && (s_axis_tvalid || A.vld || !fwd || x_buf_complete);
 	assign	s_axis_tready = !A.vld;
 	assign	m_axis_tvalid =  B.vld;
 	assign	m_axis_tdata  =  B.dat;
 
 	always_ff @(posedge clk) begin
 		if(rst) begin
-			B <= '{ vld: 0, dat: 'x };
+			B.vld <= 0;
 		end
 		else if(m_axis_tready || !B.vld) begin
-			B.vld <= s_axis_tvalid || A.vld || !fwd;
-			B.dat <= !fwd? '0 : A.vld? A.dat : s_axis_tdata;
+			B.vld <= s_axis_tvalid || A.vld || !fwd || x_buf_complete;
 		end
 	end
+
+	generate
+		for (genvar m = 0; m < MMV; m = m + 1) begin
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					B.dat[m*SIMD*ELEM_BITS +: SIMD*ELEM_BITS] <= 'x;
+				end
+				else if(m_axis_tready || !B.vld) begin
+					if (!fwd[m])
+						// zero padding -> B
+						B.dat[m*SIMD*ELEM_BITS +: SIMD*ELEM_BITS] <= '0;
+					else if (m < BUFFER_OFFSET)
+						// data from C (intermediate buffer) -> B
+						B.dat[m*SIMD*ELEM_BITS +: SIMD*ELEM_BITS] <= C[m];
+					else if (A.vld)
+						// data from A (input buffer) -> B
+						B.dat[m*SIMD*ELEM_BITS +: SIMD*ELEM_BITS] <= A.dat[(m-BUFFER_OFFSET)*SIMD*ELEM_BITS +: SIMD*ELEM_BITS];
+					else
+						// data from input (directly) -> B
+						B.dat[m*SIMD*ELEM_BITS +: SIMD*ELEM_BITS] <= s_axis_tdata[(m-BUFFER_OFFSET)*SIMD*ELEM_BITS +: SIMD*ELEM_BITS];
+				end
+			end
+		end
+	endgenerate
+
+	generate
+		for (genvar b = 0; b < BUFFER_OFFSET; b = b + 1) begin
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					C[BUFFER_OFFSET-1-b] <= 'x;
+				end
+				else if(m_axis_tready || !B.vld) begin
+					if (A.vld)
+						// data from A (input buffer) -> C (intermediate buffer)
+						C[BUFFER_OFFSET-1-b] <= A.dat[(MMV-1-b)*SIMD*ELEM_BITS +: SIMD*ELEM_BITS];
+					else if (s_axis_tvalid)
+						// data from input (directly) -> C (intermediate buffer)
+						C[BUFFER_OFFSET-1-b] <= s_axis_tdata[(MMV-1-b)*SIMD*ELEM_BITS +: SIMD*ELEM_BITS];
+					else
+						C[BUFFER_OFFSET-1-b] <= C[BUFFER_OFFSET-1-b];
+				end
+			end
+		end
+	endgenerate
 
 	always_ff @(posedge clk) begin
 		if(rst) begin
 			A <= '{ vld: 0, dat: 'x };
 		end
 		else begin
-			A.vld <= (A.vld || s_axis_tvalid) && ((B.vld && !m_axis_tready) || !fwd);
+			A.vld <= (A.vld || s_axis_tvalid) && ((B.vld && !m_axis_tready) || !fwd || x_buf_complete);
 			if(!A.vld)  A.dat <= s_axis_tdata;
 		end
 	end

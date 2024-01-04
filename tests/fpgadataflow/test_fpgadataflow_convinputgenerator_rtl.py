@@ -138,7 +138,7 @@ def prepare_inputs(input_tensor):
 # kernel size
 @pytest.mark.parametrize("k", [[3, 3], [1, 5]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[13, 13], [1, 21]])
+@pytest.mark.parametrize("ifm_dim", [[22, 22], [24, 24], [1, 24]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [6])
 # Stride
@@ -152,7 +152,7 @@ def prepare_inputs(input_tensor):
 # parallel_window enable (MMV_out = M*K)
 @pytest.mark.parametrize("parallel_window", [0, 1])
 # in/out MMV ("M")
-@pytest.mark.parametrize("m", [1])
+@pytest.mark.parametrize("m", [1, 2, 4])
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False])
 @pytest.mark.slow
@@ -202,6 +202,13 @@ def test_fpgadataflow_slidingwindow_rtl(
     ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
     ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
     ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+    if m > 1 and not parallel_window:
+        pytest.skip("Multi-sample parallelism (M>1) requires parallel window mode")
+    if ofm_dim_w % m != 0: 
+        pytest.skip("Unsupported: output FM width not divisible by m")
+    if ofm_dim_w // m <= 2:
+        pytest.skip("Unssupported: output FM width too narrow for selected m")
 
     x = gen_finn_dt_tensor(idt, (1, ifm_dim_h, ifm_dim_w, ifm_ch))
     model = make_single_slidingwindow_modelwrapper(
