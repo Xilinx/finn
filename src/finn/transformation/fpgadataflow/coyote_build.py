@@ -36,8 +36,11 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.base import CustomOp
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
+from shutil import copy
 from typing import Dict, List, Optional, Tuple, Union
 from typing_extensions import TypeAlias
 
@@ -512,7 +515,8 @@ class CreateHLSBridge(Transformation):
         self.fpga_part = fpga_part
 
     def apply(self, model):
-        hls_bridge_folder: Path = Path(make_build_dir())
+        hls_bridge_folder: Path = Path(make_build_dir("hls_bridge_"))
+        model.set_metadata_prop("hls_bridge_dir", hls_bridge_folder.__str__())
         finn_cwd = os.getcwd()
         os.chdir(hls_bridge_folder)
 
@@ -979,7 +983,7 @@ class CoyoteBuild(Transformation):
     @staticmethod
     def create_interconnects(
         axilites_outer: List[Tuple[str, Interface.Signal]], global_base_addr: int, limit: int
-    ) -> Tuple[List[IP], Dict[str, Dict[str, str]], List[str], List[str]]:
+    ) -> Tuple[List[IP], Dict[str, Dict[str, str]], List[str], List[str], List[str]]:
         """This function creates one or more interconnects to connect the Coyote AXI4Lite interface
         to the potentially multiple accelerator AX4List interfaces. In case the accelerator
         requires more than 16 AXI4Lite interfaces, multiple interconnects, chained together, are
@@ -1043,7 +1047,7 @@ class CoyoteBuild(Transformation):
                 # interconnect
                 remaining_axilites = axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1][0]
                 # NOTE: Once everything is collapsed, we cut after the 15th element
-                axilites_list_list = axilites_list_list[:MAX_AMOUNT_OF_AXILITES]
+                axilites_list_list = axilites_list_list[: MAX_AMOUNT_OF_AXILITES - 1]
 
             axilites_list_list = sorted(axilites_list_list, key=lambda tup: tup[1], reverse=True)
             # NOTE: After the cut, if one was needed, axilites_list_list should not contain more
@@ -1057,7 +1061,7 @@ class CoyoteBuild(Transformation):
             indices_count: Dict[int, int],
             base_addr: int,
             limit: int,
-        ) -> Tuple[Dict[str, Dict[str, str]], int, Dict[str, str]]:
+        ) -> Tuple[Dict[str, Dict[str, str]], int, Dict[str, str], List[str]]:
             config: Dict[str, str] = {}
             config["ADDR_WIDTH"] = "32"
             config["DATA_WIDTH"] = "32"
@@ -1068,6 +1072,7 @@ class CoyoteBuild(Transformation):
 
             chain_interconnect_idx = 0
             axilites_connections: Dict[str, Dict[str, str]] = {}
+            address_map: List[str] = []
             for i, (axilites_with_width, total_width) in enumerate(axilites_list_list):
                 assert total_width <= 32
 
@@ -1090,24 +1095,25 @@ class CoyoteBuild(Transformation):
                         "M%0.2d_AXI_%d" % (i, indices_count.get(i, 0))
                     ] = signal_name
                     indices_count[i] = indices_count.get(i, 0) + 1
+                    address_map.append(
+                        "%s\t: %s" % (signal_name, config["M%0.2d_A00_BASE_ADDR" % i])
+                    )
                 else:
                     chain_interconnect_idx = i
                 prev_width = addr_width
 
-                # NOTE: Max we can go before we start modifying bits above
-                # the split done by Coyote (0x12_0000)
                 assert (
                     prev_base + (1 << prev_width) - 1
                 ) <= limit, "The axi lites interfaces cover too big of a range."
 
-            return (axilites_connections, chain_interconnect_idx, config)
+            return (axilites_connections, chain_interconnect_idx, config, address_map)
 
         def create_interconnects_inner(
             axilites_inner: List[Tuple[str, Interface.Signal]],
             current_idx: int,
             indices_count: Dict[int, int],
             base_addr: int,
-        ) -> Tuple[List[IP], Dict[str, Dict[str, str]], List[str]]:
+        ) -> Tuple[List[IP], Dict[str, Dict[str, str]], List[str], List[str]]:
             """This function is responsible for actually creating the interconnects. It should be
             called recurisevly with a smaller list of axilites signals everytime.
 
@@ -1143,6 +1149,7 @@ class CoyoteBuild(Transformation):
                 axilites_connections,
                 chain_interconnect_idx,
                 config,
+                address_map_outer,
             ) = configure_and_connect(axilites_list_list, indices_count, base_addr, limit)
 
             if remaining_axilites is not None:
@@ -1151,14 +1158,21 @@ class CoyoteBuild(Transformation):
                     intra_ips,
                     intra_axilites_connections,
                     intra_intra_connections_tcl,
+                    address_map_inner,
                 ) = create_interconnects_inner(
                     remaining_axilites,
                     current_idx=current_idx + 1,
                     indices_count=indices_count,
                     base_addr=int(config["M%0.2d_A00_BASE_ADDR" % chain_interconnect_idx], 16),
                 )
+
+                address_map_outer.extend(address_map_inner)
                 ips.extend(intra_ips)
-                axilites_connections.update(intra_axilites_connections)
+                for component, connections in intra_axilites_connections.items():
+                    if axilites_connections.get(component) is not None:
+                        axilites_connections[component].update(connections)
+                    else:
+                        axilites_connections[component] = connections
                 intra_connections_tcl.extend(intra_intra_connections_tcl)
                 ip_name = "axi_crossbar_%d" % current_idx
                 intra_connections_tcl.append(
@@ -1207,16 +1221,13 @@ class CoyoteBuild(Transformation):
                     run_needed=True,
                 )
             ]
-            return (
-                ips,
-                axilites_connections,
-                intra_connections_tcl,
-            )
+            return (ips, axilites_connections, intra_connections_tcl, address_map_outer)
 
         (
             interconnects,
             interconnects_axilites_connections,
             intra_connections,
+            address_map,
         ) = create_interconnects_inner(axilites_outer, 0, {}, global_base_addr)
 
         extra_external_commands: List[str] = []
@@ -1251,6 +1262,7 @@ class CoyoteBuild(Transformation):
             interconnects_axilites_connections,
             intra_connections,
             extra_external_commands,
+            address_map,
         )
 
     @staticmethod
@@ -1270,10 +1282,45 @@ class CoyoteBuild(Transformation):
                 intf_names_axilite[i] = "s_axi_control_%d" % s_axi_control_counter
                 s_axi_control_counter = s_axi_control_counter + 1
 
-    def apply(self, model):
+    def get_hls_address_map(self, model: ModelWrapper):
+        tlast_node = model.get_nodes_by_op_type("TLastMarker")
+        assert len(tlast_node) == 1
+        tlast_op: CustomOp = getCustomOp(tlast_node[0])
+        header_file_path = (
+            Path(tlast_op.get_nodeattr("ip_path"))
+            / "drivers"
+            / "TLastMarker_0_v1_0"
+            / "src"
+            / "xtlastmarker_0_hw.h"
+        )
+        copy(header_file_path, model.get_metadata_prop("address_map"))
+
+        bridge_header_file_path = (
+            Path(model.get_metadata_prop("hls_bridge_dir"))
+            / "hls_bridge"
+            / "hls_bridge_sol"
+            / "impl"
+            / "ip"
+            / "drivers"
+            / "write_intf_bridge_v1_0"
+            / "src"
+            / "xwrite_intf_bridge_hw.h"
+        )
+        copy(bridge_header_file_path, model.get_metadata_prop("address_map"))
+
+    def write_address_map_to_file(self, model: ModelWrapper, address_map: List[str]) -> None:
+        address_map.append("")
+        with open(
+            model.get_metadata_prop("address_map") + "/address_map.txt", "w"
+        ) as address_map_file:
+            address_map_file.write("\n".join(address_map))
+
+    def apply(self, model: ModelWrapper):
+        model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
+        model.set_metadata_prop("address_map", make_build_dir("address_map_"))
+
         model = model.transform(CreateHLSBridge(self.fpga_part))
 
-        model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
         model = model.transform(
             CreateStitchedIPForCoyote(
                 fpga_part=self.fpga_part,
@@ -1415,6 +1462,7 @@ class CoyoteBuild(Transformation):
             interconnects_connections,
             intra_connections,
             extra_external_commands,
+            address_map,
         ) = CoyoteBuild.create_interconnects(
             [
                 ("finn_kernel_inst", axilite_with_addr_width)
@@ -1423,6 +1471,9 @@ class CoyoteBuild(Transformation):
             global_base_addr=0x0,
             limit=(1 << 32) - 1,
         )
+
+        self.get_hls_address_map(model=model)
+        self.write_address_map_to_file(model=model, address_map=address_map)
 
         interconnect_bd = BD(
             bd_name="design_crossbar",

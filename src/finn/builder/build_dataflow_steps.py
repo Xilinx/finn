@@ -809,6 +809,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
 
             copy_tree(model.get_metadata_prop("bitfile"), bitfile_dir)
+            copy_tree(model.get_metadata_prop("address_map"), cfg.output_dir + "/address_map")
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
