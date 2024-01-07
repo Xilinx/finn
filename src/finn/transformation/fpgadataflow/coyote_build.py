@@ -1008,6 +1008,7 @@ class CoyoteBuild(Transformation):
         ) -> Tuple[
             List[Tuple[List[Tuple[str, Interface.Signal]], int]],
             Optional[List[Tuple[str, Interface.Signal]]],
+            Optional[int],
         ]:
             # NOTE: This represents the axilites connections as a list of list because everything
             # after and including the 15th elements of axilites_inner is collapsed into the 15th
@@ -1047,21 +1048,35 @@ class CoyoteBuild(Transformation):
                 # interconnect
                 remaining_axilites = axilites_list_list[MAX_AMOUNT_OF_AXILITES - 1][0]
                 # NOTE: Once everything is collapsed, we cut after the 15th element
-                axilites_list_list = axilites_list_list[: MAX_AMOUNT_OF_AXILITES - 1]
+                axilites_list_list = axilites_list_list[:MAX_AMOUNT_OF_AXILITES]
 
-            axilites_list_list = sorted(axilites_list_list, key=lambda tup: tup[1], reverse=True)
+            axilites_list_list_with_indices = [
+                (i, elem) for i, elem in enumerate(axilites_list_list)
+            ]
+            axilites_list_list_with_indices = sorted(
+                axilites_list_list_with_indices, key=lambda tup: tup[1][1], reverse=True
+            )
+
+            chain_interconnect_idx = None
+            if remaining_axilites:
+                for i, (k, elem) in enumerate(axilites_list_list_with_indices):
+                    if k == MAX_AMOUNT_OF_AXILITES - 1:
+                        chain_interconnect_idx = i
+
+            axilites_list_list = [elem for (i, elem) in axilites_list_list_with_indices]
             # NOTE: After the cut, if one was needed, axilites_list_list should not contain more
             # than 16 elements
             assert len(axilites_list_list) <= MAX_AMOUNT_OF_AXILITES
 
-            return (axilites_list_list, remaining_axilites)
+            return (axilites_list_list, remaining_axilites, chain_interconnect_idx)
 
         def configure_and_connect(
             axilites_list_list: List[Tuple[List[Tuple[str, Interface.Signal]], int]],
             indices_count: Dict[int, int],
             base_addr: int,
             limit: int,
-        ) -> Tuple[Dict[str, Dict[str, str]], int, Dict[str, str], List[str]]:
+            chain_interconnect_idx: Optional[int],
+        ) -> Tuple[Dict[str, Dict[str, str]], Dict[str, str], List[str]]:
             config: Dict[str, str] = {}
             config["ADDR_WIDTH"] = "32"
             config["DATA_WIDTH"] = "32"
@@ -1070,7 +1085,6 @@ class CoyoteBuild(Transformation):
             prev_width = 0
             prev_base = base_addr
 
-            chain_interconnect_idx = 0
             axilites_connections: Dict[str, Dict[str, str]] = {}
             address_map: List[str] = []
             for i, (axilites_with_width, total_width) in enumerate(axilites_list_list):
@@ -1078,7 +1092,7 @@ class CoyoteBuild(Transformation):
 
                 (component_name, (signal_name, addr_width)) = (
                     axilites_with_width[0]
-                    if len(axilites_with_width) == 1
+                    if i != chain_interconnect_idx
                     else ("interconnect_component", ("interconnect_chain", total_width))
                 )
                 config["M%0.2d_A00_ADDR_WIDTH" % i] = str(addr_width)
@@ -1088,7 +1102,7 @@ class CoyoteBuild(Transformation):
                     prev_base = prev_base + (1 << prev_width)
                     config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % prev_base
 
-                if len(axilites_with_width) == 1:
+                if i != chain_interconnect_idx:
                     if component_name not in axilites_connections:
                         axilites_connections[component_name] = {}
                     axilites_connections[component_name][
@@ -1098,15 +1112,13 @@ class CoyoteBuild(Transformation):
                     address_map.append(
                         "%s\t: %s" % (signal_name, config["M%0.2d_A00_BASE_ADDR" % i])
                     )
-                else:
-                    chain_interconnect_idx = i
                 prev_width = addr_width
 
                 assert (
                     prev_base + (1 << prev_width) - 1
                 ) <= limit, "The axi lites interfaces cover too big of a range."
 
-            return (axilites_connections, chain_interconnect_idx, config, address_map)
+            return (axilites_connections, config, address_map)
 
         def create_interconnects_inner(
             axilites_inner: List[Tuple[str, Interface.Signal]],
@@ -1139,7 +1151,11 @@ class CoyoteBuild(Transformation):
 
             """
 
-            (axilites_list_list, remaining_axilites) = collapse_axilites_to_fit(axilites_inner)
+            (
+                axilites_list_list,
+                remaining_axilites,
+                chain_interconnect_idx,
+            ) = collapse_axilites_to_fit(axilites_inner)
             old_indices_count = indices_count.copy()
 
             ips: List[IP] = []
@@ -1147,13 +1163,14 @@ class CoyoteBuild(Transformation):
 
             (
                 axilites_connections,
-                chain_interconnect_idx,
                 config,
                 address_map_outer,
-            ) = configure_and_connect(axilites_list_list, indices_count, base_addr, limit)
+            ) = configure_and_connect(
+                axilites_list_list, indices_count, base_addr, limit, chain_interconnect_idx
+            )
 
             if remaining_axilites is not None:
-                assert remaining_axilites is not None
+                assert chain_interconnect_idx is not None
                 (
                     intra_ips,
                     intra_axilites_connections,
