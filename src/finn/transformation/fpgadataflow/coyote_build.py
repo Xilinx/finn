@@ -1473,35 +1473,37 @@ class CoyoteBuild(Transformation):
         instantiations["hls_bridge_inst"] = Instantiation(
             instantiation_name="hls_bridge_inst", ip=hls_bridge_ip
         )
-
-        (
-            interconnects,
-            interconnects_connections,
-            intra_connections,
-            extra_external_commands,
-            address_map,
-        ) = CoyoteBuild.create_interconnects(
-            [
-                ("finn_kernel_inst", axilite_with_addr_width)
-                for axilite_with_addr_width in axilites_with_addr_width
-            ],
-            global_base_addr=0x0,
-            limit=(1 << 32) - 1,
-        )
-
         self.get_hls_address_map(model=model)
-        self.write_address_map_to_file(model=model, address_map=address_map)
 
-        interconnect_bd = BD(
-            bd_name="design_crossbar",
-            ips=interconnects,
-            intra_connections=intra_connections,
-            extra_external_commands=extra_external_commands,
-        )
+        interconnects_connections = None
+        if len(axilites_with_addr_width) > 1:
+            (
+                interconnects,
+                interconnects_connections,
+                intra_connections,
+                extra_external_commands,
+                address_map,
+            ) = CoyoteBuild.create_interconnects(
+                [
+                    ("finn_kernel_inst", axilite_with_addr_width)
+                    for axilite_with_addr_width in axilites_with_addr_width
+                ],
+                global_base_addr=0x0,
+                limit=(1 << 32) - 1,
+            )
 
-        instantiations["axi_crossbar_0_inst"] = Instantiation(
-            instantiation_name="axi_crossbar_0_inst", ip=interconnect_bd
-        )
+            self.write_address_map_to_file(model=model, address_map=address_map)
+
+            interconnect_bd = BD(
+                bd_name="design_crossbar",
+                ips=interconnects,
+                intra_connections=intra_connections,
+                extra_external_commands=extra_external_commands,
+            )
+
+            instantiations["axi_crossbar_0_inst"] = Instantiation(
+                instantiation_name="axi_crossbar_0_inst", ip=interconnect_bd
+            )
 
         design = Design(instantiations, coyote_interface)
 
@@ -1529,25 +1531,30 @@ class CoyoteBuild(Transformation):
             design, coyote_interface["axi_ctrl"]
         )
 
-        instantiations["hls_bridge_inst"]["m_axi_gmem"].connect(
-            design, instantiations["axi_crossbar_0_inst"]["S00_AXI_0"]
-        )
+        if len(axilites_with_addr_width) > 1:
+            instantiations["hls_bridge_inst"]["m_axi_gmem"].connect(
+                design, instantiations["axi_crossbar_0_inst"]["S00_AXI_0"]
+            )
+            assert interconnects_connections
+            for component_name, connection_dict in interconnects_connections.items():
+                for interconnect_master, finn_signal in connection_dict.items():
+                    instantiations["axi_crossbar_0_inst"][interconnect_master].connect(
+                        design, instantiations[component_name][finn_signal]
+                    )
 
-        for component_name, connection_dict in interconnects_connections.items():
-            for interconnect_master, finn_signal in connection_dict.items():
-                instantiations["axi_crossbar_0_inst"][interconnect_master].connect(
-                    design, instantiations[component_name][finn_signal]
-                )
+            instantiations["axi_crossbar_0_inst"]["aclk_0"].connect(
+                design,
+                coyote_interface["aclk"],
+            )
 
-        instantiations["axi_crossbar_0_inst"]["aclk_0"].connect(
-            design,
-            coyote_interface["aclk"],
-        )
-
-        instantiations["axi_crossbar_0_inst"]["aresetn_0"].connect(
-            design,
-            coyote_interface["aresetn"],
-        )
+            instantiations["axi_crossbar_0_inst"]["aresetn_0"].connect(
+                design,
+                coyote_interface["aresetn"],
+            )
+        else:
+            instantiations["hls_bridge_inst"]["m_axi_gmem"].connect(
+                design, instantiations["finn_kernel_inst"][intf_names["axilite"][0]]
+            )
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
