@@ -28,6 +28,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # template for single node execution
+from typing import Dict, List
+
 docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
@@ -258,30 +260,3 @@ $LAYER_NAME$
 
 endmodule
 """
-
-hls_bridge = """
-void write_intf_bridge(unsigned value_finn, unsigned *ptr){
-#pragma HLS INTERFACE m_axi port=ptr offset=slave
-#pragma HLS INTERFACE s_axilite port=value_finn
-#pragma HLS INTERFACE s_axilite port=return
-    *ptr = value_finn;
-}
-"""
-
-hls_bridge_ip_name = "hls_bridge"
-hls_bridge_version = "1.0"
-hls_bridge_vendor = "xilinx_finn"
-hls_bridge_library = "finn"
-
-hls_bridge_script = """
-open_project hls_bridge
-open_solution "hls_bridge_sol" -flow_target vivado
-add_files bridge.c
-set_top write_intf_bridge
-set_part {$PART$}
-create_clock -period 10 -name default
-config_interface -m_axi_addr64=0
-csynth_design
-export_design -format ip_catalog -ipname "%s" -version "%s" -vendor "%s" -library "%s"
-exit 0
-""" % (hls_bridge_ip_name, hls_bridge_version, hls_bridge_vendor, hls_bridge_library)
