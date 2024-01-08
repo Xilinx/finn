@@ -191,7 +191,12 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
         if mem_mode not in ["decoupled", "external"]:
             info_messages.append(
-                "RTL-based MVAU supports only decoupled or external weights."
+                "RTL-based MVU only supports decoupled or external weights."
+            )
+
+        if self.get_nodeattr("resType") == "lut":
+            info_message.append(
+                "RTL-based MVU only supports DSP-based implementation"
             )
 
         return info_messages
@@ -635,7 +640,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
-        # TODO ensure codegen dir exists
         if mode == "cppsim":
             raise Exception(
                 "cppsim not possible for RTL MVAU, please set exec_mode to rtlsim"
@@ -801,7 +805,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 rtllib_dir + "mvu_4sx4u.sv",
                 rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
                 rtllib_dir + "mvu_8sx8u_dsp48.sv",
-                rtllib_dir + "mvu_vvu_lut.sv",
             ]
             for f in sourcefiles:
                 cmd.append("add_files -norecurse %s" % (f))
@@ -897,7 +900,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 rtllib_dir + "mvu_4sx4u.sv",
                 rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
                 rtllib_dir + "mvu_8sx8u_dsp48.sv",
-                rtllib_dir + "mvu_vvu_lut.sv",
             ]
             for f in sourcefiles:
                 cmd.append("add_files -norecurse %s" % (f))
@@ -964,8 +966,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
-        # 0.741 ns seems the worst-case delay through first DSP
-        # 0.605 ns seems to be (on average) delay for all subsequent DSPs
+        # ~0.741 ns seems the worst-case delay through first DSP
+        # ~0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
         assert (clk > 0.741), "Infeasible clk target of {} ns has been set, consider lowering the targeted clock frequency!".format(clk)
         critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
@@ -976,22 +978,23 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
         # supported RTL compute core
-        if self.get_nodeattr("resType") == "lut":
-            return "mvu_vvu_lut"
+        
+        assert self.get_nodeattr("resType") != "lut", "LUT-based RTL-MVU implementation currently not supported! Please change resType for {}".format(self.onnx_node.name)
+
+        act_width = self.get_input_datatype(0).bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+        is_versal = (
+            fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
+            or fpgapart[0:5] == "xqrvc"
+        )
+        
+        if is_versal:
+            return "mvu_vvu_8sx9_dsp58"
         else:
-            act_width = self.get_input_datatype(0).bitwidth()
-            weight_width = self.get_input_datatype(1).bitwidth()
-            is_versal = (
-                fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
-                or fpgapart[0:5] == "xqrvc"
-            )
             if act_width == 4 and weight_width == 4:
                 return "mvu_4sx4u"
             else:
-                if is_versal:
-                    return "mvu_vvu_8sx9_dsp58"
-                else:
-                    return "mvu_8sx8u_dsp48"
+                return "mvu_8sx8u_dsp48"
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
