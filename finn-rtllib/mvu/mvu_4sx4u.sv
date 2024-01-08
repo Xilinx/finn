@@ -309,7 +309,7 @@ module mvu_4sx4u #(
 			// Conclusive high part accumulation
 			if(i >= PE_REM && i < 3) begin : genHi
 				// Adder Tree across all SIMD high contributions, each from [-1:1]
-				uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
+				uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s][i];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
@@ -333,7 +333,7 @@ module mvu_4sx4u #(
 			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
-				uwire [ROOT_WIDTH-1:0]  tree[2*SIMD-1];
+				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][D[i]+:LO_WIDTH];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
