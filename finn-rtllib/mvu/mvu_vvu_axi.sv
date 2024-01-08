@@ -120,8 +120,8 @@ module mvu_vvu_axi #(
 			end
 		end
 		if (!IS_MVU) begin
-			if (COMPUTE_CORE != "mvu_vvu_8sx9_dsp58" && COMPUTE_CORE != "mvu_vvu_lut") begin
-				$error("VVU only supported on DSP58 or LUT-based implementation");
+			if (COMPUTE_CORE != "mvu_vvu_8sx9_dsp58") begin
+				$error("VVU only supported on DSP58");
 				$finish;
 			end
 		end
@@ -191,13 +191,6 @@ module mvu_vvu_axi #(
 	"mvu_8sx8u_dsp48":
 		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
-			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
-			.vld(ovld), .p(odat)
-		);
-	"mvu_vvu_lut":
-		mvu_vvu_lut #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH),
-		.WEIGHT_WIDTH(WEIGHT_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .M_REG(M_REG_LUT)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
