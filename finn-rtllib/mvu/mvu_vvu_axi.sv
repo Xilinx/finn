@@ -60,13 +60,14 @@ module mvu_vvu_axi #(
 	bit M_REG_LUT = 1,
 
 	// Safely deducible parameters
-	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	localparam int unsigned INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
-	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
-	localparam int unsigned INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
-	localparam int unsigned SF = MW/SIMD,
-	localparam int unsigned NF = IS_MVU ? MH/PE : 1,
-	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
+	localparam int unsigned  WEIGHT_STREAM_WIDTH	= PE * SIMD * WEIGHT_WIDTH,
+	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA	= (WEIGHT_STREAM_WIDTH + 7) / 8 * 8,
+	localparam int unsigned  INPUT_STREAM_WIDTH	= (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
+	localparam int unsigned  INPUT_STREAM_WIDTH_BA	= (INPUT_STREAM_WIDTH + 7) / 8 * 8,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH	= PE * ACCU_WIDTH,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA	= (OUTPUT_STREAM_WIDTH + 7) / 8 * 8,
+	localparam int unsigned  SF = MW / SIMD,
+	localparam int unsigned  NF = IS_MVU ? MH / PE : 1
 )
 (
 	// Global Control
