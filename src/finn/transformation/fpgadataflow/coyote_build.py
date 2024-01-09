@@ -37,8 +37,9 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.base import CustomOp
-from qonnx.custom_op.registry import getCustomOp
+
+# from qonnx.custom_op.base import CustomOp
+# from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 from shutil import copy
@@ -48,7 +49,8 @@ from typing_extensions import TypeAlias
 import finn.custom_op.fpgadataflow.templates_coyote as templates
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+
+# from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -721,7 +723,7 @@ class CreateStitchedIPForCoyote(Transformation):
         # NOTE: We want dynamic True so we leave default arguments
         # NOTE: We only want the TLastMarker node at the output since the Coyote interface already
         # provides tlast to the input width converter
-        model = model.transform(InsertTLastMarker())
+        # model = model.transform(InsertTLastMarker())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(self.fpga_part, self.period_ns))
         model = model.transform(HLSSynthIP())
@@ -1507,17 +1509,17 @@ class CoyoteBuild(Transformation):
         return weight_start_idx
 
     def get_hls_address_map(self, model: ModelWrapper):
-        tlast_node = model.get_nodes_by_op_type("TLastMarker")
-        assert len(tlast_node) == 1
-        tlast_op: CustomOp = getCustomOp(tlast_node[0])
-        header_file_path = (
-            Path(tlast_op.get_nodeattr("ip_path"))
-            / "drivers"
-            / "TLastMarker_0_v1_0"
-            / "src"
-            / "xtlastmarker_0_hw.h"
-        )
-        copy(header_file_path, model.get_metadata_prop("address_map"))
+        # tlast_node = model.get_nodes_by_op_type("TLastMarker")
+        # assert len(tlast_node) == 1
+        # tlast_op: CustomOp = getCustomOp(tlast_node[0])
+        # header_file_path = (
+        #     Path(tlast_op.get_nodeattr("ip_path"))
+        #     / "drivers"
+        #     / "TLastMarker_0_v1_0"
+        #     / "src"
+        #     / "xtlastmarker_0_hw.h"
+        # )
+        # copy(header_file_path, model.get_metadata_prop("address_map"))
 
         bridge_header_file_path = (
             Path(model.get_metadata_prop("hls_bridge_dir"))
@@ -1563,9 +1565,13 @@ class CoyoteBuild(Transformation):
         # Handle FINN interface
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
-        CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
+        print(f"Axilites before update:\n{intf_names['axilite']}")
 
+        CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
         weight_start_idx = CoyoteBuild.__update_intf_axilite_weight(intf_names["axilite"])
+        print(f"Weight idx is: {weight_start_idx}")
+
+        print(f"Axilites after update:\n{intf_names['axilite']}")
 
         if not is_accl_mode:
             assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
@@ -1659,16 +1665,19 @@ class CoyoteBuild(Transformation):
                     limit=(1 << 32) - 1,
                 )
 
+                print(f"Address map before update:\n{address_map_finn}")
                 assert weight_start_idx is not None
                 for i, address_map_element in enumerate(address_map_finn):
                     if "axilite" in address_map_finn:
                         match = re.search(r"s_axilite_(\d+)", address_map_element)
                         assert match
                         current_idx = int(match.group(1))
+                        new_idx = current_idx + weight_start_idx
                         address_map_finn[i] = address_map_finn[i].replace(
                             f"s_axilite_{current_idx}",
-                            f"s_axilite_{current_idx + weight_start_idx}",
+                            f"s_axilite_{new_idx}",
                         )
+                print(f"Address map after update:\n{address_map_finn}")
 
                 self.write_address_map_to_file(
                     model=model,
