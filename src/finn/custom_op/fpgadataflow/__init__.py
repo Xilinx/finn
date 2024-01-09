@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl import (
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
+from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
@@ -80,6 +81,7 @@ custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Bat
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Pool_Batch"] = Pool_Batch
+custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["IODMA"] = IODMA
