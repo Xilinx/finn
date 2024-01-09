@@ -320,9 +320,46 @@ class ScaledDotProductAttention(HLSCustomOp):
         # 1. Queries and keys multiplication followed by quantizing activation
         # function
         qk = act_qk_matmul(np.matmul(q, k.T))
+
+        # Load or create the attention mask for mutually exclusive mask modes
+
+        # There might be no attention mask
+        if self.get_nodeattr("mask_mode") == "none":
+            # No mask can be realized by adding zero, which does not change
+            # anything
+            mask = 0
+        # There might eb a causal attention mask
+        elif self.get_nodeattr("mask_mode") == "causal":
+            # A causal mask does not need to be stored and can be generated on
+            # the fly
+            mask = np.triu(-np.inf * np.ones_like(qk), 1)
+        # There might be a constant initializer attention mask
+        elif self.get_nodeattr("mask_mode") == "const":
+            # Load the mask initializer from the execution context
+            mask = context[
+                self.get_input_name_by_name("M")
+            ]
+            # The attention operator represents attention masks as binary masks,
+            # but the numpy simulation requires floats with 0 and -inf
+            mask = np.where(mask, -np.inf * np.ones_like(mask), 0)
+        # The attention mask might be streamed in as the third input
+        elif self.get_nodeattr("mask_mode") == "input":
+            # Load the mask input from the execution context
+            mask = context[
+                self.get_input_name_by_name("M")
+            ]
+            # The attention operator represents attention masks as binary masks,
+            # but the numpy simulation requires floats with 0 and -inf
+            mask = np.where(mask, -np.inf * np.ones_like(mask), 0)
+        # All other mask modes are not supported
+        else:
+            raise NotImplementedError(
+                f"Mask Mode {self.get_nodeattr('mask_mode')} is not implemented"
+            )
+
         # Softmax-normalization of the attention weights followed by quantizing
         # activation function
-        a = act_a_softmax(softmax(dequant * qk, axis=1))
+        a = act_a_softmax(softmax(dequant * qk + mask, axis=1))
         # 2. Attention weights and values matmul followed by quantization
         # activation function
         out = act_av_matmul(np.matmul(a, v))
@@ -588,9 +625,8 @@ class ScaledDotProductAttention(HLSCustomOp):
         o_bits_max = max((self.get_outstream_width(ind) for ind in range(1)))
         # Assume no bits to represent the mask, if there is no mask
         m_bits = 0
-        # A mask received as input or produced as causal on the fly has a
-        # bit-width as well
-        if self.get_nodeattr("mask_mode") in {"input", "causal"}:
+        # A mask received as input has a bit-width as well
+        if self.get_nodeattr("mask_mode") in {"input", "const"}:
             # Parallelism is the number of elements in the last dimension of the
             # folded mask input
             _, _, elems = self.get_folded_input_shape(ind=3)
@@ -865,6 +901,15 @@ class ScaledDotProductAttention(HLSCustomOp):
                 f">"
             ])
 
+        # For now, assume no attention mask as default
+        #   TODO: Add all attention mask modes
+        attention_mask = "attention::mask::NONE"
+
+        # If a causal mask is specified, set the appropriate tag dispatching
+        # instance
+        if self.get_nodeattr("mask_mode") == "causal":
+            attention_mask = "attention::mask::CAUSAL"
+
         # Open a file to store the thresholds parameters as C++ code
         with open(f"{code_gen_dir}/params.hpp", "w") as file:
             # Write lines of C++ code separated by newlines to the file
@@ -873,6 +918,8 @@ class ScaledDotProductAttention(HLSCustomOp):
                 # dequantize the input to floating-point representation
                 f"static const float dequant_softmax ="
                 f" {self.get_nodeattr('DequantSoftmax')};",
+                # Attention mask parameters if "none", "causal" or "const"
+                f"static constexpr auto attention_mask = {attention_mask};",
                 # Add type definition and threshold initialization of the
                 # query-key matmul activation
                 f"using ActQKMatMul = {act_qk_matmul};",
@@ -1070,7 +1117,9 @@ class ScaledDotProductAttention(HLSCustomOp):
             f"q_{self.hls_sname()}, "
             f"k_{self.hls_sname()}, "
             f"v_{self.hls_sname()}, "
-            f"out_{self.hls_sname()}"
+            f"out_{self.hls_sname()},"
+            # TODO: Does not work for "input" mode mask
+            "attention_mask"
             f");",
         ]
 
