@@ -101,7 +101,6 @@ class ScaledDotProductAttention(HLSCustomOp):
             # the Attention x Value multiplication
             "BiasActAVMatMul": ("f", False, 0.0),
 
-
             # Scale factor preceding the softmax normalization to dequantize the
             # input
             "DequantSoftmax": ("f", False, 1.0),
@@ -249,7 +248,8 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Executes the attention operator in python mode simulation
     def _execute_node_python(self, context, graph):  # noqa: graph unused
         # Multithreshold activations
-        from qonnx.custom_op.general.multithreshold import multithreshold # noqa
+        from qonnx.custom_op.general.multithreshold import \
+            multithreshold  # noqa
 
         # Get the node wrapped by this custom op
         node = self.onnx_node
@@ -731,8 +731,10 @@ class ScaledDotProductAttention(HLSCustomOp):
         # Specify for each input whether it is present or not
         inputs_present = [
             # Note: Primary inputs are always present, the mask is present in
-            # input mask mode
-            True, True, True, self.get_nodeattr("mask_mode") == "input",
+            # "input" or "const" mask mode
+            True, True, True, self.get_nodeattr("mask_mode") in {
+                "input", "const"
+            },
         ]
 
         # Thresholds are present if the activation function is set to
