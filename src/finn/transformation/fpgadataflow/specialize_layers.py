@@ -60,6 +60,8 @@ def _determine_impl_style(node):
     # if impl_style not set, for "simple" layers always try
     # to use rtl variant if available
     if impl_style == "":
+        if optype == "StreamingDataWidthConverter":
+            return _dwc_determine_impl_style(node)
         if rtl_variant:
             return "rtl"
         # but if no rtl variant, set impl_style to hls
@@ -94,6 +96,20 @@ def _determine_impl_style(node):
                 )
             )
     elif impl_style == "rtl":
+        # rtl dwc does not support every inWidth to outWidth ratio
+        if optype == "StreamingDataWidthConverter":
+            if _dwc_determine_impl_style(node) != "rtl":
+                warn_str = """RTL implementation of DWC requires
+                            stream widths that are integer width ratios
+                            from each other. Node %s will automatically be
+                            set to HLS variant.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+            else:
+                # user setting can be fulfilled
+                return "rtl"
         if rtl_variant:
             return "rtl"
         elif hls_variant:
@@ -117,6 +133,20 @@ def _determine_impl_style(node):
                 impl_style
             )
         )
+
+
+def _dwc_determine_impl_style(node):
+    # when possible use rtl variant
+    dwc = getCustomOp(node)
+    dwc_in_width = dwc.get_nodeattr("inWidth")
+    dwc_out_width = dwc.get_nodeattr("outWidth")
+    # check if rtl variant can be used
+    iwidth_d = dwc_in_width % dwc_out_width == 0
+    owidth_d = dwc_out_width % dwc_in_width == 0
+    if iwidth_d or owidth_d:
+        return "rtl"
+    else:
+        return "hls"
 
 
 class SpecializeLayers(Transformation):

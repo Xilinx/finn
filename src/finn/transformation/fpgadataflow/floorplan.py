@@ -81,7 +81,7 @@ class Floorplan(Transformation):
             if node_slr == -1:
                 unassigned_nodes += 1
                 node_inst.set_nodeattr("slr", default_slr)
-            if node.op_type == "StreamingDataWidthConverter_Batch":
+            if node.op_type.startswith("StreamingDataWidthConverter"):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue

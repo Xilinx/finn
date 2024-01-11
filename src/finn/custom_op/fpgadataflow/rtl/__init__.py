@@ -27,9 +27,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
+from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
+    StreamingDataWidthConverter_rtl,
+)
 
 custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl

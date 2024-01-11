@@ -1,5 +1,5 @@
 # Copyright (C) 2020-2022, Xilinx, Inc.
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -53,11 +53,8 @@ from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
-from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
-    StreamingDataWidthConverter_Batch,
-)
-from finn.custom_op.fpgadataflow.streamingdatawidthconverter_rtl import (
-    StreamingDataWidthConverter_rtl,
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
+    StreamingDataWidthConverter,
 )
 from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
@@ -77,8 +74,6 @@ custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["TLastMarker"] = TLastMarker
-custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
-custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Pool_Batch"] = Pool_Batch
 custom_op["FMPadding_Pixel"] = FMPadding_Pixel
@@ -96,6 +91,7 @@ custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup
+custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
