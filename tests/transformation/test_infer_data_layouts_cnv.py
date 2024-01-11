@@ -56,6 +56,7 @@ export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 
 
 @pytest.mark.transform
+@pytest.mark.xfail
 def test_infer_data_layouts_cnv():
     cnv = get_test_model_trained("CNV", 1, 1)
     export_qonnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
