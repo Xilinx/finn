@@ -62,12 +62,12 @@ module mvu_vvu_axi #(
 	// Safely deducible parameters
 	localparam int unsigned  WEIGHT_STREAM_WIDTH	= PE * SIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA	= (WEIGHT_STREAM_WIDTH + 7) / 8 * 8,
-	localparam int unsigned  INPUT_STREAM_WIDTH	= (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
+	localparam int unsigned  INPUT_STREAM_WIDTH	= SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA	= (INPUT_STREAM_WIDTH + 7) / 8 * 8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH	= PE * ACCU_WIDTH,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA	= (OUTPUT_STREAM_WIDTH + 7) / 8 * 8,
 	localparam int unsigned  SF = MW / SIMD,
-	localparam int unsigned  NF = IS_MVU ? MH / PE : 1
+	localparam int unsigned  NF = MH / PE
 )
 (
 	// Global Control
@@ -151,37 +151,28 @@ module mvu_vvu_axi #(
 	assign ardy = en && s_axis_weights_tvalid;
 	assign s_axis_weights_tready = en && avld;
 
-//-------------------- Core MVU/VVU --------------------\\
-	uwire ovld;
-	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
-	uwire mvauin_t amvau_i;
-	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
+	//- Instantiate compute core ----------------------------
+	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
+	uwire dsp_vld;
+	uwire dsp_p_t  dsp_p;
 
-	if (IS_MVU) begin : genMVUInput
-		assign  amvau_i = amvau;
-	end : genMVUInput
-	else begin : genVVUInput
-		// The input stream will have the channels interleaved for VVU when PE>1
-		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
-		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
-		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
-		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
-		localparam int num_of_elements = PE*SIMD;
-		for (genvar i=0; i<num_of_elements; i++) begin : genRewire
-			assign  amvau_i[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH] = (PE > 1) ?
-									amvau[(i/SIMD + (i*PE % num_of_elements) + 1) * ACTIVATION_WIDTH -1: (i/SIMD + (i*PE % num_of_elements)) * ACTIVATION_WIDTH]
-									: amvau[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH];
-		end : genRewire
-	end : genVVUInput
+	uwire dsp_clk = ap_clk;
+	uwire dsp_en = en;
+	uwire dsp_last = alast && avld;
+	uwire dsp_zero = !istb;
+	uwire mvu_w_t dsp_w = mvu_w;
+	uwire mvu_a_t dsp_a = mvu_a;
+	uwire ovld = dsp_vld;
+	uwire dsp_p_t  odat = dsp_p;
 
 	case(COMPUTE_CORE)
 	"mvu_vvu_8sx9_dsp58":
 		mvu_vvu_8sx9_dsp58 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
-			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(s_axis_weights_tdata), .a(amvau_i),
-			.vld(ovld), .p(odat)
+			.clk(dsp_clk), .rst, .en(dsp_en),
+			.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+			.vld(dsp_vld), .p(dsp_p)
 		);
 	"mvu_4sx4u":
 		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
