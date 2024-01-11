@@ -49,6 +49,7 @@ from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
+from finn.custom_op.fpgadataflow.matrixvectoractivation_rtl import MatrixVectorActivation_rtl
 from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
@@ -73,6 +74,7 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["DownSampler"] = DownSampler
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
+custom_op["MatrixVectorActivation_rtl"] = MatrixVectorActivation_rtl
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
