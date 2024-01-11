@@ -27,141 +27,148 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import os
 
 import numpy as np
+import os
+import pickle
 from onnx import TensorProto, helper
-from qonnx.util.basic import (
-    qonnx_make_model,
-    gen_finn_dt_tensor
-)
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.datatype import DataType
-from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import ApplyConfig, GiveUniqueNodeNames, GiveReadableTensorNames
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from qonnx.transformation.general import ApplyConfig
 import finn.transformation.fpgadataflow.specialize_to_rtl_layers as to_rtl
-#import qonnx.core.data_layout as DataLayout
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+
+
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
-def make_single_matmul_modelwrapper(W, ofm_shape, mh, ifm, weights, idt, wdt):
-    (ofm_h, ofm_w) = ofm_shape
-    ofm = helper.make_tensor_value_info(
-        "ofm",
-        TensorProto.FLOAT,
-        (1, ofm_h, ofm_w, mh)
-    )
 
-    matmul_node = helper.make_node(
-        "MatMul",
-        ["ifm", "weights"],
-        ["ofm"]
-    )
-    graph = helper.make_graph(
-        nodes=[matmul_node],
-        name="matmul_graph",
-        inputs=[ifm],
-        outputs=[ofm]
-    )
+def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
+    matmul_node = helper.make_node("MatMul", ["ifm", "weights"], ["ofm"])
+    graph = helper.make_graph(nodes=[matmul_node], name="matmul_graph", inputs=[ifm], outputs=[ofm])
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("ifm", idt)
     model.set_tensor_datatype("weights", wdt)
-    model.set_tensor_datatype("ofm", DataType["INT32"]) # At this step, the MatMul layer does not optimize the bit-width of the output datatype
+    model.set_tensor_datatype(
+        "ofm", DataType["INT32"]
+    )  # At this step, the MatMul layer does not optimize the bit-width of the output datatype
     model.set_initializer("weights", W)
-
     # model.set_tensor_layout("ifm", DataLayout.NHWC)
 
     return model
 
-def prepare_inputs(input_tensor):
-    return {"inp": input_tensor}
 
-@pytest.mark.parametrize("mh", [16])
-@pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("pe", [1, 4, 16])
-#@pytest.mark.parametrize("simd", [1, 30, 90])
-@pytest.mark.parametrize("simd", [1, 4, 32])
+def prepare_inputs(input_tensor):
+    return {"global_in": input_tensor}
+
+
+# @pytest.mark.parametrize("mh", [36])
+# @pytest.mark.parametrize("mw", [256])
+@pytest.mark.parametrize("mh", [9])
+@pytest.mark.parametrize("mw", [36])
+# @pytest.mark.parametrize("pe", [1, 4, 9, 36])
+# @pytest.mark.parametrize("simd", [1, 4, 16, 64, 256])
+@pytest.mark.parametrize("pe", [1, 3, 9])
+@pytest.mark.parametrize("simd", [1, 3, 6, 18, 36])
 @pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
-@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT6"]])
-#@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S", "xcku3p-ffva676-1-e"])
-@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
-@pytest.mark.parametrize("segmentlen", [1])
+@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
+# @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e"])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
+@pytest.mark.parametrize("clk_ns", [1.66, 4])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
+def test_fpgadataflow_mvau_rtl(
+    mh, mw, pe, simd, idt, wdt, part, clk_ns
+):
+    if part == "xcku3p-ffva676-1-e" and clk_ns != 1.66:
+        pytest.skip("Skip test for varying clk for devices other than Versal, since this variable doesn't change anything for this test")
+
     # Create test input vector (produced by SWG)
     ofm_shape = (5, 5)
     ofm_h, ofm_w = ofm_shape
-    ifm = helper.make_tensor_value_info(
-        "ifm",
-        TensorProto.FLOAT,
-        [1, ofm_h, ofm_w, mw]
-    )
-    weights = helper.make_tensor_value_info(
-        "weights",
-        TensorProto.FLOAT,
-        [mw, mh]
-    )
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
     W = gen_finn_dt_tensor(wdt, (mw, mh))
-    model = make_single_matmul_modelwrapper(W, ofm_shape, mh, ifm, weights, idt, wdt)
+    model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
 
-    model.save(build_dir+"/matmul.onnx")
+    model.save(build_dir + "/matmul.onnx")
 
     # Create MatMul & obtain golden reference output
-    A = gen_finn_dt_tensor(model.get_tensor_datatype("ifm"), model.get_tensor_shape("ifm"))
+    A = gen_finn_dt_tensor(model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in"))
     input_dict = prepare_inputs(A)
 
-    ## Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)
+    # Execute ONNX model
+    output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    with open(build_dir + "/onnx_output.pkl", "wb") as f:
+        pickle.dump(output_matmul, f)
 
     # Create MVAU (HLS)
     model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
     model = model.transform(GiveUniqueNodeNames())
-    
+
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
         "MatrixVectorActivation_0": {
-            "PE" : pe,
-            "SIMD" : simd,
-            "mem_mode" : "decoupled",
-            "ram_style" : "auto",
-            "resType" : "dsp",
-            "impl" : "rtl"
-        }
+            "PE": pe,
+            "SIMD": simd,
+            "mem_mode": "decoupled",
+            "ram_style": "auto",
+            "resType": "dsp",
+            "preferred_backend" : "rtl"
+        },
     }
     model = model.transform(ApplyConfig(folding_config))
-    model.save(build_dir+"/mvau_hls.onnx")
-
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, 5))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
+    model.save(build_dir + "/mvau_hls.onnx")
 
     # Apply convert-to-rtl step
     model = model.transform(to_rtl.InferRTLMatrixVectorActivation())
     model = model.transform(GiveUniqueNodeNames())
-    model.save(build_dir+"/mvau_rtl.onnx")
+    model.save(build_dir + "/mvau_rtl.onnx")
 
+    # Reset rtlsim_so and ip-related paths such that new Pyverilator SO and IP is generated
+    for n in model.graph.node:
+        getCustomOp(n).set_nodeattr("rtlsim_trace", build_dir + "/mvu_trace_rtl_nodebynode.vcd")
+    
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP("xcvm1802-vsvd1760-2MP-e-S", 5))
+    model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
 
-    model.save(build_dir+"/mvau_rtl_sim.onnx")
+    with open(build_dir + "/mvau_rtl_output.pkl", "wb") as f:
+        pickle.dump(output_mvau_rtl, f)
 
-    assert (output_mvau_hls == output_mvau_rtl).all()
-    assert (output_mvau_hls.size > 0)
+    model.save(build_dir + "/mvau_rtl_sim.onnx")
+    assert (output_matmul == output_mvau_rtl).all(), "Output of ONNX model not matching output of node-by-node sim!"
+
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+
+    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+    model.set_metadata_prop("rtlsim_so", "")
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "/mvu_trace_rtl_stitch.vcd")
+    model.save(build_dir + "/stitched_ip.onnx")
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    assert (output_matmul == output_mvau_rtl_stitch).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
