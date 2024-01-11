@@ -149,7 +149,7 @@ class UpsampleNearestNeighbour(HWCustomOp):
         return np.prod(folded_oshape[:-1])
 
     def execute_node(self, context, graph):
-        # create a standard add node to help calculate the result
+        # create a standard resize node to help calculate the result
         node = self.onnx_node
         inp_values = context[node.input[0]]
         ishape = inp_values.shape
