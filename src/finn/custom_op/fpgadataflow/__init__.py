@@ -86,7 +86,6 @@ custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
-custom_op["Lookup"] = Lookup
 custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 
@@ -96,6 +95,7 @@ custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
+custom_op["Lookup"] = Lookup
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour

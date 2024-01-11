@@ -1,5 +1,5 @@
 # Copyright (C) 2021-2022, Xilinx, Inc.
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -44,13 +44,14 @@ from torch import nn
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import InferLookupLayer
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferLookupLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 
 export_onnx_path = "test_lookup.onnx"
@@ -121,12 +122,17 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     ret = execute_onnx(model, {iname: itensor})
     exp_out = np.take(embeddings, itensor, axis=0)
     assert (exp_out == ret[oname]).all()
-    # call transformation to convert to HLS and verify conversion
+    # call transformation to convert to HW layer and verify conversion
     model = model.transform(InferLookupLayer())
     assert model.graph.node[0].op_type == "Lookup"
     assert model.graph.node[0].input[0] == iname
     assert model.graph.node[0].input[1] == ename
     assert model.graph.node[0].output[0] == oname
+    ret_hw = execute_onnx(model, {iname: itensor})
+    assert (exp_out == ret_hw[oname]).all()
+    # call transformation to convert abstraction layer into HLS layer
+    model = model.transform(SpecializeLayers())
+    assert model.graph.node[0].op_type == "Lookup_hls"
     if exec_mode == "cppsim":
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
@@ -166,14 +172,10 @@ def test_fpgadataflow_lookup_external():
     assert tuple(model.get_tensor_shape(ename)) == eshape
     assert tuple(model.get_tensor_shape(oname)) == exp_oshape
     assert (model.get_initializer(ename) == embeddings).all()
-    # itensor = gen_finn_dt_tensor(idt, ishape).astype(np.int64)
-    # itensor = np.clip(itensor, 0, num_embeddings - 1)
-    # ret = execute_onnx(model, {iname: itensor})
-    # exp_out = np.take(embeddings, itensor, axis=0)
-    # assert (exp_out == ret[oname]).all()
-    # call transformation to convert to HLS and verify conversion
     model = model.transform(InferLookupLayer())
     assert model.graph.node[0].op_type == "Lookup"
+    model = model.transform(SpecializeLayers())
+    assert model.graph.node[0].op_type == "Lookup_hls"
     assert model.graph.node[0].input[0] == iname
     assert model.graph.node[0].input[1] == ename
     assert model.graph.node[0].output[0] == oname
