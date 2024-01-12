@@ -37,9 +37,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
-
-# from qonnx.custom_op.base import CustomOp
-# from qonnx.custom_op.registry import getCustomOp
+from qonnx.custom_op.base import CustomOp
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 from shutil import copy
@@ -49,8 +48,7 @@ from typing_extensions import TypeAlias
 import finn.custom_op.fpgadataflow.templates_coyote as templates
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-
-# from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -712,18 +710,22 @@ class CreateStitchedIPForCoyote(Transformation):
     IP project.
     """
 
-    def __init__(self, fpga_part, period_ns, signature, is_accl_mode: bool):
+    def __init__(self, fpga_part, period_ns, signature, accl_mode: "CoyoteBuild.ACCLMode"):
         super().__init__()
         self.fpga_part = fpga_part
         self.period_ns = period_ns
         self.signature = signature
-        self.is_accl_mode = is_accl_mode
+        self.accl_mode = accl_mode
 
     def apply(self, model):
         # NOTE: We want dynamic True so we leave default arguments
         # NOTE: We only want the TLastMarker node at the output since the Coyote interface already
         # provides tlast to the input width converter
-        # model = model.transform(InsertTLastMarker())
+        if (
+            self.accl_mode == CoyoteBuild.ACCLMode.ACCL_TLAST
+            or self.accl_mode == CoyoteBuild.ACCLMode.NONE
+        ):
+            model = model.transform(InsertTLastMarker())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(self.fpga_part, self.period_ns))
         model = model.transform(HLSSynthIP())
@@ -750,10 +752,10 @@ class PrepareCoyoteProject(Transformation):
     coyote_hw_build_dir: Path
     m_frequency: int
 
-    def __init__(self, fpga_part: str, is_accl_mode: bool, period_ns: int):
+    def __init__(self, fpga_part: str, accl_mode: "CoyoteBuild.ACCLMode", period_ns: int):
         super().__init__()
         self.fpga_part = fpga_part
-        self.is_accl_mode = is_accl_mode
+        self.is_accl_mode = accl_mode != CoyoteBuild.ACCLMode.NONE
         self.coyote_proj_dir = Path(make_build_dir(prefix="coyote_proj_"))
         self.coyote_repo_dir = self.coyote_proj_dir / "Coyote"
         self.coyote_hw_dir = self.coyote_repo_dir / "hw"
@@ -1477,14 +1479,27 @@ class CoyoteBuild(Transformation):
             address_map,
         )
 
-    @staticmethod
-    def __is_accl_mode(model: ModelWrapper) -> bool:
-        # TODO: Maybe find something a bit cleaner
-        for node in model.graph.node:
-            if "ACCL" in node.name or "cclo" in node.name:
-                return True
+    class ACCLMode(Enum):
+        NONE = 0
+        ACCL_TLAST = 1
+        ACCL_NO_TLAST = 2
 
-        return False
+    @staticmethod
+    def __accl_mode(model: ModelWrapper) -> ACCLMode:
+        has_accl_out: bool = False
+        has_accl_in: bool = False
+        for node in model.graph.node:
+            if "ACCLOut" in node.name:
+                has_accl_out = True
+            if "ACCLIn" in node.name:
+                has_accl_in = True
+
+        if has_accl_out and has_accl_in or has_accl_out:
+            return CoyoteBuild.ACCLMode.ACCL_NO_TLAST
+        elif has_accl_in:
+            return CoyoteBuild.ACCLMode.ACCL_TLAST
+        else:
+            return CoyoteBuild.ACCLMode.NONE
 
     @staticmethod
     def __update_intf_axilite_control(intf_names_axilite: List[str]):
@@ -1508,18 +1523,20 @@ class CoyoteBuild(Transformation):
                 s_axi_weight_counter = s_axi_weight_counter + 1
         return weight_start_idx
 
-    def get_hls_address_map(self, model: ModelWrapper):
-        # tlast_node = model.get_nodes_by_op_type("TLastMarker")
-        # assert len(tlast_node) == 1
-        # tlast_op: CustomOp = getCustomOp(tlast_node[0])
-        # header_file_path = (
-        #     Path(tlast_op.get_nodeattr("ip_path"))
-        #     / "drivers"
-        #     / "TLastMarker_0_v1_0"
-        #     / "src"
-        #     / "xtlastmarker_0_hw.h"
-        # )
-        # copy(header_file_path, model.get_metadata_prop("address_map"))
+    def get_hls_address_map(self, model: ModelWrapper, accl_mode: ACCLMode):
+        if accl_mode == CoyoteBuild.ACCLMode.ACCL_TLAST or accl_mode == CoyoteBuild.ACCLMode.NONE:
+            tlast_node = model.get_nodes_by_op_type("TLastMarker")
+            assert len(tlast_node) == 1
+            tlast_op: CustomOp = getCustomOp(tlast_node[0])
+            header_file_path = (
+                Path(tlast_op.get_nodeattr("ip_path"))
+                / "drivers"
+                / "TLastMarker_0_v1_0"
+                / "src"
+                / "xtlastmarker_0_hw.h"
+            )
+            if header_file_path.exists():
+                copy(header_file_path, model.get_metadata_prop("address_map"))
 
         bridge_header_file_path = (
             Path(model.get_metadata_prop("hls_bridge_dir"))
@@ -1543,7 +1560,9 @@ class CoyoteBuild(Transformation):
             address_map_file.write("\n".join(address_map))
 
     def apply(self, model: ModelWrapper):
-        is_accl_mode: bool = CoyoteBuild.__is_accl_mode(model)
+        accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
+        print(f"ACCL mode is: {accl_mode}")
+        is_accl_mode: bool = accl_mode != CoyoteBuild.ACCLMode.NONE
         model.set_metadata_prop("address_map", make_build_dir("address_map_"))
 
         # Prepare everything
@@ -1552,13 +1571,13 @@ class CoyoteBuild(Transformation):
                 fpga_part=self.fpga_part,
                 period_ns=self.period_ns,
                 signature=self.signature,
-                is_accl_mode=is_accl_mode,
+                accl_mode=accl_mode,
             )
         )
 
         model = model.transform(
             PrepareCoyoteProject(
-                fpga_part=self.fpga_part, is_accl_mode=is_accl_mode, period_ns=self.period_ns
+                fpga_part=self.fpga_part, accl_mode=accl_mode, period_ns=self.period_ns
             )
         )
 
@@ -1584,10 +1603,10 @@ class CoyoteBuild(Transformation):
         if len(axilites_with_addr_width) > 0:
             model = model.transform(CreateHLSBridge(self.fpga_part))
 
-        self.get_hls_address_map(model=model)
+        self.get_hls_address_map(model=model, accl_mode=accl_mode)
 
         finn_kernel_ip: IP = templates.get_finn_interface(
-            is_accl_mode=is_accl_mode,
+            accl_mode,
             axilites=axilites_with_addr_width,
             intf_names=intf_names,
             model=model,
@@ -1668,7 +1687,7 @@ class CoyoteBuild(Transformation):
                 print(f"Address map before update:\n{address_map_finn}")
                 assert weight_start_idx is not None
                 for i, address_map_element in enumerate(address_map_finn):
-                    if "axilite" in address_map_finn:
+                    if "axilite" in address_map_finn[i]:
                         match = re.search(r"s_axilite_(\d+)", address_map_element)
                         assert match
                         current_idx = int(match.group(1))
