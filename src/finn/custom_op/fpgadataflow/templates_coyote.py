@@ -1052,7 +1052,7 @@ def get_hls_bridge_ip(path_to_hls_bridge_ip: str):
     )
 
 
-def get_finn_interface(is_accl_mode: bool, axilites, intf_names, model):
+def get_finn_interface(accl_mode, axilites, intf_names, model):
     finn_interfaces: List[coyote_build.Interface] = []
 
     for axilite, width in axilites:
@@ -1081,14 +1081,15 @@ def get_finn_interface(is_accl_mode: bool, axilites, intf_names, model):
             coyote_build.AXI4Stream(
                 intf_names["m_axis"][0][0],
                 intf_names["m_axis"][0][1],
-                not is_accl_mode,
+                accl_mode == coyote_build.CoyoteBuild.ACCLMode.ACCL_TLAST
+                or accl_mode == coyote_build.CoyoteBuild.ACCLMode.NONE,
                 coyote_build.AXIInterface.Delimiter.UNDERSCORE,
                 False,
             ),
         ]
     )
 
-    if is_accl_mode:
+    if accl_mode != coyote_build.CoyoteBuild.ACCLMode.NONE:
         finn_interfaces.extend(
             [
                 coyote_build.AXI4Stream(
