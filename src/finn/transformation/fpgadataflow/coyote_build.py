@@ -418,8 +418,6 @@ class AXI4Lite(AXIInterface):
     wdith: Interface.Width
     delimiter: AXIInterface.Delimiter
     external: bool
-    addr_width: int
-    upper_case: bool
 
     def __init__(
         self,
@@ -544,11 +542,10 @@ class BD:
     to the outside
     """
 
-    bd_name: str
+    module_name: str
     ips: Optional[List[IP]]
     interfaces: Dict[str, Interface]
     intra_connections: Sequence[str]
-    extra_external_commands: Optional[List[str]]
 
     def __init__(
         self,
@@ -662,7 +659,7 @@ class Design:
 
 class CreateHLSBridge(Transformation):
     """
-    Creates an HLS bridge to allow writing the weights with a unlimited address space.
+    Creates an HLS bridge to allow writing the weights with an unlimited address space.
     """
 
     fpga_part: str
@@ -858,6 +855,9 @@ class GenerateCoyoteProject(Transformation):
     project will have the proper IP paths, IPs, output products and block designs setup.
     """
 
+    fpga_part: str
+    design: Design
+    is_accl_mode: bool
     coyote_hw_build_dir: Path
 
     def __init__(
