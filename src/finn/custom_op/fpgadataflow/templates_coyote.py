@@ -641,7 +641,6 @@ def generate_accl_bd(accl_kernel_path: str):
                 # tdest=8,
                 # tstrb=True,
             ),
-            # TODO: tdest connected to tid
             coyote_build.AXI4Stream(
                 name="m_axis_eth_tx_data",
                 data_width=512,
@@ -713,7 +712,6 @@ def generate_accl_bd(accl_kernel_path: str):
                 delimiter=coyote_build.AXIInterface.Delimiter.UNDERSCORE,
                 external=False,
             ),
-            # TODO: tdest connected to tid
             coyote_build.AXI4Stream(
                 name="s_axis_eth_rx_data",
                 data_width=512,
@@ -769,7 +767,6 @@ def generate_accl_bd(accl_kernel_path: str):
         ],
         intra_connections=accl_bd_intra_connections.splitlines(),
         extra_external_commands=[],
-        # run_needed=False,
     )
 
 
@@ -927,7 +924,6 @@ def get_coyote_interface_accl():
                 delimiter=coyote_build.AXIInterface.Delimiter.POINT,
                 external=True,
             ),
-            # TODO: Handle connection from tid to tdest here
             coyote_build.AXI4Stream(
                 name="axis_rdma_0_sink",
                 data_width=512,
