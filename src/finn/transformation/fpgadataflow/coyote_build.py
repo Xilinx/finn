@@ -1561,7 +1561,6 @@ class CoyoteBuild(Transformation):
 
     def apply(self, model: ModelWrapper):
         accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
-        print(f"ACCL mode is: {accl_mode}")
         is_accl_mode: bool = accl_mode != CoyoteBuild.ACCLMode.NONE
         model.set_metadata_prop("address_map", make_build_dir("address_map_"))
 
@@ -1584,13 +1583,8 @@ class CoyoteBuild(Transformation):
         # Handle FINN interface
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
-        print(f"Axilites before update:\n{intf_names['axilite']}")
-
         CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
         weight_start_idx = CoyoteBuild.__update_intf_axilite_weight(intf_names["axilite"])
-        print(f"Weight idx is: {weight_start_idx}")
-
-        print(f"Axilites after update:\n{intf_names['axilite']}")
 
         if not is_accl_mode:
             assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
@@ -1612,7 +1606,7 @@ class CoyoteBuild(Transformation):
             model=model,
         )
 
-        # Instnatiate IPS
+        # Instantiate IPS
         instantiations = {}
         instantiations["finn_kernel_inst"] = Instantiation(
             instantiation_name="finn_kernel_inst", ip=finn_kernel_ip
@@ -1684,19 +1678,17 @@ class CoyoteBuild(Transformation):
                     limit=(1 << 32) - 1,
                 )
 
-                print(f"Address map before update:\n{address_map_finn}")
-                assert weight_start_idx is not None
-                for i, address_map_element in enumerate(address_map_finn):
-                    if "axilite" in address_map_finn[i]:
-                        match = re.search(r"s_axilite_(\d+)", address_map_element)
-                        assert match
-                        current_idx = int(match.group(1))
-                        new_idx = current_idx + weight_start_idx
-                        address_map_finn[i] = address_map_finn[i].replace(
-                            f"s_axilite_{current_idx}",
-                            f"s_axilite_{new_idx}",
-                        )
-                print(f"Address map after update:\n{address_map_finn}")
+                if weight_start_idx is not None:
+                    for i, address_map_element in enumerate(address_map_finn):
+                        if "axilite" in address_map_finn[i]:
+                            match = re.search(r"s_axilite_(\d+)", address_map_element)
+                            assert match
+                            current_idx = int(match.group(1))
+                            new_idx = current_idx + weight_start_idx
+                            address_map_finn[i] = address_map_finn[i].replace(
+                                f"s_axilite_{current_idx}",
+                                f"s_axilite_{new_idx}",
+                            )
 
                 self.write_address_map_to_file(
                     model=model,
