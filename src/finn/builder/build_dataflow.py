@@ -34,7 +34,10 @@ import pdb  # NOQA
 import sys
 import time
 import traceback
+from concurrent import futures
+from copy import deepcopy
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
@@ -187,6 +190,61 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
         json.dump(time_per_step, f, indent=2)
     print("Completed successfully")
     return 0
+
+
+def run_async_build_iter(cfg, local_cfg, node, i):
+    # TODO: Make the output dir match the rank of the partition
+    local_cfg.output_dir = f"{cfg.output_dir}/{i}"
+
+    node_inst = getCustomOp(node)
+    child_model_filename = node_inst.get_nodeattr("model")
+
+    print(f"Launching build for partition {i}")
+    build_dataflow_cfg(child_model_filename, local_cfg)
+
+
+def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+    steps = resolve_build_steps(cfg, partial=False)
+    step_names = list(map(lambda x: x.__name__, steps))
+
+    # TODO: Not sure if splitting up the config implicitly up is the best way to do this.
+    # Maybe it would be better for the user to explicitly provide global and local build
+    # configs.
+
+    split_step = "step_split_dataflow"
+    if split_step not in step_names:
+        print("Dataflow should be split up as part of distributed build")
+        return -1
+
+    split_idx = step_names.index(split_step) + 1
+
+    global_cfg = deepcopy(cfg)
+    global_cfg.steps = steps[:split_idx]
+
+    local_cfg = deepcopy(cfg)
+    local_cfg.steps = steps[split_idx:]
+
+    if not cfg.save_intermediate_models:
+        print("save_intermediate_models must be enabled for distributed build")
+        return -1
+
+    if not cfg.start_step or cfg.start_step in step_names[:split_idx]:
+        if build_dataflow_cfg(model_filename, global_cfg) != 0:
+            print("Global build failed")
+            return -1
+
+        local_cfg.start_step = None
+
+    if cfg.stop_step and cfg.stop_step in step_names[:split_idx]:
+        return 0
+
+    intermediate_models_dir = cfg.output_dir + "/intermediate_models"
+    parent_model = ModelWrapper(f"{intermediate_models_dir}/{split_step}.onnx")
+
+    sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
+    with futures.ProcessPoolExecutor() as pool:
+        for i, node in enumerate(sdp_nodes):
+            pool.submit(run_async_build_iter, cfg, local_cfg, node, i)
 
 
 def build_dataflow_directory(path_to_cfg_dir: str):
