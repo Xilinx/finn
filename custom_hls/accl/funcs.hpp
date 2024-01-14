@@ -19,6 +19,12 @@ void accl_out(
 ) {
     STREAM<stream_word> data_from_cclo;
 
+    if (in.empty()) {
+        // Wait until we have some input to make sure that the driver has time to configure
+        // the node.
+        return;
+    }
+
     ap_uint<32> cflags = 0;
     ap_uint<32> sflags = 3;
     accl_hls::ACCLCommand accl(
