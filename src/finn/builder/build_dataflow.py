@@ -111,6 +111,10 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     :param model_filename: ONNX model filename to build
     :param cfg: Build configuration
     """
+    # Dispatch a distributed build if we are splitting up the model as part of the build.
+    if  "step_split_dataflow" in step_names:
+        build_distributed_dataflow_cfg(model_filename, cfg)
+
     # if start_step is specified, override the input model
     if cfg.start_step is None:
         print("Building dataflow accelerator from " + model_filename)
