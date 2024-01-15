@@ -68,7 +68,6 @@ custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
-custom_op["DownSampler"] = DownSampler
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
@@ -87,6 +86,7 @@ custom_op["CheckSum"] = CheckSum
 custom_op["FMPadding"] = FMPadding
 custom_op["AddStreams"] = AddStreams
 custom_op["ChannelwiseOp"] = ChannelwiseOp
+custom_op["DownSampler"] = DownSampler
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
