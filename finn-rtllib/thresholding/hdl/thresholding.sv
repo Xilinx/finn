@@ -209,8 +209,7 @@ module thresholding #(
 				(* RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
-					localparam  FILE = $sformatf("%s/threshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage);
-					initial  $readmemh(FILE, Threshs);
+					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
 				end
 
 				if(USE_CONFIG) begin : genThreshMem

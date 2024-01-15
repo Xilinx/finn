@@ -12,7 +12,7 @@ module thresh_gen;
 		'{ 'h40, 'h41, 'h42, 'h43, 'h44, 'h45, 'h46, 'h47, 'h48, 'h49, 'h4a, 'h4b, 'h4c, 'h4d, 'h4e },
 		'{ 'h50, 'h51, 'h52, 'h53, 'h54, 'h55, 'h56, 'h57, 'h58, 'h59, 'h5a, 'h5b, 'h5c, 'h5d, 'h5e }
 	};
-	localparam  THRESHOLDS_PATH = ".";
+	localparam  THRESHOLDS_PATH = "./";
 
 	localparam int unsigned  PE = 2;
 	localparam int unsigned  CF = C/PE;
@@ -21,7 +21,7 @@ module thresh_gen;
 		localparam int unsigned  SN = N-1-stage;
 		for(genvar  pe = 0; pe < PE; pe++) begin
 			initial begin
-				automatic string  file = $sformatf("%s/threshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage);
+				automatic string  file = $sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage);
 
 				automatic thresh_t  threshs[CF * 2**stage];
 				for(int unsigned  c = 0; c < CF; c++) begin
