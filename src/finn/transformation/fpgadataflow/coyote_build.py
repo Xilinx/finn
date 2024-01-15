@@ -1833,30 +1833,31 @@ class CoyoteBuild(Transformation):
 
             # FINN connections
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
-                design, coyote_interface["axis_host_3_sink"], is_self_input=False
-            )
+            if model.graph.node[0].name == "ACCLIn":
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["m_axis_krnl_0"]
+                )
+            else:
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, coyote_interface["axis_host_3_sink"], is_self_input=False
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
-                design, coyote_interface["axis_host_3_src"]
-            )
+            if model.graph.node[0].name == "ACCLOut":
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["ack_clients_1_0"]
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][1][0]].connect(
-                design, instantiations["accl_bd_inst"]["ack_clients_1_0"]
-            )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["s_axis_krnl_0"]
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][2][0]].connect(
-                design, instantiations["accl_bd_inst"]["m_axis_krnl_0"]
-            )
-
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][1][0]].connect(
-                design, instantiations["accl_bd_inst"]["cmd_clients_1_0"]
-            )
-
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][2][0]].connect(
-                design, instantiations["accl_bd_inst"]["s_axis_krnl_0"]
-            )
-
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][1][0]].connect(
+                    design, instantiations["accl_bd_inst"]["cmd_clients_1_0"]
+                )
+            else:
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+                    design, coyote_interface["axis_host_3_src"]
+                )
         else:
             instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
                 design, coyote_interface["axis_host_0_src"]
