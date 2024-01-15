@@ -275,47 +275,30 @@ pipeline {
         label 'finn-build'
       }
       steps {
-        catchError(buildResult: 'SUCCESS') {
-          script {
-            checkAllBoards()
+        script {
+          sh 'mkdir -p reports'
+          cleanPreviousBuildFiles('reports')
+          dir('reports') {
+            // Only unstash for stages that ran
+            unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
+            unstashSuccessfulStage(env.FPGADATAFLOW_RESULT, "fpgadataflow")
+            unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
+            unstashSuccessfulStage(env.END2END_RESULT, "end2end")
+            unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
+            unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
+            unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
+            unstashSuccessfulStage(env.BNN_BUILD_KV260_SOM, "bnn_build_full_KV260_SOM")
           }
-        }
-      }
-      post {
-        always {
-          script {
-            sh 'mkdir -p reports'
-            cleanPreviousBuildFiles('reports')
-            dir('reports') {
-              // Only unstash for stages that ran
-              unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
-              unstashSuccessfulStage(env.FPGADATAFLOW_RESULT, "fpgadataflow")
-              unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
-              unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
-              unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
-              unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
-              unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
-              unstashSuccessfulStage(env.END2END_RESULT, "end2end")
-              unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
-              unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
-              unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
-              unstashSuccessfulStage(env.BNN_BUILD_KV260_SOM, "bnn_build_full_KV260_SOM")
-              unstashSuccessfulStage(env.BNN_TEST_U250, "xml_bnn_test_U250")
-              unstashSuccessfulStage(env.BNN_TEST_PYNQZ1, "xml_bnn_test_PynqZ1")
-              unstashSuccessfulStage(env.BNN_TEST_ZCU104, "xml_bnn_test_ZCU104")
-              unstashSuccessfulStage(env.BNN_TEST_KV260_SOM, "xml_bnn_test_KV260_SOM")
-            }
 
-            // Combine individual HTML files to one single report
-            sh './run-docker.sh pytest_html_merger -i reports/ -o reports/test_report_final.html'
+          // Combine individual HTML files to one single report
+          sh './run-docker.sh pytest_html_merger -i reports/ -o reports/test_report_final.html'
 
-            // Archive the XML & HTML test results
-            archiveArtifacts artifacts: "reports/*.xml"
-            archiveArtifacts artifacts: "reports/*.html"
+          // Archive the XML & HTML test results
+          archiveArtifacts artifacts: "reports/*.xml"
+          archiveArtifacts artifacts: "reports/*.html"
 
-            // Plot what XML files were created during the test run
-            junit 'reports/*.xml'
-          }
+          // Plot what XML files were created during the test run
+          junit 'reports/*.xml'
         }
       }
     }
@@ -327,14 +310,6 @@ void cleanPreviousBuildFiles(String buildDir) {
   // Previous build folders affect findCopyZip() and can cause the stage to fail
   if (!buildDir.empty) {
       sh "rm -rf ${buildDir}"
-  }
-}
-
-void cleanPreviousBoardBuildFiles(String boardDir) {
-  // Delete any board build files
-  // Specifically used on Pynq boards which require sudo to delete
-  if (!boardDir.empty) {
-      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${boardDir}*"
   }
 }
 
@@ -368,70 +343,6 @@ void findCopyZip(String board, String findDir, String copyDir) {
     sh "zip -r ${board}.zip ${board}/"
     sh "cp ${board}.zip ${env.FINN_HOST_BUILD_DIR}/${copyDir}/"
   }
-}
-
-void createTestScript(String board, String marker, String testResultsFilename) {
-   if(board == "U250")
-    sh """echo "#!/bin/bash
-. /opt/xilinx/xrt/setup.sh
-. ${VENV_ACTIVATE}
-python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
-    """
-  else
-    sh """echo "#!/bin/bash
-. /etc/profile.d/pynq_venv.sh
-. /etc/profile.d/xrt_setup.sh
-python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
-    """
-
-  // Give permissions to script
-  sh 'chmod 777 run-tests.sh'
-}
-
-def isNodeOnline(String labelName) {
-  Label label = Jenkins.instance.getLabel(labelName)
-  def agentOnline = false
-
-  if (label) {
-    List<Node> nodes = Jenkins.instance.getNodes()
-
-    nodes.each { node ->
-      if (node.getAssignedLabels().contains(label)) {
-        def computer = node.toComputer()
-        if (computer && computer.isOnline()) {
-          agentOnline = true
-        } else {
-          echo """Agent ${node.displayName} is offline"""
-        }
-      }
-    }
-  } else {
-    echo """Node with label ${labelName} not found"""
-  }
-
-  return agentOnline
-}
-
-def checkAllBoards() {
-  def overallResult = true
-
-  if (env.PYNQ_ONLINE == 'false') {
-    overallResult = false
-  }
-
-  if (env.ALVEO_HOST_ONLINE == 'false') {
-    overallResult = false
-  }
-
-  if (env.KV260_ONLINE == 'false') {
-    overallResult = false
-  }
-
-  if (env.ZCU104_ONLINE == 'false') {
-    overallResult = false
-  }
-
-  return overallResult
 }
 
 void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
