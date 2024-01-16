@@ -341,6 +341,7 @@ void findCopyZip(String board, String findDir, String copyDir) {
   sh "cp -r ${buildDir}/${board} ${copyDir}/"
   dir(copyDir) {
     sh "zip -r ${board}.zip ${board}/"
+    sh "mkdir -p ${env.ARTIFACT_DIR}/${copyDir}/"
     sh "cp ${board}.zip ${env.ARTIFACT_DIR}/${copyDir}/"
   }
 }
