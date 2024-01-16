@@ -1,4 +1,5 @@
-# Copyright (c) 2021, Xilinx
+# Copyright (C) 2021-2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,7 +31,7 @@ import pytest
 
 import numpy as np
 import torch
-from brevitas.export import FINNManager
+from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -38,6 +39,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
 from finn.core.onnx_exec import execute_onnx
@@ -49,6 +51,9 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+
+export_onnx_path = "test_lookup.onnx"
 
 
 def make_lookup_model(embeddings, ishape, idt, edt):
@@ -65,8 +70,11 @@ def make_lookup_model(embeddings, ishape, idt, edt):
 
     torch_model = LookupModel(num_embeddings, embedding_dim)
     input_t = torch.zeros(ishape, dtype=torch.int64)
-    ret = FINNManager.export(torch_model, input_t=input_t, opset_version=11)
-    model = ModelWrapper(ret)
+    export_qonnx(torch_model, input_t, export_onnx_path, opset_version=11)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
+    model = model.transform(InferShapes())
     iname = model.graph.input[0].name
     ename = model.graph.node[0].input[0]
     model.set_tensor_datatype(iname, idt)
