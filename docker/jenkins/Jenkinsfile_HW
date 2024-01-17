@@ -332,26 +332,29 @@ void stashBuildArtifacts(String testDir) {
 }
 
 String runTest(String testType, String board, String marker) {
-  // Clean any files from a previous run
-  cleanPreviousBuildFiles("${board}*")
+  sh "mkdir -p ${testType}"
+  dir("$testType") {
+    // Clean any files from a previous run
+    cleanPreviousBuildFiles("${board}*")
 
-  // Get the test files
-  unstash name: "${testType}_${board}_zip"
-  sh "unzip -o ${board}.zip"
+    // Get the test files
+    unstash name: "${testType}_${board}_zip"
+    sh "unzip -o ${board}.zip"
 
-  dir("$board") {
-    // Get the scripts necessary for running hw tests
-    unstash name: 'bnn_test_files'
+    dir("$board") {
+      // Get the scripts necessary for running hw tests
+      unstash name: 'bnn_test_files'
 
-    // Create test script
-    createTestScript(board, marker, "${testType}_hw_${board}")
+      // Create test script
+      createTestScript(board, marker, "${testType}_hw_${board}")
 
-    if (env.USER_CREDENTIALS) {
-      // Execute the script as the root user - needed for zynq platforms
-      sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S ./run-tests.sh'
-    } else {
-      // Execute the script
-      sh './run-tests.sh'
+      if (env.USER_CREDENTIALS) {
+        // Execute the script as the root user - needed for zynq platforms
+        sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S ./run-tests.sh'
+      } else {
+        // Execute the script
+        sh './run-tests.sh'
+      }
     }
   }
 
@@ -360,7 +363,7 @@ String runTest(String testType, String board, String marker) {
 
 void stashResults (String testType, String board) {
   // Get test result file and delete test files on the board
-  dir("${board}") {
+  dir("${testType}/${board}") {
     // Collect the results file on the worker node by stashing
     try {
       stash name: "xml_${testType}_${board}", includes: "${testType}_hw_${board}.xml,${testType}_hw_${board}.html"
