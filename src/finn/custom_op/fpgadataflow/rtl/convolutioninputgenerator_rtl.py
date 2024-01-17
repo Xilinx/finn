@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +34,10 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
+    ConvolutionInputGenerator,
+)
+from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -56,137 +59,25 @@ except ModuleNotFoundError:
 # NOTE: "Parallel" implementation style not yet implemented in this version!
 
 
-class ConvolutionInputGenerator_rtl(HLSCustomOp):
-    """Class that does not correspond to one of the finn-hlslib ConvolutionInputGenerator
-    (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
-    implementation based on (System-)Verilog templates, defined in finn-rtllib/swg."""
+class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
+    """Class that corresponds to finn-rtllib swg module.
+    Generates an RTL ConvolutionInputGenerator implementation
+    based on (System-)Verilog templates, defined in finn-rtllib/swg."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "ConvKernelDim": ("ints", True, []),  # [H, W] = [Y, X]
-            "IFMChannels": ("i", True, 0),
-            "IFMDim": ("ints", True, []),  # [H, W] = [Y, X]
-            "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
-            "SIMD": ("i", True, 0),
             # additional parallelization parameter - not yet implemented
             "M": ("i", False, 1),
-            # Enable parallel window output (requires full SIMD unfolding)
-            "parallel_window": ("i", False, 0, {0, 1}),
-            "Stride": ("ints", True, []),  # [H, W] = [Y, X]
-            "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
-            # FINN DataTypes for inputs, weights, outputs
-            "inputDataType": ("s", True, ""),
-            "outputDataType": ("s", True, ""),
-            "depthwise": ("i", False, 0, {0, 1}),
             # Enable reprogrammable implementation to change FM dimensions,
             # stride, or dilation during runtime (requires parallel_window = 0)
             "dynamic_mode": ("i", False, 0, {0, 1}),
-            # FPGA resource type for ConvolutionInputGenerator input buffer
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            # ultra -- use URAM
-            "ram_style": (
-                "s",
-                False,
-                "auto",
-                {"auto", "block", "distributed", "ultra"},
-            ),
-            # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, ""),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(ConvolutionInputGenerator.get_nodeattr_types(self))
+        my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
-
-    def get_normal_input_shape(self, ind=0):
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
-        return ishape
-
-    def get_folded_input_shape(self, ind=0):
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        wf = int(ifm_ch / simd)
-        folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
-        return folded_ishape
-
-    def get_normal_output_shape(self, ind=0):
-        k_h, k_w = self.get_nodeattr("ConvKernelDim")
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        dilation_h, dilation_w = self.get_nodeattr("Dilation")
-        pad = 0
-        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad, dilation_h)
-        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad, dilation_w)
-        oshape = (1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch)
-        return oshape
-
-    def get_folded_output_shape(self, ind=0):
-        k_h, k_w = self.get_nodeattr("ConvKernelDim")
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        dilation_h, dilation_w = self.get_nodeattr("Dilation")
-        simd = self.get_nodeattr("SIMD")
-        pad = 0
-        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad, dilation_h)
-        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad, dilation_w)
-        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        if self.get_nodeattr("parallel_window"):
-            wf = int((ifm_ch) // simd)
-            folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, k_h * k_w * simd)
-        else:
-            wf = int((k_h * k_w * ifm_ch) // simd)
-            folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
-        return folded_oshape
-
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
-        return super().make_const_shape_op(oshape)
-
-    def infer_node_datatype(self, model):
-        node = self.onnx_node
-        # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
-
-    def verify_node(self):
-        pass
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("outputDataType")]
-
-    def get_instream_width(self, ind=0):
-        ibits = self.get_input_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        in_width = simd * ibits
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        if self.get_nodeattr("parallel_window"):
-            # feed all window pixels in parallel
-            k_h, k_w = self.get_nodeattr("ConvKernelDim")
-            return self.get_instream_width() * k_h * k_w
-        else:
-            # if parallel variant not in use: same width for output and input stream
-            return self.get_instream_width()
 
     def get_number_input_values(self):
         """Function to get the number of expected input values."""
@@ -194,31 +85,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         num_input_elems = np.prod(folded_ishape[:-1])
         return num_input_elems
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        num_output_elems = np.prod(folded_oshape[:-1])
-        return num_output_elems
-
-    def get_1d_conv_attrs_normalized(self):
-        """Returns normalized spatial attributes, where H=1 for the 1D case."""
-        # normalize FM dimensions so that:
-        # [H, W] = [Y, X] = [1, D] or [D, 1] are always mapped to [1, D].
-        # The dummy ('1') dimension is the Y-dimension.
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        stride = self.get_nodeattr("Stride")
-        dilation = self.get_nodeattr("Dilation")
-
-        if ifm_dim[1] == 1:
-            ifm_dim = ifm_dim[::-1]
-            ofm_dim = ofm_dim[::-1]
-            k = k[::-1]
-            stride = stride[::-1]
-            dilation = dilation[::-1]
-
-        return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
+    def use_parallel_window_output(self):
+        return self.get_nodeattr("parallel_window")
 
     def get_buffer_depth(self):
         """Returns total depth of the internal buffer, depending on
@@ -1170,55 +1038,3 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "cfg_last_write": (15 * 4, int(code_gen_dict["$LAST_WRITE_ELEM$"][0])),
         }
         return config
-
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        """Generates (System-)Verilog code for IP generation (instead of HLS code)."""
-        self.generate_hdl()
-
-    def ipgen_singlenode_code(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def code_generation_cppsim(self, model):
-        """Not implemented (RTL component)."""
-        pass
-
-    def compile_singlenode_code(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def global_includes(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def defines(self, var):
-        """Not implemented (RTL component)."""
-        pass
-
-    def read_npy_data(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def strm_decl(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def docompute(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def dataoutstrm(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def save_as_npy(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def blackboxfunction(self):
-        """Not implemented (RTL component)."""
-        pass
-
-    def pragmas(self):
-        """Not implemented (RTL component)."""
-        pass

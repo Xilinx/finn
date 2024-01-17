@@ -28,6 +28,9 @@
 
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
+from finn.custom_op.fpgadataflow.hls.convolutioninputgenerator_hls import (
+    ConvolutionInputGenerator_hls,
+)
 from finn.custom_op.fpgadataflow.hls.downsampler_hls import DownSampler_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_hls import FMPadding_hls
@@ -47,6 +50,7 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["AddStreams_hls"] = AddStreams_hls
 custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
+custom_op["ConvolutionInputGenerator_hls"] = ConvolutionInputGenerator_hls
 custom_op["DownSampler_hls"] = DownSampler_hls
 custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_hls"] = FMPadding_hls
