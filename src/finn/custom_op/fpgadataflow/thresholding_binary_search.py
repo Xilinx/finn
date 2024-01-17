@@ -85,9 +85,59 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "gen_top_module": ("s", False, ""),
             # bias to be applied to outputs of the node
             "activation_bias": ("i", False, 0),
+            # whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # memory depth triggers for threshold storage
+            "depth_trigger_uram": ("i", False, 0),
+            "depth_trigger_bram": ("i", False, 0),
+            # enable uniform thres optimization
+            # doesn't actually do anything yet, only
+            # for resource estimations
+            "uniform_thres": ("i", False, 0, {0, 1}),
+            # enable deep pipelining for easier timing closure
+            # setting to 0 may save some FFs but otherwise leave on
+            "deep_pipeline": ("i", False, 1, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_pe_mem_geometries(self):
+        pe = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        wdt_bits = wdt.bitwidth()
+        odt = self.get_output_datatype()
+        odt_bits = odt.bitwidth()
+        t_channels = self.get_nodeattr("NumChannels")
+        cf = t_channels / pe
+        is_uniform = self.get_nodeattr("uniform_thres")
+        if is_uniform:
+            ret = [(odt_bits - x, cf * (2**x)) for x in range(1, odt_bits)]
+        else:
+            ret = [(wdt_bits, (cf) * 2**x) for x in range(odt_bits)]
+        return ret
+
+    def get_memory_estimate(self):
+        res_dict = {}
+        depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
+        pe = self.get_nodeattr("PE")
+        ret = self.get_pe_mem_geometries()
+        for mem_cfg in ret:
+            (width, depth) = mem_cfg
+            primitives = mem_primitives_versal
+            if depth_trigger_bram != 0 or depth_trigger_uram != 0:
+                if depth >= depth_trigger_bram and depth < depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "BRAM" in k}
+                elif depth >= depth_trigger_uram:
+                    primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
+            alts = get_memutil_alternatives(mem_cfg, primitives)
+            primary_alt = alts[0]
+            res_type = primary_alt[0].split("_")[0]
+            res_count, eff, waste = primary_alt[1]
+            res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
+        return res_dict
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
@@ -122,10 +172,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return []
 
     def bram_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("BRAM", 0)
+
+    def uram_estimation(self):
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("URAM", 0)
 
     def lut_estimation(self):
-        return 0
+        res_dict = self.get_memory_estimate()
+        return res_dict.get("LUTRAM", 0)
 
     def get_input_datatype(self, ind=0):
         return DataType[self.get_nodeattr("inputDataType")]
@@ -202,7 +258,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return 0
 
     def get_exp_cycles(self):
-        return 0
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
@@ -221,23 +278,17 @@ class Thresholding_Binary_Search(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        assert n_thres_steps == self.get_nodeattr(
-            "numSteps"
-        ), "Mismatch in threshold steps"
+        assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
-        assert np.equal(
-            np.mod(orig_thres_matrix, 1), 0
-        ).all(), "Need int threshold tensor"
+        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
-        assert (
-            ret.shape[0] == mh
-        ), "Channels of threshold matrix are not as expected (mh)"
+        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
