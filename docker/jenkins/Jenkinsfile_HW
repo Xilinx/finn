@@ -42,36 +42,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_sanity_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.SANITY_BNN_TEST_U250 = "SUCCESS"
-
-                  // Execute the script
-                  sh './run-tests.sh'
-                }
-              }
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
             }
           }
           post {
             always {
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_sanity", "${env.BOARD}")
             }
           }
         }
@@ -90,39 +66,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_sanity_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  // The marker here omits the '-Z1' as '-' is a special character
-                  // that will not work with Pytest
-                  createTestScript(env.BOARD, 'Pynq', "sanity_bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.SANITY_BNN_TEST_PYNQZ1 = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_sanity", "${env.BOARD}", "Pynq")
             }
           }
           post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_sanity", "${env.BOARD}")
             }
           }
         }
@@ -141,37 +90,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_sanity_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.SANITY_BNN_TEST_ZCU104 = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
             }
           }
           post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_sanity", "${env.BOARD}")
             }
           }
         }
@@ -190,37 +114,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_sanity_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.SANITY_BNN_TEST_KV260_SOM = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
             }
           }
-           post {
+          post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_sanity", "${env.BOARD}")
             }
           }
         }
@@ -242,36 +141,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_full_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.BNN_TEST_U250 = "SUCCESS"
-
-                  // Execute the script
-                  sh './run-tests.sh'
-                }
-              }
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
             }
           }
           post {
             always {
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_full", "${env.BOARD}")
             }
           }
         }
@@ -290,39 +165,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_full_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  // The marker here omits the '-Z1' as '-' is a special character
-                  // that will not work with Pytest
-                  createTestScript(env.BOARD, 'Pynq', "bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.BNN_TEST_PYNQZ1 = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_full", "${env.BOARD}", "Pynq")
             }
           }
           post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_bnn_test_PynqZ1", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_full", "${env.BOARD}")
             }
           }
         }
@@ -341,37 +189,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_full_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.BNN_TEST_ZCU104 = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
             }
           }
           post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_full", "${env.BOARD}")
             }
           }
         }
@@ -390,37 +213,12 @@ pipeline {
           }
           steps {
             catchError(stageResult: 'FAILURE') {
-              script {
-                // Clean any files from a previous run
-                cleanPreviousBoardBuildFiles("${env.BOARD}*")
-
-                // Get the test files
-                unstash name: "bnn_build_full_${env.BOARD}_zip"
-                sh "unzip -o ${env.BOARD}.zip"
-
-                dir(env.BOARD) {
-                  // Get the scripts necessary for running hw tests
-                  unstash name: 'bnn_test_files'
-
-                  // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
-
-                  // Use an env variable to help collect test results later in pipeline
-                  env.BNN_TEST_KV260_SOM = "SUCCESS"
-
-                  // Execute the script as the root user - needed for zynq platforms
-                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
-                }
-              }
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
             }
           }
           post {
             always {
-              // Get test result file and delete test files on the board
-              dir(env.BOARD) {
-                // Collect the results file on the worker node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
-              }
+              stashResults("bnn_build_full", "${env.BOARD}")
             }
           }
         }
@@ -436,14 +234,14 @@ pipeline {
           cleanPreviousBuildFiles('reports')
           dir('reports') {
             // Only unstash for stages that ran
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
-            unstashSuccessfulStage(env.BNN_TEST_U250, "xml_bnn_test_U250")
-            unstashSuccessfulStage(env.BNN_TEST_PYNQZ1, "xml_bnn_test_PynqZ1")
-            unstashSuccessfulStage(env.BNN_TEST_ZCU104, "xml_bnn_test_ZCU104")
-            unstashSuccessfulStage(env.BNN_TEST_KV260_SOM, "xml_bnn_test_KV260_SOM")
+            unstashSuccessfulStage(env.ALVEO_HOST_ONLINE, "xml_bnn_build_sanity_U250")
+            unstashSuccessfulStage(env.PYNQ_ONLINE, "xml_bnn_build_sanity_Pynq-Z1")
+            unstashSuccessfulStage(env.ZCU104_ONLINE, "xml_bnn_build_sanity_ZCU104")
+            unstashSuccessfulStage(env.KV260_ONLINE, "xml_bnn_build_sanity_KV260_SOM")
+            unstashSuccessfulStage(env.ALVEO_HOST_ONLINE, "xml_bnn_build_full_U250")
+            unstashSuccessfulStage(env.PYNQ_ONLINE, "xml_bnn_build_full_Pynq-Z1")
+            unstashSuccessfulStage(env.ZCU104_ONLINE, "xml_bnn_build_full_ZCU104")
+            unstashSuccessfulStage(env.KV260_ONLINE, "xml_bnn_build_full_KV260_SOM")
           }
 
           // Combine individual HTML files to one single report
@@ -465,15 +263,11 @@ void cleanPreviousBuildFiles(String buildDir) {
   // Delete any build files from a previous build
   // Previous build folders affect findCopyZip() and can cause the stage to fail
   if (!buildDir.empty) {
+    if (env.USER_CREDENTIALS) {
+      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${buildDir}*"
+    } else {
       sh "rm -rf ${buildDir}"
-  }
-}
-
-void cleanPreviousBoardBuildFiles(String boardDir) {
-  // Delete any board build files
-  // Specifically used on Pynq boards which require sudo to delete
-  if (!boardDir.empty) {
-      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${boardDir}*"
+    }
   }
 }
 
@@ -533,6 +327,45 @@ void stashBuildArtifacts(String testDir) {
       def extIndex = file.lastIndexOf(".")
       def boardName = file.substring(0, extIndex)
       stash name: "${testDir}_${boardName}_zip", includes: "${f}"
+    }
+  }
+}
+
+String runTest(String testType, String board, String marker) {
+  // Clean any files from a previous run
+  cleanPreviousBuildFiles("${board}*")
+
+  // Get the test files
+  unstash name: "${testType}_${board}_zip"
+  sh "unzip -o ${board}.zip"
+
+  dir("$board") {
+    // Get the scripts necessary for running hw tests
+    unstash name: 'bnn_test_files'
+
+    // Create test script
+    createTestScript(board, marker, "${testType}_hw_${board}")
+
+    if (env.USER_CREDENTIALS) {
+      // Execute the script as the root user - needed for zynq platforms
+      sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S ./run-tests.sh'
+    } else {
+      // Execute the script
+      sh './run-tests.sh'
+    }
+  }
+
+  return "SUCCESS"
+}
+
+void stashResults (String testType, String board) {
+  // Get test result file and delete test files on the board
+  dir("${board}") {
+    // Collect the results file on the worker node by stashing
+    try {
+      stash name: "xml_${testType}_${board}", includes: "${testType}_hw_${board}.xml,${testType}_hw_${board}.html"
+    } catch (err) {
+      echo "No results to stash"
     }
   }
 }
