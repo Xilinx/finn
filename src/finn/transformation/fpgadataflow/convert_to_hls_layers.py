@@ -1081,13 +1081,6 @@ class InferThresholdingLayer(Transformation):
                 is_rtl_variant_compatible = True
 
                 # Perform checks for RTL variant if chosen
-                if self.use_rtl_variant:
-                    assert self.mem_mode == "decoupled", (
-                        """%s : RTL Thresholding only supports 'decoupled' memory
-                        mode."""
-                        % node.name
-                    )
-
                 if self.use_rtl_variant and is_rtl_variant_compatible:
                     new_node = helper.make_node(
                         "Thresholding_Binary_Search",
