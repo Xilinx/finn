@@ -48,10 +48,7 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
     module."""
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, ""),
-        }
+        my_attrs = {}
         my_attrs.update(StreamingDataWidthConverter.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
