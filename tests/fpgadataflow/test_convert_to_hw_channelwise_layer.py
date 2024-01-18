@@ -32,12 +32,13 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -47,74 +48,78 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_addstreams_modelwrapper(ch, pe, idt):
-    inp1 = helper.make_tensor_value_info("inp1", TensorProto.FLOAT, [1, ch])
-    inp2 = helper.make_tensor_value_info("inp2", TensorProto.FLOAT, [1, ch])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch])
+def prepare_inputs(input_tensor):
+    return {"inp": input_tensor}
 
-    addstreams_node = helper.make_node(
-        "AddStreams",
-        ["inp1", "inp2"],
-        ["outp"],
-        domain="finn.custom_op.fpgadataflow",
-        backend="fpgadataflow",
-        NumChannels=ch,
-        PE=pe,
-        inputDataType=idt.name,
-        preferred_impl_style="hls",
-    )
-    graph = helper.make_graph(
-        nodes=[addstreams_node],
-        name="graph",
-        inputs=[inp1, inp2],
-        outputs=[outp],
+
+def make_single_channelwise_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, ishape)
+    p0 = helper.make_tensor_value_info("p0", TensorProto.FLOAT, pshape)
+
+    model = qonnx_make_model(
+        helper.make_graph(
+            name="test",
+            inputs=[inp],
+            outputs=[outp],
+            value_info=[p0],
+            nodes=[helper.make_node(onnx_op_name, ["inp", "p0"], ["outp"])],
+        )
     )
 
-    model = qonnx_make_model(graph, producer_name="addstreams-model")
     model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp1", idt)
-    model.set_tensor_datatype("inp2", idt)
-
+    model.set_initializer("p0", gen_finn_dt_tensor(pdt, pshape))
+    model.set_tensor_datatype("inp", idt)
+    model.transform(InferDataLayouts(), make_deepcopy=False)
+    model.transform(InferShapes(), make_deepcopy=False)
     return model
 
 
-def prepare_inputs(input1, input2):
-    return {"inp1": input1, "inp2": input2}
-
-
-# data types
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
-# channels
-@pytest.mark.parametrize("ch", [1, 64])
-# folding
-@pytest.mark.parametrize("fold", [-1, 2, 1])
+# parameter datatype
+@pytest.mark.parametrize("pdt", [DataType["BIPOLAR"], DataType["UINT4"], DataType["INT2"]])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT32"], DataType["UINT4"], DataType["INT4"]])
+# function
+@pytest.mark.parametrize("onnx_op_name", ["Add", "Mul"])
+# vector parameter or scalar parameter (broadcast)
+@pytest.mark.parametrize("scalar_param", [True, False])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
-    if fold == -1:
-        pe = 1
+@pytest.mark.slow
+def test_convert_to_hw_channelwise_layer(pdt, idt, onnx_op_name, scalar_param, exec_mode):
+    ifm_ch = 16
+    ifm_dim = 5
+    ishape = (1, ifm_ch, ifm_dim, ifm_dim)
+    if scalar_param:
+        pshape = (1,)
     else:
-        pe = max(1, ch // fold)
-    assert ch % pe == 0
+        pshape = (1, ifm_ch, 1, 1)
 
-    # generate input data
-    x1 = gen_finn_dt_tensor(idt, (1, ch))
-    x2 = gen_finn_dt_tensor(idt, (1, ch))
+    np.random.seed(0)
+    model = make_single_channelwise_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape)
 
-    model = make_addstreams_modelwrapper(ch, pe, idt)
+    # Since the aren't Data types with a bit width of a non power of 2,
+    # there are cases where the input won't use it full range.
+    if idt == DataType["INT32"]:
+        x = gen_finn_dt_tensor(DataType["INT16"], (1, ifm_ch, ifm_dim, ifm_dim))
+    elif idt == DataType["UINT32"]:
+        x = gen_finn_dt_tensor(DataType["UINT16"], (1, ifm_ch, ifm_dim, ifm_dim))
+    else:
+        x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
 
-    # prepare input data
-    input_dict = prepare_inputs(x1, x2)
-    oshape = model.get_tensor_shape("outp")
-    y = x1 + x2
-    y_expected = y.reshape(oshape)
+    input_dict = prepare_inputs(x)
+    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
 
-    # test verification flow before specializing layer
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced == y_expected).all(), "Execution of hw layer failed"
+    model = model.transform(to_hw.InferChannelwiseLinearLayer())
+    model = model.transform(GiveUniqueNodeNames())
+
+    ctx_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
+    y_produced = ctx_produced["outp"]
+
+    assert (y_produced == y_expected).all()
+    assert model.graph.node[1].op_type == "ChannelwiseOp"
 
     model = model.transform(SpecializeLayers())
 
@@ -131,17 +136,8 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # execute model
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    y_produced = y_produced.reshape(y_expected.shape)
+    ctx_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
+    y_produced = ctx_produced["outp"]
 
-    assert (y_produced == y_expected).all(), exec_mode + " failed"
-
-    if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("AddStreams_hls")[0]
-        inst = getCustomOp(node)
-        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-        assert exp_cycles != 0
+    assert (y_produced == y_expected).all()
+    assert model.graph.node[1].op_type == "ChannelwiseOp_hls"

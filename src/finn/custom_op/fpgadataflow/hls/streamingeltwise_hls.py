@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,87 +28,23 @@
 
 import numpy as np
 import os
-import warnings
-from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class GlobalAccPool_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hlslib AccPool_Batch function."""
+class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
+    """Class that corresponds to finn-hlslib StreamingEltwise function."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, 0),
-            "PE": ("i", True, 0),
-            # FINN DataTypes for input
-            "inputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = {}
+        my_attrs.update(StreamingEltwise.get_nodeattr_types(self))
+        my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
-
-    def get_normal_input_shape(self, ind=0):
-        ch = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        ishape = tuple(vecs + [ch])
-        return ishape
-
-    def get_folded_input_shape(self, ind=0):
-        ch = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        assert ch % pe == 0, "PE must divide NumChannels"
-        folds = int(ch / pe)
-        folded_ishape = tuple(vecs + [folds, pe])
-        return folded_ishape
-
-    def get_normal_output_shape(self, ind=0):
-        ch = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        if len(vecs) == 1:
-            oshape = tuple(vecs + [ch])
-        elif len(vecs) == 3:
-            oshape = tuple([vecs[0]] + [1, 1, ch])
-        return oshape
-
-    def get_folded_output_shape(self, ind=0):
-        ch = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        unfolded_shape = list(self.get_normal_output_shape())
-        assert ch % pe == 0, "PE must divide NumChannels"
-        folds = int(ch / pe)
-        oshape = tuple(unfolded_shape[:-1] + [folds, pe])
-        return oshape
-
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        return super().make_const_shape_op(oshape)
-
-    def infer_node_datatype(self, model):
-        node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype()),
-                str(idt),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
-        odt = self.get_output_datatype()
-        model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
@@ -125,57 +61,14 @@ class GlobalAccPool_Batch(HLSCustomOp):
             self.get_nodeattr("executable_path")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
-            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("inputDataType0")
+            self.get_nodeattr("inputDataType1")
+            self.get_nodeattr("eltwiseOp")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
-
-        # verify that input data is 2D
-        if len(self.get_nodeattr("numInputVectors")) != 3:
-            info_messages.append("""GlobalAccPool_Batch requires 2D data input.""")
-            raise Exception
+            info_messages.append("""The required StreamingEltwise attributes do not exist.""")
 
         return info_messages
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        # determine data type from image size and input type
-        idt = DataType[self.get_nodeattr("inputDataType")]
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        npixels = vecs[-1] * vecs[-2]
-        if idt.signed():
-            extreme_value = npixels * idt.min()
-        else:
-            extreme_value = npixels * idt.max()
-        return DataType.get_smallest_possible(extreme_value)
-
-    def get_instream_width(self, ind=0):
-        """Returns input stream width."""
-        ibits = self.get_input_datatype().bitwidth()
-        pe = self.get_nodeattr("PE")
-        in_width = pe * ibits
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        """Returns output stream width."""
-        obits = self.get_output_datatype().bitwidth()
-        pe = self.get_nodeattr("PE")
-        out_width = pe * obits
-        return out_width
-
-    def get_number_output_values(self):
-        return np.prod(self.get_folded_output_shape()[1:-1])
-
-    def get_exp_cycles(self):
-        # Channels/PE * batch size * idim * idim + Channels/PE
-        ch = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        folds = int(ch / pe)
-        return int(np.prod(self.get_folded_input_shape()[:-1]) + folds)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -198,13 +91,24 @@ class GlobalAccPool_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
+        export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+
+        # exact same thing for input1
+        inp = context[node.input[1]]
+        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
+        export_idt1 = self.get_input_datatype(1)
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
+        # make copy before saving array
+        reshaped_input = inp.copy()
+        np.save(os.path.join(code_gen_dir, "input_1.npy"), reshaped_input)
 
         if mode == "cppsim":
             # execute the precompiled model
@@ -213,17 +117,20 @@ class GlobalAccPool_Batch(HLSCustomOp):
             super().npy_to_dynamic_output(context)
             assert (
                 context[node.output[0]].shape == exp_oshape
-            ), "cppsim \
-            did not produce expected output shape"
+            ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+            nbits0 = self.get_instream_width(0)
+            nbits1 = self.get_instream_width(1)
+            rtlsim_inp0 = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt0, nbits0
+            )
+            rtlsim_inp1 = npy_to_rtlsim_input(
+                "{}/input_1.npy".format(code_gen_dir), export_idt1, nbits1
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -249,27 +156,73 @@ class GlobalAccPool_Batch(HLSCustomOp):
         ), """Output shape doesn't match expected shape."""
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
+        self.code_gen_dict["$GLOBALS$"] = [
+            '#include "eltwise.hpp"',
+            '#include "interpret.hpp"',
+        ]
+
+        self.code_gen_dict["$GLOBALS$"].extend(
+            [
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct absdiff {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a>b? a-b : b-a;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct sub {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a-b;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct add {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a+b;",
+                "}",
+                "};",
+            ]
+        )
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        elem_bits_0 = idt0.bitwidth()
+        elem_bits_1 = idt1.bitwidth()
+        packed_bits_0 = self.get_instream_width(0)
+        packed_hls_type_0 = "ap_uint<%d>" % packed_bits_0
+        packed_bits_1 = self.get_instream_width(1)
+        packed_hls_type_1 = "ap_uint<%d>" % packed_bits_1
+        elem_hls_type_0 = idt0.get_hls_datatype_str()
+        elem_hls_type_1 = idt1.get_hls_datatype_str()
         npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
+        npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
             % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
+                packed_hls_type_0,
+                elem_hls_type_0,
+                elem_bits_0,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
+        )
+        npy_in = "%s/input_1.npy" % code_gen_dir
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2apintstream<%s, %s, %d, %s>("%s", in1_%s);'
+            % (
+                packed_hls_type_1,
+                elem_hls_type_1,
+                elem_bits_1,
                 npy_type,
                 npy_in,
                 self.hls_sname(),
@@ -280,7 +233,12 @@ class GlobalAccPool_Batch(HLSCustomOp):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+                self.get_instream_width(0), self.hls_sname(), self.hls_sname()
+            )
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in1_{} ("in1_{}");'.format(
+                self.get_instream_width(1), self.hls_sname(), self.hls_sname()
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
@@ -290,15 +248,36 @@ class GlobalAccPool_Batch(HLSCustomOp):
         )
 
     def docompute(self):
+        op = self.get_nodeattr("eltwiseOp")
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        odt = self.get_output_datatype()
+        elem_hls_type_0 = idt0.get_hls_datatype_str()
+        elem_hls_type_1 = idt1.get_hls_datatype_str()
+        out_hls_type = odt.get_hls_datatype_str()
+        slice_in0 = "Slice<%s>" % elem_hls_type_0
+        slice_in1 = "Slice<%s>" % elem_hls_type_1
+        slice_out = "Slice<%s>" % out_hls_type
+        eltwise_op_str = self.get_eltwise_op_lambda()
+        "%sEltwiseFunction<%s, %s, %s>()" % (
+            op,
+            elem_hls_type_0,
+            elem_hls_type_1,
+            out_hls_type,
+        )
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_{}, out_{}, 1);""".format(
-                self.get_normal_input_shape()[1],
+            """{}<{}, {}, {}, {}, {}, {}>(in0_{}, in1_{}, out_{}, {});""".format(
+                "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
-                self.get_input_datatype().get_hls_datatype_str(),
                 self.get_nodeattr("PE"),
-                self.get_output_datatype().get_hls_datatype_str(),
+                int(np.prod(self.get_folded_output_shape()[:-2])),
+                slice_in0,
+                slice_in1,
+                slice_out,
                 self.hls_sname(),
                 self.hls_sname(),
+                self.hls_sname(),
+                eltwise_op_str,
             )
         ]
 
@@ -332,12 +311,14 @@ class GlobalAccPool_Batch(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_{},
+            """void {}(hls::stream<ap_uint<{}>> &in0_{}, hls::stream<ap_uint<{}>> &in1_{},
                 hls::stream<ap_uint<{}>> &out_{})""".format(
                 self.onnx_node.name,
-                self.get_instream_width(),
+                self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
                 self.hls_sname(),
-                self.get_outstream_width(),
+                self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
+                self.hls_sname(),
+                self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
                 self.hls_sname(),
             )
         ]
@@ -346,6 +327,9 @@ class GlobalAccPool_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"] = [
             "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=in1_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )

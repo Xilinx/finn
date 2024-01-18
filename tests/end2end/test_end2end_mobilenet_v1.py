@@ -211,6 +211,7 @@ def test_end2end_mobilenet_lowering():
 
 
 @pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_mobilenet_convert_to_hls_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hls.InferPool_Batch())

@@ -27,90 +27,99 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import onnxruntime as rt
 import warnings
-from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class UpsampleNearestNeighbour(HWCustomOp):
-    """Abstraction layer for HW implementation of UpsampleNearestNeighbour."""
+class FMPadding(HWCustomOp):
+    """Abstraction layer for HW impplementation of FMPadding.
+    Pads input image by given amount."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # Size of the output feature map
-            "OFMDim": ("i", True, 0),
-            # Size of the input feature map
-            "IFMDim": ("i", True, 0),
-            # Amount of channels of the input feature map
+            # spatial size of input images
+            "ImgDim": ("ints", True, []),  # [H, W] = [Y, X]
+            # total padding (per dimension) to apply
+            "Padding": (
+                "ints",
+                True,
+                [1, 1, 1, 1],
+            ),  # [H_begin, W_begin, H_end, W_end] = [Y_begin, X_begin, Y_end, X_end]
+            # number of channels in input image
             "NumChannels": ("i", True, 0),
+            # SIMD Input parallelism
+            "SIMD": ("i", False, 1),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
-            # Batch size
+            # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
-            # Dimensionality mode: 0 = 2D square, 1 = 1D in H dim
-            "DimMode": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_padded_odim(self):
+        "Return the padded spatial size of the output."
+        idim_h, idim_w = self.get_nodeattr("ImgDim")
+        pad = self.get_nodeattr("Padding")
+        pad_h = pad[0] + pad[2]
+        pad_w = pad[1] + pad[3]
+        odim_h = idim_h + pad_h
+        odim_w = idim_w + pad_w
+        return [odim_h, odim_w]
+
     def get_exp_cycles(self):
-        OFMDim = self.get_nodeattr("OFMDim")
+        odim_h, odim_w = self.get_padded_odim()
+        channels = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
         batch_size = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        reps = 1
-        if is_2d:
-            OFMDim = OFMDim * OFMDim
-            reps = batch_size
-        exp_cycles = OFMDim * reps
+        exp_cycles = (channels / simd) * batch_size * odim_h * odim_w
         return int(exp_cycles)
 
     def get_normal_input_shape(self, ind=0):
-        IFMDim = self.get_nodeattr("IFMDim")
+        idim_h, idim_w = self.get_nodeattr("ImgDim")
         num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        if is_2d:
-            ishape = (batch, IFMDim, IFMDim, num_ch)
-        else:
-            ishape = (batch, IFMDim, 1, num_ch)
+        ishape = (1, idim_h, idim_w, num_ch)
         return ishape
 
     def get_normal_output_shape(self, ind=0):
-        OFMDim = self.get_nodeattr("OFMDim")
+        odim_h, odim_w = self.get_padded_odim()
         num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        if is_2d:
-            oshape = (batch, OFMDim, OFMDim, num_ch)
-        else:
-            oshape = (batch, OFMDim, 1, num_ch)
+
+        oshape = (1, odim_h, odim_w, num_ch)
         return oshape
 
     def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
-        return tuple(normal_ishape)
+        ifm_ch = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_ishape[-1] / simd)
+        folded_ishape = normal_ishape[:-1] + [fold, simd]
+        return tuple(folded_ishape)
 
     def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
-        return tuple(normal_oshape)
+        ifm_ch = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_oshape[-1] / simd)
+        folded_oshape = normal_oshape[:-1] + [fold, simd]
+        return tuple(folded_oshape)
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for UpsampleNearestNeighbour_Batch."
+        assert ishape == exp_ishape, "Unexpect input shape for FMPadding."
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
         idt = model.get_tensor_datatype(node.input[0])
         if idt != self.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
@@ -128,6 +137,9 @@ class UpsampleNearestNeighbour(HWCustomOp):
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
+        # the hlslib op always pads with zeros, so ensure that the DataType
+        # is able to represent zeros
+        assert ret.allowed(0), "FMPadding_Batch DataType must support zero"
         return ret
 
     def get_output_datatype(self, ind=0):
@@ -136,56 +148,25 @@ class UpsampleNearestNeighbour(HWCustomOp):
 
     def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
-        ifm_ch = self.get_nodeattr("NumChannels")
-        return ibits * ifm_ch
+        simd = self.get_nodeattr("SIMD")
+        return ibits * simd
 
     def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
-        ifm_ch = self.get_nodeattr("NumChannels")
-        return obits * ifm_ch
+        simd = self.get_nodeattr("SIMD")
+        return obits * simd
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
     def execute_node(self, context, graph):
-        # create a standard resize node to help calculate the result
+        # simulate behavior with Python functionality
         node = self.onnx_node
+        pad = self.get_nodeattr("Padding")
         inp_values = context[node.input[0]]
-        ishape = inp_values.shape
-        odim = self.get_nodeattr("OFMDim")
-        idim = self.get_nodeattr("IFMDim")
-        if ishape[1] == ishape[2]:
-            scales_val = [1, int(round(odim / idim)), int(round(odim / idim)), 1]
-        elif ishape[1] > 1 and ishape[2] == 1:
-            scales_val = [1, int(round(odim / idim)), 1, 1]
-        else:
-            warnings.warn(
-                """HW abstraction layer for Upsample cannot be executed.
-            Upsampling only supported for 1D H, or 2D square scaling"""
-            )
         oshape = context[node.output[0]].shape
-        inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, ishape)
-        scales = helper.make_tensor_value_info("scales", TensorProto.FLOAT, [4])
-        outp = helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, oshape)
-        node_resize = helper.make_node(
-            "Resize",
-            inputs=[node.input[0], "", "scales"],
-            outputs=[node.output[0]],
-            mode="nearest",
+        result = np.pad(
+            inp_values, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
         )
-        graph_resize = helper.make_graph(
-            nodes=[node_resize],
-            name="single-resize-exec",
-            inputs=[inp, scales],
-            outputs=[outp],
-        )
-
-        opset_version = 13
-        opset_imports = [helper.make_opsetid("", opset_version)]
-        onnx_kwargs = {"opset_imports": opset_imports}
-        model_resize = qonnx_make_model(graph_resize, **onnx_kwargs)
-        idict = {node.input[0]: inp_values, "scales": scales_val}
-        sess = rt.InferenceSession(model_resize.SerializeToString())
-        result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
