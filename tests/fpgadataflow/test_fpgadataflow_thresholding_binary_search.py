@@ -45,6 +45,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -86,6 +87,7 @@ def convert_np_array_to_standard_data_layout(data):
 
 
 def make_single_thresholding_binary_search_modelwrapper(
+    impl_style,
     thresholds,
     pe,
     input_data_type,
@@ -106,7 +108,7 @@ def make_single_thresholding_binary_search_modelwrapper(
     node_inp_list = ["inp", "thresh"]
 
     Thresholding_node = helper.make_node(
-        "Thresholding_Binary_Search",
+        "ThresholdingBinarySearch",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -119,6 +121,7 @@ def make_single_thresholding_binary_search_modelwrapper(
         outputDataType=output_data_type.name,
         activation_bias=activation_bias,
         numInputVectors=num_input_vecs,
+        preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -285,3 +288,51 @@ def test_fpgadataflow_thresholding_binary_search(
     rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
     y_produced = input_dict["outp"]
     assert (y_produced == y_expected).all()
+
+
+# Test brief: Test basic transforms are working
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_thresholding_binary_search_transform(impl_style):
+    input_data_type = DataType["INT16"]
+    act = DataType["INT4"]
+    fold = -1
+    num_input_channels = 16
+
+    # Handle inputs to the test
+    pe = generate_pe_value(fold, num_input_channels)
+    num_steps = act.get_num_possible_values() - 1
+
+    # Generate random, non-decreasing thresholds
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    # Other non-input parameters
+    num_input_vecs = [1, 2, 2]
+    output_data_type = act
+    if output_data_type == DataType["BIPOLAR"]:
+        activation_bias = 0
+    else:
+        activation_bias = output_data_type.min()
+
+    # Generate model from input parameters to the test
+    model = make_single_thresholding_binary_search_modelwrapper(
+        impl_style,
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+    )
+
+    model = model.transform(SpecializeLayers())
+    # model = model.transform(SetExecMode("rtlsim"))
+    # model = model.transform(GiveUniqueNodeNames())
+    # model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    # model = model.transform(HLSSynthIP())
+    # model = model.transform(PrepareRTLSim())
+    return

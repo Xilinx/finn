@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
 from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls import StreamingMaxPool_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
+from finn.custom_op.fpgadataflow.hls.thresholdingbinarysearch_hls import ThresholdingBinarySearch_hls
 
 custom_op = dict()
 
@@ -60,4 +61,5 @@ custom_op["Lookup_hls"] = Lookup_hls
 custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
+custom_op["ThresholdingBinarySearch_hls"] = ThresholdingBinarySearch_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
