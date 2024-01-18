@@ -26,14 +26,27 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
+import shutil
 import warnings
+from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import find_next_power_of_2, get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import (
+    find_next_power_of_2,
+    get_memutil_alternatives,
+    get_rtlsim_trace_depth,
+    make_build_dir,
+    mem_primitives_versal,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -255,7 +268,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return self.get_normal_input_shape()
 
     def get_number_output_values(self):
-        return 0
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
@@ -305,10 +318,69 @@ class Thresholding_Binary_Search(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def prepare_codegen_rtl_values(self):
+    def get_all_meminit_filenames(self, abspath=False):
+        "Return a list of all .dat memory initializer files used for this node"
+        dat_files = []
+        t_path = self.get_nodeattr("code_gen_dir_ipgen") if abspath else "."
+        pe = self.get_nodeattr("PE")
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        for stage in range(o_bitwidth):
+            for pe_value in range(pe):
+                thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
+                    self.onnx_node.name,
+                    pe_value,
+                    stage,
+                )
+                dat_files.append(thresh_file)
+        return dat_files
+
+    def prepare_codegen_rtl_values(self, model):
         """All dictionary values produced in this function are to replace
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
+
+        # TODO check for sortedness and size here?
+        # RTL component currently always expects 2^N-1 thresholds, but
+        # sometimes we have fewer due to e.g. narrow range quantization
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        # add dummy dimension as final dimension (that's what gets packed with next call)
+        thresholds = np.expand_dims(thresholds, axis=-1)
+        wdt = self.get_weight_datatype()
+        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
+        t_packed = pack_innermost_dim_as_hex_string(
+            thresholds,
+            wdt,
+            bw_hexdigit,
+            prefix="",
+        )
+
+        t_path = self.get_nodeattr("code_gen_dir_ipgen")
+        pe = self.get_nodeattr("PE")
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        num_channels = self.get_nodeattr("NumChannels")  # number of channels
+
+        channel_fold = int(num_channels / pe)
+
+        for stage in range(o_bitwidth):
+            sn = o_bitwidth - stage - 1
+            for pe_value in range(pe):
+                thresh_file = t_path + "/%s_threshs_%s_%s.dat" % (
+                    self.onnx_node.name,
+                    pe_value,
+                    stage,
+                )
+                threshs = np.zeros([channel_fold * (2**stage)], dtype="object")
+                for ch in range(channel_fold):
+                    for i in range(2**stage):
+                        threshs[(ch << stage) + i] = t_packed[ch * pe + pe_value][
+                            (i << (o_bitwidth - stage)) + 2**sn - 1
+                        ]
+                with open(thresh_file, "w") as f:
+                    for val in threshs:
+                        f.write(val + "\n")
+        code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -318,19 +390,13 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
 
         # Identify the module variables
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        input_data_type = self.get_nodeattr(
-            "inputDataType"
-        )  # input/threshold precision
-        num_channels = self.get_nodeattr("NumChannels")  # number of channels
+        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
         bias = self.get_nodeattr("activation_bias")  # activation bias value
-        pe = self.get_nodeattr("PE")
+        i_bitwidth = DataType[input_data_type].bitwidth()
 
-        code_gen_dict["$N$"] = [
-            str(DataType[output_data_type].bitwidth())
-        ]  # output precision - convert bitwidth to string
+        code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
         code_gen_dict["$M$"] = [
-            str(DataType[input_data_type].bitwidth())
+            str(i_bitwidth)
         ]  # input/threshold precision - convert bitwidth to string
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
@@ -343,11 +409,34 @@ class Thresholding_Binary_Search(HLSCustomOp):
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
 
+        if bias >= 0:
+            o_bits = math.ceil(math.log2(2**o_bitwidth + bias))
+        else:
+            o_bits = 1 + math.ceil(
+                math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
+            )
+
+        code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
+
+        rt_weights = self.get_nodeattr("runtime_writeable_weights")
+        code_gen_dict["$USE_AXILITE$"] = [str(rt_weights)]
+
+        depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
+        depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        deep_pipeline = self.get_nodeattr("deep_pipeline")
+        code_gen_dict["$DEPTH_TRIGGER_URAM$"] = [str(depth_trigger_uram)]
+        code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
+        code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
 
     def get_rtl_file_list(self):
         """Thresholding binary search RTL file list"""
-        return ["thresholding.sv", "thresholding_axi.sv", "thresholding_axi_wrapper.v"]
+        return [
+            "axilite_if.v",
+            "thresholding.sv",
+            "thresholding_axi.sv",
+            "thresholding_template_wrapper.v",
+        ]
 
     def get_rtl_file_paths(self):
         """Get full path of all RTL files"""
@@ -372,14 +461,18 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
     def dump_rtl_data(self, dest_dir, filename, data):
         """Dump filled-in-template RTL files for future synthesis step"""
+        # when generating template files, handle a special case:
+        # if the filename contains the word "template", replace that
+        # with the node name to distinguish between instances
+        filename = filename.replace("template", self.onnx_node.name)
         with open(os.path.join(dest_dir, filename), "w") as f:
             f.write(data)
         return
 
-    def generate_hdl(self):
+    def generate_hdl(self, model):
         """Prepare HDL files from templates for synthesis"""
         # Generate a dictionary of values to put in RTL template
-        code_gen_dict = self.prepare_codegen_rtl_values()
+        code_gen_dict = self.prepare_codegen_rtl_values(model)
 
         # Retrieve the destination directory for the final RTL files
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -399,7 +492,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl()
+        self.generate_hdl(model)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -419,15 +512,20 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
-        verilog_files = self.get_rtl_file_list()
+        verilog_files = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
+        dat_files = self.get_all_meminit_filenames(abspath=True)
+        single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
+        for dat_file in dat_files:
+            shutil.copy(dat_file, single_src_dir)
 
         # build the Verilator emulation library
         sim = PyVerilator.build(
             verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            build_dir=single_src_dir,
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_nodeattr("gen_top_module"),
+            auto_eval=False,
         )
 
         # save generated lib filename in attribute
@@ -450,8 +548,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         in_ind = 0
         for inputs in node.input:
             # it is assumed that the first input of the node is the data input
-            # the second input are the weights
-            # the third input are the thresholds
+            # the second input are the thresholds
             if in_ind == 0:
                 assert (
                     str(context[inputs].dtype) == "float32"
@@ -480,25 +577,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # Create a PyVerilator wrapper of the RTLSim .so
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
-        inp = npy_to_rtlsim_input(
-            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-        )
-
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
-
-        wnbits = self.get_weightstream_width()
-        export_wdt = self.get_weight_datatype()
-        wei = npy_to_rtlsim_input(
-            "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
-        )
-        num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+        inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+        io_names = self.get_verilog_top_module_intf_names()
+        istream_name = io_names["s_axis"][0][0]
+        ostream_name = io_names["m_axis"][0][0]
         io_dict = {
-            "inputs": {"in0": inp, "weights": wei * num_w_reps},
-            "outputs": {"s_axis": []},
+            "inputs": {istream_name: inp},
+            "outputs": {ostream_name: []},
         }
         self.rtlsim_multi_io(sim, io_dict)
-        output = io_dict["outputs"]["out"]
+        output = io_dict["outputs"][ostream_name]
 
         # Manage output data
         odt = self.get_output_datatype()
@@ -507,9 +595,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         out_npy_path = "{}/output.npy".format(code_gen_dir)
         out_shape = self.get_folded_output_shape()
 
-        rtlsim_output_to_npy(
-            output, out_npy_path, odt, out_shape, packed_bits, target_bits
-        )
+        rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
         # load and reshape output
         output = np.load(out_npy_path)
@@ -518,16 +604,55 @@ class Thresholding_Binary_Search(HLSCustomOp):
         context[node.output[0]] = output
         return
 
+    def hls_sname(self):
+        """Get the naming convention used by Vitis HLS for stream signals
+        Example: the TDATA for a stream called "out" would be out_V_TDATA.
+        """
+        # no additional prefix/suffix in interface names since this is an RTL component
+        return ""
+
+    def rtlsim_multi_io(self, sim, io_dict):
+        "Run rtlsim for this node, supports multiple i/o streams."
+
+        rtlsim_so = self.get_nodeattr("rtlsim_so")
+        so_dir = os.path.dirname(os.path.realpath(rtlsim_so))
+        olcwd = os.getcwd()
+        os.chdir(so_dir)
+
+        # signal name prefix
+        # TODO if the interface names on this component get standardized,
+        # it won't need its own rtlsim_multi_io variant anymore and can just
+        # use the base class one
+        sname = "_"
+
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        if trace_file == "default":
+            trace_file = self.onnx_node.name + ".vcd"
+        num_out_values = self.get_number_output_values()
+        total_cycle_count = rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            do_reset=True,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        )
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+        os.chdir(olcwd)
+
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        cmd = []
-        rtl_file_list = self.get_rtl_file_list()
+        rtl_file_list = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
 
         for rtl_file in rtl_file_list:
             cmd.append(
-                "add_files -norecurse %s" % (os.path.join(code_gen_dir, rtl_file))
+                "add_files -copy_to %s -norecurse %s"
+                % (source_target, os.path.join(code_gen_dir, rtl_file))
             )
 
         # Create an RTL block, not an IP core (-type ip)
@@ -548,8 +673,17 @@ class Thresholding_Binary_Search(HLSCustomOp):
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
 
-        intf_names = super().get_verilog_top_module_intf_names()
-        intf_names["axilite"] = ["s_axilite"]
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V", self.get_outstream_width_padded())]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            intf_names["axilite"] = ["s_axilite"]
+
         return intf_names
 
     def get_dynamic_config(self, model, address_stride=1):
@@ -566,6 +700,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         config = {}
         channel_cntr = 0
+        wdt = self.get_weight_datatype()
+        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         for channel in thresholds:
             channel_start_addr = channel_cntr * weight_addr_boundary * address_stride
             weight_cntr = 0
@@ -580,8 +716,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
                         str(
                             pack_innermost_dim_as_hex_string(
                                 [weight],
-                                self.get_weight_datatype(),
-                                self.get_weight_datatype().bitwidth(),
+                                wdt,
+                                bw_hexdigit,
                             )
                         ),
                         0,
