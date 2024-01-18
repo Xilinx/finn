@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023, Xilinx
+ * Copyright (c) 2023-2024, Xilinx
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,8 @@ module memstream #(
 	int unsigned  WIDTH,
 
 	parameter  INIT_FILE = "",
-	parameter  RAM_STYLE = "auto"
+	parameter  RAM_STYLE = "auto",
+	bit  EXTRA_OUTPUT_REG = 0
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -61,29 +62,45 @@ module memstream #(
 	uwire  en;       // Pipeline enable
 	uwire  rollback; // Rollback stream reads if backpressure would block read back
 
-	// Counter with pre-computed last indication for val == DEPTH-1
+	// Address counter with pre-computed last indication for val == DEPTH-1
 	typedef struct {
 		addr_t  val;
 		logic   lst;
 	} ptr_t;
+	// 1-Hot pipeline command
+	typedef struct {
+		logic  wr;  // Write (config)
+		logic  rb;  // Read back (config)
+		logic  rs;  // Read stream
+	} cmd_t;
+	localparam cmd_t  NOP = cmd_t'{ default: 0 };
+	localparam cmd_t  WR  = cmd_t'{ wr: 1, default: 0 };
+	localparam cmd_t  RB  = cmd_t'{ rb: 1, default: 0 };
+	localparam cmd_t  RS  = cmd_t'{ rs: 1, default: 0 };
+
+	// Pipeline Stages:
+	//	#0 - Streaming pointer run ahead
+	//	#1 - Input Feed
+	//	#2 - Memory Access
+	//	#3 - Absorped Output Register
+	//	#4 - Extra Fabric Register [EXTRA_OUTPUT_REG]
 
 	// Counter history to facilitate pipeline rollback
-	ptr_t  Ptr[3] = '{
+	localparam int unsigned  PIPE_DEPTH = 3 + EXTRA_OUTPUT_REG;
+	ptr_t  Ptr[0:PIPE_DEPTH] = '{
 		0: '{ val: 0, lst: DEPTH<2 },
 		default: '{ default: 'x }
 	};
+	cmd_t   Cmd [1:PIPE_DEPTH] = '{ default: NOP };
+	data_t  Data[1:PIPE_DEPTH] = '{ default: 'x };
 
 	//-----------------------------------------------------------------------
-	// Stage #0: Address & Op
-	logic  Wr1 = 0;  // Write
-	logic  Rb1 = 0;  // Read back
-	logic  Rs1 = 0;  // Read stream
-	data_t  Data1 = 'x;
+	// Stage #0&1: Address & Op
 	if(1) begin : blkStage1
 		// Increment for wrapping DEPTH-1 back to zero
 		localparam int unsigned  WRAP_INC = 2**$bits(addr_t) - DEPTH + 1;
 
-		uwire ptr_t  ptr_eff = rollback? Ptr[2] : Ptr[0];
+		uwire ptr_t  ptr_eff = Ptr[rollback? PIPE_DEPTH : 0];
 		uwire ptr_t  ptr_nxt;
 		assign	ptr_nxt.val = ptr_eff.val + (config_ce? 0 : !ptr_eff.lst? 1 : WRAP_INC);
 		assign	ptr_nxt.lst =
@@ -100,37 +117,54 @@ module memstream #(
 		// Issue next Memory Operation
 		always_ff @(posedge clk) begin
 			if(rst) begin
-				Wr1 <= 0;
-				Rb1 <= 0;
-				Rs1 <= 0;
+				Cmd[1] <= NOP;
 				Ptr[1] <= '{ default : 'x };
-				Data1  <= 'x;
+				Data[1] <= 'x;
 			end
 			else if(en) begin
-				Wr1 <= 0;
-				Rb1 <= 0;
-				Rs1 <= 0;
+				Cmd[1] <= NOP;
 				if(config_ce) begin
-					if(config_we)  Wr1 <= 1;
-					else           Rb1 <= 1;
+					Cmd[1] <= config_we? WR : RB;
 					Ptr[1] <= '{ val: config_address, lst: 'x };
-					Data1  <= config_d0;
+					Data[1] <= config_d0;
 				end
 				else begin
-					Rs1 <= 1;
+					Cmd[1] <= RS;
 					Ptr[1] <= ptr_eff;
-					Data1  <= 'x;
+					Data[1] <= 'x;
 				end
 			end
 		end
 	end : blkStage1
 
 	//-----------------------------------------------------------------------
+	// Command Memory Bypass Pipeline
+	for(genvar  i = 2; i <= PIPE_DEPTH; i++) begin : genCmdPipe
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				Ptr[i] <= '{ default: 'x };
+				Cmd[i] <= NOP;
+			end
+			else begin
+				// always reset `rack` after a single clock cycle
+				if(i == PIPE_DEPTH)  Cmd[i].rb <= 0;
+
+				if(en) begin
+					// copy from previous stage ...
+					Ptr[i] <= Ptr[i-1];
+					Cmd[i] <= Cmd[i-1];
+					// ... but clear streaming pipe upon `rollback`
+					if(rollback)  Cmd[i].rs <= 0;
+				end
+			end
+		end
+	end : genCmdPipe
+
+	//-----------------------------------------------------------------------
+	// Data Readout Pipeline
+
 	// Stage #2: Memory Access
-	logic   Rb2 = 0;
-	logic   Rs2 = 0;
-	data_t  Data2;
-	if(1) begin : blkStage2
+	if(1) begin : blkData2
 		(* RAM_STYLE = RAM_STYLE *)
 		data_t  Mem[DEPTH];
 
@@ -138,84 +172,53 @@ module memstream #(
 		if(INIT_FILE != "")  initial $readmemh(INIT_FILE, Mem);
 
 		// Execute Memory Operation
-		uwire addr_t  addr = Ptr[1].val;
+		uwire  we = Cmd[1].wr;
+		uwire addr_t  wa = Ptr[1].val;
+		uwire data_t  wd = Data[1];
 		data_t  RdOut;
 		always_ff @(posedge clk) begin
 			if(en) begin
 				// NO_CHANGE mode as READ and WRITE never happen together.
-				if(Wr1)  Mem[addr] <= Data1;
-				else  RdOut <= Mem[addr];
+				if(we)  Mem[wa] <= wd;
+				else  RdOut <= Mem[wa];
 			end
 		end
+		always_comb  Data[2] = RdOut;
+	end : blkData2
 
-		// Stretch by Additional Pipeline Stages for Targetting URAM
-		localparam bit  STRETCH = (RAM_STYLE == "ultra") || (RAM_STYLE == "ULTRA");
-
-		uwire logic  irb  = Rb1;
-		uwire logic  irs  = Rs1 && !rollback;
-		uwire ptr_t  iptr = Ptr[1];
-		uwire logic  orb;
-		uwire logic  ors;
-		uwire ptr_t  optr;
-
-		if(!STRETCH) begin
-			assign	orb  = irb;
-			assign	ors  = irs;
-			assign	optr = iptr;
-
-			assign	Data2 = RdOut;
-		end
-		else begin
-			logic   SRb   =  0;
-			logic   SRs   =  0;
-			ptr_t   SPtr  = '{ default: 'x };
-			data_t  SData = 'x;
-			always_ff @(posedge clk) begin
-				if(rst) begin
-					SRb   <=  0;
-					SRs   <=  0;
-					SPtr  <= '{ default: 'x };
-					SData <= 'x;
-				end
-				else if(en) begin
-					SRb   <= irb;
-					SRs   <= irs;
-					SPtr  <= iptr;
-					SData <= RdOut;
-				end
-			end
-			assign	orb  = SRb;
-			assign	ors  = SRs && !rollback;
-			assign	optr = SPtr;
-
-			assign	Data2 = SData;
-		end
-
-		// Copy Output Designation
+	// Further Stages as configured
+	for(genvar  i = 3; i <= PIPE_DEPTH; i++) begin : genDataPipe
 		always_ff @(posedge clk) begin
-			if(rst) begin
-				Rb2 <= 0;
-				Rs2 <= 0;
-				Ptr[2] <= '{ default: 'x };
-			end
-			else if(en) begin
-				Rb2 <= orb;
-				Rs2 <= ors;
-				Ptr[2] <= optr;
-			end
+			if(en)  Data[i] <= Data[i-1];  // just copy
 		end
-	end : blkStage2
+	end : genDataPipe
 
 	//-----------------------------------------------------------------------
-	// Output Interfaces
-	assign	config_rack = Rb2;
-	assign	config_q0 = Data2;
+	// Output Interfaces & Flow Control
+	if(1) begin : blkOutput
 
-	assign	ovld = Rs2;
-	assign	odat = Data2;
+		uwire cmd_t  cmd = Cmd[PIPE_DEPTH];
+		uwire data_t  data = Data[PIPE_DEPTH];
 
-	uwire  backpressure = Rs2 && !ordy;
-	assign	rollback = backpressure && (Rb1 || config_ce);
-	assign	en       = !backpressure || Rb1 || config_ce;
+		// Wire up Outputs
+		assign	config_rack = cmd.rb;
+		assign	config_q0 = data;
+
+		assign	ovld = cmd.rs;
+		assign	odat = data;
+
+		// Flow Control & Pipeline Enablement
+		// - Streaming output is allowed to assert backpressure.
+		// - New config requests or pending readouts push forward nonetheless,
+		//   at the cost of a pipeline rollback for the stream readout.
+		uwire  backpressure = cmd.rs && !ordy;
+		uwire [PIPE_DEPTH-1:0]  push0;
+		assign	push0[0] = config_ce;
+		for(genvar  i = 1; i < PIPE_DEPTH; i++)  assign  push0[i] = Cmd[i].rb;
+		uwire  push = |push0;
+		assign	rollback = backpressure && push;
+		assign	en       = !backpressure || push;
+
+	end : blkOutput
 
 endmodule : memstream
