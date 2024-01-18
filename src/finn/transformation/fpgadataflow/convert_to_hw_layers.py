@@ -41,6 +41,146 @@ from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
 
+class InferConvInpGen(Transformation):
+    """Convert Im2Col layers to ConvolutionInputGenerator layers."""
+
+    def __init__(self, use_rtl_variant=False):
+        super().__init__()
+        self.use_rtl_variant = use_rtl_variant
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Im2Col":
+                i2c_input = n.input[0]
+                i2c_output = n.output[0]
+                i2c_in_shape = model.get_tensor_shape(i2c_input)
+                i2c_out_shape = model.get_tensor_shape(i2c_output)
+                dt = model.get_tensor_datatype(i2c_input)
+                if not dt.is_integer():
+                    warnings.warn("%s : Input is not int. Can't infer ConvInpGen." % n.name)
+                    continue
+                i2c_inst = getCustomOp(n)
+                stride_h, stride_w = i2c_inst.get_nodeattr("stride")
+                k_h, k_w = i2c_inst.get_nodeattr("kernel_size")
+                pad_attr = i2c_inst.get_nodeattr("pad_amount")
+                pad_h = pad_attr[0] + pad_attr[2]
+                pad_w = pad_attr[1] + pad_attr[3]
+                dilation_h, dilation_w = i2c_inst.get_nodeattr("dilations")
+                pad_val = i2c_inst.get_nodeattr("pad_value")
+                depthwise = i2c_inst.get_nodeattr("depthwise")
+                ifm_ch = i2c_in_shape[-1]
+                ifm_dim_h = i2c_in_shape[1]
+                ifm_dim_w = i2c_in_shape[2]
+                ofm_dim_h = i2c_out_shape[1]
+                ofm_dim_w = i2c_out_shape[2]
+
+                # default params for ConvolutionInputGenerator
+                ConvInpGen_node_idx = node_ind
+                ConvInpGen_input = i2c_input
+                ConvInpGen_idim_h = ifm_dim_h
+                ConvInpGen_idim_w = ifm_dim_w
+
+                if pad_h > 0 or pad_w > 0:
+                    assert pad_val == 0, (
+                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0" % n.name
+                    )
+
+                    odim_padding_h = ifm_dim_h + pad_h
+                    odim_padding_w = ifm_dim_w + pad_w
+
+                    padding_out = helper.make_tensor_value_info(
+                        model.make_new_valueinfo_name(),
+                        TensorProto.FLOAT,
+                        (1, odim_padding_h, odim_padding_w, ifm_ch),
+                    )
+                    graph.value_info.append(padding_out)
+                    padding_out = padding_out.name
+                    model.set_tensor_datatype(padding_out, dt)
+
+                    ConvInpGen_node_idx += 1
+                    ConvInpGen_input = padding_out
+                    ConvInpGen_idim_h = odim_padding_h
+                    ConvInpGen_idim_w = odim_padding_w
+
+                    padding_node = helper.make_node(
+                        "FMPadding",
+                        [i2c_input],
+                        [padding_out],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        ImgDim=[ifm_dim_h, ifm_dim_w],
+                        Padding=pad_attr,
+                        NumChannels=ifm_ch,
+                        inputDataType=dt.name,
+                        SIMD=ifm_ch,
+                        name="FMPadding_Batch_" + n.name,
+                    )
+                    graph.node.insert(node_ind, padding_node)
+
+                is_kernel_pointwise = k_h == 1 and k_w == 1
+                is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
+                is_equal_stride = stride_h == stride_w
+
+                is_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
+                if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
+                    downsample_1D = is_1D
+                    is1D_unitx = ifm_dim_w == 1
+                    downsample_2D = (not downsample_1D) and is_square_image and is_equal_stride
+                    if not (downsample_1D or downsample_2D):
+                        warnings.warn(f"Couldn't infer Downsample from {n.name},check config.")
+                        continue
+                    ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
+                    stride = max(stride_h, stride_w)
+                    # create DownSampler node
+                    ConvInpGen_node = helper.make_node(
+                        "DownSampler",
+                        [ConvInpGen_input],
+                        [i2c_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        ImgDim=ConvInpGen_idim,
+                        NumChannels=ifm_ch,
+                        SIMD=ifm_ch,
+                        Stride=stride,
+                        inputDataType=dt.name,
+                        name="DownSampler_" + n.name,
+                        is1D=downsample_1D,
+                        is1D_unitx=is1D_unitx,
+                    )
+                else:
+                    ConvInpGen_node = helper.make_node(
+                        "ConvolutionInputGenerator",
+                        [ConvInpGen_input],
+                        [i2c_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        ConvKernelDim=[k_h, k_w],
+                        IFMChannels=ifm_ch,
+                        IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                        OFMDim=[ofm_dim_h, ofm_dim_w],
+                        SIMD=ifm_ch,
+                        Stride=[stride_h, stride_w],
+                        Dilation=[dilation_h, dilation_w],
+                        inputDataType=dt.name,
+                        outputDataType=dt.name,
+                        depthwise=depthwise,
+                        is1D=is_1D,
+                        name="ConvolutionInputGenerator_" + n.name,
+                    )
+                graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                # remove old nodes
+                graph.node.remove(n)
+                graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 

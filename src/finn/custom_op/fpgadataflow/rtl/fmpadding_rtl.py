@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -56,8 +56,6 @@ class FMPadding_rtl(FMPadding, RTLBackend):
             # Enable reprogrammable implementation to change FM dimensions,
             # stride, or dilation during runtime
             "dynamic_mode": ("i", False, 0, {0, 1}),
-            # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(FMPadding.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))

@@ -26,10 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
+    ConvolutionInputGenerator_rtl,
+)
 from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
+from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
+    StreamingDataWidthConverter_rtl,
+)
 
 custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
+custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl

@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,10 +29,11 @@
 import numpy as np
 import os
 import shutil
-import warnings
-from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
+    StreamingDataWidthConverter,
+)
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -42,40 +43,15 @@ except ModuleNotFoundError:
     PyVerilator = None
 
 
-class StreamingDataWidthConverter_rtl(HLSCustomOp):
+class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
     """Class that corresponds to finn-rtllib datawidth converter
     module."""
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # shape of input/output tensors
-            "shape": ("ints", True, []),
-            # bit width of input and output streams
-            "inWidth": ("i", True, 0),
-            "outWidth": ("i", True, 0),
-            # FINN DataTypes for inputs/outputs
-            "dataType": ("s", True, ""),
-            # attribute to save top module name - not user configurable
-            "gen_top_module": ("s", False, ""),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = {}
+        my_attrs.update(StreamingDataWidthConverter.get_nodeattr_types(self))
+        my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("dataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("dataType")]
-
-    def get_normal_input_shape(self, ind=0):
-        ishape = self.get_nodeattr("shape")
-        return ishape
-
-    def get_normal_output_shape(self, ind=0):
-        oshape = self.get_nodeattr("shape")
-        return oshape
 
     def check_divisible_iowidths(self):
         iwidth = self.get_nodeattr("inWidth")
@@ -94,83 +70,6 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
             iwidth,
             owidth,
         )
-
-    def get_folded_input_shape(self, ind=0):
-        self.check_divisible_iowidths()
-        iwidth = self.get_nodeattr("inWidth")
-        ishape = self.get_normal_input_shape()
-        dummy_t = np.random.randn(*ishape)
-        ibits = self.get_input_datatype().bitwidth()
-        assert (
-            iwidth % ibits == 0
-        ), """DWC input width must be divisible by
-        input element bitwidth"""
-        ielems = int(iwidth // ibits)
-        ichannels = ishape[-1]
-        new_shape = []
-        for i in ishape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ichannels // ielems))
-        new_shape.append(ielems)
-        dummy_t = dummy_t.reshape(new_shape)
-        return dummy_t.shape
-
-    def get_folded_output_shape(self, ind=0):
-        self.check_divisible_iowidths()
-        owidth = self.get_nodeattr("outWidth")
-        oshape = self.get_normal_output_shape()
-        dummy_t = np.random.randn(*oshape)
-        obits = self.get_output_datatype().bitwidth()
-        assert (
-            owidth % obits == 0
-        ), """DWC output width must be divisible by
-        input element bitwidth"""
-        oelems = int(owidth // obits)
-        ochannels = oshape[-1]
-        new_shape = []
-        for i in oshape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ochannels // oelems))
-        new_shape.append(oelems)
-        dummy_t = dummy_t.reshape(new_shape)
-
-        return dummy_t.shape
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
-    def get_instream_width(self, ind=0):
-        in_width = self.get_nodeattr("inWidth")
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        out_width = self.get_nodeattr("outWidth")
-        return out_width
-
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == tuple(exp_ishape), "Unexpect input shape for StreamingDWC."
-        return super().make_const_shape_op(oshape)
-
-    def infer_node_datatype(self, model):
-        node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype()),
-                str(idt),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("dataType", idt.name)
-        # data type stays the same
-        model.set_tensor_datatype(node.output[0], idt)
-
-    def verify_node(self):
-        pass
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -316,46 +215,3 @@ class StreamingDataWidthConverter_rtl(HLSCustomOp):
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
         ]
         return cmd
-
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        """Normally: Generates C++ code and tcl script for IP generation.
-        Here: Generates (System-)Verilog code for IP generation."""
-        self.generate_hdl()
-
-    def ipgen_singlenode_code(self):
-        """Normally: Builds the bash script for IP generation."""
-        pass
-
-    def code_generation_cppsim(self, model):
-        """Normally: Generates C++ code for simulation (cppsim)."""
-        pass
-
-    def compile_singlenode_code(self):
-        pass
-
-    def global_includes(self):
-        pass
-
-    def defines(self, var):
-        pass
-
-    def read_npy_data(self):
-        pass
-
-    def strm_decl(self):
-        pass
-
-    def docompute(self):
-        pass
-
-    def dataoutstrm(self):
-        pass
-
-    def save_as_npy(self):
-        pass
-
-    def blackboxfunction(self):
-        pass
-
-    def pragmas(self):
-        pass

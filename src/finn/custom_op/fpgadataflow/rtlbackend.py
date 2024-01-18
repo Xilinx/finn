@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,10 @@ class RTLBackend(ABC):
     when writing a new RTL custom op node."""
 
     def get_nodeattr_types(self):
-        return {}
+        return {
+            # attribute to save top module name - not user configurable
+            "gen_top_module": ("s", False, ""),
+        }
 
     @abstractmethod
     def generate_hdl(self):
