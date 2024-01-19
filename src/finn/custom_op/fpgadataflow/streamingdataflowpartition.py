@@ -72,6 +72,9 @@ class StreamingDataflowPartition(CustomOp):
                 inp_ctx[new_iname] = inp_ctx[old_iname]
                 del inp_ctx[old_iname]
         ret = execute_onnx(model, inp_ctx, return_full_exec_context)
+        # model may be have been updated by e.g. rtlsim node-by-node cycle
+        # count attributes, so re-save
+        model.save(self.get_nodeattr("model"))
         # outputs may have been renamed in partition
         for i, node_oname in enumerate(node.output):
             model_oname = model.graph.output[i].name

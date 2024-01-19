@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from pathlib import Path
 from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 from qonnx.custom_op.registry import getCustomOp
 
@@ -128,14 +129,32 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
         sim = pyverilate_stitched_ip(model, extra_verilator_args=extra_verilator_args)
-        model.set_metadata_prop("rtlsim_so", sim.lib._name)
+        rtlsim_so = sim.lib._name
+        model.set_metadata_prop("rtlsim_so", rtlsim_so)
     else:
         sim = PyVerilator(rtlsim_so, auto_eval=False)
 
+    # see if we have monitor outputs in the sim, indicated by the mon_ prefix
+    has_monitors = any([x.startswith("mon_") for x in dir(sim.io)])
+    mon_if_names = set()
+    if has_monitors:
+        for k in dir(sim.io):
+            if k.startswith("mon_"):
+                mon_if_names.add(k.split("_")[1])
+        io_dict["monitor"] = {("mon_" + k): [] for k in mon_if_names}
+
+    rtlsim_dir = str(Path(rtlsim_so).parent.absolute())
+    # cd into dir containing pyverilator .so to find meminit files there
+    oldcwd = os.getcwd()
+    os.chdir(rtlsim_dir)
+
     # reset and call rtlsim, including any pre/post hooks
-    reset_rtlsim(sim)
     if pre_hook is not None:
+        reset_rtlsim(sim)
         pre_hook(sim)
+        integrated_reset = False
+    else:
+        integrated_reset = True
     n_cycles = rtlsim_multi_io(
         sim,
         io_dict,
@@ -143,6 +162,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         trace_file=trace_file,
         sname="_",
         liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        do_reset=integrated_reset,
     )
     if post_hook is not None:
         post_hook(sim)
@@ -158,4 +178,21 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         )
         execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 
+    if has_monitors:
+        for k, v in io_dict["monitor"].items():
+            node_nm = k.replace("mon_", "")
+            node = [x for x in model.graph.node if x.name == node_nm][0]
+            o_name = node.output[0]
+            inst = getCustomOp(node)
+            o_folded_shape = inst.get_folded_output_shape()
+            o_stream_w = inst.get_outstream_width()
+            o_dt = model.get_tensor_datatype(o_name)
+            o_shape = model.get_tensor_shape(o_name)
+            packed_output = v
+            o_folded_tensor = rtlsim_output_to_npy(
+                packed_output, None, o_dt, o_folded_shape, o_stream_w, o_dt.bitwidth()
+            )
+            execution_context[o_name] = o_folded_tensor.reshape(o_shape)
+
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
+    os.chdir(oldcwd)

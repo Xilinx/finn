@@ -111,7 +111,7 @@ module replay_buffer #(
 			assign	last_rep = RepLst;
 		end : blkRep
 
-		localparam int unsigned  AWIDTH = $clog2(LEN);
+		localparam int unsigned  AWIDTH = LEN < 2? 1 : $clog2(LEN);
 		typedef logic [AWIDTH  :0]  ptr_t;	// pointers with additional generational MSB
 		typedef logic [W     -1:0]  data_t;
 

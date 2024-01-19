@@ -123,7 +123,7 @@ module $TOP_MODULE_NAME$_impl #(
         .TAIL_INCR_LAST($TAIL_INCR_LAST$),
         .INCR_BITWIDTH($INCR_BITWIDTH$),
         .IS_DEPTHWISE($IS_DEPTHWISE$),
-        .INNERMOST_STATE($INNERMOST_STATE$)
+        .INNERMOST_STATE(swg::$INNERMOST_STATE$)
     )
     controller_inst (
         .clk(ap_clk),
@@ -136,7 +136,6 @@ module $TOP_MODULE_NAME$_impl #(
     // counters/address registers
     logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = FIRST_WRITE_ELEM;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
 
     // control registers/signals
     logic  Writing_done  = 0;
@@ -146,13 +145,7 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  write_blocked = write_cmd && !out_V_V_TREADY && !Write_done;
 
     uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
-    uwire  read_cmd     =
-        !reading_done && ( // if there is still an input element left to read
-            Writing_done || ( // if writing is done (e.g. for skipped rows at FM end due to stride)
-                $signed(((Newest_buffered_elem - ($signed(BUF_ELEM_TOTAL) - 1)))) < $signed(First_elem_next_window) &&
-                $signed(((Newest_buffered_elem - ($signed(BUF_ELEM_TOTAL) - 1)))) < $signed(Current_elem)
-            ) // (over-)write to buffer if oldest buffered element will no longer be needed
-        );
+    uwire  read_cmd     = !reading_done && (Writing_done || Newest_buffered_elem <= $signed(Current_elem));
     uwire  read_ok      = read_cmd && in0_V_V_TVALID && !write_blocked;
 
     //            includes waiting on W    if W-only cycle: wait only on W     no R/W to wait for
@@ -186,7 +179,6 @@ module $TOP_MODULE_NAME$_impl #(
         if(!ap_rst_n) begin
             Newest_buffered_elem <= -1;
             Current_elem <= FIRST_WRITE_ELEM;
-            First_elem_next_window <= 0;
             Writing_done <= 0;
         end
         else begin
@@ -199,14 +191,11 @@ module $TOP_MODULE_NAME$_impl #(
                     // todo: allow for read overlapping between feature maps (i.e., reading first elements from next FM while still writing last window of current FM)
                     Newest_buffered_elem <= -1;
                     Current_elem <= FIRST_WRITE_ELEM;
-                    First_elem_next_window <= 0;
                     Writing_done <= 0;
                 end
             end
 
             if (write_ok) begin
-                First_elem_next_window <= First_elem_next_window + tail_incr;
-
                 // check if this is the last write cycle (Writing_done will be true afterwards)
                 if (Current_elem == LAST_WRITE_ELEM) begin
                     Writing_done <= 1;
@@ -215,7 +204,6 @@ module $TOP_MODULE_NAME$_impl #(
                         // start processing of next FM if reading is done already, or completes in the same cycle
                         Newest_buffered_elem <= -1;
                         Current_elem <= FIRST_WRITE_ELEM;
-                        First_elem_next_window <= 0;
                         Writing_done <= 0;
                     end
                 end

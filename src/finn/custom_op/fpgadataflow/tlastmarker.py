@@ -130,11 +130,9 @@ class TLastMarker(HLSCustomOp):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 "for(unsigned int i=0; i<NumItersPerImg; i++) {",
                 "#pragma HLS PIPELINE II=1",
-                "out_%s.write(in0_%s.read().get_data());"
-                % (self.hls_sname(), self.hls_sname())
+                "out_%s.write(in0_%s.read().get_data());" % (self.hls_sname(), self.hls_sname())
                 if use_qdma_axis
-                else "out_%s.write(in0_%s.read().data);"
-                % (self.hls_sname(), self.hls_sname()),
+                else "out_%s.write(in0_%s.read().data);" % (self.hls_sname(), self.hls_sname()),
                 "}",
             ]
 
@@ -220,9 +218,7 @@ class TLastMarker(HLSCustomOp):
                 "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
             )
 
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
@@ -248,12 +244,10 @@ class TLastMarker(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<InDType> in0_%s ("in0_%s");'
-            % (self.hls_sname(), self.hls_sname())
+            'hls::stream<InDType> in0_%s ("in0_%s");' % (self.hls_sname(), self.hls_sname())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<OutDType> out_%s ("out_%s");'
-            % (self.hls_sname(), self.hls_sname())
+            'hls::stream<OutDType> out_%s ("out_%s");' % (self.hls_sname(), self.hls_sname())
         )
 
     def get_verilog_top_module_intf_names(self):

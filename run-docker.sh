@@ -93,16 +93,21 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
+: ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
+: ${FINN_SKIP_BOARD_FILES="0"}
 : ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 
 DOCKER_INTERACTIVE=""
 
+# Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
+FINN_DOCKER_EXTRA+=" "
+
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"
-  DOCKER_CMD="python setup.py test"
+  DOCKER_CMD="pytest"
 elif [ "$1" = "quicktest" ]; then
   gecho "Running test suite (non-Vivado, non-slow tests)"
   DOCKER_CMD="quicktest.sh"
@@ -178,7 +183,7 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG .
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
   cd $OLD_PWD
 fi
 # Launch container with current directory mounted

@@ -122,7 +122,7 @@ class FINNExampleOverlay(Overlay):
         w_filenames = []
         if not os.path.isdir(self.runtime_weight_dir):
             return
-        for (dirpath, dirnames, filenames) in os.walk(self.runtime_weight_dir):
+        for dirpath, dirnames, filenames in os.walk(self.runtime_weight_dir):
             w_filenames.extend(filenames)
 
         tmp_weight_dict = {}
@@ -173,7 +173,7 @@ class FINNExampleOverlay(Overlay):
         w_filenames = []
         if not os.path.isdir(self.runtime_weight_dir):
             return
-        for (dirpath, dirnames, filenames) in os.walk(self.runtime_weight_dir):
+        for dirpath, dirnames, filenames in os.walk(self.runtime_weight_dir):
             w_filenames.extend(filenames)
         rt_weight_dict = {}
         for w_filename in w_filenames:
@@ -182,22 +182,27 @@ class FINNExampleOverlay(Overlay):
                     dat = f.read()
             else:
                 continue
-            layer_w = np.fromiter(
-                [int(x, 16) for x in dat.strip().split()], dtype=np.uint32
-            )
+            layer_w = np.fromiter([int(x, 16) for x in dat.strip().split()], dtype=np.uint32)
             sdp_ind = int(w_filename.split("_")[0])
             layer_ind = int(w_filename.split("_")[1])
             rt_weight_dict[(sdp_ind, layer_ind)] = layer_w
         for sdp_ind, layer_ind in rt_weight_dict.keys():
             cand_if_name = "StreamingDataflowPartition_%d" % sdp_ind
             if cand_if_name in self.ip_dict.keys():
-                layer_mmio = getattr(
-                    self, "StreamingDataflowPartition_%d" % sdp_ind
-                ).mmio
+                layer_mmio = getattr(self, "StreamingDataflowPartition_%d" % sdp_ind).mmio
                 layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
-                    new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
+                    if self.platform == "alveo":
+                        # Pynq for Alveo uses tinynumpy under the hood. There is a bug when going
+                        # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
+                        # convert the tinynumpy.ndarray to a list and then copy the list to a
+                        # numpy.ndarray.
+                        new_w = np.copy(
+                            list(layer_mmio.array[: layer_w.shape[0]]), dtype=layer_w.dtype
+                        )
+                    else:
+                        new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
                     assert (layer_w == new_w).all()
         if flush_accel:
             # run accelerator to flush any stale weights from weight streamer FIFOs
@@ -266,12 +271,12 @@ class FINNExampleOverlay(Overlay):
         self.obuf_packed = []
         for i in range(self.num_inputs):
             new_packed_ibuf = allocate(
-                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable
+                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.ibuf_packed_device.append(new_packed_ibuf)
         for o in range(self.num_outputs):
             new_packed_obuf = allocate(
-                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable
+                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.obuf_packed_device.append(new_packed_obuf)
             self.obuf_packed.append(np.empty_like(new_packed_obuf))
@@ -342,9 +347,7 @@ class FINNExampleOverlay(Overlay):
         assert batch_size <= self.batch_size, "Specified batch_size is too large."
         if self.platform == "zynq-iodma":
             for o in range(self.num_outputs):
-                assert (
-                    self.odma[o].read(0x00) & 0x4 != 0
-                ), "Output DMA %d is not idle" % (o)
+                assert self.odma[o].read(0x00) & 0x4 != 0, "Output DMA %d is not idle" % (o)
             # manually launch IODMAs since signatures are missing
             for iwdma, iwbuf, iwdma_name in self.external_weights:
                 iwdma.write(0x10, iwbuf.device_address)
@@ -360,17 +363,13 @@ class FINNExampleOverlay(Overlay):
                 self.idma[i].write(0x00, 1)
         elif self.platform == "alveo":
             for o in range(self.num_outputs):
-                assert self.odma_handle[o] is None, (
-                    "Output DMA %d is already running" % o
-                )
+                assert self.odma_handle[o] is None, "Output DMA %d is already running" % o
             for i in range(self.num_inputs):
                 self.idma[i].start(self.ibuf_packed_device[i], batch_size)
             for iwdma, iwbuf, iwdma_name in self.external_weights:
                 iwdma.start(iwbuf, batch_size)
             for o in range(self.num_outputs):
-                self.odma_handle[o] = self.odma[o].start(
-                    self.obuf_packed_device[o], batch_size
-                )
+                self.odma_handle[o] = self.odma[o].start(self.obuf_packed_device[o], batch_size)
         else:
             raise Exception("Unrecognized platform: %s" % self.platform)
         # blocking behavior depends on asynch parameter
@@ -386,9 +385,7 @@ class FINNExampleOverlay(Overlay):
                 while status & 0x2 == 0:
                     status = self.odma[o].read(0x00)
         elif self.platform == "alveo":
-            assert all(
-                [x is not None for x in self.odma_handle]
-            ), "No odma_handle to wait on"
+            assert all([x is not None for x in self.odma_handle]), "No odma_handle to wait on"
             for o in range(self.num_outputs):
                 self.odma_handle[o].wait()
                 self.odma_handle[o] = None
@@ -402,9 +399,7 @@ class FINNExampleOverlay(Overlay):
         # if single input, convert to list to normalize how we process the input
         if not type(input_npy) is list:
             input_npy = [input_npy]
-        assert self.num_inputs == len(
-            input_npy
-        ), "Not all accelerator inputs are specified."
+        assert self.num_inputs == len(input_npy), "Not all accelerator inputs are specified."
         for i in range(self.num_inputs):
             ibuf_folded = self.fold_input(input_npy[i], ind=i)
             ibuf_packed = self.pack_input(ibuf_folded, ind=i)

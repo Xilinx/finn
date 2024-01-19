@@ -102,6 +102,13 @@ RUN pip install pandas==1.5.3
 RUN pip install scikit-learn==1.2.1
 RUN pip install tqdm==4.64.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
+# these versions of pytest and associated plugins allow for stable collection of
+# test reports and code coverage reports in HTML
+RUN pip install pytest==6.2.5
+RUN pip install pytest-metadata==1.7.0
+RUN pip install pytest-html==3.0.0
+RUN pip install pytest-html-merger==0.0.8
+RUN pip install pytest-cov==4.1.0
 
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster

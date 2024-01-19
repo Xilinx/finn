@@ -64,7 +64,7 @@ def get_folding_cfg(depth=65536):
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize("depth", [16384, 65536, 45000])
-@pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
+@pytest.mark.parametrize("force_python_rtlsim", [True, False])
 def test_split_large_fifos(depth, force_python_rtlsim):
     tmp_output_dir = fetch_test_model("tfc")
     folding_cfg = get_folding_cfg(depth)
@@ -94,13 +94,9 @@ def test_split_large_fifos(depth, force_python_rtlsim):
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
     assert (
-        float(sim_data["throughput[images/s]"])
-        / float(est_data["estimated_throughput_fps"])
-        > 0.9
+        float(sim_data["throughput[images/s]"]) / float(est_data["estimated_throughput_fps"]) > 0.9
     )
-    model = ModelWrapper(
-        tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx"
-    )
+    model = ModelWrapper(tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx")
     # exclude final FIFO node (output FIFO, not part of test)
     fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")[:-1]
     golden_cfg = get_fifo_split_configs(depth, 256, 32768)

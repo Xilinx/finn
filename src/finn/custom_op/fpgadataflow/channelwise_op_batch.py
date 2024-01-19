@@ -178,9 +178,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required Threshold_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required Threshold_Batch attributes do not exist.""")
 
         return info_messages
 
@@ -300,9 +298,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         assert (orig_param_vector.astype(np.int32) == orig_param_vector).all()
         ret = orig_param_vector
 
-        assert (
-            ret.shape[0] == chn
-        ), "Cardinality of parameter vector is not as expected (chn)"
+        assert ret.shape[0] == chn, "Cardinality of parameter vector is not as expected (chn)"
 
         # distribute rows between PEs
         ret = ret.reshape(tmem, pe).transpose()
@@ -324,9 +320,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         parameter_tensor = self.get_hls_compatible_parameter_tensor(parameters)
         pdt = DataType[self.get_nodeattr("paramDataType")]
 
-        parameters_hls_code = numpy_to_hls_code(
-            parameter_tensor, pdt, "parameters", False, True
-        )
+        parameters_hls_code = numpy_to_hls_code(parameter_tensor, pdt, "parameters", False, True)
         # get input data type
         export_idt = self.get_input_datatype()
         if self.get_input_datatype() == DataType["BIPOLAR"]:
@@ -430,20 +424,14 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             output = self.rtlsim(sim, inp)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -584,18 +572,13 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         # the channelwise parameter tensor is acc_type [PE][TMEM][N_PARAMS_PER_CHANNEL]
         # partition for parallel access along PE and N_PARAMS_PER_CHANNEL
         # dimensions (dims 1 and 3)
         self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.parameters "
-                "complete dim=1"
-            )
+            ("#pragma HLS ARRAY_PARTITION variable=threshs.parameters " "complete dim=1")
         )
         # self.code_gen_dict["$PRAGMAS$"].append(
         #     (
@@ -613,17 +596,11 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         if pe < ich:
             if ram_style == "distributed":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.parameters "
-                        "core=ROM_2P_LUTRAM"
-                    )
+                    ("#pragma HLS RESOURCE variable=threshs.parameters " "core=ROM_2P_LUTRAM")
                 )
             elif ram_style == "block":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.parameters "
-                        "core=ROM_2P_BRAM"
-                    )
+                    ("#pragma HLS RESOURCE variable=threshs.parameters " "core=ROM_2P_BRAM")
                 )
             else:
                 raise Exception(

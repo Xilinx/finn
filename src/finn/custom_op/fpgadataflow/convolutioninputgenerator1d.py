@@ -245,13 +245,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         no_dilation = dilation_h == 1 and dilation_w == 1
         supported_ram_style = ram_style in ["auto", "distributed"]
         if self.get_nodeattr("parallel_window") == 1:
-            if (
-                fully_unfolded
-                and non_dws
-                and no_stride
-                and no_dilation
-                and supported_ram_style
-            ):
+            if fully_unfolded and non_dws and no_stride and no_dilation and supported_ram_style:
                 return True
             else:
                 warnings.warn(
@@ -289,10 +283,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             "ConvolutionInputGenerator_1D_dws_stride",
         ]:
             exp_cycles = (
-                1
-                + ofm_dim_w * k_w * ifm_ch / simd
-                + (ifm_ch / simd) * (k_w - 1)
-                - (k_w - 1)
+                1 + ofm_dim_w * k_w * ifm_ch / simd + (ifm_ch / simd) * (k_w - 1) - (k_w - 1)
             )
         elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
             cycles_read_block = ifm_dim_w * ifm_ch / simd
@@ -337,9 +328,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 ram_width = 2
             else:
                 ram_width = 1
-            width_mul = math.ceil(
-                simd * self.get_input_datatype().bitwidth() / ram_width
-            )
+            width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / ram_width)
             depth_mul = math.ceil(ram_depth / 18432)
             return width_mul * depth_mul
         else:
@@ -358,25 +347,17 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         ram_style = self.get_nodeattr("ram_style")
         swu_variant = self.get_swu_variant()
         if swu_variant == "ConvolutionInputGenerator_1D_parallel":
-            ram_luts = math.ceil(
-                simd * self.get_input_datatype().bitwidth() * (k_w + 1) / 64
-            )
+            ram_luts = math.ceil(simd * self.get_input_datatype().bitwidth() * (k_w + 1) / 64)
         elif ram_style == "distributed":
             if swu_variant == "ConvolutionInputGenerator_1D":
-                ram_luts = math.ceil(
-                    self.get_input_datatype().bitwidth() * (k_w - 1) * ifm_ch / 64
-                )
+                ram_luts = math.ceil(self.get_input_datatype().bitwidth() * (k_w - 1) * ifm_ch / 64)
             elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
-                ram_luts = math.ceil(
-                    self.get_input_datatype().bitwidth() * ifm_dim_w * ifm_ch / 64
-                )
+                ram_luts = math.ceil(self.get_input_datatype().bitwidth() * ifm_dim_w * ifm_ch / 64)
             elif swu_variant in [
                 "ConvolutionInputGenerator_1D_dws",
                 "ConvolutionInputGenerator_1D_dws_stride",
             ]:
-                ram_luts = math.ceil(
-                    self.get_input_datatype().bitwidth() * k_w * ifm_ch / 64
-                )
+                ram_luts = math.ceil(self.get_input_datatype().bitwidth() * k_w * ifm_ch / 64)
         else:
             ram_luts = 0
         return 300 + ram_luts
@@ -467,8 +448,6 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             rtlsim_inp = npy_to_rtlsim_input(
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
             odt = export_idt
             target_bits = odt.bitwidth()
@@ -741,6 +720,4 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

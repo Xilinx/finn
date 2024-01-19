@@ -31,6 +31,7 @@ from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
 from qonnx.util.basic import get_by_name
 
 
@@ -41,11 +42,12 @@ class InsertTLastMarker(Transformation):
     More information available on the TLastMarker documentation.
     """
 
-    def __init__(self, both=False, external=True, dynamic=True):
+    def __init__(self, both=False, external=True, dynamic=True, filter_fxn=None):
         super().__init__()
         self.dyniters = dynamic
         self.external = external
         self.both = both
+        self.filter_fxn = filter_fxn
 
     def apply(self, model):
         # TODO only makes sense for a pure fpgadataflow graph -- check!
@@ -54,10 +56,8 @@ class InsertTLastMarker(Transformation):
         graph_modified = False
         if final_node.op_type != "TLastMarker" and not (
             final_node.op_type == "IODMA"
-            and get_by_name(final_node.attribute, "direction").s.decode("UTF-8")
-            == "out"
+            and get_by_name(final_node.attribute, "direction").s.decode("UTF-8") == "out"
         ):
-
             custom_op = getCustomOp(final_node)
             num_iters = int(custom_op.get_number_output_values())
             stream_width = int(custom_op.get_outstream_width())
@@ -84,6 +84,7 @@ class InsertTLastMarker(Transformation):
                 Protocol=("external" if self.external else "internal"),
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
+                name="TLastMarker_output",
             )
             model.graph.node.append(tlast_node)
             graph_modified = True
@@ -113,18 +114,13 @@ class InsertTLastMarker(Transformation):
                 # 2. node is either a TLastMarker or an input IODMA
                 if first_node.op_type != "TLastMarker" and not (
                     first_node.op_type == "IODMA"
-                    and get_by_name(first_node.attribute, "direction").s.decode("UTF-8")
-                    == "in"
+                    and get_by_name(first_node.attribute, "direction").s.decode("UTF-8") == "in"
                 ):
-
                     custom_op = getCustomOp(first_node)
                     num_iters = np.prod(custom_op.get_folded_input_shape()[1:-1])
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
-                        if (
-                            first_node.op_type == "MatrixVectorActivation"
-                            and inp_idx == 1
-                        ):
+                        if first_node.op_type == "MatrixVectorActivation" and inp_idx == 1:
                             stream_width = int(custom_op.get_weightstream_width())
                         elif first_node.op_type == "AddStreams_Batch" and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width())
@@ -159,8 +155,52 @@ class InsertTLastMarker(Transformation):
                         Protocol=("external" if self.external else "internal"),
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
+                        name="TLastMarker_input",
                     )
                     model.graph.node.insert(insert_idx, tlast_node)
                     graph_modified = True
                     insert_idx += 1
+        if self.filter_fxn is not None:
+            match_nodes = list(filter(self.filter_fxn, model.graph.node))
+            for node in match_nodes:
+                if node.op_type == "TLastMarker":
+                    continue
+                sc = model.find_direct_successors(node)
+                if sc is not None and sc[0].op_type == "TLastMarker":
+                    continue
+                custom_op = getCustomOp(node)
+                num_iters = int(custom_op.get_number_output_values())
+                stream_width = int(custom_op.get_outstream_width())
+                node_out_name = node.output[0]
+                out_shape = model.get_tensor_shape(node_out_name)
+                out_dtype = model.get_tensor_datatype(node_out_name)
+                elem_width = out_dtype.bitwidth()
+                # make new buffer
+                new_node_out = oh.make_tensor_value_info(
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                )
+                model.graph.value_info.append(new_node_out)
+                model.set_tensor_datatype(new_node_out.name, out_dtype)
+                # reroute node output to node_out_name
+                node.output[0] = new_node_out.name
+                tlast_node = oh.make_node(
+                    "TLastMarker",
+                    [new_node_out.name],
+                    [node_out_name],
+                    NumIters=num_iters,
+                    StreamWidth=stream_width,
+                    ElemWidth=elem_width,
+                    DynIters=(1 if self.dyniters else 0),
+                    Direction="out",
+                    Protocol=("external" if self.external else "internal"),
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="TLastMarker_" + node.name,
+                )
+                model.graph.node.append(tlast_node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(SortGraph())
+
         return (model, graph_modified)

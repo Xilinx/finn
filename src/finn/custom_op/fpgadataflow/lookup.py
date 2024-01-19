@@ -184,9 +184,7 @@ class Lookup(HLSCustomOp):
             my_defines.append("#define T_SRC %s" % elem_hls_type)
             my_defines.append("#define T_DST ap_uint<MemBits>")
         elif mem_mode == "const":
-            my_defines.append(
-                "#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings")
-            )
+            my_defines.append("#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings"))
             my_defines.append("#define EmbeddingDim %d" % emb_dim)
             my_defines.append("#define InputType %s" % elem_hls_type)
             my_defines.append("#define EmbeddingType %s" % emb_hls_type)
@@ -310,18 +308,12 @@ class Lookup(HLSCustomOp):
         my_pragmas.append("#pragma HLS INTERFACE axis port=out_" + self.hls_sname())
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if mem_mode == "const":
-            my_pragmas.append(
-                "#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM"
-            )
+            my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")
         elif mem_mode == "external":
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
             my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")
-            my_pragmas.append(
-                "#pragma HLS INTERFACE s_axilite port=size bundle=control"
-            )
-            my_pragmas.append(
-                "#pragma HLS INTERFACE s_axilite port=oob_count bundle=control"
-            )
+            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=size bundle=control")
+            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=oob_count bundle=control")
             my_pragmas.append("#pragma HLS INTERFACE ap_none port=oob_irq")
         else:
             raise Exception("Unrecognized mem_mode: " + mem_mode)
@@ -342,9 +334,7 @@ class Lookup(HLSCustomOp):
             # reverse innertmost dim in embeddings to remain compatible with
             # how we normally encode the data in FINN
             embeddings_rev = np.flip(embeddings, -1)
-            embeddings_hls_code = numpy_to_hls_code(
-                embeddings_rev, edt, "embeddings", True, False
-            )
+            embeddings_hls_code = numpy_to_hls_code(embeddings_rev, edt, "embeddings", True, False)
             f_thresh = open(weight_filename, "w")
             f_thresh.write(embeddings_hls_code)
             f_thresh.close()
@@ -366,9 +356,7 @@ class Lookup(HLSCustomOp):
             pad_amount = align_factor - emb_dim
             embeddings_padded = np.pad(embeddings, [(0, 0), (0, pad_amount)])
             # reshape for packing the innermost dim
-            embeddings_padded = embeddings_padded.reshape(
-                -1, emb_elems_per_ext_mem_width
-            )
+            embeddings_padded = embeddings_padded.reshape(-1, emb_elems_per_ext_mem_width)
             weight_filename = "%s/%s.dat" % (path, self.onnx_node.name)
             ret = pack_innermost_dim_as_hex_string(
                 embeddings_padded, edt, ext_mem_width, True, prefix=""
@@ -427,8 +415,6 @@ class Lookup(HLSCustomOp):
             rtlsim_inp = npy_to_rtlsim_input(
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

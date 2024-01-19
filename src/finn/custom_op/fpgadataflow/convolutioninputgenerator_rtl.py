@@ -36,7 +36,11 @@ from qonnx.custom_op.general.im2col import compute_conv_output_dim
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    layout_hw_depthwise_to_nhwc,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 try:
     from pyverilator import PyVerilator
@@ -237,30 +241,28 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         mmv_in = 1
         mmv_out = 1
         channel_factor = int(ifm_ch / simd)
-
-        # compute minimal buffer length (assuming it holds 1 complete window)
-        buffer_min_size = (
-            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
-        ) * channel_factor
-
         impl_style = self.select_impl_style()
         if impl_style == "default":
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+            ) * channel_factor
             # add additional buffer space in case of stride > 1
             # this minimizes cycle count as it allows an earlier pre-load of inputs
             buffer_depth = (
                 buffer_min_size
                 + max(
                     0,
-                    ((stride_w - 1) - (int(mmv_out * k_h * k_w / mmv_in)))
-                    * channel_factor,
+                    ((stride_w - 1) - (int(mmv_out * k_h * k_w / mmv_in))) * channel_factor,
                 )
                 + max(
                     0,
-                    ((stride_h - 1) * w - (int(mmv_out * k_h * k_w / mmv_in)))
-                    * channel_factor,
+                    ((stride_h - 1) * w - (int(mmv_out * k_h * k_w / mmv_in))) * channel_factor,
                 )
             )
         elif impl_style == "parallel":
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w
+            ) * channel_factor + 1
             buffer_depth = buffer_min_size + 1
         return buffer_depth
 
@@ -377,9 +379,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 remainder_cascade_width = math.ceil(buffer_width / remainder_width)
                 cascade_savings = ram_cascade_width - remainder_cascade_width
 
-            return int(
-                (ram_cascade_depth * ram_cascade_width - cascade_savings) * buffer_count
-            )
+            return int((ram_cascade_depth * ram_cascade_width - cascade_savings) * buffer_count)
         else:
             return 0
 
@@ -423,6 +423,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             return 0
 
     def execute_node(self, context, graph):
+        depthwise = self.get_nodeattr("depthwise")
+        k = self.get_nodeattr("ConvKernelDim")
+        total_kernel = np.prod(k)
+        simd = self.get_nodeattr("SIMD")
+        chans = self.get_nodeattr("IFMChannels")
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
@@ -430,9 +435,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         if mode == "cppsim":
-            raise Exception(
-                "cppsim not possible for RTL SWG, please set exec_mode to rtlsim"
-            )
+            raise Exception("cppsim not possible for RTL SWG, please set exec_mode to rtlsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -463,23 +466,22 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
-        rtlsim_inp = npy_to_rtlsim_input(
-            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-        )
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
+        rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
         odt = export_idt
         target_bits = odt.bitwidth()
         packed_bits = self.get_outstream_width()
         out_npy_path = "{}/output.npy".format(code_gen_dir)
         out_shape = self.get_folded_output_shape()
-        rtlsim_output_to_npy(
-            rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-        )
+        rtlsim_output_to_npy(rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits)
         # load and reshape output
         output = np.load(out_npy_path)
         output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+
+        if depthwise:
+            # transform depthwise layout used by HW into NHWC
+            output = layout_hw_depthwise_to_nhwc(output, total_kernel, chans, simd)
+
         context[node.output[0]] = output
 
         # binary -> bipolar if needed
@@ -524,9 +526,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         channel_factor = int(ifm_ch / simd)
 
         # compute minimal buffer length (assuming it holds 1 complete window)
-        buffer_min_size = (
-            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
-        ) * channel_factor
+        buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1) * channel_factor
 
         buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
@@ -680,9 +680,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         the loop controller configuration and partitioning the fixed buffer into
         shift-registers (for parallel read access) and line buffers (for efficient
         LUTRAM/BRAM/URAM implementation)."""
-        template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
-        )
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
         code_gen_dict = {}
 
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -707,9 +705,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         channel_factor = int(ifm_ch / simd)
 
         # compute minimal buffer length (assuming it holds 1 complete window)
-        buffer_min_size = (
-            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
-        ) * channel_factor
+        buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w) * channel_factor + 1
 
         buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
@@ -728,38 +724,31 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ]
 
         # re-use default controller loop structure
-        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
         loop_h_iterations = out_dim_h
-        loop_w_iterations = out_dim_w  # now the innermost loop
-        loop_kh_iterations = 1
+        loop_w_iterations = out_dim_w
+        loop_kh_iterations = channel_factor
         loop_kw_iterations = 1
         loop_simd_iterations = 1
 
-        if loop_w_iterations == 1:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
-            loop_h_iterations -= 1  # -1 because state is initial state
+        if loop_kh_iterations == 1:
+            if loop_w_iterations == 1:
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
+                loop_h_iterations -= 1  # -1 because state is initial state
+            else:
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
+                loop_w_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
-            loop_w_iterations -= 1  # -1 because state is initial state
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KH"]
+            loop_kh_iterations -= 1  # -1 because state is initial state
 
-        # set head and tail address increment values
-        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
-        addr_incr_end_row = (
-            -buffer_min_size
-            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
-            + ((stride_h - 1) * w * channel_factor)  # skip lines
-            + 1
-        )
-
-        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
-        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
-        tail_incr_last_window = stride_w
-
+        # set head address increment values
         addr_incr_end_simd = 1
         addr_incr_end_window_elem = 1
         addr_incr_end_window_row = 1
-        addr_incr_end_window = tail_incr_w
-        addr_incr_end_row = tail_incr_h
+        addr_incr_end_window = (stride_w - 1) * channel_factor + 1
+        addr_incr_end_row = ((skip_columns + (kernel_width - 1)) * channel_factor + 1) + (
+            (stride_h - 1) * w * channel_factor
+        )
 
         # add init value for CURRENT_ELEM counter = last elem of first window
         code_gen_dict["$FIRST_WRITE_ELEM$"] = [str(buffer_min_size - 1)]
@@ -790,9 +779,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     abs(addr_incr_end_window_row) + 1,
                     abs(addr_incr_end_window) + 1,
                     abs(addr_incr_end_row) + 1,
-                    abs(tail_incr_w) + 1,
-                    abs(tail_incr_h) + 1,
-                    abs(tail_incr_last_window) + 1,
                 )
             )
         )
@@ -802,9 +788,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
         code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
         code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
-        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
-        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
-        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
+        # not used, set to zero:
+        code_gen_dict["$TAIL_INCR_W$"] = ["0"]
+        code_gen_dict["$TAIL_INCR_H$"] = ["0"]
+        code_gen_dict["$TAIL_INCR_LAST$"] = ["0"]
+        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
 
         code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
@@ -828,15 +816,21 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         for ky in range(k_h):
             reg_fifo = []
             for kx in range(k_w):
-                reg_fifo.append(px_idx)
-                px_idx += 1
+                for c in range(channel_factor):
+                    if c < (channel_factor - 1):
+                        if not (ky == 0 and kx == 0):
+                            reg_fifo.append(-1)
+                            px_idx += 1
+                    else:
+                        reg_fifo.append(px_idx)
+                        px_idx += 1
                 if kx < (k_w - 1):
-                    reg_fifo.extend([-1] * (dilation_w - 1))
-                    px_idx += dilation_w - 1
+                    reg_fifo.extend([-1] * ((dilation_w - 1) * channel_factor))
+                    px_idx += (dilation_w - 1) * channel_factor
             reg_fifos.append(reg_fifo)
 
             if ky < (k_h - 1):
-                line_buffer_len = (w - kernel_width) + w * (dilation_h - 1)
+                line_buffer_len = ((w - kernel_width) + w * (dilation_h - 1)) * channel_factor
                 bram_fifos_depth.append(line_buffer_len)
                 px_idx += line_buffer_len
 
@@ -902,9 +896,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                         OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];""".format(
                             out_idx=out_idx,
                             fifo_id=fifo_id,
-                            access_idx=len(reg_fifo)
-                            - 1
-                            - int((max(reg_fifo) - access_idx) / M),
+                            access_idx=len(reg_fifo) - 1 - int((max(reg_fifo) - access_idx) / M),
                             mmv_idx=(max(reg_fifo) - access_idx) % M,
                             mmv=M,
                         )
@@ -946,6 +938,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         """Selects implementation style based on folding configuration."""
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
+        depthwise = self.get_nodeattr("depthwise")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ifm_dim = self.get_nodeattr("IFMDim")
         stride = self.get_nodeattr("Stride")
@@ -970,22 +963,20 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         if self.get_nodeattr("parallel_window"):
             # mmv_in = M * 1
             mmv_out = M * k_h * k_w
-            assert (
-                ifm_ch == simd
-            ), "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             # mmv_in = 1
             mmv_out = 1
-            assert (
-                ifm_ch % simd == 0
-            ), "Constraint violated: SIMD must divide IFMChannels"
+            assert ifm_ch % simd == 0, "Constraint violated: SIMD must divide IFMChannels"
 
         # choose implementation style
         if mmv_out > 1 or (k_h == 1 and k_w == 1):
             impl_style = "parallel"
-            assert (
-                ifm_ch == simd
-            ), "Constraint violated: SIMD must be equal to IFMChannels"
+            if depthwise or (k_h == 1 and k_w == 1):
+                # allow SIMD < IFM_CH in depthwise mode (VVAU supports the resulting data layout)
+                # also allowed for 1x1 kernel since depthwise and non-depthwise are equivalent
+                assert ifm_ch % simd == 0, "Constraint violated: SIMD must divide IFMChannels"
+            else:
+                assert ifm_ch == simd, "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             impl_style = "default"
 
@@ -1025,9 +1016,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             template_select = "/finn-rtllib/swg/swg_template_wrapper.v"
         with open(os.environ["FINN_ROOT"] + template_select, "r") as f:
             template_wrapper = f.read()
-        with open(
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_axilite.v", "r"
-        ) as f:
+        with open(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_axilite.v", "r") as f:
             template_axilite = f.read()
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
@@ -1036,16 +1025,12 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             template_wrapper = template_wrapper.replace(key, code_gen_line)
             template_axilite = template_axilite.replace(key, code_gen_line)
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"
-            ),
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"),
             "w",
         ) as f:
             f.write(template)
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-            ),
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
             f.write(template_wrapper)
@@ -1053,22 +1038,35 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # AXI-Lite reg. file component is only needed for dynamic mode
         if self.get_nodeattr("dynamic_mode"):
             with open(
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
-                ),
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"),
                 "w",
             ) as f:
                 f.write(template_axilite)
 
         # Copy static source file for common core components
-        shutil.copy2(
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir
-        )
+        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir)
+        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv", code_gen_dir)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
+
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        return verilog_paths
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"),
+            self.get_nodeattr("gen_top_module") + "_wrapper",
+        )
+        return verilog_file
 
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
@@ -1082,6 +1080,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
         verilog_files = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
             "swg_common.sv",
@@ -1094,6 +1093,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             verilog_files,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
             verilog_path=verilog_paths,
+            auto_eval=False,
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
         )
@@ -1106,6 +1106,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         sourcefiles = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
             "swg_common.sv",
@@ -1115,10 +1116,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             sourcefiles += [self.get_nodeattr("gen_top_module") + "_axilite.v"]
 
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)

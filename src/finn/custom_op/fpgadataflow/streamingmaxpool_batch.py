@@ -105,12 +105,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_ch = self.get_nodeattr("NumChannels")
         ceil_mode = self.get_nodeattr("CeilMode")
         if not self.is_1d():
-            assert (
-                ifm_dim_h % k_h == 0
-            ), "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
-            assert (
-                ifm_dim_w % k_w == 0
-            ), "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
+            assert ifm_dim_h % k_h == 0, "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
+            assert ifm_dim_w % k_w == 0, "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
         ofm_dim_h = compute_pool_output_dim(ifm_dim_h, k_h, k_h, 0, ceil_mode)
         ofm_dim_w = compute_pool_output_dim(ifm_dim_w, k_w, k_w, 0, ceil_mode)
         oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
@@ -359,9 +355,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -414,8 +408,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             rtlsim_inp = npy_to_rtlsim_input(
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
             odt = export_idt
             target_bits = odt.bitwidth()

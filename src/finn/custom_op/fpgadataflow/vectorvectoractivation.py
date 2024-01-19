@@ -100,6 +100,8 @@ class VectorVectorActivation(HLSCustomOp):
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0, {0, 1}),
+            # Flag to specify whether RTL-based or HLS-based implementation is preferred
+            "preferred_backend": ("s", False, "rtl", {"hls", "rtl"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -121,6 +123,8 @@ class VectorVectorActivation(HLSCustomOp):
         else:
             thresholds = None
         idt = self.get_input_datatype()
+
+        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
         # if runtime-writeable weights, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
         if self.get_nodeattr("runtime_writeable_weights"):
@@ -131,11 +135,7 @@ class VectorVectorActivation(HLSCustomOp):
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(upper_range), max(upper_range))
-        # if not runtime-writeable weights, then we can calculate the min
-        # and max values of the accumulation range using knowledge of the
-        # weights and input data types since they are fixed
-        else:
-            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
@@ -144,53 +144,50 @@ class VectorVectorActivation(HLSCustomOp):
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
             # clip threshold values
-            clip_upper = None
-            clip_lower = None
-            if max_threshold > acc_max + 1:
-                clip_upper = acc_max + 1
-            if min_threshold < acc_min:
-                clip_lower = acc_min
-            if (clip_lower is not None) or (clip_upper is not None):
+            if max_threshold > acc_max or min_threshold < acc_min:
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
-                thresholds = np.clip(thresholds, clip_lower, clip_upper)
+                thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
-            # get range required by threshold values
-            tdt_min = min(acc_min, min_threshold)
-            tdt_max = max(acc_max, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
-                else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
-            else:
-                tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
+            acc_min = min(min_threshold, acc_min)
+            acc_max = max(max_threshold, acc_max)
+
+        # if the acc_range is always greater than 0, then acc_max <= 2^P - 1
+        if acc_min >= 0:
+            acc_bit_width = np.log2(acc_max + 1)
+            acc_bit_width = math.ceil(acc_bit_width)
+            adt = DataType[f"UINT{acc_bit_width}"]
+        # if the acc_range is signed, then acc_min >= -2^{P-1} and acc_max <=
+        # 2^{P - 1} - 1, which means 2^{P - 1} >= max(-acc_min, 1 + acc_max)
+        else:
+            _acc_max = max(-acc_min, 1 + acc_max)
+            acc_bit_width = np.log2(_acc_max) + 1
+            acc_bit_width = math.ceil(acc_bit_width)
+            adt = DataType[f"INT{acc_bit_width}"]
+
+        # if activation, assert that the thresholds can be expressed with adt
+        if thresholds is not None:
+            assert np.vectorize(adt.allowed)(
                 threshold_tensor
             ).all(), "Thresholds in %s can't be expressed with type %s" % (
                 self.onnx_node.name,
-                str(tdt),
+                str(adt),
             )
-            adt = tdt  # Set activation datatype to the threshold datatype
-        else:
-            if acc_min < 0:
-                if abs(acc_min) > acc_max:
-                    adt = DataType.get_smallest_possible(acc_min)
-                else:
-                    adt = DataType.get_smallest_possible(-acc_max - 1)
-            else:
-                adt = DataType.get_smallest_possible(acc_max)
-        # if this is the last node in the graph, then ensure the datatype is
-        # divisibly by 8 bits
-        if model.find_direct_successors(self.onnx_node) is None:
-            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
-            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-            adt = DataType[new_adt_name]
+
+        # if no activation, output and accumulator datatypes are the same
+        if self.get_nodeattr("noActivation"):
+            # if this is the last node in the graph, then ensure the datatype is
+            # divisibly by 8 bits
+            if model.find_direct_successors(self.onnx_node) is None:
+                bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+                new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+                adt = DataType[new_adt_name]
             # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
         self.set_nodeattr("accDataType", adt.name)
+
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
@@ -284,9 +281,7 @@ class VectorVectorActivation(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
         kernel_2 = k_h * k_w
-        assert (
-            kernel_2 % simd == 0
-        ), "Requirement kernel (k_h * k_w) divisable by SIMD is violated."
+        assert kernel_2 % simd == 0, "Requirement kernel (k_h * k_w) divisable by SIMD is violated."
         sf = kernel_2 // simd
         assert ch % pe == 0, "Requirement Channels divisable by PE is violated."
         nf = ch // pe
@@ -436,9 +431,7 @@ class VectorVectorActivation(HLSCustomOp):
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (ch, 1))
-        assert (
-            ret.shape[0] == ch
-        ), "Channels of threshold matrix are not as expected (ch)"
+        assert ret.shape[0] == ch, "Channels of threshold matrix are not as expected (ch)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
@@ -476,9 +469,7 @@ class VectorVectorActivation(HLSCustomOp):
         if self.get_weight_datatype() == DataType["BIPOLAR"]:
             export_wdt = DataType["BINARY"]
         if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code(
-                weight_tensor, export_wdt, "weights", True, True
-            )
+            weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
             # write weights into C++ header file as dictated by finn-hlslib
             f_weights = open(weight_file_name, "w")
             if export_wdt.bitwidth() != 1:
@@ -512,14 +503,10 @@ class VectorVectorActivation(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             # simd_flipped
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(
-                1, -1, pe * simd
-            )
+            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, pe * simd)
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
             # flipped
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(
-                1, -1, pe * simd
-            )
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
@@ -581,10 +568,9 @@ class VectorVectorActivation(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
-                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-                self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl
-                )
+                weight_filename_rtl = self.get_decoupled_weight_filename(abspath=False)
+                weight_filename_rtl = code_gen_dir + "/" + weight_filename_rtl
+                self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
@@ -703,11 +689,7 @@ class VectorVectorActivation(HLSCustomOp):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
 
             if mem_mode == "external" or mem_mode == "decoupled":
                 wnbits = self.get_weightstream_width()
@@ -716,9 +698,7 @@ class VectorVectorActivation(HLSCustomOp):
                 # so use it as such for weight generation
                 if self.get_weight_datatype() == DataType["BIPOLAR"]:
                     export_wdt = DataType["BINARY"]
-                wei = npy_to_rtlsim_input(
-                    "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                )
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
                 dim_h, dim_w = self.get_nodeattr("Dim")
                 num_w_reps = dim_h * dim_w
 
@@ -735,9 +715,7 @@ class VectorVectorActivation(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -783,9 +761,7 @@ class VectorVectorActivation(HLSCustomOp):
         ]
         if mem_mode == "decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define WP1 {}\n".format(wdt.bitwidth())
-            )
+            self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -986,26 +962,18 @@ class VectorVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         if mem_mode == "const":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # the weight tensor is ap_uint<ch*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=weights.m_weights "
-                    "complete dim=1"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
             )
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
-            )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=weights_" + self.hls_sname()
             )
         else:
             raise Exception(
@@ -1016,16 +984,10 @@ class VectorVectorActivation(HLSCustomOp):
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
             )
 
     def get_verilog_top_module_intf_names(self):
@@ -1033,9 +995,7 @@ class VectorVectorActivation(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         sname = self.hls_sname()
         if mem_mode == "external":
-            intf_names["s_axis"].append(
-                ("weights_" + sname, self.get_weightstream_width_padded())
-            )
+            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
@@ -1065,8 +1025,7 @@ class VectorVectorActivation(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -1081,8 +1040,7 @@ class VectorVectorActivation(HLSCustomOp):
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
             )
             cmd.append(
                 "set_property -dict [list "
@@ -1094,7 +1052,7 @@ class VectorVectorActivation(HLSCustomOp):
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
+                    self.get_decoupled_weight_filename(abspath=False),
                     self.get_nodeattr("ram_style"),
                     node_name,
                     strm_inst,
@@ -1136,8 +1094,7 @@ class VectorVectorActivation(HLSCustomOp):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                    % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
@@ -1281,9 +1238,7 @@ class VectorVectorActivation(HLSCustomOp):
             comp_luts = (2**B - 1) * acc_bits
 
         return int(
-            c0
-            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
-            + c2
+            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
         )
 
     def dsp_estimation(self):
@@ -1356,7 +1311,5 @@ class VectorVectorActivation(HLSCustomOp):
         if mem_mode in ["decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [
-                0 for i in range(num_w_reps * n_weight_inps)
-            ]
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

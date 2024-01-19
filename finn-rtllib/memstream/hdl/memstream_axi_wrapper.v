@@ -36,6 +36,7 @@ module memstream_axi_wrapper #(
 
 	parameter  INIT_FILE = "",
 	parameter  RAM_STYLE = "auto",
+	parameter  PUMPED_MEMORY = 0,
 
 	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
 )(
@@ -43,6 +44,8 @@ module memstream_axi_wrapper #(
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	input	ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
@@ -78,18 +81,18 @@ module memstream_axi_wrapper #(
 	output	[((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	localparam  INIT_FILTERED =
-`ifdef SYNTHESIS
-		RAM_STYLE == "ultra"? "" :
-`endif
-		INIT_FILE;
+	// Used to be set to "" when targeting pre-Versal
+	// URAMs to avoid synth errors, temporarily disabled
+	// TODO add appropriate define check here for Versal
+	localparam  INIT_FILTERED = INIT_FILE;
 
 	memstream_axi #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
 		.INIT_FILE(INIT_FILTERED),
-		.RAM_STYLE(RAM_STYLE)
+		.RAM_STYLE(RAM_STYLE),
+		.PUMPED_MEMORY(PUMPED_MEMORY)
 	) core (
-		.clk(ap_clk), .rst(!ap_rst_n),
+		.clk(ap_clk), .clk2x(ap_clk2x), .rst(!ap_rst_n),
 
 		// AXI-lite Write
 		.awready(awready),

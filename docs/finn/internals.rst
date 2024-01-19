@@ -206,6 +206,64 @@ How to set *mem_mode*
 ---------------------
 When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
 
+
+.. _folding_factors:
+
+Constraints to folding factors per layer
+=========================================
+
+.. list-table:: Folding factor constraints
+
+   * - **Layers**
+     - **Parameters**
+     - **Constraints**
+   * - Addstreams_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - ChannelwiseOp_Batch
+     - PE
+     - channels % PE == 0
+   * - ConvolutionInputGenerator
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - ConvolutionInputGenerator1d
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Downsampler
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - DuplicateStreams_Batch
+     - PE
+     - channels % PE == 0
+   * - Eltwise
+     - PE
+     - inp_channels % PE == 0
+   * - FMPadding_batch
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - FMPadding_rtl
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Globalaccpool_Batch
+     - PE
+     - channels % PE == 0
+   * - Labelselect_Batch
+     - PE
+     - num_labels % PE == 0
+   * - MatrixVectorActivation
+     - PE & SIMD
+     - MH % PE == 0 & MW % SIMD == 0
+   * - Pool_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - Thresholding_Batch
+     - PE
+     - MH % PE == 0
+   * - VectorVectorActivation
+     - PE & SIMD
+     - k_h * k_w % SIMD == 0 & channels % PE == 0
+
+
 RTL ConvolutionInputGenerator
 =============================
 
@@ -253,6 +311,13 @@ Depending on the amount of parallelism requested, one of two implementation styl
      - 1
      - default
      - depthwise-agnostic
+   * - < C
+     - 1
+     - 1
+     - 1
+     - K
+     - parallel
+     - depthwise only
    * - C
      - 1
      - 1
@@ -285,4 +350,4 @@ The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:m
 
 **MVAU:** Although it is recommended to unfold SIMD first, SIMD and PE can be set independently. Full (and balanced) parallelism is achieved by using the SWG in parallel window mode and setting MVAU SIMD and PE to their maximum values (SIMD = MW = C_in * K, PE = MH = C_out).
 
-**VVAU:** While the VVAU HLS component supports SIMD unfolding independently from PE, the RTL SWG requires full unfolding across the channel dimension (SIMD of the SWG = PE of the VVAU) before enabling window-parallelism. Unlike the MVAU, the VVAU can't accept datawidth-converted input from a fully-parallel SWG in this case due to the depthwise data layout. As a result, the VVAU should be unfolded by PE first (up to PE = C), followed by SIMD (up to SIMD = K).
+**VVAU:** The VVAU component supports SIMD unfolding (up to SIMD = K) independently from PE unfolding (up to PE = C), but can't accept a datawidth-converted input from a fully-parallel SWG in case PE is not fully unfolded due to the depthwise data layout. Therefore, it is required to set SIMD of the SWG = PE of the VVAU when window-parallelism is enabled. In this scenario, VVAU SIMD < K is supported via an automatically inserted DWC.

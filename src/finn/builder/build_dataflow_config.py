@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, part_map
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -59,6 +59,7 @@ class DataflowOutputType(str, Enum):
     ESTIMATE_REPORTS = "estimate_reports"
     OOC_SYNTH = "out_of_context_synth"
     RTLSIM_PERFORMANCE = "rtlsim_performance"
+    RTLSIM_PERFORMANCE_NODEBYNODE = "rtlsim_performance_nodebynode"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
@@ -104,6 +105,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hls_ipgen, using RTL for each node
+    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -116,14 +119,15 @@ default_build_dataflow_steps = [
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
+    "step_specialize_to_rtl",
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
-    "step_specialize_to_rtl",
     "step_hls_codegen",
     "step_hls_ipgen",
+    "step_measure_nodebynode_rtlsim_performance",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
@@ -198,6 +202,10 @@ class DataflowBuildConfig:
     #: available options.
     verify_steps: Optional[List[VerificationStepType]] = None
 
+    #: (Optional) For any nodes marked with integer datatype annotations, sanitize their
+    #: values during execution for validation. See SANITIZE_QUANT_TENSORS in qonnx
+    verify_sanitize_quant_tensors: Optional[bool] = False
+
     #: (Optional) Name of .npy file that will be used as the input for
     #: verification. Only required if verify_steps is not empty.
     verify_input_npy: Optional[str] = "input.npy"
@@ -219,6 +227,10 @@ class DataflowBuildConfig:
     #: the full list of layer IP build directories. By default, synthesis will not run.
     stitched_ip_gen_dcp: Optional[bool] = False
 
+    #: (Optional) Break out intermediate FIFO outputs as AXI stream monitors
+    #: at the top level from stitched IP. Useful for debugging.
+    stitched_ip_breakout: Optional[bool] = False
+
     #: Insert a signature node to the stitched-IP to read/write information
     #: to the design: e.g. Customer signature, application signature, version
     signature: Optional[List[int]] = None
@@ -229,6 +241,12 @@ class DataflowBuildConfig:
     #: Set this to a large value (e.g. 10000) if targeting full unfolding or
     #: very high performance.
     mvau_wwidth_max: Optional[int] = 36
+
+    #: (Optional) Double-pump DSP58s in RTL MVU/VVU layers if possible
+    enable_pumped_compute: Optional[bool] = False
+
+    #: (Optional) Double-pump memories in RTL MVU/VVU layers if possible
+    enable_pumped_memory: Optional[bool] = False
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HLS layers,
@@ -268,9 +286,7 @@ class DataflowBuildConfig:
 
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
-    auto_fifo_strategy: Optional[
-        AutoFIFOSizingMethod
-    ] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
@@ -279,6 +295,10 @@ class DataflowBuildConfig:
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
+
+    #: FIFOs deeper than this will use Vivado FIFO IP
+    #: (e.g. impl_style="vivado")
+    vivado_fifo_threshold: Optional[int] = 256
 
     #: Target clock frequency (in nanoseconds) for Vivado HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -350,6 +370,10 @@ class DataflowBuildConfig:
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1
 
+    #: Override the timeout cycles for rtlsim (corresponding to 
+    #: LIVENESS_THRESHOLD env.var.)
+    rtlsim_timeout_cycles: Optional[int] = 1000000
+
     #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
@@ -367,19 +391,12 @@ class DataflowBuildConfig:
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "alveo"
         else:
-            raise Exception(
-                "Couldn't resolve driver platform for " + str(self.shell_flow_type)
-            )
+            raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
-            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-                return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-                return alveo_part_map[self.board]
-            else:
-                raise Exception("Couldn't resolve fpga_part for " + self.board)
+            return part_map[self.board]
         else:
             # return as-is when explicitly specified
             return self.fpga_part
@@ -411,8 +428,7 @@ class DataflowBuildConfig:
             return alveo_default_platform[self.board]
         else:
             raise Exception(
-                "Could not resolve Vitis platform:"
-                " need either board or vitis_platform specified"
+                "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
             )
 
     def _resolve_verification_steps(self):
@@ -430,8 +446,7 @@ class DataflowBuildConfig:
             )
             verify_input_npy = np.load(self.verify_input_npy)
             assert os.path.isfile(self.verify_expected_output_npy), (
-                "verify_expected_output_npy not found: "
-                + self.verify_expected_output_npy
+                "verify_expected_output_npy not found: " + self.verify_expected_output_npy
             )
             verify_expected_output_npy = np.load(self.verify_expected_output_npy)
             return (

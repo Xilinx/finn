@@ -57,7 +57,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
-
     # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
     ofm_ch = ifm_ch
     total_pad = 2 * padding
@@ -84,16 +83,10 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         )
 
     # set up onnx model
-    inp = oh.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
-    )
-    outp = oh.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch]
-    )
+    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch])
+    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch])
 
-    W_sparse = oh.make_tensor_value_info(
-        "W_sparse", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch]
-    )
+    W_sparse = oh.make_tensor_value_info("W_sparse", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
 
     im2col_node = oh.make_node(
         "Im2Col",
@@ -107,9 +100,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         depthwise=1,
     )
 
-    matmul_node = oh.make_node(
-        "MatMul", inputs=["im2col_out", "W_sparse"], outputs=["outp"]
-    )
+    matmul_node = oh.make_node("MatMul", inputs=["im2col_out", "W_sparse"], outputs=["outp"])
 
     if act is None:
         node_list = [im2col_node, matmul_node]

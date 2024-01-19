@@ -31,7 +31,11 @@ import os
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    layout_nhwc_to_hw_depthwise,
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
+)
 
 
 class Pool_Batch(HLSCustomOp):
@@ -191,13 +195,9 @@ class Pool_Batch(HLSCustomOp):
         # check supported function
         fnx = self.get_nodeattr("Function")
         if fnx in ["MaxPool", "QuantAvgPool"]:
-            info_messages.append(
-                "Attribute Function contains a supported pool function"
-            )
+            info_messages.append("Attribute Function contains a supported pool function")
         else:
-            info_messages.append(
-                "Attribute Function contains an unsupported pool function"
-            )
+            info_messages.append("Attribute Function contains an unsupported pool function")
         return info_messages
 
     def global_includes(self):
@@ -283,9 +283,7 @@ class Pool_Batch(HLSCustomOp):
             else:
                 act_hls_dt = "ap_uint<{}>".format(accum_bits)
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(
-                    act_hls_dt, o_hls_dt, size
-                )
+                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(act_hls_dt, o_hls_dt, size)
             ]
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
@@ -352,12 +350,14 @@ class Pool_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        k = self.get_nodeattr("KernelSize")
+        total_kernel = np.prod(k)
+        pe = self.get_nodeattr("PE")
+        chans = self.get_nodeattr("Channels")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         folded_ishape = self.get_folded_input_shape()
@@ -377,6 +377,8 @@ class Pool_Batch(HLSCustomOp):
             )
 
         inp = context[node.input[0]]
+        # transform conventional nhwc into depthwise layout used by HW
+        inp = layout_nhwc_to_hw_depthwise(inp, total_kernel, chans, pe)
 
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
         assert (
@@ -403,8 +405,6 @@ class Pool_Batch(HLSCustomOp):
             rtlsim_inp = npy_to_rtlsim_input(
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()

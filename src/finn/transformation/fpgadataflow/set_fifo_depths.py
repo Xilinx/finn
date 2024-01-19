@@ -84,12 +84,13 @@ def optimize_depth(depth):
 
 
 class RemoveShallowFIFOs(Transformation):
-    """Remove small FIFOs as the streaming components have depth-2 FIFOs on the
-    input/outputs by default."""
+    """Remove zero-depth FIFOs The threshold used to be 2 instead of 0, but
+    with increasing number of FINN RTL components 2-depth FIFOs are still
+    important for decoupling.."""
 
     # TODO add unit test
 
-    def __init__(self, shallow_threshold=2):
+    def __init__(self, shallow_threshold=0):
         self.shallow_threshold = shallow_threshold
 
     def apply(self, model):
@@ -240,7 +241,7 @@ class InsertAndSetFIFODepths(Transformation):
         clk_ns=10.0,
         max_qsrl_depth=256,
         max_depth=None,
-        swg_exception=True,
+        swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
     ):
@@ -262,9 +263,7 @@ class InsertAndSetFIFODepths(Transformation):
         modified_fc_nodes = []
         for node in model.graph.node:
             # verify assumptions
-            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(
-                node
-            )
+            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(node)
             assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
             ifd = node.get_nodeattr("inFIFODepths")
@@ -289,8 +288,7 @@ class InsertAndSetFIFODepths(Transformation):
                     node.set_nodeattr("mem_mode", "decoupled")
                     reset_implementation(node)
                     warnings.warn(
-                        "Changed mem_mode from external to decoupled for "
-                        + node.onnx_node.name
+                        "Changed mem_mode from external to decoupled for " + node.onnx_node.name
                     )
 
         # insert stream infrastructure (DWC/FIFO)
@@ -308,9 +306,7 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("depth_monitor", 1)
             node.set_nodeattr("impl_style", "rtl")
             # check depths and fix as necessary
-            if (self.max_depth is not None) and (
-                node.get_nodeattr("depth") != self.max_depth
-            ):
+            if (self.max_depth is not None) and (node.get_nodeattr("depth") != self.max_depth):
                 node.set_nodeattr("depth", self.max_depth)
 
         # insert FIFOs and do all transformations for RTLsim
@@ -324,6 +320,7 @@ class InsertAndSetFIFODepths(Transformation):
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         if self.force_python_sim:
+            assert False, "Python FIFO sim needs fixing to avoid simulation bugs"
             # do rtlsim in Python for FIFO sizing
             # calculate input frequency (number of cycles for each input word)
             first_node = getCustomOp(model.graph.node[0])
@@ -373,15 +370,11 @@ class InsertAndSetFIFODepths(Transformation):
                     ncycles = ncycles - 1
 
             if not output_detected:
-                warnings.warn(
-                    "No output detected, calculated FIFO depths may not be correct"
-                )
+                warnings.warn("No output detected, calculated FIFO depths may not be correct")
         else:
             # do rtlsim in C++ for FIFO sizing
             # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [
-                x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type
-            ]
+            swg_nodes = [x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type]
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
@@ -412,13 +405,8 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
                 node_inst.set_nodeattr("depth_monitor", 0)
-                # exception for top-level IO FIFOs which cause a bug in simulation
-                # (top-level IOs should not have impl_style=vivado)
-                toplevel_in = node.input[0] in [x.name for x in model.graph.input]
-                toplevel_out = node.output[0] in [x.name for x in model.graph.output]
-                toplevel_style_exception = toplevel_in or toplevel_out
                 # Set FIFO implementation/ram styles
-                if (depth > self.max_qsrl_depth) and (not toplevel_style_exception):
+                if depth > self.max_qsrl_depth:
                     node_inst.set_nodeattr("impl_style", "vivado")
                     node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
                 else:
@@ -443,9 +431,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
-            model = model.transform(
-                CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth)
-            )
+            model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 
@@ -618,9 +604,7 @@ class SplitLargeFIFOs(Transformation):
             if node.op_type == "StreamingFIFO":
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
-                cfgs = get_fifo_split_configs(
-                    depth, self.max_qsrl_depth, self.max_vivado_depth
-                )
+                cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")

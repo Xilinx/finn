@@ -192,9 +192,7 @@ class FMPadding_rtl(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         if mode == "cppsim":
-            raise Exception(
-                "cppsim not possible for FMPadding_rtl, please set exec_mode to rtlsim"
-            )
+            raise Exception("cppsim not possible for FMPadding_rtl, please set exec_mode to rtlsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -218,20 +216,14 @@ class FMPadding_rtl(HLSCustomOp):
 
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
-        rtlsim_inp = npy_to_rtlsim_input(
-            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-        )
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
+        rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
         odt = export_idt
         target_bits = odt.bitwidth()
         packed_bits = self.get_outstream_width()
         out_npy_path = "{}/output.npy".format(code_gen_dir)
         out_shape = self.get_folded_output_shape()
-        rtlsim_output_to_npy(
-            rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-        )
+        rtlsim_output_to_npy(rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits)
         # load and reshape output
         output = np.load(out_npy_path)
         output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
@@ -324,6 +316,21 @@ class FMPadding_rtl(HLSCustomOp):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        return verilog_paths
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
+        )
+        return verilog_file
+
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path and returns
@@ -345,6 +352,7 @@ class FMPadding_rtl(HLSCustomOp):
         # build the Verilator emu library
         sim = PyVerilator.build(
             verilog_files,
+            auto_eval=False,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
             verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
@@ -366,10 +374,10 @@ class FMPadding_rtl(HLSCustomOp):
         ]
 
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
         cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)

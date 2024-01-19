@@ -74,8 +74,7 @@ class InsertHook(Transformation):
                 for output_name in n.output:
                     consumers = model.find_consumers(output_name)
                     assert len(consumers) <= 1, (
-                        n.name
-                        + ": HLS node with fan-out higher than 1 cannot be stitched"
+                        n.name + ": HLS node with fan-out higher than 1 cannot be stitched"
                     )
                     n0 = getCustomOp(n)
                     n0_hook = n0.get_nodeattr("output_hook")

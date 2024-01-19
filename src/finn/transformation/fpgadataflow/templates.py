@@ -117,8 +117,14 @@ if {$BOARD == "ZCU104"} {
 } elseif {$BOARD == "RFSoC2x2"} {
     set_property board_part xilinx.com:rfsoc2x2:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "RFSoC4x2"} {
+    set_property board_part realdigital.org:rfsoc4x2:part0:1.0 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
     set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "Ultra96-V2"} {
+    set_property board_part avnet.com:ultra96v2:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
@@ -244,22 +250,6 @@ wait_on_run [get_runs impl_1]
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
 close_project
-"""
-
-alveo_run_sh_template = """#!/bin/bash
-
-if [ "$#" -ne 2 ]; then
-    echo "Usage: alveo_run.sh <exec_mode={execute, throughput_test}> <batch_size>"
-    exit -1
-fi
-
-cd $REMOTE_DEPLOY_DIR$
-eval "$(conda shell.bash hook)"
-conda activate $CONDA_ENV_NAME$
-source $REMOTE_XRT$/setup.sh
-export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
-python3.6 driver.py --exec_mode=$1 --batchsize=$2 --bitfile=$BITFILE$ \
-    --inputfile=input.npy --outputfile=output.npy --platform=alveo
 """
 
 vitis_gen_xml_report_tcl_template = """

@@ -183,11 +183,7 @@ class CheckSum(HLSCustomOp):
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             io_dict = {
                 "inputs": {"in0": inp},
                 "outputs": {"out": []},
@@ -199,9 +195,7 @@ class CheckSum(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -303,8 +297,7 @@ class CheckSum(HLSCustomOp):
             ),
             "std::vector<unsigned int> checksum(1);",
             "checksum[0] = chk;",
-            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");'
-            % code_gen_dir,
+            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");' % code_gen_dir,
         ]
 
     def save_as_npy(self):
@@ -331,13 +324,9 @@ class CheckSum(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=drain bundle=checksum"
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS dataflow disable_start_propagation"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

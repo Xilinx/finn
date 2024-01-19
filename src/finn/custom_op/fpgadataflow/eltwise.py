@@ -42,7 +42,6 @@ class StreamingEltwise(HLSCustomOp):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-
         my_attrs = super().get_nodeattr_types()
         my_attrs.update(
             {
@@ -154,9 +153,7 @@ class StreamingEltwise(HLSCustomOp):
             self.get_nodeattr("eltwiseOp")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required StreamingEltwise attributes do not exist."""
-            )
+            info_messages.append("""The required StreamingEltwise attributes do not exist.""")
 
         return info_messages
 
@@ -235,9 +232,7 @@ class StreamingEltwise(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input0 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
         export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -248,9 +243,7 @@ class StreamingEltwise(HLSCustomOp):
         # exact same thing for input1
         inp = context[node.input[1]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input1 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
         export_idt1 = self.get_input_datatype(1)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -276,8 +269,6 @@ class StreamingEltwise(HLSCustomOp):
             rtlsim_inp1 = npy_to_rtlsim_input(
                 "{}/input_1.npy".format(code_gen_dir), export_idt1, nbits1
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
@@ -481,9 +472,7 @@ class StreamingEltwise(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

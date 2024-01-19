@@ -104,9 +104,7 @@ class Platform:
     def guide_resources(self):
         guide = []
         # TODO: assert limits is of correct size
-        guide_res = (
-            np.tile(np.array(self.compute_resources), (self.ndevices, 1))
-        ).astype(int)
+        guide_res = (np.tile(np.array(self.compute_resources), (self.ndevices, 1))).astype(int)
         for i in range(self.nslr * self.ndevices):
             # when in multi-FPGA mode, subtract cost of UDP connection from eth_slr
             local_slr = i % self.nslr
@@ -159,9 +157,7 @@ class Platform:
                     xlocal[i][j] = 1
         # tile connection cost matrices for entire system
         for i in range(self.ndevices):
-            x[
-                i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr
-            ] = xlocal
+            x[i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr] = xlocal
         # set cost for ethernet connections, assuming daisy-chaining
         for i in range(self.ndevices - 1):
             x[i * self.nslr + self.eth_slr][(i + 1) * self.nslr + self.eth_slr] = 10
@@ -182,9 +178,7 @@ class Platform:
                     slllocal[i][j] = self.sll_count[i][j]
         # tile connection cost matrices for entire system
         for i in range(self.ndevices):
-            sll[
-                i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr
-            ] = slllocal
+            sll[i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr] = slllocal
         # set cost for ethernet connections, assuming daisy-chaining
         eth = np.full((self.nslr * self.ndevices, self.nslr * self.ndevices), 0)
         # no Eth throughput constraints from one SLR to itself
@@ -467,11 +461,42 @@ class Alveo_NxU280_Platform(Platform):
         ]
 
 
+class Alveo_NxU55C_Platform(Platform):
+    def __init__(
+        self,
+        ndevices=1,
+        limits=DEFAULT_RES_LIMITS,
+        avg_constraints=DEFAULT_AVG_CONSTRAINTS,
+    ):
+        sll_counts = [[0, 5000, 0], [5000, 0, 5000], [0, 5000, 0]]
+        super(Alveo_NxU55C_Platform, self).__init__(
+            nslr=3,
+            ndevices=ndevices,
+            sll_count=sll_counts,
+            ddr_slr=[],
+            hbm_slr=0,
+            eth_slr=1,
+            eth_gbps=100,
+            limits=limits,
+            avg_constraints=avg_constraints,
+        )
+
+    @property
+    def compute_resources(self):
+        # according to UG1120
+        return [
+            [386000, 773000, 2 * 600, 320, 2664],
+            [364000, 729000, 2 * 576, 320, 2784],
+            [381000, 763000, 2 * 600, 320, 2856],
+        ]
+
+
 platforms = dict()
 platforms["U50"] = Alveo_NxU50_Platform
 platforms["U200"] = Alveo_NxU200_Platform
 platforms["U250"] = Alveo_NxU250_Platform
 platforms["U280"] = Alveo_NxU280_Platform
+platforms["U55C"] = Alveo_NxU55C_Platform
 platforms["Pynq-Z1"] = Zynq7020_Platform
 platforms["Pynq-Z2"] = Zynq7020_Platform
 platforms["Ultra96"] = ZU3EG_Platform

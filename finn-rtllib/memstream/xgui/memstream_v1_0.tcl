@@ -12,6 +12,9 @@ proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "INIT_FILE" -parent ${Page_0}
   ipgui::add_param $IPINST -name "RAM_STYLE" -parent ${Page_0}
   ipgui::add_param $IPINST -name "WIDTH" -parent ${Page_0}
+
+  ipgui::add_param $IPINST -name "PUMPED_MEMORY"
+
 }
 
 proc update_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.DEPTH PARAM_VALUE.WIDTH } {
@@ -45,6 +48,15 @@ proc update_PARAM_VALUE.INIT_FILE { PARAM_VALUE.INIT_FILE } {
 
 proc validate_PARAM_VALUE.INIT_FILE { PARAM_VALUE.INIT_FILE } {
 	# Procedure called to validate INIT_FILE
+	return true
+}
+
+proc update_PARAM_VALUE.PUMPED_MEMORY { PARAM_VALUE.PUMPED_MEMORY } {
+	# Procedure called to update PUMPED_MEMORY when any of the dependent parameters in the arguments change
+}
+
+proc validate_PARAM_VALUE.PUMPED_MEMORY { PARAM_VALUE.PUMPED_MEMORY } {
+	# Procedure called to validate PUMPED_MEMORY
 	return true
 }
 
@@ -87,7 +99,13 @@ proc update_MODELPARAM_VALUE.RAM_STYLE { MODELPARAM_VALUE.RAM_STYLE PARAM_VALUE.
 	set_property value [get_property value ${PARAM_VALUE.RAM_STYLE}] ${MODELPARAM_VALUE.RAM_STYLE}
 }
 
+proc update_MODELPARAM_VALUE.PUMPED_MEMORY { MODELPARAM_VALUE.PUMPED_MEMORY PARAM_VALUE.PUMPED_MEMORY } {
+	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
+	set_property value [get_property value ${PARAM_VALUE.PUMPED_MEMORY}] ${MODELPARAM_VALUE.PUMPED_MEMORY}
+}
+
 proc update_MODELPARAM_VALUE.AXILITE_ADDR_WIDTH { MODELPARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.AXILITE_ADDR_WIDTH } {
 	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
 	set_property value [get_property value ${PARAM_VALUE.AXILITE_ADDR_WIDTH}] ${MODELPARAM_VALUE.AXILITE_ADDR_WIDTH}
 }
+
