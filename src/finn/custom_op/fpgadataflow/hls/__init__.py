@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
+from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
 from finn.custom_op.fpgadataflow.hls.convolutioninputgenerator_hls import (
     ConvolutionInputGenerator_hls,
 )
@@ -59,6 +60,7 @@ custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
 custom_op["LabelSelect_hls"] = LabelSelect_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
+custom_op["StreamingConcat_hls"] = StreamingConcat_hls
 custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
