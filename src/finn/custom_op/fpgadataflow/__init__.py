@@ -43,7 +43,7 @@ from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
-from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
@@ -68,14 +68,12 @@ custom_op = dict()
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingFIFO"] = StreamingFIFO
-custom_op["Pool_Batch"] = Pool_Batch
 custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["ThresholdingBinarySearch"] = ThresholdingBinarySearch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
-custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 
 custom_op["FMPadding"] = FMPadding
@@ -87,6 +85,8 @@ custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup
+custom_op["Pool"] = Pool
+custom_op["StreamingConcat"] = StreamingConcat
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool

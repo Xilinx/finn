@@ -166,23 +166,26 @@ def _swg_hls_possible(node):
     # can only be used for square inputs
     # and no dilation
     swg = getCustomOp(node)
-    # extract all attributes to check
-    k = swg.get_nodeattr("ConvKernelDim")
-    ifm_dim = swg.get_nodeattr("IFMDim")
-    ofm_dim = swg.get_nodeattr("OFMDim")
-    s = swg.get_nodeattr("Stride")
-    d = swg.get_nodeattr("Dilation")
-    # check if square and dilation=1
-    if (
-        k[0] == k[1]
-        and ifm_dim[0] == ifm_dim[1]
-        and ofm_dim[0] == ofm_dim[1]
-        and s[0] == s[1]
-        and d[0] == d[1] == 1
-    ):
+    if swg.get_nodeattr("is1D"):
         return True
     else:
-        return False
+        # extract all attributes to check
+        k = swg.get_nodeattr("ConvKernelDim")
+        ifm_dim = swg.get_nodeattr("IFMDim")
+        ofm_dim = swg.get_nodeattr("OFMDim")
+        s = swg.get_nodeattr("Stride")
+        d = swg.get_nodeattr("Dilation")
+        # check if square and dilation=1
+        if (
+            k[0] == k[1]
+            and ifm_dim[0] == ifm_dim[1]
+            and ofm_dim[0] == ofm_dim[1]
+            and s[0] == s[1]
+            and d[0] == d[1] == 1
+        ):
+            return True
+        else:
+            return False
 
 
 class SpecializeLayers(Transformation):

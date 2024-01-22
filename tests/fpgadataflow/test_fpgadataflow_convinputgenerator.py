@@ -94,21 +94,21 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT2"]])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["UINT4"]])
 # kernel size
-@pytest.mark.parametrize("k", [[2, 2], [3, 3]])
+@pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[6, 6], [8, 8]])
+@pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [2, 4])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 1], [2, 2]])
+@pytest.mark.parametrize("stride", [[1, 1], [2, 2], [2, 1]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1, 1], [2, 2]])
+@pytest.mark.parametrize("dilation", [[1, 1], [2, 2], [2, 1]])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 2])
+@pytest.mark.parametrize("simd", [1, 2, 4])
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
 # parallel_window enable (MMV_out = M*K)
@@ -193,9 +193,13 @@ def test_fpgadataflow_slidingwindow(
     # set simd
     inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("SIMD", simd)
-    if model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl":
+    optype = model.graph.node[0].op_type
+    if optype == "ConvolutionInputGenerator_rtl":
         inst.set_nodeattr("parallel_window", parallel_window)
         inst.set_nodeattr("M", m)
+    if optype == "ConvolutionInputGenerator_hls":
+        if inst.get_nodeattr("is1D"):
+            inst.set_nodeattr("parallel_window", parallel_window)
 
     if exec_mode == "cppsim":
         if model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl":
@@ -236,87 +240,3 @@ def test_fpgadataflow_slidingwindow(
             assert exp_cycles != 0
         else:
             assert model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl"
-
-
-# input datatype
-@pytest.mark.parametrize("idt", [DataType["INT8"]])
-# kernel size
-@pytest.mark.parametrize("k", [[4, 1]])
-# input dimension
-@pytest.mark.parametrize("ifm_dim", [[10, 1]])
-# input channels
-@pytest.mark.parametrize("ifm_ch", [1, 4])
-# Stride
-@pytest.mark.parametrize("stride", [[1, 1], [2, 1]])
-# Dilation
-@pytest.mark.parametrize("dilation", [[1, 1], [2, 1]])
-# execution mode
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-# input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 4])
-# depthwise
-@pytest.mark.parametrize("dw", [0, 1])
-# TODO add parallel_window and M option
-# implementation style
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_fpgadataflow_slidingwindow1d(
-    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, dw, impl_style
-):
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-
-    x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
-    input_dict = prepare_inputs(x)
-    model = make_single_im2col_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, dw
-    )
-    y_expected = oxe.execute_onnx(model, input_dict)["outp"]
-
-    model = model.transform(to_hw.InferConvInpGen())
-    model.save("model_before.onnx")
-    # set impl_style
-    inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
-    inst.set_nodeattr("preferred_impl_style", impl_style)
-    model = model.transform(SpecializeLayers())
-    # set simd
-    inst = getCustomOp(model.graph.node[0])
-    inst.set_nodeattr("SIMD", simd)
-    model.save("model_after.onnx")
-
-    if exec_mode == "cppsim":
-        if impl_style == "rtl":
-            pytest.skip("cppsim not supported for RTL DWC")
-        else:
-            model = model.transform(SetExecMode("cppsim"))
-            model = model.transform(PrepareCppSim())
-            model = model.transform(CompileCppSim())
-    elif exec_mode == "rtlsim":
-        model = model.transform(SetExecMode("rtlsim"))
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynthIP())
-        model = model.transform(PrepareRTLSim())
-    else:
-        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
-
-    # execute model
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-    if dw == 0:
-        assert (y_produced == y_expected).all()
-    else:
-        y_expected = y_expected.reshape(1, ofm_dim, ofm_dim, k * k, ifm_ch // simd, simd)
-        y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
-        y_expected = y_expected.reshape(1, ofm_dim, ofm_dim, ifm_ch * k * k)
-        assert (y_produced == y_expected).all()
-
-    if exec_mode == "rtlsim" and impl_style == "hls":
-        node = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")[0]
-        inst = getCustomOp(node)
-        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-        assert exp_cycles != 0
