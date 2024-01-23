@@ -86,7 +86,7 @@ pipeline {
         label 'finn-build'
       }
       steps {
-        sleep(time: 3, unit: 'MINUTES')
+        sleep(time: "${env.REBOOT_SLEEP}", unit: 'MINUTES')
       }
     }
     stage('Collect build information for HW testing') {
