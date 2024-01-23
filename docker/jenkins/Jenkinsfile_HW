@@ -48,6 +48,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -72,6 +73,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -96,6 +98,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -120,6 +123,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -147,6 +151,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -171,6 +176,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -195,6 +201,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -219,6 +226,7 @@ pipeline {
           post {
             always {
               stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
             }
           }
         }
@@ -370,5 +378,11 @@ void stashResults (String testType, String board) {
     } catch (err) {
       echo "No results to stash"
     }
+  }
+}
+
+void cleanUpWorkspaceOwnership () {
+  if (env.USER_CREDENTIALS) {
+    sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S chown -R $(id -u):$(id -g) ${WORKSPACE}'
   }
 }
