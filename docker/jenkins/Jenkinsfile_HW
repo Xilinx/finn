@@ -1,7 +1,96 @@
 pipeline {
   agent none
   stages {
-    stage('Sanity & BNN end2end - Setup Hardware Tests') {
+    stage('Get node status') {
+      options { skipDefaultCheckout() }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          // Check which boards are online before running HW tests
+          env.ALVEO_HOST_ONLINE = isNodeOnline('finn-u250')
+          env.PYNQ_ONLINE = isNodeOnline('finn-pynq')
+          env.ZCU104_ONLINE = isNodeOnline('finn-zcu104')
+          env.KV260_ONLINE = isNodeOnline('finn-kv260')
+        }
+      }
+    }
+    stage('Reboot Zynq platforms') {
+      parallel {
+        stage('Pynq-Z1') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.PYNQ_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+        stage('ZCU104') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ZCU104_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+        stage('Kria KV260_SOM') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.KV260_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+      }
+    }
+    stage('Wait for Nodes to reboot') {
+      options { skipDefaultCheckout() }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        sleep(time: 3, unit: 'MINUTES')
+      }
+    }
+    stage('Collect build information for HW testing') {
+      options { skipDefaultCheckout() }
       agent {
         label 'finn-build'
       }
@@ -339,7 +428,7 @@ void stashBuildArtifacts(String testDir) {
   }
 }
 
-String runTest(String testType, String board, String marker) {
+void runTest(String testType, String board, String marker) {
   sh "mkdir -p ${testType}"
   dir("$testType") {
     // Clean any files from a previous run
@@ -365,8 +454,6 @@ String runTest(String testType, String board, String marker) {
       }
     }
   }
-
-  return "SUCCESS"
 }
 
 void stashResults (String testType, String board) {
@@ -384,5 +471,11 @@ void stashResults (String testType, String board) {
 void cleanUpWorkspaceOwnership () {
   if (env.USER_CREDENTIALS) {
     sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S chown -R $(id -u):$(id -g) ${WORKSPACE}'
+  }
+}
+
+void restartZynqPlatform () {
+  if (env.USER_CREDENTIALS) {
+    sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S shutdown -r +1'
   }
 }
