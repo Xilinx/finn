@@ -6,7 +6,7 @@ pipeline {
     booleanParam(name: 'end2end', defaultValue: false, description: 'Run end2end tests')
   }
   stages {
-    stage('Sanity Tests') {
+    stage('Run Tests') {
       parallel {
         stage('Sanity - Build Hardware') {
           when {
@@ -76,7 +76,7 @@ pipeline {
             }
           }
         }
-        stage('Sanity - fpgadataflow Tests') {
+        stage('fpgadataflow Tests') {
           when {
             expression { params['fpgadataflow'] }
           }
@@ -107,10 +107,6 @@ pipeline {
             }
           }
         }
-      }
-    }
-    stage('End2end - Build Hardware') {
-      parallel {
         stage('End2end') {
           when {
             expression { params['end2end'] }
