@@ -184,6 +184,8 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
     if pad != 0:
         inst = getCustomOp(new_model.get_nodes_by_op_type("FMPadding")[0])
         inst.set_nodeattr("preferred_impl_style", "hls")
+    y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
+    assert (y_produced == y_expected).all()
     new_model = new_model.transform(SpecializeLayers())
 
     # Folding
