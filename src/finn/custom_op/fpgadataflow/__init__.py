@@ -38,7 +38,6 @@ from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
-from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
@@ -66,7 +65,6 @@ custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
-custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
 custom_op["AddStreams"] = AddStreams
