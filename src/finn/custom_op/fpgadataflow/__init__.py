@@ -29,7 +29,6 @@
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
-from finn.custom_op.fpgadataflow.checksum import CheckSum
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -65,19 +64,18 @@ custom_op = dict()
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingFIFO"] = StreamingFIFO
-custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
-custom_op["CheckSum"] = CheckSum
 
-custom_op["FMPadding"] = FMPadding
 custom_op["AddStreams"] = AddStreams
 custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["DownSampler"] = DownSampler
 custom_op["DuplicateStreams"] = DuplicateStreams
+custom_op["FMPadding"] = FMPadding
+custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup

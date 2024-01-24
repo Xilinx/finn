@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -151,7 +152,7 @@ def test_fpgadataflow_checksum():
     model = model.transform(InferShapes())
 
     assert (
-        len(model.get_nodes_by_op_type("CheckSum")) == 2
+        len(model.get_nodes_by_op_type("CheckSum_hls")) == 2
     ), """Insertion of
         checksum layers was unsuccessful"""
 
@@ -166,8 +167,8 @@ def test_fpgadataflow_checksum():
     model = model.transform(CompileCppSim())
     inp = {"global_in": x}
     y_cppsim = oxe.execute_onnx(model, inp, return_full_exec_context=True)
-    checksum0_cppsim = y_cppsim["CheckSum_0_out1"]
-    checksum1_cppsim = y_cppsim["CheckSum_1_out1"]
+    checksum0_cppsim = y_cppsim["CheckSum_hls_0_out1"]
+    checksum1_cppsim = y_cppsim["CheckSum_hls_1_out1"]
 
     # in this test case scenario the checksums are equal
     assert checksum0_cppsim == checksum1_cppsim, "CheckSums are not equal"
@@ -187,7 +188,7 @@ def test_fpgadataflow_checksum():
     def read_checksum_and_drain(sim):
         chk_addr = 16
         drain_addr = 32
-        for i in range(len(model.get_nodes_by_op_type("CheckSum"))):
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
             checksums.append(axilite_read(sim, chk_addr, basename=axi_name))
             drain.append(axilite_read(sim, drain_addr, basename=axi_name))
@@ -196,7 +197,7 @@ def test_fpgadataflow_checksum():
 
     def write_drain(sim):
         addr = 32
-        for i in range(len(model.get_nodes_by_op_type("CheckSum"))):
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
             axilite_write(sim, addr, drain_value, basename=axi_name)
 
