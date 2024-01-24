@@ -52,7 +52,6 @@ from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
-from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
@@ -61,7 +60,6 @@ custom_op = dict()
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
-custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation

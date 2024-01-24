@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,10 +27,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class TLastMarker(HLSCustomOp):
+class TLastMarker_hls(HWCustomOp, HLSBackend):
     """Node that adds/removes AXI stream TLAST signals where needed. Its behavior
     is transparent in node-by-node execution, only visible in IP-stitched rtlsim or
     actual hardware.
@@ -56,7 +58,8 @@ class TLastMarker(HLSCustomOp):
             # Vitis docs recommend using qdma_axis for external, ap_axiu for internal
             "Protocol": ("s", False, "external", {"external", "internal"}),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(HWCustomOp.get_nodeattr_types(self))
+        my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
     def execute_node(self, context, graph):

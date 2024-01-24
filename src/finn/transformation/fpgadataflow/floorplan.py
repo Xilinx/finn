@@ -123,7 +123,7 @@ class Floorplan(Transformation):
         non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
         dyn_tlastmarker_nodes = list(
             filter(
-                lambda x: x.op_type == "TLastMarker"
+                lambda x: x.op_type == "TLastMarker_hls"
                 and getCustomOp(x).get_nodeattr("DynIters") == "true",
                 non_dma_nodes,
             )

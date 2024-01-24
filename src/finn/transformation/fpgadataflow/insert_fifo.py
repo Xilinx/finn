@@ -236,7 +236,7 @@ class InsertFIFO(Transformation):
                 final_node = model.find_producer(graph_out_name)
                 if final_node.op_type != "StreamingFIFO" and final_node.op_type != "IODMA":
                     assert (
-                        final_node.op_type != "TLastMarker"
+                        final_node.op_type != "TLastMarker_hls"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
