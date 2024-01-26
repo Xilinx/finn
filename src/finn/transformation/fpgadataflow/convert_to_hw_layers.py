@@ -180,7 +180,125 @@ class InferConvInpGen(Transformation):
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
+class InferThresholdingLayer(Transformation):
+    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
+    def __init__(self, mem_mode="const", use_rtl_variant=False):
+        super().__init__()
+        self.mem_mode = mem_mode
+        self.use_rtl_variant = use_rtl_variant
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MultiThreshold":
+                thl_input = node.input[0]
+                thl_threshold = node.input[1]
+                thl_output = node.output[0]
+                thl_in_shape = model.get_tensor_shape(thl_input)
+                thl_thres_shape = model.get_tensor_shape(thl_threshold)
+                idt = model.get_tensor_datatype(thl_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # check layout of inputs/outputs, and convert if needed
+                # check layout and convert if necessary
+                thl_in_layout = model.get_tensor_layout(thl_input)
+                if thl_in_layout == DataLayout.NCHW:
+                    thl_input = nchw_to_nhwc(thl_input, model, node_ind)
+                    node_ind += 1
+                    thl_in_shape = model.get_tensor_shape(thl_input)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                thl_output_layout = model.get_tensor_layout(thl_output)
+                if thl_output_layout == DataLayout.NCHW:
+                    thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # now safe to assume number of channels is in last dimension
+                ifc = int(thl_in_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+
+                odt = model.get_tensor_datatype(thl_output)
+                scale = getCustomOp(node).get_nodeattr("out_scale")
+                assert scale == 1.0, (
+                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                )
+                actval = getCustomOp(node).get_nodeattr("out_bias")
+                assert int(actval) == actval, (
+                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
+                )
+                actval = int(actval)
+                assert (not odt.signed()) or (actval < 0), (
+                    node.name + ": Signed output requires actval < 0"
+                )
+
+                # Ensure that RTL variant is not inserted for unsupported configuration
+                is_rtl_variant_compatible = True
+
+                # Perform checks for RTL variant if chosen
+                if self.use_rtl_variant and is_rtl_variant_compatible:
+                    new_node = helper.make_node(
+                        "Thresholding_Binary_Search",
+                        [thl_input, thl_threshold],
+                        [thl_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=ifc,
+                        PE=pe,
+                        numSteps=thl_thres_shape[1],
+                        inputDataType=idt.name,
+                        weightDataType=idt.name,
+                        outputDataType=odt.name,
+                        numInputVectors=list(thl_in_shape[:-1]),
+                        activation_bias=actval,
+                        mem_mode=self.mem_mode,
+                        name="Thresholding_Binary_Search_" + node.name,
+                    )
+                else:
+                    if self.use_rtl_variant:
+                        warnings.warn(
+                            """%s : RTL Thresholding requested for unsupported
+                            configuration. Falling back to HLS implementation."""
+                            % node.name
+                        )
+
+                    # create and insert new Thresholding_Batch node
+                    new_node = helper.make_node(
+                        "Thresholding_Batch",
+                        [thl_input, thl_threshold],
+                        [thl_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=ifc,
+                        PE=pe,
+                        numSteps=thl_thres_shape[1],
+                        inputDataType=idt.name,
+                        weightDataType=idt.name,
+                        outputDataType=odt.name,
+                        numInputVectors=list(thl_in_shape[:-1]),
+                        ActVal=actval,
+                        mem_mode=self.mem_mode,
+                        name="Thresholding_Batch_" + node.name,
+                    )
+
+                graph.node.insert(insert_point, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 

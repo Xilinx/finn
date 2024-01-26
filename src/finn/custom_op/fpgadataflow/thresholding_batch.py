@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2024, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,6 +31,8 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
+from finn.custom_op.fpgadataflow.fmpadding import FMPadding
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,

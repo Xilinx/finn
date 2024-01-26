@@ -58,7 +58,7 @@ class ThresholdingBinarySearch_hls(ThresholdingBinarySearch,HLSBackend):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-
+    
     def get_nodeattr_types(self):
         my_attrs = {}
         my_attrs.update(ThresholdingBinarySearch.get_nodeattr_types(self))

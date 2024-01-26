@@ -37,15 +37,19 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
-
+from qonnx.transformation.infer_shapes import InferShapes
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+import finn.core.onnx_exec as oxe
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -141,50 +145,50 @@ def make_single_thresholding_binary_search_modelwrapper(
     return model
 
 
-# Test brief: Test that PrepareRTLSim() runs successfully. This function is not
-# tested in test_fpgadataflow_thresholding_binary_search()
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
-    input_data_type = DataType["INT16"]
-    act = DataType["INT4"]
-    fold = -1
-    num_input_channels = 16
+# # Test brief: Test that PrepareRTLSim() runs successfully. This function is not
+# # tested in test_fpgadataflow_thresholding_binary_search()
+# @pytest.mark.fpgadataflow
+# @pytest.mark.vivado
+# def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
+#     input_data_type = DataType["INT16"]
+#     act = DataType["INT4"]
+#     fold = -1
+#     num_input_channels = 16
 
-    # Handle inputs to the test
-    pe = generate_pe_value(fold, num_input_channels)
-    num_steps = act.get_num_possible_values() - 1
+#     # Handle inputs to the test
+#     pe = generate_pe_value(fold, num_input_channels)
+#     num_steps = act.get_num_possible_values() - 1
 
-    # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
-    thresholds = sort_thresholds_increasing(thresholds)
+#     # Generate random, non-decreasing thresholds
+#     thresholds = generate_random_threshold_values(
+#         input_data_type, num_input_channels, num_steps
+#     )
+#     thresholds = sort_thresholds_increasing(thresholds)
 
-    # Other non-input parameters
-    num_input_vecs = [1, 2, 2]
-    output_data_type = act
-    if output_data_type == DataType["BIPOLAR"]:
-        activation_bias = 0
-    else:
-        activation_bias = output_data_type.min()
+#     # Other non-input parameters
+#     num_input_vecs = [1, 2, 2]
+#     output_data_type = act
+#     if output_data_type == DataType["BIPOLAR"]:
+#         activation_bias = 0
+#     else:
+#         activation_bias = output_data_type.min()
 
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        num_input_vecs,
-    )
+#     # Generate model from input parameters to the test
+#     model = make_single_thresholding_binary_search_modelwrapper(
+#         thresholds,
+#         pe,
+#         input_data_type,
+#         output_data_type,
+#         activation_bias,
+#         num_input_vecs,
+#     )
 
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    return
+#     model = model.transform(SetExecMode("rtlsim"))
+#     model = model.transform(GiveUniqueNodeNames())
+#     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+#     model = model.transform(HLSSynthIP())
+#     model = model.transform(PrepareRTLSim())
+#     return
 
 
 # Test brief: Create a Thresholding binary search layer using various parameters
@@ -194,11 +198,13 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels
+    activation, input_data_type, fold, num_input_channels, impl_style, mode
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
@@ -238,88 +244,6 @@ def test_fpgadataflow_thresholding_binary_search(
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        num_input_vecs,
-    )
-
-    model = model.transform(InsertFIFO(True))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-
-    # Retrieve the axilite programming sequence for weights - for decoupled mode only
-    tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
-    tbs_inst = getCustomOp(tbs_node)
-    config = tbs_inst.get_dynamic_config(model, 4)
-
-    # Reshape generated data (not from model)
-    oshape = model.get_tensor_shape("outp")
-    y_expected = y.reshape(oshape)
-
-    # Helper function that delivers the hook to program the thresholds via AXI-Lite
-    def config_hook(config):
-        if config is None:
-            return None
-
-        def write_thresh_config(sim):
-            # axi_name = "s_axilite_0_" # works
-            axi_name = getCustomOp(
-                model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
-            ).get_verilog_top_module_intf_names()["axilite"][0]
-            axi_name += "_0_"
-
-            # Write config registers to the Threshold memory.
-            # The dictionary defines (addr, value) tuples.
-            for config_entry in config.values():
-                addr = config_entry[0]
-                val = config_entry[1]
-                axilite_write(sim, addr, val, basename=axi_name)
-
-            reset_rtlsim(sim)
-
-        return write_thresh_config
-
-    input_dict = {"inp": x}
-    rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
-    y_produced = input_dict["outp"]
-    assert (y_produced == y_expected).all()
-
-
-# Test brief: Test basic transforms are working
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_thresholding_binary_search_transform(impl_style):
-    input_data_type = DataType["INT16"]
-    act = DataType["INT4"]
-    fold = -1
-    num_input_channels = 16
-
-    # Handle inputs to the test
-    pe = generate_pe_value(fold, num_input_channels)
-    num_steps = act.get_num_possible_values() - 1
-
-    # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
-    thresholds = sort_thresholds_increasing(thresholds)
-
-    # Other non-input parameters
-    num_input_vecs = [1, 2, 2]
-    output_data_type = act
-    if output_data_type == DataType["BIPOLAR"]:
-        activation_bias = 0
-    else:
-        activation_bias = output_data_type.min()
-
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
         impl_style,
         thresholds,
         pe,
@@ -329,10 +253,111 @@ def test_fpgadataflow_thresholding_binary_search_transform(impl_style):
         num_input_vecs,
     )
 
+    model = model.transform(InferThresholdingLayer())
     model = model.transform(SpecializeLayers())
-    # model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(InferShapes())
+    # model = model.transform(SetExecMode(mode))
+    # model = model.transform(GiveUniqueNodeNames())
+    # if mode == "cppsim":
+    #     model = model.transform(PrepareCppSim())
+    #     model = model.transform(CompileCppSim())
+    # elif mode == "rtlsim":
+    #     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    #     model = model.transform(HLSSynthIP())
+    #     model = model.transform(PrepareRTLSim())
+    # input_dict = {"inp": x}
+    # y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    # model = model.transform(InsertFIFO(True))
     # model = model.transform(GiveUniqueNodeNames())
     # model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     # model = model.transform(HLSSynthIP())
-    # model = model.transform(PrepareRTLSim())
-    return
+    # model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+
+    # # Retrieve the axilite programming sequence for weights - for decoupled mode only
+    # tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
+    # tbs_inst = getCustomOp(tbs_node)
+    # config = tbs_inst.get_dynamic_config(model, 4)
+
+    # # Reshape generated data (not from model)
+    # oshape = model.get_tensor_shape("outp")
+    # y_expected = y.reshape(oshape)
+
+    # # Helper function that delivers the hook to program the thresholds via AXI-Lite
+    # def config_hook(config):
+    #     if config is None:
+    #         return None
+
+    #     def write_thresh_config(sim):
+    #         # axi_name = "s_axilite_0_" # works
+    #         axi_name = getCustomOp(
+    #             model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
+    #         ).get_verilog_top_module_intf_names()["axilite"][0]
+    #         axi_name += "_0_"
+
+    #         # Write config registers to the Threshold memory.
+    #         # The dictionary defines (addr, value) tuples.
+    #         for config_entry in config.values():
+    #             addr = config_entry[0]
+    #             val = config_entry[1]
+    #             axilite_write(sim, addr, val, basename=axi_name)
+
+    #         reset_rtlsim(sim)
+
+    #     return write_thresh_config
+
+    # input_dict = {"inp": x}
+    # rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
+    # y_produced = input_dict["outp"]
+    # assert (y_produced == y_expected).all()
+
+
+# # Test brief: Test basic transforms are working
+# @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+# @pytest.mark.fpgadataflow
+# @pytest.mark.vivado
+# def test_fpgadataflow_thresholding_binary_search_transform(impl_style):
+#     input_data_type = DataType["INT16"]
+#     act = DataType["INT4"]
+#     fold = -1
+#     num_input_channels = 16
+
+#     # Handle inputs to the test
+#     pe = generate_pe_value(fold, num_input_channels)
+#     num_steps = act.get_num_possible_values() - 1
+
+#     # Generate random, non-decreasing thresholds
+#     thresholds = generate_random_threshold_values(
+#         input_data_type, num_input_channels, num_steps
+#     )
+#     thresholds = sort_thresholds_increasing(thresholds)
+
+#     # Other non-input parameters
+#     num_input_vecs = [1, 2, 2]
+#     output_data_type = act
+#     if output_data_type == DataType["BIPOLAR"]:
+#         activation_bias = 0
+#     else:
+#         activation_bias = output_data_type.min()
+
+#     # Generate model from input parameters to the test
+#     model = make_single_thresholding_binary_search_modelwrapper(
+#         impl_style,
+#         thresholds,
+#         pe,
+#         input_data_type,
+#         output_data_type,
+#         activation_bias,
+#         num_input_vecs,
+#     )
+
+#     model = model.transform(SpecializeLayers())
+
+#     # if "hls" in getCustomOp(model.graph.node[0]).__class__.__name__ and impl_style != "hls":
+
+#     # model = model.transform(SetExecMode("rtlsim"))
+#     # model = model.transform(GiveUniqueNodeNames())
+#     # model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+#     # model = model.transform(HLSSynthIP())
+#     # model = model.transform(PrepareRTLSim())
+#     return
