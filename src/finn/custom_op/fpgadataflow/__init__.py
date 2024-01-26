@@ -55,7 +55,6 @@ from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.thresholding import (
     Thresholding,
 )
-from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
