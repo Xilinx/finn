@@ -77,39 +77,15 @@ class Thresholding(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_padded_odim():
-        pass
-
-    def get_exp_cycles():
-        pass
-
-    def get_normal_input_shape():
-        pass
-
-    def get_normal_output_shape():
-        pass
-    def get_folded_input_shape():
-        pass
-    def get_folded_output_shape():
-        pass
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
         return super().make_const_shape_op(oshape)
 
-    def infer_node_datatype():
-        pass
     def verify_node():
         pass
-    def get_input_datatype():
-        pass
-    def get_output_datatype():
-        pass
-    def get_instream_width():
-        pass
-    def get_outstream_width():
+    def infer_node_datatype():
         pass
     def get_number_output_values():
         pass
-
     def execute_node(self, context, graph):
         pass
