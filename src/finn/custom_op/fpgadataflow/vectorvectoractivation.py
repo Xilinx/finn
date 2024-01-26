@@ -104,6 +104,9 @@ class VectorVectorActivation(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def base_op_type(self):
+        return "VectorVectorActivation"
+
     def minimize_accumulator_width(self, model):
         """Minimize the accumulator bit width according to the weight values,
         input data types, and size of dot product"""
