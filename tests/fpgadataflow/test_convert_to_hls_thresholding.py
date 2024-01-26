@@ -49,6 +49,8 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -73,20 +75,6 @@ def generate_pe_value(fold, num_input_channels):
     pe = num_input_channels // fold
     assert num_input_channels % pe == 0
     return pe
-
-
-# n = batch, c = channel, h = height, w = width of feature map
-# Standard = NCHW; FINN = NHWC
-# Convert from NCHW to NHWC
-def convert_np_array_to_finn_data_layout(data):
-    return np.transpose(data, (0, 2, 3, 1))
-
-
-# n = batch, c = channel, h = height, w = width of feature map
-# Standard = NCHW; FINN = NHWC
-# Convert from NHWC to NCHW
-def convert_np_array_to_standard_data_layout(data):
-    return np.transpose(data, (0, 3, 1, 2))
 
 
 def make_single_multithresholding_modelwrapper(
@@ -144,9 +132,11 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_convert_to_hls_tbs_rtl_variant(
+def test_convert_multithreshold_to_hardware(
+    impl_style,
     activation,
     input_data_type,
     fold,
@@ -173,10 +163,6 @@ def test_convert_to_hls_tbs_rtl_variant(
     else:
         activation_bias = output_data_type.min()
 
-    # generate random input data
-    tensor_shape = tuple(num_input_vecs + [num_input_channels])
-    x = gen_finn_dt_tensor(input_data_type, tensor_shape)
-
     # Generate random thresholds and sort in ascending order
     thresholds = generate_random_threshold_values(
         input_data_type, num_input_channels, num_steps
@@ -185,73 +171,8 @@ def test_convert_to_hls_tbs_rtl_variant(
     # provide non-decreasing/ascending thresholds
     thresholds = sort_thresholds_increasing(thresholds)
 
-    x_nhwc = convert_np_array_to_standard_data_layout(x)
-    y = multithreshold(x_nhwc, thresholds)
-
-    # convert back to NHWC for comparison to hw outputs
-    y = convert_np_array_to_finn_data_layout(y)
-    if activation == DataType["BIPOLAR"]:
-        # binary to bipolar
-        y = 2 * y - 1
-    else:
-        # signed offset
-        y += activation.min()
-
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        num_input_vecs,
-    )
-
-    model = model.transform(InsertFIFO(True))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-
-    # Retrieve the axilite programming sequence for weights - for decoupled mode only
-    tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
-    tbs_inst = getCustomOp(tbs_node)
-    config = tbs_inst.get_dynamic_config(model, 4)
-
-    # Reshape generated data (not from model)
-    oshape = model.get_tensor_shape("outp")
-    y_expected = y.reshape(oshape)
-
-    # Helper function that delivers the hook to program the thresholds via AXI-Lite
-    def config_hook(config):
-        if config is None:
-            return None
-
-        def write_thresh_config(sim):
-            # axi_name = "s_axilite_0_" # works
-            axi_name = getCustomOp(
-                model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
-            ).get_verilog_top_module_intf_names()["axilite"][0]
-            axi_name += "_0_"
-
-            # Write config registers to the Threshold memory.
-            # The dictionary defines (addr, value) tuples.
-            for config_entry in config.values():
-                addr = config_entry[0]
-                val = config_entry[1]
-                axilite_write(sim, addr, val, basename=axi_name)
-
-            reset_rtlsim(sim)
-
-        return write_thresh_config
-
-    input_dict = {"inp": x}
-    rtlsim_exec(model, input_dict, pre_hook=config_hook(config))
-    y_produced = input_dict["outp"]
-    assert (y_produced == y_expected).all()
-
     # Make a Multithreshold graph and convert to thresholding binary search node
-    new_model = make_single_multithresholding_modelwrapper(
+    model = make_single_multithresholding_modelwrapper(
         thresholds,
         pe,
         input_data_type,
@@ -260,17 +181,9 @@ def test_convert_to_hls_tbs_rtl_variant(
         num_input_vecs,
     )
 
-    # Recreate the model using the ConvertToHLS transform
-    new_model = new_model.transform(
-        to_hls.InferThresholdingLayer(mem_mode="decoupled", use_rtl_variant=True)
-    )
-    new_model = new_model.transform(InsertFIFO(True))
-    new_model = new_model.transform(GiveUniqueNodeNames())
-    new_model = new_model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    new_model = new_model.transform(HLSSynthIP())
-    new_model = new_model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model = model.transform(InferThresholdingLayer())
+    model = model.transform(SpecializeLayers())
+    model = model.transform(InferShapes())
 
-    input_dict = {"inp": x}
-    rtlsim_exec(new_model, input_dict, pre_hook=config_hook(config))
-    y_produced_new = input_dict["outp"]
-    assert (y_produced_new == y_expected).all()
+    node_variant = getCustomOp(model.graph.node[0]).variant
+    assert (impl_style == node_variant)
