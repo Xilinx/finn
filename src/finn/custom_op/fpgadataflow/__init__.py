@@ -51,7 +51,6 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
 from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
-from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.thresholding import (
     Thresholding,
 )
@@ -64,7 +63,6 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
 custom_op["StreamingFIFO"] = StreamingFIFO
-custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["Thresholding"] = Thresholding
 custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition

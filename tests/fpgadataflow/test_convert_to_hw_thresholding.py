@@ -39,10 +39,6 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
-from test_fpgadataflow_thresholding_binary_search import (
-    make_single_thresholding_binary_search_modelwrapper,
-)
-
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
