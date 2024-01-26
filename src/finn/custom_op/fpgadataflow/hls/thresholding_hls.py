@@ -39,6 +39,7 @@ from qonnx.util.basic import (
     roundup_to_integer_multiple,
 )
 
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -58,11 +59,45 @@ class Thresholding_hls(Thresholding,HLSBackend):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-    
+        self.variant = "hls"
+
     def get_nodeattr_types(self):
-        my_attrs = {}
-        my_attrs.update(Thresholding.get_nodeattr_types(self))
-        my_attrs.update(HLSBackend.get_nodeattr_types(self))
+        my_attrs = {
+            # parallelization; channels thresholded per cycle
+            "PE": ("i", True, 0),
+            # number of channels (each may have different thresholds)
+            "NumChannels": ("i", True, 0),
+            # number of steps in thresholding function
+            "numSteps": ("i", True, 1),
+            # string defining memory type
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
+            # FINN DataTypes for inputs, outputs
+            "inputDataType": ("s", True, ""),
+            "weightDataType": ("s", True, ""),
+            "outputDataType": ("s", True, ""),
+            # number of input vectors, examples:
+            # [1] is a single vector (like a FC layer with batch=1)
+            # [4] is four vectors (like a FC layer with batch=4)
+            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+            "numInputVectors": ("ints", False, [1]),
+            # initialization value for the thresholding accumulator
+            "ActVal": ("i", False, 0),
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with  streamer packaged inside IP
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
+            # (mem_mode = decoupled only) whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+        }
+        my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
     def calc_tmem(self):
@@ -71,8 +106,24 @@ class Thresholding_hls(Thresholding,HLSBackend):
         pe = self.get_nodeattr("PE")
         return mh // pe
 
+    def make_shape_compatible_op(self, model):
+        oshape = self.get_normal_output_shape()
+        return super().make_const_shape_op(oshape)
+
     def infer_node_datatype(self, model):
-        pass
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype().name),
+                str(idt.name),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
@@ -464,7 +515,41 @@ class Thresholding_hls(Thresholding,HLSBackend):
                 context[node.output[0]] = out
             oshape = self.get_normal_output_shape()
             assert context[node.output[0]].shape == oshape, """Output shape is not as expected"""
-        
+        elif mode == "rtlsim":
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            if self.get_nodeattr("mem_mode") == "decoupled":
+                wnbits = self.get_weightstream_width()
+                export_wdt = self.get_weight_datatype()
+                wei = npy_to_rtlsim_input(
+                    "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
+                )
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                io_dict = {
+                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
+                    "outputs": {"out": []},
+                }
+                self.rtlsim_multi_io(sim, io_dict)
+                output = io_dict["outputs"]["out"]
+            elif self.get_nodeattr("mem_mode") == "const":
+                output = self.rtlsim(sim, inp)
+            else:
+                raise Exception("Unrecognized mem_mode")
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
