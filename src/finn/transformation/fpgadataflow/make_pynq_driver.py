@@ -282,7 +282,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
+                if getCustomOp(node).base_op_type() == "MatrixVectorActivation" or node.op_type == "Thresholding_Batch":
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

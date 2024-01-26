@@ -48,12 +48,13 @@ def is_external_input(model, node, i):
     # True only if input is unconnected and has no initializer
     # Only esception is second input of FC layers when mem_mode is external
     node_inst = getCustomOp(node)
+    op_type = node_inst.base_op_type()
     producer = model.find_producer(node.input[i])
     if producer is None:
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if node.op_type == "MatrixVectorActivation":
+            if op_type == "MatrixVectorActivation":
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
