@@ -31,7 +31,7 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
-from finn.custom_op.fpgadataflow.thresholdingbinarysearch import ThresholdingBinarySearch
+from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
@@ -53,7 +53,7 @@ from finn.util.data_packing import (
 # the ... here can be any shape (representing groups of vectors)
 
 
-class ThresholdingBinarySearch_hls(ThresholdingBinarySearch,HLSBackend):
+class Thresholding_hls(Thresholding,HLSBackend):
     """Class that corresponds to finn-hls Thresholding_Batch function."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -61,7 +61,7 @@ class ThresholdingBinarySearch_hls(ThresholdingBinarySearch,HLSBackend):
     
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(ThresholdingBinarySearch.get_nodeattr_types(self))
+        my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 

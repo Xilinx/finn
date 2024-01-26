@@ -112,7 +112,7 @@ def make_single_thresholding_binary_search_modelwrapper(
     node_inp_list = ["inp", "thresh"]
 
     Thresholding_node = helper.make_node(
-        "ThresholdingBinarySearch",
+        "Thresholding",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",

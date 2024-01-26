@@ -33,7 +33,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class ThresholdingBinarySearch(HWCustomOp):
+class Thresholding(HWCustomOp):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
