@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +32,8 @@ import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
 # direction "in": pulls data from AXI-MM to AXI stream
@@ -72,7 +74,7 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 #       -the folded shape is not defined
 
 
-class IODMA(HLSCustomOp):
+class IODMA_hls(HWCustomOp, HLSBackend):
     """Class that corresponds to finn-hlslib DMA function(s)."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -97,7 +99,8 @@ class IODMA(HLSCustomOp):
             # name of axi-mm interface
             "intfName": ("s", False, ""),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(HWCustomOp.get_nodeattr_types(self))
+        my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):

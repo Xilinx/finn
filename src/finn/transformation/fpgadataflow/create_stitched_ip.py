@@ -284,7 +284,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA_hls"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware

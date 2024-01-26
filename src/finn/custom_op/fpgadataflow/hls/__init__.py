@@ -28,6 +28,7 @@
 
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
+from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
 from finn.custom_op.fpgadataflow.hls.convolutioninputgenerator_hls import (
     ConvolutionInputGenerator_hls,
@@ -35,7 +36,9 @@ from finn.custom_op.fpgadataflow.hls.convolutioninputgenerator_hls import (
 from finn.custom_op.fpgadataflow.hls.downsampler_hls import DownSampler_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_hls import FMPadding_hls
+from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
+from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
@@ -44,6 +47,7 @@ from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
 )
 from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls import StreamingMaxPool_hls
+from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
 from finn.custom_op.fpgadataflow.hls.thresholdingbinarysearch_hls import ThresholdingBinarySearch_hls
 
@@ -53,11 +57,14 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["AddStreams_hls"] = AddStreams_hls
 custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
+custom_op["CheckSum_hls"] = CheckSum_hls
 custom_op["ConvolutionInputGenerator_hls"] = ConvolutionInputGenerator_hls
 custom_op["DownSampler_hls"] = DownSampler_hls
 custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_hls"] = FMPadding_hls
+custom_op["FMPadding_Pixel_hls"] = FMPadding_Pixel_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
+custom_op["IODMA_hls"] = IODMA_hls
 custom_op["LabelSelect_hls"] = LabelSelect_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls

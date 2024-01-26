@@ -195,4 +195,30 @@ class Pool(HWCustomOp):
         return info_messages
 
     def execute_node(self, context, graph):
-        pass
+        # simulate behavior with Python functionality
+        node = self.onnx_node
+        fnx = self.get_nodeattr("Function")
+        k = self.get_nodeattr("KernelSize")
+        ch = self.get_nodeattr("Channels")
+        k2 = k[0] * k[1]
+
+        inp_values = context[node.input[0]]
+        ishape = inp_values.shape
+        # reshape array to apply max or avg function only on kernel
+        tmp_shape = tuple(list(ishape)[:-1] + [k2, ch])
+        tmp_values = inp_values.reshape(tmp_shape)
+        if fnx == "MaxPool":
+            result = np.max(tmp_values, axis=3)
+        elif fnx == "QuantAvgPool":
+            # determine bits to shift
+            ibits = self.get_input_datatype().bitwidth()
+            obits = self.get_output_datatype().bitwidth()
+            max_value = 2**ibits - 1
+            max_value = max_value * k2
+            max_bit_width = int(max_value).bit_length()
+            shift_bits = max_bit_width - obits
+            shift_bits = shift_bits if shift_bits >= 0 else 0
+            result = np.sum(tmp_values, axis=3)
+            result = np.right_shift(result.astype(int), shift_bits)
+        oshape = context[node.output[0]].shape
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

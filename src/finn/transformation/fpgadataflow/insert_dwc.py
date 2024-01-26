@@ -47,7 +47,7 @@ def _suitable_node(node):
             if _is_dwc_node(node):
                 # no DWC for DWCs
                 return False
-            elif node.op_type == "IODMA":
+            elif node.op_type == "IODMA_hls":
                 # IODMA data shapes/widths need special handling
                 return False
             else:

@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,11 +32,12 @@ import os
 import warnings
 from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class CheckSum(HLSCustomOp):
+class CheckSum_hls(HWCustomOp, HLSBackend):
     """Class that corresponds to custom_hls checksum function."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -52,7 +54,8 @@ class CheckSum(HLSCustomOp):
             # folded shape of input/output
             "folded_shape": ("ints", True, []),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(HWCustomOp.get_nodeattr_types(self))
+        my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
     def make_shape_compatible_op(self, model):
