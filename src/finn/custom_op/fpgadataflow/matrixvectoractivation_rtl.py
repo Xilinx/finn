@@ -807,32 +807,25 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 )
             )
 
-            # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            # instantiate a streamer and connect it to the IP
+            swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+            strm_tmpl_name = self.get_nodeattr("gen_top_module") + "_memstream_wrapper"
+            sourcefiles = [
+                os.path.join(code_gen_dir, strm_tmpl_name+".v"),
+                swg_rtllib_dir + "axilite_if.v",
+                swg_rtllib_dir + "memstream_axi.sv",
+                swg_rtllib_dir + "memstream.sv",
+                swg_rtllib_dir + "Q_srl.v",
+            ]
+            for f in sourcefiles:
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             strm_inst = node_name + "_wstrm"
+            
+            
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type hier -reference %s /%s/%s" % (strm_tmpl_name, node_name, strm_inst)
             )
-            wmem = self.calc_wmem()
-            padded_width = self.get_weightstream_width_padded()
-            cmd.append(
-                "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
-                "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.PUMPED_MEMORY {%s} "
-                "] [get_bd_cells /%s/%s]"
-                % (
-                    wmem,
-                    padded_width,
-                    self.get_decoupled_weight_filename(abspath=False),
-                    self.get_nodeattr("ram_style"),
-                    self.get_nodeattr("pumpedMemory"),
-                    node_name,
-                    strm_inst,
-                )
-            )
+            
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
                 "[get_bd_intf_pins %s/%s/weights_%s]"
@@ -1048,6 +1041,38 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
+
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            self.generate_hdl_memstream()
+
+    def generate_hdl_memstream(self):
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+        mname = self.get_nodeattr("gen_top_module")
+        wmem = self.calc_wmem()
+        padded_width = self.get_weightstream_width_padded()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        code_gen_dict = {
+            "$MODULE_NAME$" : [mname],
+            "$DEPTH$" : [str(wmem)],
+            "$WIDTH$" : [str(padded_width)],
+            "$INIT_FILE$" : [self.get_decoupled_weight_filename(abspath=False)],
+            "$RAM_STYLE$" : [self.get_nodeattr("ram_style")],
+            "$PUMPED_MEMORY$" : [str(self.get_nodeattr("pumpedMemory"))]
+        }
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_memstream_wrapper.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+
 
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"

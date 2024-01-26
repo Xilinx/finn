@@ -461,6 +461,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
     def dump_rtl_data(self, dest_dir, filename, data):
         """Dump filled-in-template RTL files for future synthesis step"""
+        # when generating template files, handle a special case:
+        # if the filename contains the word "template", replace that
+        # with the node name to distinguish between instances
+        filename = filename.replace("template", self.onnx_node.name)
         with open(os.path.join(dest_dir, filename), "w") as f:
             f.write(data)
         return
@@ -508,7 +512,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
-        verilog_files = self.get_rtl_file_list()
+        verilog_files = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
         dat_files = self.get_all_meminit_filenames(abspath=True)
         single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
         for dat_file in dat_files:
@@ -640,7 +644,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        rtl_file_list = self.get_rtl_file_list()
+        rtl_file_list = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]

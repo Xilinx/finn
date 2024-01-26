@@ -66,14 +66,18 @@ def prepare_stitched_ip_for_verilator(model, sim_dir):
     with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
         all_verilog_srcs = f.read().split()
 
-    meminit_subdir = vivado_stitch_proj_dir + "/meminit"
-    shutil.copytree(meminit_subdir, sim_dir, dirs_exist_ok=True)
+    with open(vivado_stitch_proj_dir + "/all_meminit_srcs.txt", "r") as f:
+        all_meminit_srcs = f.read().split()
 
     def file_to_dir(x):
         return os.path.dirname(os.path.realpath(x))
 
     def file_to_basename(x):
         return os.path.basename(os.path.realpath(x))
+
+    for meminit in all_meminit_srcs:
+        meminit_src = vivado_stitch_proj_dir+"/"+meminit
+        shutil.copy(meminit_src, sim_dir)
 
     top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
 
