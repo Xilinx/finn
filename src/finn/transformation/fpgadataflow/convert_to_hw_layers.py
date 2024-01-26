@@ -255,7 +255,7 @@ class InferThresholdingLayer(Transformation):
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
                     mem_mode=self.mem_mode,
-                    name="Thresholding_Batch_" + node.name,
+                    name="Thresholding_" + node.name,
                 )
 
                 graph.node.insert(insert_point, new_node)
