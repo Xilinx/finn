@@ -50,6 +50,7 @@ from finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls import StreamingMaxPoo
 from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
+from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MatrixVectorActivation_hls
 
 custom_op = dict()
 
@@ -75,3 +76,4 @@ custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
 custom_op["Thresholding_hls"] = Thresholding_hls
 custom_op["TLastMarker_hls"] = TLastMarker_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
+custom_op["MatrixVectorActivation_hls"] = MatrixVectorActivation_hls
