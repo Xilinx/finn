@@ -29,7 +29,6 @@
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
-from finn.custom_op.fpgadataflow.checksum import CheckSum
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -39,12 +38,10 @@ from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
-from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
-from finn.custom_op.fpgadataflow.matrixvectoractivation_rtl import MatrixVectorActivation_rtl
-from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
@@ -55,7 +52,6 @@ from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
-from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
@@ -64,26 +60,23 @@ custom_op = dict()
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
-custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingFIFO"] = StreamingFIFO
-custom_op["Pool_Batch"] = Pool_Batch
-custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
-custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
-custom_op["StreamingConcat"] = StreamingConcat
-custom_op["CheckSum"] = CheckSum
 
-custom_op["FMPadding"] = FMPadding
 custom_op["AddStreams"] = AddStreams
 custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["DownSampler"] = DownSampler
 custom_op["DuplicateStreams"] = DuplicateStreams
+custom_op["FMPadding"] = FMPadding
+custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["GlobalAccPool"] = GlobalAccPool
 custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup
+custom_op["Pool"] = Pool
+custom_op["StreamingConcat"] = StreamingConcat
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool

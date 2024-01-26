@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -46,6 +46,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False):
@@ -133,7 +134,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mode):
+def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mode):
     k, stride, pad, ifm_dim = pool_config
 
     if ifm_ch % pe != 0:
@@ -156,10 +157,6 @@ def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, e
     # prepare input data
     input_dict = prepare_inputs(x)
     if op_type == "MaxPool":
-        # if idt.signed():
-        #     pytest.skip("""No support for signed input (see accu initialization
-        #         in Pool_batch HLSLIB function). Skipping""")
-
         if idt != odt:
             pytest.skip("Skipping Maxpool with idt != odt")
 
@@ -178,16 +175,25 @@ def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, e
 
     y_expected = oxe.execute_onnx(model, input_dict)["outp"]
 
-    new_model = model.transform(to_hls.InferPool_Batch())
+    new_model = model.transform(to_hw.InferPool())
     new_model = new_model.transform(GiveUniqueNodeNames())
+    new_model = new_model.transform(to_hw.InferConvInpGen())
+    # to test cppsim, set preferred_impl_style for swg to hls
+    inst = getCustomOp(new_model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    if pad != 0:
+        inst = getCustomOp(new_model.get_nodes_by_op_type("FMPadding")[0])
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
+    assert (y_produced == y_expected).all()
+    new_model = new_model.transform(SpecializeLayers())
 
-    new_model = new_model.transform(to_hls.InferConvInpGen())
     # Folding
     for n in new_model.graph.node:
         if n.op_type.startswith("ConvolutionInputGenerator"):
             inst = getCustomOp(n)
             inst.set_nodeattr("SIMD", pe)
-        elif n.op_type == "Pool_Batch":
+        elif n.op_type.startswith("Pool"):
             inst = getCustomOp(n)
             inst.set_nodeattr("PE", pe)
 
@@ -196,14 +202,14 @@ def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, e
             assert len(new_model.graph.node) == 4
             assert new_model.graph.node[0].op_type == "Transpose"
             assert new_model.graph.node[1].op_type.startswith("ConvolutionInputGenerator")
-            assert new_model.graph.node[2].op_type == "Pool_Batch"
+            assert new_model.graph.node[2].op_type.startswith("Pool")
             assert new_model.graph.node[3].op_type == "Transpose"
         else:
             assert len(new_model.graph.node) == 5
             assert new_model.graph.node[0].op_type == "Transpose"
-            assert new_model.graph.node[1].op_type == "FMPadding_Batch"
+            assert new_model.graph.node[1].op_type.startswith("FMPadding")
             assert new_model.graph.node[2].op_type.startswith("ConvolutionInputGenerator")
-            assert new_model.graph.node[3].op_type == "Pool_Batch"
+            assert new_model.graph.node[3].op_type.startswith("Pool")
             assert new_model.graph.node[4].op_type == "Transpose"
     else:
         # not currently converted to HLS, node stays as-is
@@ -230,7 +236,7 @@ def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, e
     assert (y_produced == y_expected).all()
 
     if exec_mode == "rtlsim":
-        node = new_model.get_nodes_by_op_type("Pool_Batch")[0]
+        node = new_model.get_nodes_by_op_type("Pool_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)

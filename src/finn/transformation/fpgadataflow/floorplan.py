@@ -119,11 +119,11 @@ class Floorplan(Transformation):
         df_nodes = list(
             filter(lambda x: get_by_name(x.attribute, "backend") is not None, all_nodes)
         )
-        dma_nodes = list(filter(lambda x: x.op_type == "IODMA", df_nodes))
+        dma_nodes = list(filter(lambda x: x.op_type == "IODMA_hls", df_nodes))
         non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
         dyn_tlastmarker_nodes = list(
             filter(
-                lambda x: x.op_type == "TLastMarker"
+                lambda x: x.op_type == "TLastMarker_hls"
                 and getCustomOp(x).get_nodeattr("DynIters") == "true",
                 non_dma_nodes,
             )

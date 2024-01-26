@@ -182,7 +182,7 @@ class InsertFIFO(Transformation):
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
                 # insert FIFO as first node, except when first node is DMA
-                if first_node.op_type != "StreamingFIFO" and first_node.op_type != "IODMA":
+                if first_node.op_type != "StreamingFIFO" and first_node.op_type != "IODMA_hls":
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
@@ -234,9 +234,9 @@ class InsertFIFO(Transformation):
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
-                if final_node.op_type != "StreamingFIFO" and final_node.op_type != "IODMA":
+                if final_node.op_type != "StreamingFIFO" and final_node.op_type != "IODMA_hls":
                     assert (
-                        final_node.op_type != "TLastMarker"
+                        final_node.op_type != "TLastMarker_hls"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
