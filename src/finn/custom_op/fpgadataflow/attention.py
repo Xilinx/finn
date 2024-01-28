@@ -33,7 +33,7 @@ def softmax(x, axis):
     # Count the occurrences of the maximum along the normalization axis
     max_counts = np.sum(max_ones, axis=axis, keepdims=True)
     # Exponential of the input
-    exp = np.exp(x)
+    exp = np.exp(x - np.max(x, axis=axis))
     # Compute the total along axis
     total = np.sum(exp, axis=axis, keepdims=True)
     # Detect overflow of the summation
