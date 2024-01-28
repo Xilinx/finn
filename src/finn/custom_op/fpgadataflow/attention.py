@@ -2,6 +2,9 @@
 import os
 # Python warning subsystem
 import warnings
+# Python builtin math functions: math.ceil returns int, while np.ceil returns
+# float
+import math
 # Numpy math and arrays
 import numpy as np
 
@@ -14,8 +17,11 @@ from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper  # noqa
-# Partitions tensor into folded/pe groups
-from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions  # noqa
+# Some utils for working with tensors in qonnx
+from qonnx.util.basic import (  # noqa
+    interleave_matrix_outer_dim_from_partitions,
+    calculate_matvec_accumulator_range
+)
 
 
 # Softmax function on numpy arrays with overflow handling matching the HLS
@@ -682,22 +688,82 @@ class ScaledDotProductAttention(HLSCustomOp):
         KType = DataType[self.get_nodeattr("KType")]  # noqa
         VType = DataType[self.get_nodeattr("VType")]  # noqa
         AType = DataType[self.get_nodeattr("AType")]  # noqa
-        # Minimal and maximal possible results of query-key multiplication
-        qk_min = self.get_nodeattr("QKDim") * QType.min() * KType.min()
-        qk_max = self.get_nodeattr("QKDim") * QType.max() * KType.max()
-        # Minimal and maximal possible results of attention-value multiplication
-        av_min = self.get_nodeattr("KVLen") * AType.min() * VType.min()
-        av_max = self.get_nodeattr("KVLen") * AType.max() * VType.max()
-        # Update the accumulator types to fit the min-max range
-        #   TODO: Is this correct?
-        _qk_max = max(-qk_min, 1 + qk_max)
-        acc_bit_width = np.log2(_qk_max) + 1
-        acc_bit_width = int(np.ceil(acc_bit_width))
-        self.set_nodeattr("AccQKMatMul", f"UINT{acc_bit_width}")
-        _av_max = max(-av_min, 1 + av_max)
-        acc_bit_width = np.log2(_av_max) + 1
-        acc_bit_width = int(np.ceil(acc_bit_width))
-        self.set_nodeattr("AccAVMatMul", f"UINT{acc_bit_width}")
+
+        # Compute the worst-case upper and lower bounds of the accumulator range
+        lower_worst = QType.min() * np.ones(self.get_normal_input_shape(0))
+        lower_range = calculate_matvec_accumulator_range(lower_worst, KType)
+        upper_worst = QType.max() * np.ones(self.get_normal_input_shape(0))
+        upper_range = calculate_matvec_accumulator_range(  # noqa: Duplicate
+            upper_worst, KType
+        )
+        # Minimum and maximum values of the range
+        acc_min = min(min(lower_range), min(upper_range))
+        acc_max = max(max(upper_range), max(upper_range))
+        # Unsigned accumulator range
+        if acc_min >= 0:
+            # Number of bits necessary to represent the maximum value of the
+            # range. Some values between 0 and acc_min might be unused.
+            bitwidth = math.ceil(np.log2(acc_max + 1))
+            # New unsigned accumulator datatype of this bitwidth
+            AccQKMatMul = DataType[f"UINT{bitwidth}"]  # noqa
+        # Signed accumulator range
+        else:
+            # Maximum absolute value which needs to be represented
+            acc_max = max(-acc_min, 1 + acc_max)
+            # Number of bits necessary to represent the maximum value of the
+            # range. Some values on one of the ends might remain unused.
+            bitwidth = math.ceil(np.log2(acc_max) + 1)
+            # New signed accumulator datatype of this bitwidth
+            AccQKMatMul = DataType[f"INT{bitwidth}"]  # noqa
+        # Update the accumulator datatype attribute
+        self.set_nodeattr("AccQKMatMul", AccQKMatMul.name)
+        # If there is no activation function following the accumulator, the
+        # output type needs to be adjusted as well
+        if self.get_nodeattr("ActQKMatMul") == "none":
+            # Update the output datatype attribute to the same type as the
+            # accumulator
+            self.set_nodeattr("OutQKMatMul", AccQKMatMul.name)
+
+        # Compute the worst-case upper and lower bounds of the accumulator range
+        lower_worst = AType.min() * np.ones(self.get_normal_attention_shape(0))
+        lower_range = calculate_matvec_accumulator_range(lower_worst, VType)
+        upper_worst = AType.max() * np.ones(self.get_normal_attention_shape(0))
+        upper_range = calculate_matvec_accumulator_range(  # noqa: Duplicate
+            upper_worst, VType
+        )
+        # Minimum and maximum values of the range
+        acc_min = min(min(lower_range), min(upper_range))
+        acc_max = max(max(upper_range), max(upper_range))
+        # Unsigned accumulator range
+        if acc_min >= 0:
+            # Number of bits necessary to represent the maximum value of the
+            # range. Some values between 0 and acc_min might be unused.
+            bitwidth = math.ceil(np.log2(acc_max + 1))
+            # New unsigned accumulator datatype of this bitwidth
+            AccAVMatMul = DataType[f"UINT{bitwidth}"]  # noqa
+        # Signed accumulator range
+        else:
+            # Maximum absolute value which needs to be represented
+            acc_max = max(-acc_min, 1 + acc_max)
+            # Number of bits necessary to represent the maximum value of the
+            # range. Some values on one of the ends might remain unused.
+            bitwidth = math.ceil(np.log2(acc_max) + 1)
+            # New signed accumulator datatype of this bitwidth
+            AccAVMatMul = DataType[f"INT{bitwidth}"]  # noqa
+        # Update the accumulator datatype attribute
+        self.set_nodeattr("AccAVMatMul", AccAVMatMul.name)
+        # If there is no activation function following the accumulator, the
+        # output type needs to be adjusted as well
+        if self.get_nodeattr("ActAVMatMul") == "none":
+            # Update the output datatype attribute to the same type as the
+            # accumulator
+            self.set_nodeattr("OutAVMatMul", AccQKMatMul.name)
+            # # The output type of the whole operator is the same as the output
+            # # type of the last MatMul
+            # TODO: This currently breaks MergeMultiHeads via
+            #  MinimizeAccumulatorWidth, which re-infers datatypes after
+            #  each custom op instead of once after traversing the whole graph.
+            # self.set_nodeattr("OType", AccQKMatMul.name)
 
     # Gets the number of expected output values, i.e. how many times read()
     # could/should be called on the output stream of this operator
