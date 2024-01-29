@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,11 +29,14 @@
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.multithreshold import multithreshold
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
 class Thresholding(HWCustomOp):
+    """Abstraction layer for HW implementation of Thresholding."""
+
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
@@ -178,4 +181,17 @@ class Thresholding(HWCustomOp):
         return np.prod(self.get_folded_output_shape()[:-1])
 
     def execute_node(self, context, graph):
-        pass
+        node = self.onnx_node
+        inp_values = context[node.input[0]]
+        th_val = context[node.input[1]]
+
+        y = multithreshold(np.transpose(inp_values, (0, 3, 1, 2)), th_val)
+        y = y.transpose(0, 2, 3, 1)
+        act = DataType[self.get_nodeattr("outputDataType")]
+        if act == DataType["BIPOLAR"]:
+            # binary to bipolar
+            y = 2 * y - 1
+        else:
+            # signed offset
+            y += act.min()
+        context[node.output[0]] = y

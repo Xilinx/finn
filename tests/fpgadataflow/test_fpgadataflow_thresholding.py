@@ -136,6 +136,32 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
         actval = odt.min()
 
     model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+
+    # calculate reference output
+    # multithreshold util fxn wants NCHW input, not NHWC
+    y = multithreshold(np.transpose(x, (0, 3, 1, 2)), T)
+    # convert back to NHWC for comparison to hw outputs
+    y = np.transpose(y, (0, 2, 3, 1))
+    if act == DataType["BIPOLAR"]:
+        # binary to bipolar
+        y = 2 * y - 1
+    else:
+        # signed offset
+        y += act.min()
+
+    oshape = model.get_tensor_shape("outp")
+    y_expected = y.reshape(oshape)
+
+    # package input data as dictionary
+    input_dict = {"inp": x}
+
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all()
+
     model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
@@ -151,28 +177,12 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # package input data as dictionary
-    input_dict = {"inp": x}
-
-    # multithreshold util fxn wants NCHW input, not NHWC
-    y = multithreshold(np.transpose(x, (0, 3, 1, 2)), T)
-    # convert back to NHWC for comparison to hw outputs
-    y = np.transpose(y, (0, 2, 3, 1))
-    if act == DataType["BIPOLAR"]:
-        # binary to bipolar
-        y = 2 * y - 1
-    else:
-        # signed offset
-        y += act.min()
-
-    oshape = model.get_tensor_shape("outp")
-    y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "cppsim failed"
+    assert (y_produced == y_expected).all()
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
