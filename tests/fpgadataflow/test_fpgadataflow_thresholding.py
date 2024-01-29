@@ -225,6 +225,7 @@ def test_runtime_thresholds_single_layer():
     old_weight_stream = list(old_weight_stream)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
