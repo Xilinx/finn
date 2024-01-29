@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -65,7 +66,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_i
     node_inp_list = ["inp", "thresh"]
 
     Thresholding_node = helper.make_node(
-        "Thresholding_Batch",
+        "Thresholding",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -135,6 +136,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
         actval = odt.min()
 
     model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -174,9 +176,9 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-        assert "Thresholding_Batch_0" in hls_synt_res_est
+        assert "Thresholding_hls_0" in hls_synt_res_est
 
-        node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+        node = model.get_nodes_by_op_type("Thresholding_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -212,6 +214,7 @@ def test_runtime_thresholds_single_layer():
         actval = odt.min()
 
     model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = model.transform(SpecializeLayers())
     op_inst = getCustomOp(model.graph.node[0])
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     op_inst.make_weight_file(T, "decoupled_runtime", "old_weights.dat")

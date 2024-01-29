@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,23 +30,14 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.core.rtlsim_exec import rtlsim_exec
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -83,12 +74,8 @@ def make_single_multithresholding_modelwrapper(
 ):
     NumChannels = thresholds.shape[0]
 
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
 
     node_inp_list = ["inp", "thresh"]
 
@@ -128,7 +115,7 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize("impl_style", ["hls"])  # TODO: add rtl later
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_multithreshold_to_hardware(
@@ -147,8 +134,7 @@ def test_convert_multithreshold_to_hardware(
     # This implies that it expects a negative activation, BIPOLAR does not provide that
     if activation == DataType["BIPOLAR"]:
         pytest.skip(
-            "Only negative activations are supported for "
-            "RTL Thresholding Binary Search node"
+            "Only negative activations are supported for " "RTL Thresholding Binary Search node"
         )
 
     # Other non-input parameters
@@ -160,9 +146,7 @@ def test_convert_multithreshold_to_hardware(
         activation_bias = output_data_type.min()
 
     # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
+    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
 
     # provide non-decreasing/ascending thresholds
     thresholds = sort_thresholds_increasing(thresholds)
@@ -180,6 +164,5 @@ def test_convert_multithreshold_to_hardware(
     model = model.transform(InferThresholdingLayer())
     model = model.transform(SpecializeLayers())
     model = model.transform(InferShapes())
-
-    node_variant = getCustomOp(model.graph.node[0]).variant
-    assert (impl_style == node_variant)
+    # TODO functional verification
+    assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)

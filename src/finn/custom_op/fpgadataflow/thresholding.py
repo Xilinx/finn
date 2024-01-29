@@ -54,25 +54,6 @@ class Thresholding(HWCustomOp):
             # [4] is four vectors (like a FC layer with batch=4)
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
-            # name of the top module in verilog template. Used by PyVerilator
-            # and IPI generation
-            "gen_top_module": ("s", False, ""),
-            # bias to be applied to outputs of the node
-            "activation_bias": ("i", False, 0),
-            # whether weights (thresholds) will be
-            # writable through an AXI-lite interface during runtime
-            # 1 for enabled, 0 for disabled.
-            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            # memory depth triggers for threshold storage
-            "depth_trigger_uram": ("i", False, 0),
-            "depth_trigger_bram": ("i", False, 0),
-            # enable uniform thres optimization
-            # doesn't actually do anything yet, only
-            # for resource estimations
-            "uniform_thres": ("i", False, 0, {0, 1}),
-            # enable deep pipelining for easier timing closure
-            # setting to 0 may save some FFs but otherwise leave on
-            "deep_pipeline": ("i", False, 1, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -81,11 +62,120 @@ class Thresholding(HWCustomOp):
         oshape = self.get_normal_output_shape()
         return super().make_const_shape_op(oshape)
 
-    def verify_node():
-        pass
-    def infer_node_datatype():
-        pass
-    def get_number_output_values():
-        pass
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype().name),
+                str(idt.name),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
+
+    def verify_node(self):
+        info_messages = []
+        # verify that "backend" is set to "fpgadataflow"
+        backend_value = self.get_nodeattr("backend")
+        if backend_value == "fpgadataflow":
+            info_messages.append("Attribute backend is set correctly")
+        else:
+            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+
+        # verify that all necessary attributes exist
+        # TODO collect automatically from get_nodeattr_types
+        try:
+            self.get_nodeattr("code_gen_dir_cppsim")
+            self.get_nodeattr("executable_path")
+            self.get_nodeattr("NumChannels")
+            self.get_nodeattr("PE")
+            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("outputDataType")
+            info_messages.append("All necessary attributes exist")
+        except Exception:
+            info_messages.append("""The required Threshold_Batch attributes do not exist.""")
+
+        return info_messages
+
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        return DataType[self.get_nodeattr("inputDataType")]
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output."""
+        return DataType[self.get_nodeattr("outputDataType")]
+
+    def get_weight_datatype(self):
+        """Returns FINN DataType of thresholds, here called weights."""
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def minimize_accumulator_width(self, model):
+        "Minimize threshold width ('accumulator width' here due to convention)"
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        min_threshold = thresholds.min()
+        max_threshold = thresholds.max()
+        min_input = self.get_input_datatype().min()
+        max_input = self.get_input_datatype().max()
+        # get range required by threshold values
+        tdt_min = min(min_input, min_threshold)
+        tdt_max = max(max_input, max_threshold)
+        if tdt_min < 0:
+            if abs(tdt_min) > tdt_max:
+                tdt = DataType.get_smallest_possible(tdt_min)
+            else:
+                tdt = DataType.get_smallest_possible(-tdt_max - 1)
+        else:
+            tdt = DataType.get_smallest_possible(tdt_max)
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+        self.set_nodeattr("weightDataType", tdt.name)
+        # Update QONNX DataType of tensor for consistency
+        model.set_tensor_datatype(self.onnx_node.input[1], tdt)
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def get_instream_width(self, ind=0):
+        i_bits = self.get_input_datatype().bitwidth()
+        return i_bits * self.get_nodeattr("PE")
+
+    def get_outstream_width(self, ind=0):
+        o_bits = self.get_output_datatype().bitwidth()
+        return o_bits * self.get_nodeattr("PE")
+
+    def get_folded_input_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        fold = ich // pe
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_input_shape = tuple(vecs + [fold, pe])
+        return folded_input_shape
+
+    def get_folded_output_shape(self, ind=0):
+        # same shape as input
+        return self.get_folded_input_shape()
+
+    def get_normal_input_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_input_shape = tuple(vecs + [ich])
+        return normal_input_shape
+
+    def get_normal_output_shape(self, ind=0):
+        # same shape as input
+        return self.get_normal_input_shape()
+
+    def get_number_output_values(self):
+        nf = np.prod(self.get_folded_output_shape()[:-1])
+        return nf
+
+    def get_exp_cycles(self):
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def execute_node(self, context, graph):
         pass
