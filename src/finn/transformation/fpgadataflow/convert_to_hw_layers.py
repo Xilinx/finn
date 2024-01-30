@@ -180,12 +180,12 @@ class InferConvInpGen(Transformation):
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
+
 class InferThresholdingLayer(Transformation):
     """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
-    def __init__(self, mem_mode="const"):
+    def __init__(self):
         super().__init__()
-        self.mem_mode = mem_mode
 
     def apply(self, model):
         graph = model.graph
@@ -254,7 +254,6 @@ class InferThresholdingLayer(Transformation):
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
-                    mem_mode=self.mem_mode,
                     name="Thresholding_" + node.name,
                 )
 
@@ -264,6 +263,8 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         return (model, graph_modified)
+
+
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 

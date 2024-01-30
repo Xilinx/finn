@@ -62,8 +62,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         my_attrs = {
             # string defining memory type
             "ram_style": ("s", False, "distributed", {"distributed", "block"}),
-            # initialization value for the thresholding accumulator
-            "ActVal": ("i", False, 0),
             # memory mode for the thresholds
             # const -- embedded thresholds, default
             # decoupled -- streaming thresholds with  streamer packaged inside IP
