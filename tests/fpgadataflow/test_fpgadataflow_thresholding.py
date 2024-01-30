@@ -57,7 +57,7 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs):
+def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])
@@ -80,6 +80,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_i
         ActVal=actval,
         mem_mode=mem_mode,
         numInputVectors=n_inp_vecs,
+        preferred_impl_style=impl_style
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -111,10 +112,11 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_i
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # memory mode
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
+def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
@@ -135,7 +137,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = make_single_thresholding_modelwrapper(impl_style,T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
 
     # calculate reference output
     # multithreshold util fxn wants NCHW input, not NHWC
@@ -196,10 +198,10 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
 
-
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_single_layer():
+def test_runtime_thresholds_single_layer(impl_style):
     n_inp_vecs = [1, 2, 2]
     mem_mode = "decoupled"
     act = DataType["INT4"]
@@ -223,8 +225,10 @@ def test_runtime_thresholds_single_layer():
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
     model = model.transform(SpecializeLayers())
+    assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
+
     op_inst = getCustomOp(model.graph.node[0])
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     op_inst.make_weight_file(T, "decoupled_runtime", "old_weights.dat")
