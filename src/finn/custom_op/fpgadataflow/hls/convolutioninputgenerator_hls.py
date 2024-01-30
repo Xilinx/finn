@@ -526,19 +526,6 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
                 )
             ]
 
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
     def docompute(self):
         ram_style = self.get_nodeattr("ram_style")
         map_to_hls_ram_style = {

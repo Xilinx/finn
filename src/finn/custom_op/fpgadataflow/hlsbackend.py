@@ -390,12 +390,21 @@ compilation transformations?
             )
         )
 
-    @abstractmethod
     def strm_decl(self):
         """Function to generate the commands for the stream declaration in c++,
         is member function of HLSBackend class but has to be filled
         by every node."""
-        pass
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
+        )
 
     @abstractmethod
     def docompute(self):

@@ -72,19 +72,6 @@ class DownSampler_hls(DownSampler, HLSBackend):
         batch_size = self.get_nodeattr("numInputVectors")
         self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
 
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
     def docompute(self):
         dim_var = "1D" if (self.get_nodeattr("is1D") == 1) else "2D"
         sname = self.hls_sname()
