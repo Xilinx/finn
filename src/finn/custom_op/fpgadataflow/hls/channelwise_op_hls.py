@@ -408,9 +408,6 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
             )
         ]
 
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}>> &in0_{},

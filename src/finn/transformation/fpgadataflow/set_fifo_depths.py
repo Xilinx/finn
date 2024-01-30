@@ -568,6 +568,7 @@ class SplitLargeFIFOs(Transformation):
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
+                    n_shape = n_inst.get_normal_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")
                     ram_style = n_inst.get_nodeattr("ram_style")
                     shape = model.get_tensor_shape(node.input[0])
@@ -593,6 +594,7 @@ class SplitLargeFIFOs(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=dtype,
                             impl_style=impl_style,
                             ram_style=ram_style,

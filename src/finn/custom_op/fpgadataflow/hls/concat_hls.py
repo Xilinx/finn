@@ -265,9 +265,6 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             )
         ]
 
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         n_inputs = self.get_n_inputs()
         in_streams = []

@@ -575,9 +575,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
             )
         ]
 
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         if self.get_nodeattr("mem_mode") == "const":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
