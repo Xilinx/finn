@@ -31,11 +31,11 @@
 
 module $TOP_MODULE_NAME$(
 //- Global Control ------------------
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axilite" *)
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET = ap_rst_n" *)
+(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 input   ap_clk,
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axilite" *)
+(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 input   ap_rst_n,
-
 
 output $COUNT_RANGE$ count,
 output $COUNT_RANGE$ maxcount,
@@ -55,7 +55,7 @@ Q_srl #(
 .depth($DEPTH$),
 .width($WIDTH$)
 )
-$TOP_MODULE_NAME$_impl
+impl
 (
  .clock(ap_clk),
  .reset(!ap_rst_n),
