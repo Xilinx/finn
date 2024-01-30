@@ -392,8 +392,8 @@ compilation transformations?
 
     def strm_decl(self):
         """Function to generate the commands for the stream declaration in c++,
-        is member function of HLSBackend class but has to be filled
-        by every node."""
+        is member function of HLSBackend class but might need to be filled
+        by node."""
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
@@ -413,12 +413,36 @@ compilation transformations?
         by every node."""
         pass
 
-    @abstractmethod
     def dataoutstrm(self):
         """Function to generate the commands for reading out data from c++ and convert
-        into npy format, is member function of HLSBackend class but has to be filled
-        by every node."""
-        pass
+        into npy format, is member function of HLSBackend class might need to be filled
+        by node."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        dtype = self.get_output_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_outstream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output.npy" % code_gen_dir
+        oshape = self.get_folded_output_shape()
+        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                self.hls_sname(),
+                oshape_cpp_str,
+                npy_out,
+            )
+        ]
 
     def save_as_npy(self):
         """Function to generate the commands for saving data in .npy file in c++"""

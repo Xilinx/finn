@@ -29,7 +29,6 @@
 
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
@@ -79,34 +78,6 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
             """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
             SIMD, {}> (in0_{}, out_{});""".format(
                 hls_call, in_t, self.hls_sname(), self.hls_sname()
-            )
-        ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
             )
         ]
 

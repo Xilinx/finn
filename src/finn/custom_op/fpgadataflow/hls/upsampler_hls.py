@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
@@ -90,34 +89,6 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
                 ap_uint<Input_precision> > (in0_%s, out_%s);"""
                 % (self.hls_sname(), self.hls_sname())
             ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
-            )
-        ]
 
     def blackboxfunction(self):
         packed_bits = self.get_instream_width()
