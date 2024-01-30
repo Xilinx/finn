@@ -51,9 +51,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
 from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
-from finn.custom_op.fpgadataflow.thresholding import (
-    Thresholding,
-)
+from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
