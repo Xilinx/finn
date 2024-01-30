@@ -39,7 +39,6 @@ from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 restricted_layers = []
 restricted_layers.append("MatrixVectorActivation")
 restricted_layers.append("VectorVectorActivation")
-restricted_layers.append("Thresholding")
 
 
 def _determine_impl_style(node):
