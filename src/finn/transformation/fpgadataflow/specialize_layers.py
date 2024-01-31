@@ -163,10 +163,17 @@ def _dwc_determine_impl_style(node):
 
 
 def _swg_hls_possible(node):
+    # there are some constraints to
+    # the HLS variant of the SWG
+    # first constraint to check is
+    # if user has set dynamic_mode to 1
+    # this is only supported in rtl variant
+    swg = getCustomOp(node)
+    if swg.get_nodeattr("dynamic_mode"):
+        return False
     # the 2D HLS implementation for SWG
     # can only be used for square inputs
     # and no dilation
-    swg = getCustomOp(node)
     if swg.get_nodeattr("is1D"):
         return True
     else:
