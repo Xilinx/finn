@@ -38,7 +38,8 @@ from qonnx.util.basic import (
     roundup_to_integer_multiple,
 )
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.util.basic import (
     find_next_power_of_2,
     get_memutil_alternatives,
@@ -68,8 +69,7 @@ except ModuleNotFoundError:
 This module creates an RTL IP, HLS is not supported. See 'thresholding_batch'
 for a HLS equivalent.
 """
-
-
+class Thresholding_rtl(Thresholding, RTLBackend):
 class Thresholding_rtl(HLSCustomOp):
     """Class that corresponds to finn-rtllib 'thresholding' function."""
 
