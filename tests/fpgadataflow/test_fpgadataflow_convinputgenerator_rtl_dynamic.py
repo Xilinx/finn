@@ -49,7 +49,6 @@ from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
