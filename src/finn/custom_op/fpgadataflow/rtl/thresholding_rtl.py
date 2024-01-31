@@ -69,8 +69,8 @@ except ModuleNotFoundError:
 This module creates an RTL IP, HLS is not supported. See 'thresholding_batch'
 for a HLS equivalent.
 """
+
 class Thresholding_rtl(Thresholding, RTLBackend):
-class Thresholding_rtl(HLSCustomOp):
     """Class that corresponds to finn-rtllib 'thresholding' function."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -78,26 +78,6 @@ class Thresholding_rtl(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # parallelization; channels thresholded per cycle
-            "PE": ("i", True, 0),
-            # number of channels (each may have different thresholds)
-            "NumChannels": ("i", True, 0),
-            # number of steps in thresholding function. Used only in decoupled mode
-            "numSteps": ("i", True, 1),
-            # FINN DataTypes for inputs, outputs
-            "inputDataType": ("s", True, ""),
-            "weightDataType": ("s", True, ""),
-            "outputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-            # name of the top module in verilog template. Used by PyVerilator
-            # and IPI generation
-            "gen_top_module": ("s", False, ""),
-            # bias to be applied to outputs of the node
-            "activation_bias": ("i", False, 0),
             # whether weights (thresholds) will be
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -113,7 +93,8 @@ class Thresholding_rtl(HLSCustomOp):
             # setting to 0 may save some FFs but otherwise leave on
             "deep_pipeline": ("i", False, 1, {0, 1}),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(Thresholding.get_nodeattr_types(self)) 
+        my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
     def get_pe_mem_geometries(self):
@@ -157,10 +138,6 @@ class Thresholding_rtl(HLSCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
-
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         """Used for FINN DataType inference: set the output tensors' datatypes
@@ -391,7 +368,7 @@ class Thresholding_rtl(HLSCustomOp):
 
         # Identify the module variables
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        bias = self.get_nodeattr("activation_bias")  # activation bias value
+        bias = self.get_nodeattr("ActVal")  # activation bias value
         i_bitwidth = DataType[input_data_type].bitwidth()
 
         code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
@@ -489,15 +466,10 @@ class Thresholding_rtl(HLSCustomOp):
         # Before we return - set the 'gen_top_module' attribute for use later
         # by PyVerilator and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-        return
-
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl(model)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         # i.e. during the HLSSynthIP() transformation
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
         return
@@ -613,13 +585,6 @@ class Thresholding_rtl(HLSCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*oshape)
         context[node.output[0]] = output
         return
-
-    def hls_sname(self):
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        # no additional prefix/suffix in interface names since this is an RTL component
-        return ""
 
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
@@ -741,36 +706,4 @@ class Thresholding_rtl(HLSCustomOp):
 
         return config
 
-    def ipgen_singlenode_code(self):
-        """Normally: Builds the bash script for IP generation."""
-        """This is needed for the HLSSynthIP() transformation.
-        This is an IP, not a HLS node, so therefore provide an empty hook
-        to prevent any HLS synthesis."""
-        pass
 
-    def global_includes(self):
-        pass
-
-    def defines(self, var):
-        pass
-
-    def read_npy_data(self):
-        pass
-
-    def strm_decl(self):
-        pass
-
-    def docompute(self):
-        pass
-
-    def dataoutstrm(self):
-        pass
-
-    def save_as_npy(self):
-        pass
-
-    def blackboxfunction(self):
-        pass
-
-    def pragmas(self):
-        pass
