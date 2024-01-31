@@ -26,7 +26,7 @@ generating the full design for synthesis. This enables rapid exploration of the
 design space.
 
 ## Customer testimonials
-<img src="img/SICK_Logo.jpg" alt="drawing" width="400"/>
+<img src="img/SICK_Logo.jpg" alt="drawing" width="200"/>
 *“The FINN toolset is showing huge potential using it in upcoming SICK products.
 It is easy to use and with an extraordinary performance and very promising results. 
 In the future, flexible implementations of ML in our products with FINN can be a great advantage and even replace static architectures as they are currently used.
