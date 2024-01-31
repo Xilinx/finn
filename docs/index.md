@@ -1,5 +1,5 @@
 # FINN
-<img align="left" src="img/finn-stack.PNG" alt="drawing" style="margin-right: 20px" width="300"/>
+<img src="img/finn-example.png" alt="drawing" width="400"/>
 
 FINN is a machine learning framework by the Integrated Communications and AI Lab of AMD Research & Advanced Development.
 It provides an end-to-end flow for the exploration and implementation of quantized neural network inference solutions on FPGAs.
@@ -9,15 +9,33 @@ It is not a generic DNN acceleration solution but relies on co-design and design
 <br><br>
 The FINN compiler is under active development <a href="https://github.com/Xilinx/finn">on GitHub</a>, and we welcome contributions from the community!
 
-## Quickstart
+<br>
+## Features
 
-Depending on what you would like to do, we have different suggestions on where to get started:
+* **Templated Vitis HLS library of streaming components:** FINN comes with an
+HLS hardware library that implements convolutional, fully-connected, pooling and
+LSTM layer types as streaming components. The library uses C++ templates to
+support a wide range of precisions.
+* **Ultra low-latency and high performance
+with dataflow:** By composing streaming components for each layer, FINN can
+generate accelerators that can classify images at sub-microsecond latency.
+* **Many end-to-end example designs:** We provide examples that start from training a
+quantized neural network, all the way down to an accelerated design running on
+hardware. The examples span a range of datasets and network topologies.
+* **Toolflow for rapid design generation:** The FINN toolflow supports allocating
+separate compute resources per layer, either automatically or manually, and
+generating the full design for synthesis. This enables rapid exploration of the
+design space.
 
-* **I want to try out prebuilt QNN accelerators on my FPGA board.** Head over to [finn-examples](https://github.com/Xilinx/finn-examples)
-to try out some FPGA accelerators built with the FINN compiler. We have more examples in the [BNN-PYNQ](https://github.com/Xilinx/BNN-PYNQ)
-and the [LSTM-PYNQ](https://github.com/Xilinx/LSTM-PYNQ) repos, although these are not built with the FINN compiler.
-* **I want to train new quantized networks for FINN.** Check out <a href="https://github.com/Xilinx/brevitas">Brevitas</a>,
-our PyTorch library for quantization-aware training.
-* **I want to understand the computations involved in quantized inference.** Check out these Jupyter notebooks on <a href="https://github.com/maltanar/qnn-inference-examples">QNN inference</a>. This repo contains simple Numpy/Python layer implementations and a few pretrained QNNs for instructive purposes.
-* **I want to understand how it all fits together.** Check out our [publications](publications.md),
-particularly the <a href="https://arxiv.org/abs/1612.07119" target="_blank">FINN paper at FPGA'17</a> and the <a href="https://arxiv.org/abs/1809.04570" target="_blank">FINN-R paper in ACM TRETS</a>.
+## Who are we?
+
+The FINN team consists of members of AMD Research under Ralph Wittig (AMD Research & Advanced Development) and members of Custom & Strategic Engineering under Allen Chen, working very closely with the Pynq team.
+
+<img src="img/finn-team.png" alt="The FINN Team (AMD Research and Advanced Development)" width="400"/>
+
+From top left to bottom right: Yaman Umuroglu, Michaela Blott, Alessandro Pappalardo, Lucian Petrica, Nicholas Fraser,
+Thomas Preusser, Jakoba Petri-Koenig, Ken O’Brien
+
+<img src="img/finn-team1.png" alt="The FINN Team (Custom & Strategic Engineering)" width="400"/>
+
+From top left to bottom right: Eamonn Dunbar, Kasper Feurer, Aziz Bahri, John Monks, Mirza Mrahorovic
