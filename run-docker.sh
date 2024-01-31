@@ -134,7 +134,7 @@ elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
   FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
-  DOCKER_INTERACTIVE="-it"
+#  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
   DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
@@ -175,7 +175,11 @@ gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
+  # Need to ensure this is done within the finn/ root folder:
+  OLD_PWD=$(pwd)
+  cd $SCRIPTPATH
   ./fetch-repos.sh
+  cd $OLD_PWD
 fi
 
 # Build the FINN Docker image
@@ -189,7 +193,7 @@ fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
+DOCKER_EXEC="docker run --rm $DOCKER_INTERACTIVE --init " # --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-w $SCRIPTPATH "
