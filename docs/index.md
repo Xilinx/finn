@@ -1,18 +1,13 @@
 # FINN
-<img align="left" src="img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="300"/>
+<img align="left" src="img/finn-stack.PNG" alt="drawing" style="margin-right: 20px" width="300"/>
 
-FINN is an
-experimental framework from Xilinx Research Labs to explore deep neural network
-inference on FPGAs.
-It specifically targets <a href="https://github.com/maltanar/qnn-inference-examples" target="_blank">quantized neural
-networks</a>, with emphasis on
-generating dataflow-style architectures customized for each network.
-It is not
-intended to be a generic DNN accelerator offering like [Vitis AI](https://www.xilinx.com/products/design-tools/vitis/vitis-ai.html), but rather a tool for
-exploring the design space of DNN inference accelerators on FPGAs.
+FINN is a machine learning framework by the Integrated Communications and AI Lab of AMD Research & Advanced Development.
+It provides an end-to-end flow for the exploration and implementation of quantized neural network inference solutions on FPGAs.
+FINN generates dataflow architectures as a physical representation of the implemented custom network in space.
+It is not a generic DNN acceleration solution but relies on co-design and design space exploration for quantization and parallelization tuning so as to optimize a solutions with respect to resource and performance requirements.
+
 <br><br>
-A new, more modular version of the FINN compiler is currently under development <a href="https://github.com/Xilinx/finn">on GitHub</a>, and we welcome contributions from the community!
-
+The FINN compiler is under active development <a href="https://github.com/Xilinx/finn">on GitHub</a>, and we welcome contributions from the community!
 
 ## Quickstart
 

@@ -2,15 +2,10 @@
 
 <img src="img/finn-example.png" alt="drawing" width="400"/>
 
-FINN is an
-experimental framework from Xilinx Research Labs to explore deep neural network
-inference on FPGAs.
-It specifically targets <a href="https://github.com/maltanar/qnn-inference-examples" target="_blank">quantized neural
-networks</a>, with emphasis on
-generating dataflow-style architectures customized for each network.
-It is not
-intended to be a generic DNN accelerator like xDNN, but rather a tool for
-exploring the design space of DNN inference accelerators on FPGAs.
+FINN is an ML framework by the Integrated Communications and AI Lab of AMD Research & Advanced Development.
+It provides an end-to-end flow for the exploration and implementation of quantized neural network inference solutions on FPGAs.
+FINN generates dataflow architectures as a physical representation of the implemented custom network in space.
+It is not a generic DNN acceleration solution but relies on co-design and design space exploration for quantization and parallelization tuning so as to optimize a solutions with respect to resource and performance requirements.
 <br>
 ## Features
 
@@ -31,16 +26,16 @@ design space.
 
 ## Who are we?
 
-The FINN team consists of members of AMD Research under Ivo Bolsens (CTO) and members of CommsDC Solutions Engineering under Allen Chen (AECG-CommsDCSolnEng), working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
+The FINN team consists of members of AMD Research under Ralph Wittig (AMD Research & Advanced Development) and members of Custom & Strategic Engineering under Allen Chen, working very closely with the Pynq team.
 
-<img src="img/finn-team.png" alt="The FINN Team (CTO)" width="400"/>
+<img src="img/finn-team.png" alt="The FINN Team (AMD Research and Advanced Development)" width="400"/>
 
 From top left to bottom right: Yaman Umuroglu, Michaela Blott, Alessandro Pappalardo, Lucian Petrica, Nicholas Fraser,
 Thomas Preusser, Jakoba Petri-Koenig, Ken O’Brien
 
-<img src="img/finn-team1.png" alt="The FINN Team (CommsDC Solutions Engineering)" width="400"/>
+<img src="img/finn-team1.png" alt="The FINN Team (Custom & Strategic Engineering)" width="400"/>
 
-From top left to bottom right: Eamonn Dunbar, Kasper Feurer, Aziz Bahri, Fionn O'Donohoe, Mirza Mrahorovic
+From top left to bottom right: Eamonn Dunbar, Kasper Feurer, Aziz Bahri, John Monks, Mirza Mrahorovic
 
 
 
