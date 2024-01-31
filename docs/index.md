@@ -5,11 +5,9 @@ FINN is a machine learning framework by the Integrated Communications and AI Lab
 It provides an end-to-end flow for the exploration and implementation of quantized neural network inference solutions on FPGAs.
 FINN generates dataflow architectures as a physical representation of the implemented custom network in space.
 It is not a generic DNN acceleration solution but relies on co-design and design space exploration for quantization and parallelization tuning so as to optimize a solutions with respect to resource and performance requirements.
-
-<br><br>
+<br>
 The FINN compiler is under active development <a href="https://github.com/Xilinx/finn">on GitHub</a>, and we welcome contributions from the community!
 
-<br>
 ## Features
 
 * **Templated Vitis HLS and RTL library of streaming components:** FINN comes with a
@@ -27,8 +25,9 @@ design space.
 
 ## Customer testimonials
 <img src="img/SICK_Logo.jpg" alt="drawing" width="200"/>
+<br>
 *“The FINN toolset is showing huge potential using it in upcoming SICK products.
 It is easy to use and with an extraordinary performance and very promising results. 
 In the future, flexible implementations of ML in our products with FINN can be a great advantage and even replace static architectures as they are currently used.
-Thanks to the FINN team for the great cooperation”*
+Thanks to the FINN team for the great cooperation.”*
 
