@@ -38,6 +38,10 @@ If you are using FINN in your work and would like to be listed here, please cont
 * <a href="https://github.com/mohaghasemzadeh/ReBNet" target="_blank">ReBNet: Residual Binarized Neural Network, FCCM'18 best paper</a>
 
 ## Events, Tutorials and Keynotes
+* [FINN tutorial at FPL’23 (4th September 2023)](https://github.com/Xilinx/finn/discussions/861)
+* [FINN tutorial at FPL’22 (2nd September 2022)](https://github.com/Xilinx/finn/discussions/672)
+* [FINN tutorial, March 2021 (24th March 2021)](https://xilinx.github.io/finn//2021/03/11/finn-tutorial-march21.html)
+* [FINN tutorial at FPGA'21 (28th Feb 2021)](https://xilinx.github.io/finn//2021/01/27/finn-tutorial-fpga21.html)
 * DAMON'2019 keynote:  <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/DAMON2019_Blott_final.pdf" target="_blank">Performance Scaling with Innovative Compute Architectures and FPGAs</a>
 * Future of AI'2019 keynote:  <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/FutureofAI2019_Blott.pdf" target="_blank">Future of AI: Unconventional Compute Architectures</a>
 * BigData Belfast'2018 talk: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/BigDataBelfast2018.pdf" target="_blank">Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning</a>

@@ -1,4 +1,4 @@
-# Blog
+# Archive
 
 **The following blog posts are from previous releases, in the future posts will be made in [GitHub discussions](https://github.com/Xilinx/finn/discussions/categories/announcements) under Announcements**
 
