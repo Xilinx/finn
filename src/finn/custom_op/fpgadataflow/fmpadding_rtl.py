@@ -259,6 +259,37 @@ class FMPadding_rtl(HLSCustomOp):
         }
         return code_gen_dict
 
+    def get_dynamic_config_ccode(self):
+        """Returns C code to generate register values to re-configure FM dimension.
+        at runtime. Assumes padding amounts remain constant."""
+
+        reg_ccode_template = """
+void reconfigure_$LAYERNAME$(
+    // base address for FMPadding AXI lite interface
+    unsigned int *reg_base,
+    // spatial dimensions for FMPadding input
+    // dimY = height, dimX = width
+    unsigned int dimY, unsigned int dimX
+) {
+    reg_base[0] = $PADL$;
+    reg_base[1] = $PADL$ + dimX;
+    reg_base[2] = $PADL$ + dimX + $PADR$ - 1;
+    reg_base[3] = $PADT$;
+    reg_base[4] = $PADT$ + dimY;
+    reg_base[5] = $PADT$ + dimY + $PADB$ - 1;
+}
+"""
+        padT, padL, padB, padR = self.get_nodeattr("Padding")
+        layer_name = self.onnx_node.name
+        reg_ccode = reg_ccode_template
+        reg_ccode = reg_ccode.replace("$LAYERNAME$", layer_name)
+        reg_ccode = reg_ccode.replace("$PADT$", str(padT))
+        reg_ccode = reg_ccode.replace("$PADL$", str(padL))
+        reg_ccode = reg_ccode.replace("$PADB$", str(padB))
+        reg_ccode = reg_ccode.replace("$PADR", str(padR))
+
+        return reg_ccode
+
     def get_dynamic_config(self, ifm_dims=None, pads=None):
         """Returns a configuration dict to re-configure FM dimension and
         padding amounts during runtime."""

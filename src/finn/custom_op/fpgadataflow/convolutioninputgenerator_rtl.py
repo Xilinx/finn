@@ -1200,6 +1200,183 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         }
         return config
 
+    def get_dynamic_config_ccode(self):
+        """Returns C code to generate register values to re-configure FM dimension.
+        at runtime. Assumes kernel, stride amounts remain constant."""
+
+        reg_ccode_template = """
+#define abs(x) (x < 0 ? -x : x);
+void reconfigure_$LAYERNAME$(
+    // base address for ConvolutionInputGenerator AXI lite interface
+    unsigned int *reg_base,
+    // spatial dimensions for ConvolutionInputGenerator input
+    // dimY = height, dimX = width
+    unsigned int dimY, unsigned int dimX
+) {
+    const unsigned int ifm_ch = $IFMCH$;
+    const unsigned int k_h = $KH$, k_w = $KW$;
+    const unsigned int h = dimY, w = dimX;
+    const unsigned int stride_h = $STRIDEH$, stride_w = $STRIDEW$;
+    const unsigned int dilation_h = $DILATIONH$, dilation_w = $DILATIONW$;
+    const unsigned int depthwise = $DEPTHWISE$;
+    const unsigned int simd = $SIMD$;
+    const unsigned int pad_h = 0, pad_w = 0;
+    const unsigned int channel_factor = (ifm_ch / simd);
+    const unsigned int mmv_in = 1;
+    const unsigned int mmv_out = 1;
+
+    unsigned int out_dim_h = compute_conv_output_dim(h, k_h, stride_h, pad_h, dilation_h);
+    unsigned int out_dim_w = compute_conv_output_dim(w, k_w, stride_w, pad_w, dilation_w);
+
+    // compute minimal buffer length (assuming it holds 1 complete window)
+    const unsigned int buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) *
+        dilation_w + 1) * channel_factor;
+    const unsigned int buffer_actual_size = $BUFFERDEPTH$;
+
+    // compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
+    // or cols/rows that are skipped due to imperfect stride<->dim combination
+    const unsigned int kernel_width = (k_w - 1) * dilation_w + 1;
+    const unsigned int kernel_height = (k_h - 1) * dilation_h + 1;
+    const unsigned int skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w);
+    const unsigned int skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h);
+
+    // compute address increment values for 5-loop nest
+    unsigned int addr_incr_end_simd = 1;
+    unsigned int addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1;
+    unsigned int addr_incr_end_window_row = (
+        ((w - kernel_width) * channel_factor)  // remaining line
+        + ((dilation_h - 1) * w * channel_factor)  // skip lines
+        + 1;  // wrap-around of minimally sized buffer
+    )
+    addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1;
+    unsigned int addr_incr_end_row = (
+        -buffer_min_size
+        + ((skip_columns + kernel_width) * channel_factor)  // remaining line
+        + ((stride_h - 1) * w * channel_factor)  // skip lines
+        + 1;
+    )
+
+    // re-use same controller structure -> re-assign address increments
+    if(depthwise) {
+        addr_incr_end_window_elem = dilation_w * channel_factor;
+        addr_incr_end_window_row = (
+            channel_factor
+            + (w - kernel_width) * channel_factor
+            + (dilation_h - 1) * w * channel_factor
+        );
+        addr_incr_end_simd = -buffer_min_size + (channel_factor + 1);
+    }
+    // sanity check for wrap logic
+    if(abs(addr_incr_end_window) > buffer_actual_size) {
+       printf("ERROR: W increment > buffer size, invalid configuration");
+       return;
+    }
+    if(abs(addr_incr_end_row) > buffer_actual_size) {
+        printf("ERROR: H increment > buffer size, invalid configuration");
+        return;
+    }
+    // default controller loop structure: # iterations (counters) map directly
+    unsigned int loop_h_iterations = out_dim_h;
+    unsigned int loop_w_iterations = out_dim_w;
+    unsigned int loop_kh_iterations = k_h;
+    unsigned int loop_kw_iterations = k_w;
+    unsigned int loop_simd_iterations = channel_factor;
+    unsigned int tail_incr_w, tail_incr_h, tail_incr_last_window;
+
+    if(depthwise && channel_factor > 1) {
+        // re-arrange existing controller loop structure for depthwise convolutions
+        loop_kh_iterations = channel_factor;
+        loop_kw_iterations = k_h;
+        loop_simd_iterations = k_w;
+        unsigned int addr_incr_end_simd_ = addr_incr_end_simd;
+        addr_incr_end_simd = addr_incr_end_window_elem;
+        addr_incr_end_window_elem = addr_incr_end_window_row;
+        addr_incr_end_window_row = addr_incr_end_simd_
+        unsigned int elem_per_window = k_h * k_w;
+
+        tail_incr_w = addr_incr_end_window + buffer_min_size - channel_factor;
+        tail_incr_h = addr_incr_end_row + buffer_min_size - channel_factor;
+        tail_incr_last_window = buffer_min_size - 1;
+    } else {
+        // depthwise output format is equivalent to non-depthwise if SIMD=C
+        elem_per_window = k_h * k_w * channel_factor;
+        tail_incr_w = addr_incr_end_window + buffer_min_size - 1;
+        tail_incr_h = addr_incr_end_row + buffer_min_size - 1;
+        tail_incr_last_window = buffer_min_size - 1;
+    }
+
+    // support SIMD = IFMChannels and k_w = 1 cases
+    // for k = [k_h, k_w] = [1, k_w], no adjustment is needed
+    // for k = [k_h, k_w] = [1, 1], do not use this impl. style (mmv_out=K=1)
+    // innermost loop is executed at least once -> adjust if needed
+    if(loop_simd_iterations == 1) {
+        // skip innermost SIMD loop completely
+        if(loop_kw_iterations == 1) {
+            // skip innermost KW loop completely
+            loop_kh_iterations -= 1;  // -1 because state is initial state
+        } else {
+            loop_kw_iterations -= 1;  // -1 because state is initial state
+        }
+    } else {
+        loop_simd_iterations -= 1;  // -1 because state is initial state
+    }
+
+
+    unsigned int cfg_cntr_simd = loop_simd_iterations - 2; // LOOP_SIMD_ITERATIONS
+    unsigned int cfg_cntr_kw = loop_kw_iterations - 2; // LOOP_KW_ITERATIONS
+    unsigned int cfg_cntr_kh = loop_kh_iterations - 2; // LOOP_KH_ITERATIONS
+    unsigned int cfg_cntr_w = loop_w_iterations - 2; // LOOP_W_ITERATIONS
+    unsigned int cfg_cntr_h = loop_h_iterations - 2; // LOOP_H_ITERATIONS
+    unsigned int cfg_incr_head_simd = addr_incr_end_simd; // HEAD_INCR_SIMD
+    unsigned int cfg_incr_head_kw = addr_incr_end_window_elem; // HEAD_INCR_KW
+    unsigned int cfg_incr_head_kh = addr_incr_end_window_row; // HEAD_INCR_KH
+    unsigned int cfg_incr_head_w = addr_incr_end_window; // HEAD_INCR_W
+    unsigned int cfg_incr_head_h = addr_incr_end_row; // HEAD_INCR_H
+    unsigned int cfg_incr_tail_w = tail_incr_w; // TAIL_INCR_W
+    unsigned int cfg_incr_tail_h = tail_incr_h; // TAIL_INCR_H
+    unsigned int cfg_incr_tail_last = tail_incr_last_window; // TAIL_INCR_LAST
+    unsigned int cfg_last_read = h * w * channel_factor - 1; // LAST_READ_ELEM
+    unsigned int cfg_last_write = ((h - skip_rows - 1) * w + (w - skip_columns))
+        * channel_factor - 1; // LAST_WRITE_ELEM
+
+
+    reg_base[0] = 1;
+    reg_base[1] = cfg_cntr_simd;
+    reg_base[2] = cfg_cntr_kw;
+    reg_base[3] = cfg_cntr_kh;
+    reg_base[4] = cfg_cntr_w;
+    reg_base[5] = cfg_cntr_h;
+    reg_base[6] = cfg_incr_head_simd;
+    reg_base[7] = cfg_incr_head_kw;
+    reg_base[8] = cfg_incr_head_kh;
+    reg_base[9] = cfg_incr_head_w;
+    reg_base[10] = cfg_incr_head_h;
+    reg_base[11] = cfg_incr_tail_w;
+    reg_base[12] = cfg_incr_tail_h;
+    reg_base[13] = cfg_incr_tail_last;
+    reg_base[14] = cfg_last_read;
+    reg_base[15] = cfg_last_write;
+}
+"""
+        k_h, k_w = self.get_nodeattr("ConvKernelDim")
+        stride_h, stride_w = self.get_nodeattr("Stride")
+        dilation_h, dilation_w = self.get_nodeattr("Dilation")
+        layer_name = self.onnx_node.name
+        reg_ccode = reg_ccode_template
+        reg_ccode = reg_ccode.replace("$LAYERNAME$", layer_name)
+        reg_ccode = reg_ccode.replace("$IFMCH$", str(self.get_nodeattr("IFMChannels")))
+        reg_ccode = reg_ccode.replace("$KH$", str(k_h))
+        reg_ccode = reg_ccode.replace("$KW$", str(k_w))
+        reg_ccode = reg_ccode.replace("$STRIDEH$", str(stride_h))
+        reg_ccode = reg_ccode.replace("$STRIDEW$", str(stride_w))
+        reg_ccode = reg_ccode.replace("$DILATIONH$", str(dilation_h))
+        reg_ccode = reg_ccode.replace("$DILATIONW$", str(dilation_w))
+        reg_ccode = reg_ccode.replace("$DEPTHWISE$", str(self.get_nodeattr("depthwise")))
+        reg_ccode = reg_ccode.replace("$SIMD$", str(self.get_nodeattr("SIMD")))
+        reg_ccode = reg_ccode.replace("$BUFFERDEPTH$", str(self.get_buffer_depth()))
+
+        return reg_ccode
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates (System-)Verilog code for IP generation (instead of HLS code)."""
         self.generate_hdl()
