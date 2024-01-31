@@ -1,4 +1,4 @@
-## Who are we?
+# Who are we?
 
 The FINN team consists of members of AMD Research under Ralph Wittig (AMD Research & Advanced Development) and members of Custom & Strategic Engineering under Allen Chen, working very closely with the Pynq team.
 

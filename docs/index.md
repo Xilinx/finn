@@ -12,10 +12,8 @@ The FINN compiler is under active development <a href="https://github.com/Xilinx
 <br>
 ## Features
 
-* **Templated Vitis HLS library of streaming components:** FINN comes with an
-HLS hardware library that implements convolutional, fully-connected, pooling and
-LSTM layer types as streaming components. The library uses C++ templates to
-support a wide range of precisions.
+* **Templated Vitis HLS and RTL library of streaming components:** FINN comes with a
+library of HLS and RTL modules that implement neural network layers as streaming components.
 * **Ultra low-latency and high performance
 with dataflow:** By composing streaming components for each layer, FINN can
 generate accelerators that can classify images at sub-microsecond latency.
@@ -27,15 +25,10 @@ separate compute resources per layer, either automatically or manually, and
 generating the full design for synthesis. This enables rapid exploration of the
 design space.
 
-## Who are we?
+## Customer testimonials
+<img src="img/SICK_Logo.jpg" alt="drawing" width="400"/>
+*“The FINN toolset is showing huge potential using it in upcoming SICK products.
+It is easy to use and with an extraordinary performance and very promising results. 
+In the future, flexible implementations of ML in our products with FINN can be a great advantage and even replace static architectures as they are currently used.
+Thanks to the FINN team for the great cooperation”*
 
-The FINN team consists of members of AMD Research under Ralph Wittig (AMD Research & Advanced Development) and members of Custom & Strategic Engineering under Allen Chen, working very closely with the Pynq team.
-
-<img src="img/finn-team.png" alt="The FINN Team (AMD Research and Advanced Development)" width="400"/>
-
-From top left to bottom right: Yaman Umuroglu, Michaela Blott, Alessandro Pappalardo, Lucian Petrica, Nicholas Fraser,
-Thomas Preusser, Jakoba Petri-Koenig, Ken O’Brien
-
-<img src="img/finn-team1.png" alt="The FINN Team (Custom & Strategic Engineering)" width="400"/>
-
-From top left to bottom right: Eamonn Dunbar, Kasper Feurer, Aziz Bahri, John Monks, Mirza Mrahorovic
