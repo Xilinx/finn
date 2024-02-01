@@ -359,9 +359,13 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
-    # Determine which type of data transfer the driver should use. 
-    # Stream streams the data directly into the pipeline, memory_buffered writes to board memory first
+    #: Determine which type of data transfer the driver should use. 
+    #: Stream streams the data directly into the pipeline, memory_buffered writes to board memory first
     cpp_driver_transfer_type : Optional[CPPDriverTransferType] = None
+    
+    #: If set to True, the C++ Driver will be build inside the container during synthesis
+    #: Otherwise, building the C++ driver will be skipped
+    cpp_driver_build_during_synthesis : Optional[bool] = False
 
 
     def _resolve_hls_clk_period(self):

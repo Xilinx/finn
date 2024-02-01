@@ -732,12 +732,16 @@ def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> Model
         driver_dir = os.path.join(cfg.output_dir, "driver")
 
         # TODO: REMOVE DEBUG
-        cfg.cpp_driver_transfer_type = CPPDriverTransferType.MEMORY_BUFFERED
+        if cfg.cpp_driver_transfer_type == None:
+            cfg.cpp_driver_transfer_type = CPPDriverTransferType.MEMORY_BUFFERED
+        if cfg.cpp_driver_build_during_synthesis == None:
+            cfg.cpp_driver_build_during_synthesis = False
 
         model = model.transform(
             MakeCPPDriver(
                 cfg._resolve_driver_platform(),
                 transfer_mode=cfg.cpp_driver_transfer_type,
+                build_driver=cfg.cpp_driver_build_during_synthesis,
                 cpp_template_dir=os.path.join(os.path.dirname(__file__), "..", "transformation", "fpgadataflow",  "finn-cpp-driver"),
                 output_dir = cfg.output_dir
             )
