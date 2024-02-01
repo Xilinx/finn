@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,7 +29,6 @@
 import numpy as np
 import os
 import textwrap
-import warnings
 from math import ceil, log2
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
@@ -37,7 +36,8 @@ from qonnx.util.basic import (
     roundup_to_integer_multiple,
 )
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -52,7 +52,7 @@ from finn.util.data_packing import (
 # the ... here can be any shape (representing groups of vectors)
 
 
-class Thresholding_Batch(HLSCustomOp):
+class Thresholding_hls(Thresholding, HLSBackend):
     """Class that corresponds to finn-hls Thresholding_Batch function."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -60,25 +60,8 @@ class Thresholding_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # parallelization; channels thresholded per cycle
-            "PE": ("i", True, 0),
-            # number of channels (each may have different thresholds)
-            "NumChannels": ("i", True, 0),
-            # number of steps in thresholding function
-            "numSteps": ("i", True, 1),
             # string defining memory type
             "ram_style": ("s", False, "distributed", {"distributed", "block"}),
-            # FINN DataTypes for inputs, outputs
-            "inputDataType": ("s", True, ""),
-            "weightDataType": ("s", True, ""),
-            "outputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-            # initialization value for the thresholding accumulator
-            "ActVal": ("i", False, 0),
             # memory mode for the thresholds
             # const -- embedded thresholds, default
             # decoupled -- streaming thresholds with  streamer packaged inside IP
@@ -94,7 +77,8 @@ class Thresholding_Batch(HLSCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(Thresholding.get_nodeattr_types(self))
+        my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
     def calc_tmem(self):
@@ -102,49 +86,6 @@ class Thresholding_Batch(HLSCustomOp):
         mh = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return mh // pe
-
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
-    def infer_node_datatype(self, model):
-        node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype().name),
-                str(idt.name),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
-        # set output datatype from property
-        odt = self.get_output_datatype()
-        model.set_tensor_datatype(node.output[0], odt)
-
-    def verify_node(self):
-        info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
-            info_messages.append("Attribute backend is set correctly")
-        else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
-
-        # verify that all necessary attributes exist
-        # TODO collect automatically from get_nodeattr_types
-        try:
-            self.get_nodeattr("code_gen_dir_cppsim")
-            self.get_nodeattr("executable_path")
-            self.get_nodeattr("NumChannels")
-            self.get_nodeattr("PE")
-            self.get_nodeattr("inputDataType")
-            self.get_nodeattr("outputDataType")
-            info_messages.append("All necessary attributes exist")
-        except Exception:
-            info_messages.append("""The required Threshold_Batch attributes do not exist.""")
-
-        return info_messages
 
     def bram_estimation(self):
         """Calculates BRAM cost if resource set to BRAM"""
@@ -177,52 +118,6 @@ class Thresholding_Batch(HLSCustomOp):
         # total cost
         return comparator_cost + lutram_cost
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("outputDataType")]
-
-    def get_weight_datatype(self):
-        """Returns FINN DataType of thresholds, here called weights."""
-        return DataType[self.get_nodeattr("weightDataType")]
-
-    def minimize_accumulator_width(self, model):
-        "Minimize threshold width ('accumulator width' here due to convention)"
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-        min_threshold = thresholds.min()
-        max_threshold = thresholds.max()
-        min_input = self.get_input_datatype().min()
-        max_input = self.get_input_datatype().max()
-        # get range required by threshold values
-        tdt_min = min(min_input, min_threshold)
-        tdt_max = max(max_input, max_threshold)
-        if tdt_min < 0:
-            if abs(tdt_min) > tdt_max:
-                tdt = DataType.get_smallest_possible(tdt_min)
-            else:
-                tdt = DataType.get_smallest_possible(-tdt_max - 1)
-        else:
-            tdt = DataType.get_smallest_possible(tdt_max)
-        assert np.vectorize(tdt.allowed)(
-            threshold_tensor
-        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-        self.set_nodeattr("weightDataType", tdt.name)
-        # Update QONNX DataType of tensor for consistency
-        model.set_tensor_datatype(self.onnx_node.input[1], tdt)
-        return DataType[self.get_nodeattr("weightDataType")]
-
-    def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype().bitwidth()
-        return i_bits * self.get_nodeattr("PE")
-
-    def get_outstream_width(self, ind=0):
-        o_bits = self.get_output_datatype().bitwidth()
-        return o_bits * self.get_nodeattr("PE")
-
     def get_weightstream_width(self):
         """Returns weight stream width. Used only in decoupled mode."""
         if self.get_nodeattr("mem_mode") == "decoupled":
@@ -244,36 +139,6 @@ class Thresholding_Batch(HLSCustomOp):
         temp_value = super().get_ap_int_max_w()
         weightstream = self.get_weightstream_width()
         return max([weightstream, temp_value])
-
-    def get_folded_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        fold = ich // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_input_shape = tuple(vecs + [fold, pe])
-        return folded_input_shape
-
-    def get_folded_output_shape(self, ind=0):
-        # same shape as input
-        return self.get_folded_input_shape()
-
-    def get_normal_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_input_shape = tuple(vecs + [ich])
-        return normal_input_shape
-
-    def get_normal_output_shape(self, ind=0):
-        # same shape as input
-        return self.get_normal_input_shape()
-
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
-    def get_exp_cycles(self):
-        # Channels/PE * batch size * fmdim * fmdim
-        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -652,13 +517,11 @@ class Thresholding_Batch(HLSCustomOp):
 
     def docompute(self):
         tmpl_args = self.get_template_param_values()
-        node = self.onnx_node
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ImgDim1, NumChannels1, PE1, {}, {}>
+                """Thresholding_Batch<ImgDim1, NumChannels1, PE1, {}, {}>
                 (in0_{}, out_{}, threshs, numReps);""".format(
-                    node.op_type,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     self.hls_sname(),
@@ -711,9 +574,6 @@ class Thresholding_Batch(HLSCustomOp):
                 npy_out,
             )
         ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
         if self.get_nodeattr("mem_mode") == "const":

@@ -188,9 +188,6 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
     def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = []
 
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         dyn_iters = self.get_nodeattr("DynIters")
 

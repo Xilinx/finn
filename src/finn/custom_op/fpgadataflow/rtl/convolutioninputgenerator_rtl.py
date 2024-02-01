@@ -71,9 +71,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         my_attrs = {
             # additional parallelization parameter - not yet implemented
             "M": ("i", False, 1),
-            # Enable reprogrammable implementation to change FM dimensions,
-            # stride, or dilation during runtime (requires parallel_window = 0)
-            "dynamic_mode": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(ConvolutionInputGenerator.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))

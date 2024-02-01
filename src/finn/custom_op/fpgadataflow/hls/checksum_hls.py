@@ -305,9 +305,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");' % code_gen_dir,
         ]
 
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_{},

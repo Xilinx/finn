@@ -145,6 +145,7 @@ def test_fpgadataflow_concat_stitchedip():
     assert model.graph.node[0].op_type == "StreamingConcat_hls"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(fpga_part, clk_ns))
     model = model.transform(HLSSynthIP())

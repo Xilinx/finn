@@ -49,6 +49,7 @@ from finn.transformation.fpgadataflow.insert_hook import InsertHook
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -175,6 +176,7 @@ def test_fpgadataflow_checksum():
 
     # rtlsim
     model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())

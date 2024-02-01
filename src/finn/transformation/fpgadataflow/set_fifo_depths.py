@@ -84,12 +84,13 @@ def optimize_depth(depth):
 
 
 class RemoveShallowFIFOs(Transformation):
-    """Remove small FIFOs as the streaming components have depth-2 FIFOs on the
-    input/outputs by default."""
+    """Remove zero-depth FIFOs The threshold used to be 2 instead of 0, but
+    with increasing number of FINN RTL components 2-depth FIFOs are still
+    important for decoupling.."""
 
     # TODO add unit test
 
-    def __init__(self, shallow_threshold=2):
+    def __init__(self, shallow_threshold=0):
         self.shallow_threshold = shallow_threshold
 
     def apply(self, model):
@@ -240,7 +241,7 @@ class InsertAndSetFIFODepths(Transformation):
         clk_ns=10.0,
         max_qsrl_depth=256,
         max_depth=None,
-        swg_exception=True,
+        swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
     ):
@@ -567,6 +568,7 @@ class SplitLargeFIFOs(Transformation):
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
+                    n_shape = n_inst.get_normal_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")
                     ram_style = n_inst.get_nodeattr("ram_style")
                     shape = model.get_tensor_shape(node.input[0])
@@ -592,6 +594,7 @@ class SplitLargeFIFOs(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=dtype,
                             impl_style=impl_style,
                             ram_style=ram_style,

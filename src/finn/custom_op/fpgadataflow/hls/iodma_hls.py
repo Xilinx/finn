@@ -410,18 +410,6 @@ class IODMA_hls(HWCustomOp, HLSBackend):
     def execute_node(self, context, graph):
         pass
 
-    def dataoutstrm(self):
-        pass
-
-    def read_npy_data(self):
-        pass
-
-    def save_as_npy(self):
-        pass
-
-    def strm_decl(self):
-        pass
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         if self.get_nodeattr("direction") == "out":

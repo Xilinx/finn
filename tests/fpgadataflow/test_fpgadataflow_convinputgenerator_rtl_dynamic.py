@@ -60,6 +60,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
@@ -404,7 +405,7 @@ def make_single_slidingwindow_modelwrapper(
     )
 
     SlidingWindow_node = helper.make_node(
-        "ConvolutionInputGenerator_rtl",
+        "ConvolutionInputGenerator",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -518,9 +519,11 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
         dw=dw,
     )
 
+    model = model.transform(SpecializeLayers())
     # Simulate using stitched-ip-rtlsim so we can use existing infrastructure
     # that supports hook functions to re-program configuration before rtlsim
     model = model.transform(InsertFIFO(True))  # required for proper simulation
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -547,7 +550,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             configs = [("s_axilite_0_", config)]
 
             # Also update FIFO nodes and corresponding tensors
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[0]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ifm_dim_h
@@ -555,7 +558,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             fifo_inst.set_nodeattr("folded_shape", shape)
             update_tensor_dim(model, fifo_node.input[0], ifm_dim)
 
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[1]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[1]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ofm_dim_h

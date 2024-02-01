@@ -127,6 +127,7 @@ class InsertFIFO(Transformation):
                         folded output shape of the first node is not the same as the
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
+                        n_shape = n0.get_normal_output_shape()
 
                         # check if outFIFOdepths attribute of first node
                         # and inFIFOdepths attribute of consumer node is equal
@@ -162,6 +163,7 @@ class InsertFIFO(Transformation):
                                 backend="fpgadataflow",
                                 depth=fifo_depth,
                                 folded_shape=fld_shape,
+                                normal_shape=n_shape,
                                 dataType=str(dtype.name),
                                 impl_style=impl_style,
                                 ram_style=self.vivado_ram_style,
@@ -188,6 +190,7 @@ class InsertFIFO(Transformation):
                     n0 = getCustomOp(first_node)
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_input_shape(inp_ind)
+                    n_shape = n0.get_normal_input_shape(inp_ind)
                     dtype = n0.get_input_datatype(inp_ind)
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
@@ -196,7 +199,7 @@ class InsertFIFO(Transformation):
                         fifo_output_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
-                            n0.get_normal_input_shape(),
+                            n0.get_normal_input_shape(inp_ind),
                         )
                         graph.value_info.append(fifo_output_tensor)
                         model.set_tensor_datatype(fifo_output_tensor.name, dtype)
@@ -213,6 +216,7 @@ class InsertFIFO(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=str(dtype.name),
                             impl_style=impl_style,
                             ram_style=self.vivado_ram_style,
@@ -243,6 +247,7 @@ class InsertFIFO(Transformation):
                     out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_output_shape(out_ind)
+                    n_shape = n0.get_normal_output_shape(out_ind)
                     dtype = n0.get_output_datatype(out_ind)
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
@@ -268,6 +273,7 @@ class InsertFIFO(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=str(dtype.name),
                             impl_style=impl_style,
                             ram_style=self.vivado_ram_style,

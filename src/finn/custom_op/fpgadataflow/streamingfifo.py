@@ -45,6 +45,8 @@ class StreamingFIFO(HWCustomOp):
                 "depth": ("i", True, 0),
                 # folded shape of input/output
                 "folded_shape": ("ints", True, []),
+                # normal shape of input/output
+                "normal_shape": ("ints", True, []),
                 # FINN DataTypes for inputs/outputs
                 "dataType": ("s", True, ""),
                 # FPGA resource type for FIFOs when impl_style is vivado
@@ -105,27 +107,7 @@ class StreamingFIFO(HWCustomOp):
         assert depth >= 2, """Depth is too low"""
         if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
             warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
-        # derive normal shape from folded shape
-        # StreamingFIFOs are inserted in between fpgadataflow nodes
-        # the folded shape could be for example (1, nf, pe)
-        # with nf (neuron folding): mh // pe
-        # the normal input shape is in this case (1, mh)
-        # so to achieve this the two inner dimensions are multiplied
-        # and together with all previous dimensions
-        # this gives the normal input shape
-
-        folded_shape = self.get_nodeattr("folded_shape")
-        # extract inner dimension
-        inner_dim = folded_shape[-1]
-        # multiply with the next inner dimension
-        folding_factor = folded_shape[-2] * inner_dim
-        normal_ishape = []
-        # create the normal_ishape
-        for i in range(len(folded_shape) - 2):
-            normal_ishape.append(folded_shape[i])
-        normal_ishape.append(folding_factor)
-
-        return normal_ishape
+        return self.get_nodeattr("normal_shape")
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()

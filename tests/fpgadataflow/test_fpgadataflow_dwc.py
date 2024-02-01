@@ -164,6 +164,7 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config):
     model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
     model = model.transform(SpecializeLayers())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
