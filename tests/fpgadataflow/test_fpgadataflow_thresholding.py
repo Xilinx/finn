@@ -56,6 +56,26 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
+def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
+    return np.random.randint(
+        input_data_type.min(),
+        input_data_type.max() + 1,
+        (num_input_channels, num_steps),
+    ).astype(np.float32)
+
+def sort_thresholds_increasing(thresholds):
+    return np.sort(thresholds, axis=1)
+
+# n = batch, c = channel, h = height, w = width of feature map
+# Standard = NCHW; FINN = NHWC
+# Convert from NHWC(FINN) to NCHW(Standard)
+def layout_FINN2NCHW(data):
+    return np.transpose(data, (0, 3, 1, 2))
+
+# Convert from NCHW(Standard) to NHWC(FINN)
+def layout_NCHW2FINN(data):
+    return np.transpose(data, (0, 2, 3, 1))
+
 
 def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs):
     NumChannels = T.shape[0]
@@ -123,27 +143,43 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
     n_inp_vecs = [1, 2, 2]
     assert ich % pe == 0
 
-    # generate input data
+    # generate input data, data layout is NHWC for FINN
     x = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ich]))
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
-    T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
-    # provide non-decreasing thresholds
-    T = np.sort(T, axis=1)
+    
+    # Generate random, non-decreasing thresholds
+    thresholds = generate_random_threshold_values(
+        idt, ich, n_steps
+    )
+
+    thresholds = sort_thresholds_increasing(thresholds)
 
     if odt == DataType["BIPOLAR"]:
         actval = 0
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(impl_style,T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
-
-    # calculate reference output
+    # Build DUT
+    model = make_single_thresholding_modelwrapper(
+            impl_style, 
+            thresholds, 
+            pe, 
+            idt, 
+            odt, 
+            actval, 
+            mem_mode, 
+            n_inp_vecs
+        )
+    
+    # Expected Reference output
     # multithreshold util fxn wants NCHW input, not NHWC
-    y = multithreshold(np.transpose(x, (0, 3, 1, 2)), T)
+    x_nchw = layout_FINN2NCHW(x)
+    y = multithreshold(x_nchw, thresholds)
+
     # convert back to NHWC for comparison to hw outputs
-    y = np.transpose(y, (0, 2, 3, 1))
+    y = layout_NCHW2FINN(y)
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         y = 2 * y - 1
@@ -157,7 +193,7 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
     # package input data as dictionary
     input_dict = {"inp": x}
 
-    # execute model
+    # execute DUT
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     y_produced = y_produced.reshape(y_expected.shape)
