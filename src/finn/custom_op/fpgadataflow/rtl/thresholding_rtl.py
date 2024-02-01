@@ -446,6 +446,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             f.write(data)
         return
 
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        self.generate_hdl(model)
+
     def generate_hdl(self, model):
         """Prepare HDL files from templates for synthesis"""
         # Generate a dictionary of values to put in RTL template
