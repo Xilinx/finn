@@ -24,7 +24,9 @@ generating the full design for synthesis. This enables rapid exploration of the
 design space.
 
 ## Customer Testimonials
-<img src="img/SICK_Logo.jpg" alt="drawing" width="200"/>
+<a href="https://www.sick.com/gb/en/">
+    <img src="img/SICK_Logo.jpg" alt="drawing" width="200"/>
+</a>
 <br>
 *“The FINN toolset is showing huge potential using it in upcoming SICK products.
 It is easy to use and with an extraordinary performance and very promising results. 
