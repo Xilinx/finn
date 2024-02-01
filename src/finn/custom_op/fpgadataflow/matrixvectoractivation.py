@@ -133,7 +133,6 @@ class MatrixVectorActivation(HWCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            "preferred_impl_style" : ("s", False, "hls", {"hls", "rtl"}),
             }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

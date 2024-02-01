@@ -104,10 +104,6 @@ class VectorVectorActivation(HWCustomOp):
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0, {0, 1}),
-            # Backend implementation for layer
-            # hls -- Vivado HLS
-            # rtl -- (System)Verilog
-            "preferred_impl_style": ("s", False, "hls", {"hls", "rtl"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
