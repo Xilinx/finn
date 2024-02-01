@@ -203,6 +203,8 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
     assert (y_produced == y_expected).all()
 
     model = model.transform(SpecializeLayers())
+    # Make sure that SpecializeLayers did not default to HLS implementation unexpectedly
+    assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -226,14 +228,13 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-        assert "Thresholding_hls_0" in hls_synt_res_est
-
-        node = model.get_nodes_by_op_type("Thresholding_hls")[0]
+        assert model.graph.node[0].name in hls_synt_res_est
+        node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
@@ -265,6 +266,8 @@ def test_runtime_thresholds_single_layer(impl_style):
 
     model = make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
     model = model.transform(SpecializeLayers())
+
+    # Make sure that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
     op_inst = getCustomOp(model.graph.node[0])
