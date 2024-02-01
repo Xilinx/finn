@@ -23,7 +23,7 @@ separate compute resources per layer, either automatically or manually, and
 generating the full design for synthesis. This enables rapid exploration of the
 design space.
 
-## Customer testimonials
+## Customer Testimonials
 <img src="img/SICK_Logo.jpg" alt="drawing" width="200"/>
 <br>
 *“The FINN toolset is showing huge potential using it in upcoming SICK products.

@@ -1,6 +1,6 @@
 # Archive
 
-**The following blog posts are from previous releases, in the future posts will be made in [GitHub discussions](https://github.com/Xilinx/finn/discussions/categories/announcements) under Announcements**
+**The following blog posts are from previous releases. We now post [Announcements](https://github.com/Xilinx/finn/discussions/categories/announcements) on GitHub Discussions**
 
 <ul>
   {% for post in site.posts %}
