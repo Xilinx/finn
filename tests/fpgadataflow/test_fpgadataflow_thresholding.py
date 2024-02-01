@@ -137,6 +137,8 @@ def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, m
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_mode):
+    if impl_style == "rtl" and exec_mode == "cppsim":
+        pytest.skip("rtl implstyle has no cppsim, skipping")
     if nf == -1:
         nf = ich
     pe = ich // nf
