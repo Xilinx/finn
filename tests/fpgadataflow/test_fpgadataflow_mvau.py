@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -52,6 +52,9 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from qonnx.transformation.general import ApplyConfig, GiveUniqueNodeNames, GiveReadableTensorNames
+from qonnx.transformation.infer_shapes import InferShapes
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -135,6 +138,87 @@ def prepare_inputs(input_tensor, idt, wdt):
         return {"inp": input_tensor}
 
 
+# activation: None or DataType
+@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1, 2, 1])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [-1, 2, 1])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [16])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [16])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+    assert mh % pe == 0
+    assert mw % sf == 0
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    # generate input data
+    x = gen_finn_dt_tensor(idt, (1, mw))
+    if act is None:
+        # no activation, produce accumulators
+        T = None
+        tdt = None
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
+        else:
+            odt = DataType["INT32"]
+    else:
+        odt = act
+        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
+        # provide non-decreasing thresholds
+        T = np.sort(T, axis=1)
+        # generate thresholds for activation
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
+            # bias thresholds to be positive
+            T = np.ceil((T + mw) / 2)
+            assert (T >= 0).all()
+        else:
+            tdt = DataType["INT32"]
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    # prepare input data
+    input_dict = prepare_inputs(x, idt, wdt)
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        # convert inputs to binary and use xnorpopcountmatmul
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        y = np.matmul(x, W)
+    if T is not None:
+        # y = multithreshold(y, T)
+        if act == DataType["BIPOLAR"]:
+            # binary to bipolar
+            # y = 2 * y - 1
+            y = multithreshold(y, T, 2, -1)
+        else:
+            # signed offset
+            # y += act.min()
+            y = multithreshold(y, T, 1, act.min())
+    oshape = model.get_tensor_shape("outp")
+    y_expected = y.reshape(oshape)
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all(), "cppsim hw-op failed"
+
+
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
 # activation: None or DataType
@@ -195,6 +279,9 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        # Note: only HLS-based MVAU layers execute CPPsim
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers())
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
@@ -220,7 +307,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "cppsim failed"
+    assert (y_produced == y_expected).all(), "cppsim hls-op failed"
 
 
 # mem_mode: const or decoupled
@@ -303,7 +390,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(SpecializeLayers())
+    # model = model.transform(SetExecMode("rtlsim"))
+    model.set_metadata_prop("exec_mode", "rtlsim")
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -312,7 +401,13 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_0" in hls_synt_res_est
+        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    else:
+        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
+    assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    else:
+        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
 
     node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     inst = getCustomOp(node)
@@ -339,10 +434,12 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
+# Backend
+@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, backend
 ):
     if nf == -1:
         nf = mh
@@ -404,6 +501,7 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
+    model = model.transform(SpecializeLayers())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -413,7 +511,10 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_0" in hls_synt_res_est
+    if backend == "hls":
+        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    else:
+        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
 
     node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     inst = getCustomOp(node)
@@ -440,9 +541,11 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [32])
+# Backend
+@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -469,6 +572,7 @@ def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh
         inst.set_nodeattr("mem_mode", mem_mode)
     total_fold = nf * sf
     exp_total_cycles = total_fold + 10
+    model = model.transform(SpecializeLayers())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))

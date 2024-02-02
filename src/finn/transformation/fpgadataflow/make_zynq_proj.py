@@ -62,7 +62,7 @@ def collect_ip_dirs(model, ipstitch_path):
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
-        if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
+        if getCustomOp(node).base_op_type() == "MatrixVectorActivation" or node.op_type == "Thresholding_Batch":
             if node_inst.get_nodeattr("mem_mode") == "decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]

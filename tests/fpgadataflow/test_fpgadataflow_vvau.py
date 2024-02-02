@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,6 +47,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -233,6 +234,10 @@ def test_fpgadataflow_vvau(
         W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
     )
 
+    input_dict = prepare_inputs(x_vvau)
+    y_hwop = oxe.execute_onnx(model, input_dict)["outp"]
+    model = model.transform(SpecializeLayers())
+
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
@@ -245,8 +250,6 @@ def test_fpgadataflow_vvau(
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode in test_fpgadataflow_vvau")
-
-    input_dict = prepare_inputs(x_vvau)
 
     # Calculate output
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -271,7 +274,8 @@ def test_fpgadataflow_vvau(
 
     y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)["outp"]
 
-    assert (y_produced == y_expected).all(), "incorrect result"
+    assert (y_hwop == y_expected).all(), "VVAU HW-op mismatches with golden output!"
+    assert (y_produced == y_expected).all(), "VVAU specialized-op mismatches with golden output!"
 
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("VectorVectorActivation")[0]

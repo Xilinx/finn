@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,20 +31,32 @@ import numpy as np
 import os
 import textwrap
 import warnings
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+import qonnx.custom_op.general.xnorpopcount as xp
+from qonnx.custom_op.general.multithreshold import multithreshold
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
+    qonnx_make_model
 )
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+import qonnx.core.data_layout as DataLayout
+import finn.core.onnx_exec as oxe
+from qonnx.transformation.infer_shapes import InferShapes
+import onnx.numpy_helper as np_helper
+from qonnx.transformation.general import GiveUniqueNodeNames
+
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -54,9 +66,8 @@ from finn.util.data_packing import (
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation(HLSCustomOp):
-    """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
-    function."""
+class MatrixVectorActivation(HWCustomOp):
+    """Abstraction layer for HW implementation of MatrixVectorActivation layers."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -122,48 +133,41 @@ class MatrixVectorActivation(HLSCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-        }
+            }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def calc_wmem(self):
-        """Calculates and returns WMEM."""
-        mw = self.get_nodeattr("MW")
-        mh = self.get_nodeattr("MH")
-        pe = self.get_nodeattr("PE")
-        simd = self.get_nodeattr("SIMD")
-        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
-        wmem = mw * mh // (pe * simd)
-        return wmem
+    def base_op_type(self):
+        return "MatrixVectorActivation"
 
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        if self.get_nodeattr("noActivation") == 1:
-            return 0
-        else:
-            mh = self.get_nodeattr("MH")
-            pe = self.get_nodeattr("PE")
-            return mh // pe
-
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
-    def infer_node_datatype(self, model):
+    def execute_node(self, context, graph):
         node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype()),
-                str(idt),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
-        # set output datatype from property
-        odt = self.get_output_datatype()
-        model.set_tensor_datatype(node.output[0], odt)
+        in_act = context[node.input[0]]
+        mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
+        mvau_w = np_helper.to_array(mvau_w_init)
+        # Matrix multiplication
+        if self.get_nodeattr("binaryXnorMode"):
+            # Note: activation/weights are expected to be binary (by design coming from the transformation inferring this operation mode)
+            result = xp.xnorpopcountmatmul(in_act, mvau_w)
+        elif (self.get_nodeattr("inputDataType") == "BIPOLAR" and self.get_nodeattr("weightDataType") == "BIPOLAR"):
+            # Convert to binary and use xnorpopcountmatmul function
+            result = xp.xnorpopcountmatmul((in_act+1)/2, (mvau_w+1)/2)
+        else:
+            # Regular matrix multiplication
+            result = np.matmul(in_act, mvau_w)
+        if self.get_nodeattr("noActivation") == 0:
+            mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
+            mvau_thr = np_helper.to_array(mvau_thr_init)
+            odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
+            out_scale = 2 if odt_is_bipolar else 1
+            out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
+            # NHWC to NCHW for multithreshold node
+            result = result.transpose((0,3,1,2))
+            result = multithreshold(result, mvau_thr, out_scale, out_bias)
+            # NCHW to NHWC
+            result = result.transpose((0,2,3,1))
+        
+        context[node.output[0]] = result
 
     def verify_node(self):
         info_messages = []
@@ -218,8 +222,149 @@ class MatrixVectorActivation(HLSCustomOp):
                     no_act
                 )
             )
-
         return info_messages
+
+    def make_shape_compatible_op(self, model):
+        oshape = self.get_normal_output_shape()
+        return super().make_const_shape_op(oshape)
+
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
+
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        # when performing FIFO insertion on an FC layer with ext weights, the ind
+        # parameter can be > 0 (referring to the weights) so handle that here
+        if ind == 0:
+            return DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            return DataType[self.get_nodeattr("weightDataType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
+
+    def get_weight_datatype(self):
+        """Returns FINN DataType of weights."""
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def get_accumulator_datatype(self):
+        """Returns FINN DataType of accumulator"""
+        return DataType[self.get_nodeattr("accDataType")]  
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output."""
+        return DataType[self.get_nodeattr("outputDataType")]  
+
+    def get_instream_width(self, ind=0):
+        i_bits = self.get_input_datatype().bitwidth()
+        assert (
+            i_bits <= 9
+        ), "RTL-based MVAU only supports activations with bit-width up to 9-bits"
+        in_width = i_bits * self.get_nodeattr("SIMD")
+        return in_width
+
+    def get_weightstream_width(self):
+        """Returns weight stream width. Used only in decoupled mode."""
+        if (
+            self.get_nodeattr("mem_mode") == "decoupled"
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
+            pe = self.get_nodeattr("PE")
+            simd = self.get_nodeattr("SIMD")
+            wp = self.get_weight_datatype().bitwidth()
+            assert (
+                wp <= 8
+            ), "RTL-based MVAU only supports weights with bit-width up to 8-bits"
+            w_width = pe * simd * wp
+            return w_width
+        else:
+            return 0
+
+    def get_outstream_width(self, ind=0):
+        o_bits = self.get_output_datatype().bitwidth()
+        out_width = o_bits * self.get_nodeattr("PE")
+        return out_width
+
+    def get_weightstream_width_padded(self):
+        """Returns weight stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec. Used in decoupled mode."""
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
+
+    def get_folded_input_shape(self, ind=0):
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")
+        sf = mw // simd
+        nf = mh // pe
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        if ind == 0:
+            # calculate shape of input 0
+            folded_input_shape = tuple(vecs + [sf, simd])
+        elif ind == 1 and self.get_nodeattr("mem_mode") == "external":
+            # calculate shape of input 1 (weights)
+            folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
+        else:
+            raise Exception("Undefined input shape for requested input")
+
+        return folded_input_shape
+
+    def get_folded_output_shape(self, ind=0):
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        nf = mh // pe
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_output_shape = tuple(vecs + [nf, pe])
+        return folded_output_shape
+
+    def get_normal_input_shape(self, ind=0):
+        mw = self.get_nodeattr("MW")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_input_shape = tuple(vecs + [mw])
+        return normal_input_shape
+
+    def get_normal_output_shape(self, ind=0):
+        mh = self.get_nodeattr("MH")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_output_shape = tuple(vecs + [mh])
+        return normal_output_shape
+
+    def get_number_output_values(self):
+        nf = np.prod(self.get_folded_output_shape()[:-1])
+        return nf
+
+    def calc_wmem(self):
+        """Calculates and returns WMEM."""
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
+        wmem = mw * mh // (pe * simd)
+        return wmem
+
+    def calc_tmem(self):
+        """Calculates and returns TMEM."""
+        if self.get_nodeattr("noActivation") == 1:
+            return 0
+        else:
+            mh = self.get_nodeattr("MH")
+            pe = self.get_nodeattr("PE")
+            return mh // pe
 
     def uram_estimation(self):
         P = self.get_nodeattr("PE")
@@ -397,190 +542,6 @@ class MatrixVectorActivation(HLSCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        # when performing FIFO insertion on an FC layer with ext weights, the ind
-        # parameter can be > 0 (referring to the weights) so handle that here
-        if ind == 0:
-            return DataType[self.get_nodeattr("inputDataType")]
-        elif ind == 1:
-            return DataType[self.get_nodeattr("weightDataType")]
-        else:
-            raise Exception("Undefined input ind for this layer type")
-
-    def get_accumulator_datatype(self):
-        """Returns FINN DataType of accumulator"""
-        return DataType[self.get_nodeattr("accDataType")]
-
-    def get_weight_datatype(self):
-        """Returns FINN DataType of weights."""
-        return DataType[self.get_nodeattr("weightDataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("outputDataType")]
-
-    def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("SIMD")
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        o_bits = self.get_output_datatype().bitwidth()
-        out_width = o_bits * self.get_nodeattr("PE")
-        return out_width
-
-    def get_weightstream_width(self):
-        """Returns weight stream width. Used only in decoupled mode."""
-        if (
-            self.get_nodeattr("mem_mode") == "decoupled"
-            or self.get_nodeattr("mem_mode") == "external"
-        ):
-            pe = self.get_nodeattr("PE")
-            simd = self.get_nodeattr("SIMD")
-            wp = self.get_weight_datatype().bitwidth()
-            w_width = pe * simd * wp
-            return w_width
-        else:
-            return 0
-
-    def get_weightstream_width_padded(self):
-        """Returns weight stream width padded to a multiple of 8. This is required
-        by the AXI Stream spec. Used in decoupled mode."""
-        weight_width = self.get_weightstream_width()
-        return roundup_to_integer_multiple(weight_width, 8)
-
-    def get_ap_int_max_w(self):
-        # base class impl (max of inp/out stream widths)
-        max_of_io = super().get_ap_int_max_w()
-        # decoupled mode weight stream
-        weightstream = self.get_weightstream_width()
-        # single PE weight entry
-        weight_bits = self.get_weight_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        single_pe_w = simd * weight_bits
-        return max([weightstream, max_of_io, single_pe_w])
-
-    def get_folded_input_shape(self, ind=0):
-        mw = self.get_nodeattr("MW")
-        mh = self.get_nodeattr("MH")
-        simd = self.get_nodeattr("SIMD")
-        pe = self.get_nodeattr("PE")
-        sf = mw // simd
-        nf = mh // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-
-        if ind == 0:
-            # calculate shape of input 0
-            folded_input_shape = tuple(vecs + [sf, simd])
-        elif ind == 1 and self.get_nodeattr("mem_mode") == "external":
-            # calculate shape of input 1 (weights)
-            folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
-        else:
-            raise Exception("Undefined input shape for requested input")
-
-        return folded_input_shape
-
-    def get_folded_output_shape(self, ind=0):
-        mh = self.get_nodeattr("MH")
-        pe = self.get_nodeattr("PE")
-        nf = mh // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_output_shape = tuple(vecs + [nf, pe])
-        return folded_output_shape
-
-    def get_normal_input_shape(self, ind=0):
-        mw = self.get_nodeattr("MW")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_input_shape = tuple(vecs + [mw])
-        return normal_input_shape
-
-    def get_normal_output_shape(self, ind=0):
-        mh = self.get_nodeattr("MH")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_output_shape = tuple(vecs + [mh])
-        return normal_output_shape
-
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
-    def get_template_param_values(self):
-        """Returns the template parameter values according to input, output and weight
-        data types."""
-        ret = dict()
-        inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
-        out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        # out_is_binary = self.get_output_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
-            raise Exception("True binary (non-bipolar) inputs not yet supported")
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        # out_is_bipolar = self.get_output_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-        # fill in TSrcI and TWeightI
-        # TODO check these with Giulio
-        # TODO handle non-bipolar binary inputs
-        if inp_is_bipolar and wt_is_bipolar:
-            ret["TSrcI"] = "Recast<XnorMul>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and wt_is_bipolar:
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Recast<Binary>"
-        elif inp_is_bipolar and (not wt_is_bipolar):
-            ret["TSrcI"] = "Recast<Binary>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and (not wt_is_bipolar):
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Identity"
-
-        # fill in TDstI
-        ret["TDstI"] = "Slice<%s>" % out_hls_str
-
-        return ret
-
-    def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
-        """Convert the original numpy weight matrix orig_weight_matrix into
-        a form suitable for passing to the hlslib call:
-        * ensure MH % PE == 0 and MW % SIMD == 0
-        * for bipolar {-1,+1} weights, convert to binary {0, 1}
-        * interleave rows between PEs
-        * reshape into (1, PE, WMEM, SIMD) and return
-        """
-        mw = self.get_nodeattr("MW")
-        mh = self.get_nodeattr("MH")
-        pe = self.get_nodeattr("PE")
-        simd = self.get_nodeattr("SIMD")
-        wmem = self.calc_wmem()
-        assert orig_weight_matrix.shape == (
-            mw,
-            mh,
-        ), """Weights matrix doesn't
-        have expected shape (mw, mh)"""
-        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
-        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        # start by transposing the original weight matrix, since ONNX and
-        # finn-hlslib use different assumptions
-        # ONNX uses (in_features, out_features) and matmul(x, W)
-        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
-        ret = orig_weight_matrix.T
-        if self.get_weight_datatype() == DataType["BIPOLAR"]:
-            # convert bipolar to binary
-            ret = (ret + 1) / 2
-        # interleave rows between PEs and reshape
-        # distribute rows between PEs
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        # create SIMD as innermost dimension and add a dummy outer dim
-        ret = ret.reshape(1, pe, wmem, simd)
-        # reverse the SIMD dimension
-        ret = np.flip(ret, axis=-1)
-        return ret
-
     def minimize_accumulator_width(self, model):
         """Minimize the accumulator bit width according to the weight values,
         input data types, and size of dot product"""
@@ -727,6 +688,43 @@ class MatrixVectorActivation(HLSCustomOp):
         ), """Third dimension after distribution of the
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
+
+    def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0 and MW % SIMD == 0
+        * for bipolar {-1,+1} weights, convert to binary {0, 1}
+        * interleave rows between PEs
+        * reshape into (1, PE, WMEM, SIMD) and return
+        """
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        wmem = self.calc_wmem()
+        assert orig_weight_matrix.shape == (
+            mw,
+            mh,
+        ), """Weights matrix doesn't
+        have expected shape (mw, mh)"""
+        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        # start by transposing the original weight matrix, since ONNX and
+        # finn-hlslib use different assumptions
+        # ONNX uses (in_features, out_features) and matmul(x, W)
+        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
+        ret = orig_weight_matrix.T
+        if self.get_weight_datatype() == DataType["BIPOLAR"]:
+            # convert bipolar to binary
+            ret = (ret + 1) / 2
+        # interleave rows between PEs and reshape
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        # create SIMD as innermost dimension and add a dummy outer dim
+        ret = ret.reshape(1, pe, wmem, simd)
+        # reverse the SIMD dimension
+        ret = np.flip(ret, axis=-1)
+        return ret
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
@@ -905,402 +903,44 @@ class MatrixVectorActivation(HLSCustomOp):
                 f_thresh.write(thresholds_hls_code)
                 f_thresh.close()
 
-    def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        mem_mode = self.get_nodeattr("mem_mode")
-        node = self.onnx_node
+    def get_op_and_param_counts(self):
+        in_features = self.get_nodeattr("MW")
+        out_features = self.get_nodeattr("MH")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_repetitions = int(np.prod(num_inp_vec))
+        mac_count = in_features * out_features * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = in_features * out_features
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = out_features
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict
 
-        # TODO ensure codegen dir exists
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        # create a npy file fore each input of the node (in_ind is input index)
-        in_ind = 0
-        for inputs in node.input:
-            # it is assumed that the first input of the node is the data input
-            # the second input are the weights
-            # the third input are the thresholds
-            if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
-                expected_inp_shape = self.get_folded_input_shape()
-                reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType["BIPOLAR"]:
-                    # store bipolar activations as binary
-                    reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType["BINARY"]
-                else:
-                    export_idt = self.get_input_datatype()
-                # make copy before saving the array
-                reshaped_input = reshaped_input.copy()
-                np.save(
-                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                    reshaped_input,
-                )
-            elif in_ind > 2:
-                raise Exception("Unexpected input found for MatrixVectorActivation")
-            in_ind += 1
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType["BIPOLAR"]:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
-            ), "cppsim did not produce expected output shape"
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            if mem_mode == "external" or mem_mode == "decoupled":
-                wnbits = self.get_weightstream_width()
-                export_wdt = self.get_weight_datatype()
-                # we have converted bipolar weights to binary for export,
-                # so use it as such for weight generation
-                if self.get_weight_datatype() == DataType["BIPOLAR"]:
-                    export_wdt = DataType["BINARY"]
-                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
-                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                io_dict = {
-                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
-                    "outputs": {"out": []},
-                }
-                self.rtlsim_multi_io(sim, io_dict)
-                output = io_dict["outputs"]["out"]
-            else:
-                output = self.rtlsim(sim, inp)
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-
-            # load and reshape output
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["const", "decoupled", "external"]:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
-        self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
-        if self.calc_tmem() != 0:
-            # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
-
-    def defines(self, var):
-        # Only ipgen mode: Make sure that SIMD parameter satisfies minimum requirements.
-        if var == "ipgen":
-            SIMD = self.get_nodeattr("SIMD")
-            MW = self.get_nodeattr("MW")
-            condition = SIMD >= (MW / 1024)
-            msg = (
-                f"HLS synthesis of MatrixVectorActivation requires: "
-                f"SIMD >= MW / 1024. This is not fulfilled with: SIMD={SIMD} "
-                f"and MW={MW} for node: {self.onnx_node.name}."
-            )
-            assert condition, msg
-        mem_mode = self.get_nodeattr("mem_mode")
-        numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = np.prod(numInputVectors)
-        self.code_gen_dict["$DEFINES$"] = [
-            """#define MW1 {}\n #define MH1 {}\n
-            #define SIMD1 {}\n #define PE1 {}\n #define WMEM1 {}\n
-            #define TMEM1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("MW"),
-                self.get_nodeattr("MH"),
-                self.get_nodeattr("SIMD"),
-                self.get_nodeattr("PE"),
-                self.calc_wmem(),
-                self.calc_tmem(),
-                numReps,
-            )
-        ]
-        if mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        # note: the innermost dim is reversed for the input
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
-
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            elem_bits = wdt.bitwidth()
-            packed_bits = self.get_weightstream_width()
-            packed_hls_type = "ap_uint<%d>" % packed_bits
-            elem_hls_type = wdt.get_hls_datatype_str()
-            npy_type = "float"
-            npy_in = "%s/weights.npy" % code_gen_dir
-
-            self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights_%s, false, numReps);'
-                % (
-                    packed_hls_type,
-                    elem_hls_type,
-                    elem_bits,
-                    npy_type,
-                    npy_in,
-                    self.hls_sname(),
-                )
-            )
-
-    def strm_decl(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
-        if mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> weights_{} ("weights_{}");'.format(
-                    self.get_weightstream_width(), self.hls_sname(), self.hls_sname()
-                )
-            )
-
-    def docompute(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        map_to_hls_mult_style = {
-            "auto": "ap_resource_dflt()",
-            "lut": "ap_resource_lut()",
-            "dsp": "ap_resource_dsp()",
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
         }
-        tmpl_args = self.get_template_param_values()
-        if self.calc_tmem() == 0:
-            odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
-            threshs = "PassThroughActivation<%s>()" % odtype_hls_str
-        else:
-            threshs = "threshs"
-        if mem_mode == "const":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_{}, out_{}, weights, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    self.hls_sname(),
-                    self.hls_sname(),
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            if wdt == DataType["BIPOLAR"]:
-                export_wdt = DataType["BINARY"]
-            else:
-                export_wdt = wdt
-            wdtype_hls_str = export_wdt.get_hls_datatype_str()
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
-                (in0_{}, out_{}, weights_{}, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    wdtype_hls_str,
-                    self.hls_sname(),
-                    self.hls_sname(),
-                    self.hls_sname(),
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        shape = self.get_folded_output_shape()
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-
-        # note: the innermost dim is not reversed for the output
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                shape_cpp_str,
-                npy_out,
-            )
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                    hls::stream<ap_uint<{}>> &out_{}
-                    )""".format(
-                    self.onnx_node.name,
-                    self.get_instream_width(),
-                    self.hls_sname(),
-                    self.get_outstream_width(),
-                    self.hls_sname(),
-                )
-            ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(
-                    hls::stream<ap_uint<{}>> &in0_{},
-                    hls::stream<ap_uint<{}>> &weights_{},
-                    hls::stream<ap_uint<{}>> &out_{}
-                    )""".format(
-                    self.onnx_node.name,
-                    self.get_instream_width(),
-                    self.hls_sname(),
-                    self.get_weightstream_width(),
-                    self.hls_sname(),
-                    self.get_outstream_width(),
-                    self.hls_sname(),
-                )
-            ]
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!"""
-            )
-
-    def pragmas(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        ram_style_thresholds = self.get_nodeattr("ram_style_thresholds")
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-
-        if mem_mode == "const":
-            self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
-            # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
-            # partition for parallel access along the PE dimension (dim 1)
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
-            )
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
-            )
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or external,
-                currently no other parameter value is supported!"""
-            )
-
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
-        # dimensions (dims 1 and 3)
-        if self.calc_tmem() != 0:
-            # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
-            )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
-            )
-            # add resource pragma for thresholds if set
-            if ram_style_thresholds == "distributed":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_LUTRAM")
-                )
-            elif ram_style_thresholds == "block":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_BRAM")
-                )
-            elif ram_style_thresholds == "auto":
-                # no pragma needed
-                pass
-            else:
-                raise Exception("Unrecognized ram_style_thresholds value:" + ram_style_thresholds)
+        if mem_mode in ["decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
     def code_generation_ipi(self):
         cmd = []
@@ -1324,7 +964,8 @@ class MatrixVectorActivation(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -1335,11 +976,13 @@ class MatrixVectorActivation(HLSCustomOp):
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
                 % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
+
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (strm_vlnv, node_name, strm_inst)
             )
             cmd.append(
                 "set_property -dict [list "
@@ -1393,7 +1036,8 @@ class MatrixVectorActivation(HLSCustomOp):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
@@ -1409,55 +1053,3 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
-        if mem_mode == "external":
-            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
-        if mem_mode == "decoupled":
-            # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
-                intf_names["axilite"] = ["s_axilite"]
-        return intf_names
-
-    def get_op_and_param_counts(self):
-        in_features = self.get_nodeattr("MW")
-        out_features = self.get_nodeattr("MH")
-        weight_bits = self.get_weight_datatype().bitwidth()
-        inp_bits = self.get_input_datatype().bitwidth()
-        num_inp_vec = self.get_nodeattr("numInputVectors")
-        num_repetitions = int(np.prod(num_inp_vec))
-        mac_count = in_features * out_features * num_repetitions
-        # cannonicalize op type: highest bitwidth operand first s.t.
-        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
-        bw1 = min(inp_bits, weight_bits)
-        bw2 = max(inp_bits, weight_bits)
-        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
-        weight_param_type = "param_weight_%db" % (weight_bits)
-        weight_count = in_features * out_features
-        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
-        if self.get_nodeattr("noActivation") == 0:
-            tdt = DataType[self.get_nodeattr("accDataType")]
-            thres_bits = tdt.bitwidth()
-            thres_param_type = "param_threshold_%db" % (thres_bits)
-            thres_count = out_features
-            ret_dict[thres_param_type] = thres_count
-        return ret_dict
-
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
