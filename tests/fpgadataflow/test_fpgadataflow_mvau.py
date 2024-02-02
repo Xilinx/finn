@@ -238,9 +238,7 @@ def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_hlsop_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
-    if idt == DataType["BIPOLAR"] and wdt != DataType["BIPOLAR"] or idt != DataType["BIPOLAR"] and wdt == DataType["BIPOLAR"]:
-        pytest.skip("Bipolar activations/weights only supported in MVU if both operands are bipolar")
+def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -281,6 +279,7 @@ def test_fpgadataflow_fclayer_hlsop_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, 
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers())
     model = model.transform(SetExecMode("cppsim"))
@@ -327,14 +326,10 @@ def test_fpgadataflow_fclayer_hlsop_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, 
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-# Backend
-@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
-    if backend == "rtl" and act is not None:
-        pytest.skip("RTL MVU doesn't support embedded thresholding functionality.")
+def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -375,7 +370,6 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, ba
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
-        inst.set_nodeattr("preferred_impl_style", backend)
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
@@ -397,7 +391,8 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, ba
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
     model = model.transform(SpecializeLayers())
-    model = model.transform(SetExecMode("rtlsim"))
+    # model = model.transform(SetExecMode("rtlsim"))
+    model.set_metadata_prop("exec_mode", "rtlsim")
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -406,8 +401,11 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, ba
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    if backend == "hls":
         assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    else:
+        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
+    assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
     else:
         assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
 
