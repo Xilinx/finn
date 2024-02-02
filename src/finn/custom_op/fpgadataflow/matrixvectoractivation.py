@@ -158,7 +158,7 @@ class MatrixVectorActivation(HWCustomOp):
         if self.get_nodeattr("noActivation") == 0:
             mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
             mvau_thr = np_helper.to_array(mvau_thr_init)
-            odt_is_bipolar = self.get_nodeattr("outputDataType") == DataType["BIPOLAR"]
+            odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
             # NHWC to NCHW for multithreshold node
