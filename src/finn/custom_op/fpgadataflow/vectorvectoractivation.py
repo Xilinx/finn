@@ -615,7 +615,7 @@ class VectorVectorActivation(HWCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
+    def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         ch = self.get_nodeattr("Channels")
@@ -652,7 +652,7 @@ class VectorVectorActivation(HWCustomOp):
 
         """
         # convert weights into hlslib-compatible format
-        weight_tensor = self.get_hls_compatible_weight_tensor(weights)
+        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
