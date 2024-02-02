@@ -42,6 +42,26 @@ class Thresholding(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with  streamer packaged inside IP
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
+            # whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # FPGA resource type for memories in decoupled mode
+            # auto -- let Vivado decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use UltraRAM (URAM), must have runtime_writeable_weights=1
+            # see also https://www.xilinx.com/support/answers/38070.html
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
             # parallelization; channels thresholded per cycle
             "PE": ("i", True, 0),
             # number of channels (each may have different thresholds)

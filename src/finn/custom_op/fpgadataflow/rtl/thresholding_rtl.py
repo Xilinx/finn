@@ -78,10 +78,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # whether weights (thresholds) will be
-            # writable through an AXI-lite interface during runtime
-            # 1 for enabled, 0 for disabled.
-            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             # memory depth triggers for threshold storage
             "depth_trigger_uram": ("i", False, 0),
             "depth_trigger_bram": ("i", False, 0),

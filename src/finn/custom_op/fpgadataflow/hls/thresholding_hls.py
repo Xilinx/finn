@@ -59,24 +59,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # string defining memory type
-            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
-            # memory mode for the thresholds
-            # const -- embedded thresholds, default
-            # decoupled -- streaming thresholds with  streamer packaged inside IP
-            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
-            # (mem_mode = decoupled only) whether weights (thresholds) will be
-            # writable through an AXI-lite interface during runtime
-            # 1 for enabled, 0 for disabled.
-            # see finn-rtllib/memstream/doc/README for more about the memory
-            # address map used for writable weights
-            # IMPORTANT: After using AXI lite to either read or write the weights,
-            # always "flush" the accelerator by first passing a dummy input
-            # vector through the accelerator. This will get rid of any old
-            # weight data from the weight FIFOs.
-            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-        }
+        my_attrs = {}
         my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
