@@ -31,7 +31,7 @@ import numpy as np
 import os
 import shutil
 import warnings
-from pyverilator.util.axi_utils import rtlsim_multi_io
+from pyverilator.util.axi_utils import rtlsim_multi_io, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
@@ -603,13 +603,13 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if trace_file == "default":
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
+        reset_rtlsim(sim)
         total_cycle_count = rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             trace_file=trace_file,
             sname=sname,
-            do_reset=True,
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
