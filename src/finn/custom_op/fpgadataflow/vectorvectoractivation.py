@@ -127,17 +127,20 @@ class VectorVectorActivation(HWCustomOp):
         (_, dim_h, dim_w, _) = in_act.shape
         (k_h, k_w) = self.get_nodeattr("Kernel")
         channels = self.get_nodeattr("Channels")
-        # Reshape input activations in right format
-        in_act = in_act.reshape(1, dim_h, dim_w, channels, k_h*k_w)
-        in_act = in_act.transpose(0, 1, 2, 4, 3)
+        pe = self.get_nodeattr("PE")
+        # Reorder the input activations. Note that PE gets interleaved by the SWG,
+        # so we have to untangle and for simplicity of computation assume pe=1.
+        # Note that PE has no effect on the QONNX node
+        in_act = in_act.reshape(1, dim_h, dim_w, channels // pe, k_h*k_w, pe)
+        in_act = in_act.transpose(0, 1, 2, 4, 3, 5)
         in_act = in_act.reshape(1, dim_h, dim_w, channels*k_h*k_w)
-        # Reshape
+        # Reshape weights in appropriate format
         vvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
         vvau_w = np_helper.to_array(vvau_w_init)
         vvau_w_onnx = self._infer_sparse_weight_tensor(vvau_w, k_h, k_w, channels)
 
         if self.get_nodeattr("inputDataType") == "BIPOLAR" and self.get_nodeattr("weightDataType") == "BIPOLAR":
-            result = np.matmul(in_act, vvau_w_onnx)
+            result = np.matmul(in_act, vvau_w_onnx) # result is in [N, H, W, C] format
             result = (result + k_h*k_w) / 2
         else:
             result = np.matmul(in_act, vvau_w_onnx) # result is in [N, H, W, C] format
@@ -145,7 +148,7 @@ class VectorVectorActivation(HWCustomOp):
         if self.get_nodeattr("noActivation") == 0:
             vvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
             vvau_thr = np_helper.to_array(vvau_thr_init)
-            odt_is_bipolar = self.get_nodeattr("outputDataType") == DataType["BIPOLAR"]
+            odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
             # NHWC to NCHW for multithreshold node
@@ -154,7 +157,6 @@ class VectorVectorActivation(HWCustomOp):
             # NCHW to NHWC
             result = result.transpose((0,2,3,1))
         
-        # for i in range(self.get_nodeattr("Channels")):
         context[node.output[0]] = result
 
     def verify_node(self):
