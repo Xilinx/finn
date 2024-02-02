@@ -59,7 +59,10 @@ class Thresholding_hls(Thresholding, HLSBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # string defining memory type
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
+        }
         my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
