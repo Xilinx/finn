@@ -52,8 +52,6 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from qonnx.transformation.general import ApplyConfig, GiveUniqueNodeNames, GiveReadableTensorNames
-from qonnx.transformation.infer_shapes import InferShapes
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
@@ -401,15 +399,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
-        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
-    else:
-        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
     assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
-    else:
-        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    node = model.get_nodes_by_op_type("MatrixVectorActivation_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)

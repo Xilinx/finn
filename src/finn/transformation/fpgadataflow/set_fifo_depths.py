@@ -174,7 +174,7 @@ class CapConvolutionFIFODepths(Transformation):
                     continue
                 if fifo_cons is None:
                     continue
-                if getCustomOp(fifo_cons).base_op_type() != "MatrixVectorActivation":
+                if not fifo_cons.op_type.startswith("MatrixVectorActivation"):
                     continue
                 op_inst = getCustomOp(node)
                 depth = op_inst.get_nodeattr("depth")
@@ -257,7 +257,7 @@ class InsertAndSetFIFODepths(Transformation):
     def apply(self, model):
         # these optypes may potentially use external weights
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MatrixVectorActivation", "VectorVectorActivation"]
+        extw_optypes = ["MatrixVectorActivation_hls", "VectorVectorActivation_hls"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
@@ -281,7 +281,7 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
 
-            if getCustomOp(node).base_op_type() in extw_optypes:
+            if node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -422,7 +422,7 @@ class InsertAndSetFIFODepths(Transformation):
                 # (removed setting of node FIFO size attributes to 0 here)
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
-                if getCustomOp(node).base_op_type() in extw_optypes:
+                if node.op_type in extw_optypes:
                     if node.name in modified_fc_nodes:
                         node_inst = getCustomOp(node)
                         node_inst.set_nodeattr("mem_mode", "external")

@@ -28,10 +28,11 @@
 
 import math
 import numpy as np
-import os
+import onnx.numpy_helper as np_helper
 import textwrap
 import warnings
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
@@ -39,16 +40,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
-import onnx.numpy_helper as np_helper
-import qonnx.custom_op.general.xnorpopcount as xp
-from qonnx.custom_op.general.multithreshold import multithreshold
-
+from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
 class VectorVectorActivation(HWCustomOp):
@@ -131,19 +123,22 @@ class VectorVectorActivation(HWCustomOp):
         # Reorder the input activations. Note that PE gets interleaved by the SWG,
         # so we have to untangle and for simplicity of computation assume pe=1.
         # Note that PE has no effect on the QONNX node
-        in_act = in_act.reshape(1, dim_h, dim_w, channels // pe, k_h*k_w, pe)
+        in_act = in_act.reshape(1, dim_h, dim_w, channels // pe, k_h * k_w, pe)
         in_act = in_act.transpose(0, 1, 2, 4, 3, 5)
-        in_act = in_act.reshape(1, dim_h, dim_w, channels*k_h*k_w)
+        in_act = in_act.reshape(1, dim_h, dim_w, channels * k_h * k_w)
         # Reshape weights in appropriate format
         vvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
         vvau_w = np_helper.to_array(vvau_w_init)
         vvau_w_onnx = self._infer_sparse_weight_tensor(vvau_w, k_h, k_w, channels)
 
-        if self.get_nodeattr("inputDataType") == "BIPOLAR" and self.get_nodeattr("weightDataType") == "BIPOLAR":
-            result = np.matmul(in_act, vvau_w_onnx) # result is in [N, H, W, C] format
-            result = (result + k_h*k_w) / 2
+        if (
+            self.get_nodeattr("inputDataType") == "BIPOLAR"
+            and self.get_nodeattr("weightDataType") == "BIPOLAR"
+        ):
+            result = np.matmul(in_act, vvau_w_onnx)  # result is in [N, H, W, C] format
+            result = (result + k_h * k_w) / 2
         else:
-            result = np.matmul(in_act, vvau_w_onnx) # result is in [N, H, W, C] format
+            result = np.matmul(in_act, vvau_w_onnx)  # result is in [N, H, W, C] format
 
         if self.get_nodeattr("noActivation") == 0:
             vvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
@@ -152,16 +147,16 @@ class VectorVectorActivation(HWCustomOp):
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
             # NHWC to NCHW for multithreshold node
-            result = result.transpose((0,3,1,2))
+            result = result.transpose((0, 3, 1, 2))
             result = multithreshold(result, vvau_thr, out_scale, out_bias)
             # NCHW to NHWC
-            result = result.transpose((0,2,3,1))
-        
+            result = result.transpose((0, 2, 3, 1))
+
         context[node.output[0]] = result
 
     def verify_node(self):
         pass
-  
+
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
         return super().make_const_shape_op(oshape)
@@ -203,7 +198,7 @@ class VectorVectorActivation(HWCustomOp):
         pe = self.get_nodeattr("PE")
         in_width = i_bits * simd * pe
         return in_width
-    
+
     def get_weightstream_width(self):
         """Returns weight stream width. Used only in decoupled mode."""
         if (

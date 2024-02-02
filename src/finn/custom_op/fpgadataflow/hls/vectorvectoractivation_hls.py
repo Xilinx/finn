@@ -26,26 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import os
-import textwrap
-import warnings
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
-    calculate_matvec_accumulator_range,
-    interleave_matrix_outer_dim_from_partitions,
-    roundup_to_integer_multiple,
-)
 
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
 
 class VectorVectorActivation_hls(VectorVectorActivation, HLSBackend):
     """Corresponds to finn-hlslib Vector_Vector_Activate_Batch function"""

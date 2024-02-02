@@ -1281,6 +1281,7 @@ class InferStreamingEltwise(Transformation):
 
         return (model, graph_modified)
 
+
 class InferBinaryMatrixVectorActivation(Transformation):
     """Convert XnorPopcountMatMul layers to
     MatrixVectorActivation layers. Any immediately following MultiThreshold
@@ -1413,6 +1414,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
 
 class InferQuantizedMatrixVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
@@ -1549,6 +1551,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
 
 class InferVectorVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to

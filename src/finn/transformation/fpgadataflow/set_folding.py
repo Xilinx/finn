@@ -125,7 +125,7 @@ class SetFolding(Transformation):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if node_inst.base_op_type() == "MatrixVectorActivation":
+            if op_type.startswith("MatrixVectorActivation"):
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)

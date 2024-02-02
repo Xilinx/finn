@@ -26,26 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import os
-import textwrap
-import warnings
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
-    calculate_matvec_accumulator_range,
-    interleave_matrix_outer_dim_from_partitions,
-    roundup_to_integer_multiple,
-)
 
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -60,7 +47,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-    
+
     def get_nodeattr_types(self):
         my_attrs = {}
         my_attrs.update(MatrixVectorActivation.get_nodeattr_types(self))
@@ -480,17 +467,13 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
             self.toggle_clk(sim)
             if mem_mode in ["external", "decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
-                wei = npy_to_rtlsim_input(
-                    "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                )
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 io_dict = {
                     "inputs": {"in0": inp, "weights": wei * num_w_reps},
@@ -505,9 +488,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()

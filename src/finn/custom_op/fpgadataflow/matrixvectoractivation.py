@@ -28,35 +28,20 @@
 
 import math
 import numpy as np
-import os
+import onnx.numpy_helper as np_helper
+import qonnx.custom_op.general.xnorpopcount as xp
 import textwrap
 import warnings
-from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-import qonnx.custom_op.general.xnorpopcount as xp
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
-    qonnx_make_model
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
-import qonnx.core.data_layout as DataLayout
-import finn.core.onnx_exec as oxe
-from qonnx.transformation.infer_shapes import InferShapes
-import onnx.numpy_helper as np_helper
-from qonnx.transformation.general import GiveUniqueNodeNames
-
+from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -133,7 +118,7 @@ class MatrixVectorActivation(HWCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            }
+        }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
@@ -147,11 +132,15 @@ class MatrixVectorActivation(HWCustomOp):
         mvau_w = np_helper.to_array(mvau_w_init)
         # Matrix multiplication
         if self.get_nodeattr("binaryXnorMode"):
-            # Note: activation/weights are expected to be binary (by design coming from the transformation inferring this operation mode)
+            # Note: activation/weights are expected to be binary
+            # (by design coming from the transformation inferring this operation mode)
             result = xp.xnorpopcountmatmul(in_act, mvau_w)
-        elif (self.get_nodeattr("inputDataType") == "BIPOLAR" and self.get_nodeattr("weightDataType") == "BIPOLAR"):
+        elif (
+            self.get_nodeattr("inputDataType") == "BIPOLAR"
+            and self.get_nodeattr("weightDataType") == "BIPOLAR"
+        ):
             # Convert to binary and use xnorpopcountmatmul function
-            result = xp.xnorpopcountmatmul((in_act+1)/2, (mvau_w+1)/2)
+            result = xp.xnorpopcountmatmul((in_act + 1) / 2, (mvau_w + 1) / 2)
         else:
             # Regular matrix multiplication
             result = np.matmul(in_act, mvau_w)
@@ -162,11 +151,11 @@ class MatrixVectorActivation(HWCustomOp):
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
             # NHWC to NCHW for multithreshold node
-            result = result.transpose((0,3,1,2))
+            result = result.transpose((0, 3, 1, 2))
             result = multithreshold(result, mvau_thr, out_scale, out_bias)
             # NCHW to NHWC
-            result = result.transpose((0,2,3,1))
-        
+            result = result.transpose((0, 2, 3, 1))
+
         context[node.output[0]] = result
 
     def verify_node(self):
@@ -260,19 +249,21 @@ class MatrixVectorActivation(HWCustomOp):
 
     def get_accumulator_datatype(self):
         """Returns FINN DataType of accumulator"""
-        return DataType[self.get_nodeattr("accDataType")]  
+        return DataType[self.get_nodeattr("accDataType")]
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("outputDataType")]  
+        return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
-        assert (
-            i_bits <= 9
-        ), "RTL-based MVAU only supports activations with bit-width up to 9-bits"
         in_width = i_bits * self.get_nodeattr("SIMD")
         return in_width
+
+    def get_outstream_width(self, ind=0):
+        o_bits = self.get_output_datatype().bitwidth()
+        out_width = o_bits * self.get_nodeattr("PE")
+        return out_width
 
     def get_weightstream_width(self):
         """Returns weight stream width. Used only in decoupled mode."""
@@ -283,18 +274,10 @@ class MatrixVectorActivation(HWCustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             wp = self.get_weight_datatype().bitwidth()
-            assert (
-                wp <= 8
-            ), "RTL-based MVAU only supports weights with bit-width up to 8-bits"
             w_width = pe * simd * wp
             return w_width
         else:
             return 0
-
-    def get_outstream_width(self, ind=0):
-        o_bits = self.get_output_datatype().bitwidth()
-        out_width = o_bits * self.get_nodeattr("PE")
-        return out_width
 
     def get_weightstream_width_padded(self):
         """Returns weight stream width padded to a multiple of 8. This is required
@@ -964,8 +947,7 @@ class MatrixVectorActivation(HWCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -981,8 +963,7 @@ class MatrixVectorActivation(HWCustomOp):
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
             )
             cmd.append(
                 "set_property -dict [list "
@@ -1036,8 +1017,7 @@ class MatrixVectorActivation(HWCustomOp):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                    % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
