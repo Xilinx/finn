@@ -1632,34 +1632,43 @@ class CoyoteBuild(Transformation):
         coyote_interconnects_connections = None
         finn_interconnects_connections = None
         if len(axilites_with_addr_width) > 0:
-            COYOTE_BASE_ADDR = 0x12_0000
-            COYOTE_LIMIT = 0x13_FFFF
-            # Top level axilite signals
-            (
-                coyote_interconnects,
-                coyote_interconnects_connections,
-                coyote_intra_connections,
-                coyote_extra_external_commands,
-                address_map_coyote,
-                # NOTE: ACCL driver expects the appropriate axi interfaces to be mapped at the
-                # start of the address space
-            ) = CoyoteBuild.create_interconnects(
-                [("accl_bd_inst", ("S00_AXI_0", 15)), ("hls_bridge_inst", ("s_axi_control", 5))],
-                global_base_addr=COYOTE_BASE_ADDR,
-                limit=COYOTE_LIMIT,
-            )
+            address_map: List[str] = []
+            if is_accl_mode:
+                COYOTE_BASE_ADDR = 0x12_0000
+                COYOTE_LIMIT = 0x13_FFFF
+                # Top level axilite signals
+                (
+                    coyote_interconnects,
+                    coyote_interconnects_connections,
+                    coyote_intra_connections,
+                    coyote_extra_external_commands,
+                    address_map_coyote,
+                    # NOTE: ACCL driver expects the appropriate axi interfaces to be mapped at the
+                    # start of the address space
+                ) = CoyoteBuild.create_interconnects(
+                    [
+                        ("accl_bd_inst", ("S00_AXI_0", 15)),
+                        ("hls_bridge_inst", ("s_axi_control", 5)),
+                    ],
+                    global_base_addr=COYOTE_BASE_ADDR,
+                    limit=COYOTE_LIMIT,
+                )
 
-            coyote_interconnect_bd = BD(
-                bd_name="design_crossbar_coyote",
-                ips=coyote_interconnects,
-                interfaces=None,
-                intra_connections=coyote_intra_connections,
-                extra_external_commands=coyote_extra_external_commands,
-            )
+                address_map += [
+                    "Address map for first interconnect: Coyote -> (ACCL + BRIDGE)"
+                ] + address_map_coyote
 
-            instantiations["axi_crossbar_coyote_0_inst"] = Instantiation(
-                instantiation_name="axi_crossbar_coyote_0_inst", ip=coyote_interconnect_bd
-            )
+                coyote_interconnect_bd = BD(
+                    bd_name="design_crossbar_coyote",
+                    ips=coyote_interconnects,
+                    interfaces=None,
+                    intra_connections=coyote_intra_connections,
+                    extra_external_commands=coyote_extra_external_commands,
+                )
+
+                instantiations["axi_crossbar_coyote_0_inst"] = Instantiation(
+                    instantiation_name="axi_crossbar_coyote_0_inst", ip=coyote_interconnect_bd
+                )
 
             if len(axilites_with_addr_width) > 1:
                 # FINN axilite signals that will be connected to the bridge
@@ -1690,13 +1699,9 @@ class CoyoteBuild(Transformation):
                                 f"s_axilite_{new_idx}",
                             )
 
-                self.write_address_map_to_file(
-                    model=model,
-                    address_map=["Address map for first interconnect: Coyote -> (ACCL + BRIDGE)"]
-                    + address_map_coyote
-                    + ["Address for FINN specific interconnect: BRIDGE -> (FINN axilites)"]
-                    + address_map_finn,
-                )
+                address_map += [
+                    "Address for FINN specific interconnect: BRIDGE -> (FINN axilites)"
+                ] + address_map_finn
 
                 finn_interconnect_bd = BD(
                     bd_name="design_crossbar_finn",
@@ -1709,12 +1714,7 @@ class CoyoteBuild(Transformation):
                 instantiations["axi_crossbar_finn_0_inst"] = Instantiation(
                     instantiation_name="axi_crossbar_finn_0_inst", ip=finn_interconnect_bd
                 )
-            else:
-                self.write_address_map_to_file(
-                    model=model,
-                    address_map=["Address map for first interconnect: Coyote -> (ACCL + BRIDGE)"]
-                    + address_map_coyote,
-                )
+            self.write_address_map_to_file(model=model, address_map=address_map)
 
         coyote_interface: ExternalInterface = (
             templates.get_coyote_interface()
@@ -1725,12 +1725,20 @@ class CoyoteBuild(Transformation):
         design = Design(instantiations, coyote_interface, "aclk", "aresetn")
 
         if len(axilites_with_addr_width) > 0:
-            assert coyote_interconnects_connections
-            for component_name, connection_dict in coyote_interconnects_connections.items():
-                for interconnect_master, signal in connection_dict.items():
-                    instantiations["axi_crossbar_coyote_0_inst"][interconnect_master].connect(
-                        design, instantiations[component_name][signal]
-                    )
+            if is_accl_mode:
+                assert coyote_interconnects_connections
+                for component_name, connection_dict in coyote_interconnects_connections.items():
+                    for interconnect_master, signal in connection_dict.items():
+                        instantiations["axi_crossbar_coyote_0_inst"][interconnect_master].connect(
+                            design, instantiations[component_name][signal]
+                        )
+                instantiations["axi_crossbar_coyote_0_inst"]["S00_AXI_0"].connect(
+                    design, coyote_interface["axi_ctrl"]
+                )
+            else:
+                instantiations["hls_bridge_inst"]["s_axi_control"].connect(
+                    design, coyote_interface["axi_ctrl"]
+                )
 
             if len(axilites_with_addr_width) > 1:
                 assert finn_interconnects_connections
@@ -1747,10 +1755,6 @@ class CoyoteBuild(Transformation):
                 instantiations["hls_bridge_inst"]["m_axi_gmem"].connect(
                     design, instantiations["finn_kernel_inst"][intf_names["axilite"][0]]
                 )
-
-            instantiations["axi_crossbar_coyote_0_inst"]["S00_AXI_0"].connect(
-                design, coyote_interface["axi_ctrl"]
-            )
 
         if is_accl_mode:
             # ACCL BD connections except for AXI4Lite
@@ -1875,7 +1879,9 @@ class CoyoteBuild(Transformation):
             )
         )
         model = model.transform(
-            CoyoteUserLogic(design=design, user_logic_config=templates.user_logic_config)
+            CoyoteUserLogic(
+                design=design, user_logic_config=templates.user_logic_config if is_accl_mode else ""
+            )
         )
         model = model.transform(CoyoteCompile())
 
