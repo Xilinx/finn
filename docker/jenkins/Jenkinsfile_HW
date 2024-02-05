@@ -1,0 +1,481 @@
+pipeline {
+  agent none
+  stages {
+    stage('Get node status') {
+      options { skipDefaultCheckout() }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          // Check which boards are online before running HW tests
+          env.ALVEO_HOST_ONLINE = isNodeOnline('finn-u250')
+          env.PYNQ_ONLINE = isNodeOnline('finn-pynq')
+          env.ZCU104_ONLINE = isNodeOnline('finn-zcu104')
+          env.KV260_ONLINE = isNodeOnline('finn-kv260')
+        }
+      }
+    }
+    stage('Reboot Zynq platforms') {
+      parallel {
+        stage('Pynq-Z1') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.PYNQ_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+        stage('ZCU104') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ZCU104_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+        stage('Kria KV260_SOM') {
+          options { skipDefaultCheckout() }
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.KV260_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              restartZynqPlatform()
+            }
+          }
+        }
+      }
+    }
+    stage('Wait for Nodes to reboot') {
+      options { skipDefaultCheckout() }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        sleep(time: "${env.REBOOT_SLEEP}", unit: 'MINUTES')
+      }
+    }
+    stage('Collect build information for HW testing') {
+      options { skipDefaultCheckout() }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          // Check which boards are online before running HW tests
+          env.ALVEO_HOST_ONLINE = isNodeOnline('finn-u250')
+          env.PYNQ_ONLINE = isNodeOnline('finn-pynq')
+          env.ZCU104_ONLINE = isNodeOnline('finn-zcu104')
+          env.KV260_ONLINE = isNodeOnline('finn-kv260')
+
+          // Stash the HW test scripts to be used on worker nodes
+          dir('docker/jenkins') {
+            stash name: 'bnn_test_files', includes: 'test_bnn_hw_pytest.py'
+          }
+
+          // Collect build artifacts from network and stash for use on worker nodes
+          dir("${env.ARTIFACT_DIR}"){
+            stashBuildArtifacts('bnn_build_sanity')
+            stashBuildArtifacts('bnn_build_full')
+          }
+        }
+      }
+    }
+    stage('Sanity - Run Hardware Tests') {
+      parallel {
+        stage('BNN Sanity - U250') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ALVEO_HOST_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-u250'
+          }
+          environment {
+            BOARD = 'U250'
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN Sanity - Pynq-Z1') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.PYNQ_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_sanity", "${env.BOARD}", "Pynq")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN Sanity - ZCU104') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ZCU104_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN Sanity - KV260_SOM') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.KV260_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_sanity", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_sanity", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+      }
+    }
+    stage('End2end - Run Hardware Tests') {
+      parallel {
+        stage('BNN end2end - U250') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ALVEO_HOST_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-u250'
+          }
+          environment {
+            BOARD = 'U250'
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN end2end - Pynq-Z1') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.PYNQ_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_full", "${env.BOARD}", "Pynq")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN end2end - ZCU104') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ZCU104_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+        stage('BNN end2end - KV260_SOM') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.KV260_ONLINE == 'true') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              runTest("bnn_build_full", "${env.BOARD}", "${env.BOARD}")
+            }
+          }
+          post {
+            always {
+              stashResults("bnn_build_full", "${env.BOARD}")
+              cleanUpWorkspaceOwnership()
+            }
+          }
+        }
+      }
+    }
+    stage('Check Stage Results') {
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          sh 'mkdir -p reports'
+          cleanPreviousBuildFiles('reports')
+          dir('reports') {
+            // Only unstash for stages that ran
+            unstashSuccessfulStage(env.ALVEO_HOST_ONLINE, "xml_bnn_build_sanity_U250")
+            unstashSuccessfulStage(env.PYNQ_ONLINE, "xml_bnn_build_sanity_Pynq-Z1")
+            unstashSuccessfulStage(env.ZCU104_ONLINE, "xml_bnn_build_sanity_ZCU104")
+            unstashSuccessfulStage(env.KV260_ONLINE, "xml_bnn_build_sanity_KV260_SOM")
+            unstashSuccessfulStage(env.ALVEO_HOST_ONLINE, "xml_bnn_build_full_U250")
+            unstashSuccessfulStage(env.PYNQ_ONLINE, "xml_bnn_build_full_Pynq-Z1")
+            unstashSuccessfulStage(env.ZCU104_ONLINE, "xml_bnn_build_full_ZCU104")
+            unstashSuccessfulStage(env.KV260_ONLINE, "xml_bnn_build_full_KV260_SOM")
+          }
+
+          // Combine individual HTML files to one single report
+          sh './run-docker.sh pytest_html_merger -i reports/ -o reports/test_report_hw_final.html'
+
+          // Archive the XML & HTML test results
+          archiveArtifacts artifacts: "reports/*.xml"
+          archiveArtifacts artifacts: "reports/*.html"
+
+          // Plot what XML files were created during the test run
+          junit 'reports/*.xml'
+        }
+      }
+    }
+  }
+}
+
+void cleanPreviousBuildFiles(String buildDir) {
+  // Delete any build files from a previous build
+  // Previous build folders affect findCopyZip() and can cause the stage to fail
+  if (!buildDir.empty) {
+    if (env.USER_CREDENTIALS) {
+      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${buildDir}*"
+    } else {
+      sh "rm -rf ${buildDir}"
+    }
+  }
+}
+
+void createTestScript(String board, String marker, String testResultsFilename) {
+   if(board == "U250")
+    sh """echo "#!/bin/bash
+. /opt/xilinx/xrt/setup.sh
+. ${VENV_ACTIVATE}
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
+    """
+  else
+    sh """echo "#!/bin/bash
+. /etc/profile.d/pynq_venv.sh
+. /etc/profile.d/xrt_setup.sh
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
+    """
+
+  // Give permissions to script
+  sh 'chmod 777 run-tests.sh'
+}
+
+def isNodeOnline(String labelName) {
+  Label label = Jenkins.instance.getLabel(labelName)
+  def agentOnline = false
+
+  if (label) {
+    List<Node> nodes = Jenkins.instance.getNodes()
+
+    nodes.each { node ->
+      if (node.getAssignedLabels().contains(label)) {
+        def computer = node.toComputer()
+        if (computer && computer.isOnline()) {
+          agentOnline = true
+        } else {
+          echo """Agent ${node.displayName} is offline"""
+        }
+      }
+    }
+  } else {
+    echo """Node with label ${labelName} not found"""
+  }
+
+  return agentOnline
+}
+
+void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
+  if (stageEnvVariableSet) {
+    unstash stashName
+  }
+}
+
+void stashBuildArtifacts(String testDir) {
+  dir("$testDir") {
+    def files = findFiles()
+    files.each { f ->
+      def file = f.toString()
+      def extIndex = file.lastIndexOf(".")
+      def boardName = file.substring(0, extIndex)
+      stash name: "${testDir}_${boardName}_zip", includes: "${f}"
+    }
+  }
+}
+
+void runTest(String testType, String board, String marker) {
+  sh "mkdir -p ${testType}"
+  dir("$testType") {
+    // Clean any files from a previous run
+    cleanPreviousBuildFiles("${board}*")
+
+    // Get the test files
+    unstash name: "${testType}_${board}_zip"
+    sh "unzip -o ${board}.zip"
+
+    dir("$board") {
+      // Get the scripts necessary for running hw tests
+      unstash name: 'bnn_test_files'
+
+      // Create test script
+      createTestScript(board, marker, "${testType}_hw_${board}")
+
+      if (env.USER_CREDENTIALS) {
+        // Execute the script as the root user - needed for zynq platforms
+        sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S ./run-tests.sh'
+      } else {
+        // Execute the script
+        sh './run-tests.sh'
+      }
+    }
+  }
+}
+
+void stashResults (String testType, String board) {
+  // Get test result file and delete test files on the board
+  dir("${testType}/${board}") {
+    // Collect the results file on the worker node by stashing
+    try {
+      stash name: "xml_${testType}_${board}", includes: "${testType}_hw_${board}.xml,${testType}_hw_${board}.html"
+    } catch (err) {
+      echo "No results to stash"
+    }
+  }
+}
+
+void cleanUpWorkspaceOwnership () {
+  if (env.USER_CREDENTIALS) {
+    sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S chown -R $(id -u):$(id -g) ${WORKSPACE}'
+  }
+}
+
+void restartZynqPlatform () {
+  if (env.USER_CREDENTIALS) {
+    sh 'echo ${USER_CREDENTIALS_PSW} | sudo -S shutdown -r +1'
+  }
+}
