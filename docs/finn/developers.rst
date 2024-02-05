@@ -159,8 +159,8 @@ from the FINN root directory as follows:
 If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
 you can use:
 
-* pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
-* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
+* pytest-parallel for any rtlsim tests, e.g. `pytest -k rtlsim --workers auto`
+* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `pytest -k mytest -n auto --dist=loadfile`
 
 Finally, the full test suite with appropriate parallelization can be run inside the container by:
 

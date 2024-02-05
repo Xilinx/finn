@@ -193,7 +193,16 @@ class FINNExampleOverlay(Overlay):
                 layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
-                    new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
+                    if self.platform == "alveo":
+                        # Pynq for Alveo uses tinynumpy under the hood. There is a bug when going
+                        # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
+                        # convert the tinynumpy.ndarray to a list and then copy the list to a
+                        # numpy.ndarray.
+                        new_w = np.copy(
+                            list(layer_mmio.array[: layer_w.shape[0]]), dtype=layer_w.dtype
+                        )
+                    else:
+                        new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
                     assert (layer_w == new_w).all()
         if flush_accel:
             # run accelerator to flush any stale weights from weight streamer FIFOs
@@ -262,12 +271,12 @@ class FINNExampleOverlay(Overlay):
         self.obuf_packed = []
         for i in range(self.num_inputs):
             new_packed_ibuf = allocate(
-                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable
+                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.ibuf_packed_device.append(new_packed_ibuf)
         for o in range(self.num_outputs):
             new_packed_obuf = allocate(
-                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable
+                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.obuf_packed_device.append(new_packed_obuf)
             self.obuf_packed.append(np.empty_like(new_packed_obuf))

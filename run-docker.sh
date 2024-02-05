@@ -100,9 +100,12 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 
 DOCKER_INTERACTIVE=""
 
+# Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
+FINN_DOCKER_EXTRA+=" "
+
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"
-  DOCKER_CMD="python setup.py test"
+  DOCKER_CMD="pytest"
 elif [ "$1" = "quicktest" ]; then
   gecho "Running test suite (non-Vivado, non-slow tests)"
   DOCKER_CMD="quicktest.sh"

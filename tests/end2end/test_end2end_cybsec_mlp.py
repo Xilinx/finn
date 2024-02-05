@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import json
@@ -47,10 +45,10 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
+from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_kind = "zynq"
+build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
@@ -83,7 +81,7 @@ class CybSecMLPForExport(nn.Module):
 
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
-    assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
+    assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
     # load up trained net in Brevitas
     input_size = 593
     hidden1 = 64
@@ -151,14 +149,13 @@ def test_end2end_cybsec_mlp_export():
 def test_end2end_cybsec_mlp_build():
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
-    build_env = get_build_env(build_kind, target_clk_ns)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
-        board=build_env["board"],
+        board=build_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
