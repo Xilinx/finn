@@ -59,7 +59,7 @@ Simply running sh run-docker.sh without any additional arguments will create a D
 
 ::
 
-  bash ./run_docker.sh
+  bash ./run-docker.sh
 
 
 Launch a Build with ``build_dataflow``
@@ -70,8 +70,8 @@ or a user-defined flow from the command line as follows:
 
 ::
 
-  bash ./run_docker.sh build_dataflow <path/to/dataflow_build_dir/>
-  bash ./run_docker.sh build_custom <path/to/custom_build_dir/>
+  bash ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  bash ./run-docker.sh build_custom <path/to/custom_build_dir/>
 
 
 Launch Jupyter notebooks

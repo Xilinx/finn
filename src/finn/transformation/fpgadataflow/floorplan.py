@@ -170,12 +170,11 @@ class Floorplan(Transformation):
                     else:
                         partition_id = pre_inst.get_nodeattr("partition_id")
                         node_inst.set_nodeattr("partition_id", partition_id)
-                break
 
-            else:
-                # no matching, new partition
-                node_inst.set_nodeattr("partition_id", partition_cnt)
-                partition_cnt += 1
+                else:
+                    # no matching, new partition
+                    node_inst.set_nodeattr("partition_id", partition_cnt)
+                    partition_cnt += 1
 
         # save the updated floorplan
         floorplan = model.analysis(floorplan_params)
