@@ -85,6 +85,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveFIFOSizes,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
@@ -124,6 +125,7 @@ from finn.util.basic import (
 )
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
+import finn.util.accl as accl_utils
 
 
 def verify_step(
@@ -602,6 +604,28 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_insert_accl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if "ACCL_ROOT" not in os.environ:
+        os.environ["ACCL_ROOT"] = accl_utils.clone_repo()
+    accl_repo = os.environ["ACCL_ROOT"]
+    model.set_metadata_prop("accl_repo_dir", accl_repo)
+
+    # Build ACCL internals here so that they can be reused across multiple partitions
+    needs_bitstream = DataflowOutputType.BITFILE in cfg.generate_outputs
+    if needs_bitstream: accl_utils.compile_internals(cfg.fpga_part)
+
+    model = model.transform(InsertACCL())
+    model = model.transform(GiveUniqueNodeNames())
+
+    if VerificationStepType.ACCL_HLS_CPPSIM in cfg._resolve_verification_steps():
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        verify_step(model, cfg, "accl_hls_cppsim", need_parent=True)
+
+    return model
+
+
 def step_split_dataflow(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(SplitDataflow())
     return model
@@ -838,6 +862,7 @@ build_dataflow_step_lookup = {
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
+    "step_insert_accl": step_insert_accl,
     "step_split_dataflow": step_split_dataflow,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
