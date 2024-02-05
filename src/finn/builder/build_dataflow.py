@@ -112,7 +112,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     :param cfg: Build configuration
     """
     # Dispatch a distributed build if we are splitting up the model as part of the build.
-    if  "step_split_dataflow" in step_names:
+    if  "step_split_dataflow" in cfg.steps:
         build_distributed_dataflow_cfg(model_filename, cfg)
 
     # if start_step is specified, override the input model
