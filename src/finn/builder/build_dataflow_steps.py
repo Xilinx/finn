@@ -108,6 +108,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.split_dataflow import SplitDataflow
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
@@ -601,6 +602,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_split_dataflow(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(SplitDataflow())
+    return model
+
+
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
@@ -832,6 +838,7 @@ build_dataflow_step_lookup = {
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
+    "step_split_dataflow": step_split_dataflow,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_pynq_driver": step_make_pynq_driver,
