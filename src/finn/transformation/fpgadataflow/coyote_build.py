@@ -1635,7 +1635,7 @@ class CoyoteBuild(Transformation):
             address_map: List[str] = []
             if is_accl_mode:
                 COYOTE_BASE_ADDR = 0x12_0000
-                COYOTE_LIMIT = 0x13_FFFF
+                COYOTE_LIMIT = 0x12_FFFF
                 # Top level axilite signals
                 (
                     coyote_interconnects,
