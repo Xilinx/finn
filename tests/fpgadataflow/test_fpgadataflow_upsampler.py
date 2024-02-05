@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,7 +33,7 @@ import numpy as np
 import os
 import shutil
 import torch
-from brevitas.export import FINNManager
+from brevitas.export import export_qonnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
@@ -41,6 +42,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.make_input_chanlast import MakeInputChannelsLast
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
 import finn.core.onnx_exec as oxe
@@ -52,6 +54,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 
 tmpdir = os.environ["FINN_BUILD_DIR"]
@@ -154,10 +157,11 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
     # Get golden PyTorch and ONNX inputs
     golden_torch_float = torch_model(test_in)
     export_path = f"{tmpdir}/Upsample_exported.onnx"
-    FINNManager.export(
-        torch_model, input_shape=input_shape, export_path=export_path, opset_version=11
-    )
+    export_qonnx(torch_model, torch.randn(input_shape), export_path, opset_version=11)
+    qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
+    model = model.transform(ConvertQONNXtoFINN())
+    model = model.transform(InferShapes())
     input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int32)}
     input_dict = {model.graph.input[0].name: test_in.numpy()}
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
