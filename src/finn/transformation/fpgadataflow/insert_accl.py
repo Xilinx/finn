@@ -6,7 +6,7 @@ from qonnx.transformation.general import SortGraph
 
 
 class InsertACCL(Transformation):
-    def insert_at(self, model, tensor_name, producer, consumer):
+    def insert_at(self, model, world_size, tensor_name, producer, consumer):
         if producer.op_type == "ACCLOut":
             assert consumer.op_type == "ACCLIn", "Expect ACCLOut to comer after in"
             return False
@@ -44,9 +44,15 @@ class InsertACCL(Transformation):
             if out == tensor_name:
                 producer.output[idx] = producer_out.name
 
-        world_size = model.get_metadata_prop("worldSize")
-        assert world_size is not None
-        world_size = int(world_size)
+        cmd_to_cclo = oh.make_tensor_value_info(
+            f"cmd_to_cclo_{model.make_new_valueinfo_name()}", TensorProto.UINT32, [15, 1]
+        )
+        model.graph.output.append(cmd_to_cclo)
+
+        sts_from_cclo = oh.make_tensor_value_info(
+            f"sts_from_cclo_{model.make_new_valueinfo_name()}", TensorProto.UINT32, [1, 1]
+        )
+        model.graph.input.append(sts_from_cclo)
 
         accl_out = oh.make_node(
             "ACCLOut",
@@ -91,6 +97,11 @@ class InsertACCL(Transformation):
         return True
 
     def apply(self, model):
+        world_size = 1
+        for node in model.graph.node:
+            node_inst = getCustomOp(node)
+            world_size = max(world_size, node_inst.get_nodeattr("device_id") + 1)
+
         potential_comm_pairs = []
 
         for producer in model.graph.node:
@@ -103,7 +114,7 @@ class InsertACCL(Transformation):
         modified = False
 
         for tensor_name, producer, consumer in potential_comm_pairs:
-            modified |= self.insert_at(model, tensor_name, producer, consumer)
+            modified |= self.insert_at(model, world_size, tensor_name, producer, consumer)
 
         if modified:
             model = model.transform(SortGraph())

@@ -174,6 +174,9 @@ class ACCLOp(HLSCustomOp):
             '#include "accl/funcs.hpp"',
         ]
 
+    def ipgen_cflags(self):
+        return [f"-I{os.environ['ACCL_ROOT']}/driver/hls"]
+
     def get_stream_width(self):
         tbits = self.get_input_datatype().bitwidth()
         return tbits * self.get_nodeattr("NumChannels")
@@ -397,7 +400,6 @@ class ACCLIn(ACCLOp):
         self.code_gen_dict["$PRAGMAS$"] = [
             "#pragma HLS INTERFACE axis port=data_from_cclo",
             "#pragma HLS INTERFACE axis port=out_{}".format(self.hls_sname()),
-            "#pragma HLS INTERFACE s_axilite port=dummy bundle=control",
             "#pragma HLS INTERFACE ap_ctrl_none port=return",
         ]
 
@@ -405,8 +407,6 @@ class ACCLIn(ACCLOp):
         start_port = self.get_nodeattr("startPort")
         rank = self.get_nodeattr("device_id")
         world_size = self.get_nodeattr("worldSize")
-
-        assert world_size != 0
 
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
             'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo");',
