@@ -62,7 +62,7 @@ module mvu_vvu_axi #(
 	// Safely deducible parameters
 	localparam int unsigned  WEIGHT_STREAM_WIDTH	= PE * SIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA	= (WEIGHT_STREAM_WIDTH + 7) / 8 * 8,
-	localparam int unsigned  INPUT_STREAM_WIDTH	= SIMD * ACTIVATION_WIDTH,
+	localparam int unsigned  INPUT_STREAM_WIDTH	= (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA	= (INPUT_STREAM_WIDTH + 7) / 8 * 8,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH	= PE * ACCU_WIDTH,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA	= (OUTPUT_STREAM_WIDTH + 7) / 8 * 8,
@@ -125,25 +125,44 @@ module mvu_vvu_axi #(
 	uwire rst = !ap_rst_n;
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
-	typedef logic [PE*SIMD-1:0][ACTIVATION_WIDTH-1:0] mvu_flatin_t;
+	typedef logic [(IS_MVU ? 1 : PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
 	uwire mvu_flatin_t amvau;
 	uwire alast;
 	uwire afin;
 	uwire avld;
 	uwire ardy;
 
-	replay_buffer #(.LEN(SF), .REP(NF), .W($bits(mvu_flatin_t))) activation_replay (
+	replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvu_flatin_t))) activation_replay (
 	.clk, .rst,
 	.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
 	.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
 	);
 
 	//- Unflatten inputs into structured matrices ---------------------------
-	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH    -1:0]  mvu_w_t;
-	typedef logic         [SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_a_t;
+	localparam int unsigned  ACT_PE = IS_MVU? 1 : PE;
+	typedef logic [PE    -1:0][SIMD-1:0][WEIGHT_WIDTH    -1:0]  mvu_w_t;
+	typedef logic [ACT_PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_a_t;
 
+	//- Conditional Activations Layout Adjustment for VVU
+	uwire mvu_a_t  amvau_i;
+	if (IS_MVU || (PE == 1)) begin : genMVUInput
+		assign  amvau_i = amvau;
+	end : genMVUInput
+	else begin : genVVUInput
+		// The input stream will have the channels interleaved for VVU when PE>1
+		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
+		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
+		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
+		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i, P_1), ..., (S_i, P_i)
+		for(genvar  pe = 0; pe < ACT_PE; pe++) begin
+			for(genvar  simd = 0; simd < SIMD; simd++) begin
+				assign	amvau_i[pe][simd] = amvau[simd*ACT_PE+pe];
+			end
+		end
+	end : genVVUInput
+	
 	uwire  mvu_w_t  mvu_w = s_axis_weights_tdata;
-	uwire  mvu_a_t  mvu_a = amvau;
+	uwire  mvu_a_t  mvu_a = amvau_i;
 
 	//- Flow Control Bracket around Compute Core ----------------------------
 	uwire en;
