@@ -601,6 +601,7 @@ compilation transformations?
             trace_file=trace_file,
             sname=sname,
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            do_reset=True,
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 

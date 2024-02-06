@@ -2,8 +2,10 @@ module mvu_4sx4u #(
 	int unsigned  PE,
 	int unsigned  SIMD,
 	int unsigned  ACCU_WIDTH,
-	bit SIGNED_ACTIVATIONS = 0,
-	bit FORCE_BEHAVIORAL = 0
+
+	int unsigned  VERSION = 1,
+	bit  SIGNED_ACTIVATIONS = 0,
+	bit  FORCE_BEHAVIORAL = 0
 )(
 	// Global Control
 	input	logic  clk,
@@ -14,7 +16,7 @@ module mvu_4sx4u #(
 	input	logic  last,
 	input	logic  zero,	// ignore current inputs and force this partial product to zero
 	input	logic signed [PE-1:0][SIMD-1:0][3:0]  w,	// signed weights
-	input	logic                [SIMD-1:0][3:0]  a,	// unsigned activations
+	input	logic                [SIMD-1:0][3:0]  a,	// unsigned activations (override by SIGNED_ACTIVATIONS)
 
 	// Ouput
 	output	logic  vld,
@@ -58,8 +60,8 @@ module mvu_4sx4u #(
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
-			uwire [23:0]  bb = { {(20){SIGNED_ACTIVATIONS && a[s][3]}}, a[s] };
-			logic [33:0]  aa;
+			uwire [17:0]  bb = { {(14){SIGNED_ACTIVATIONS && a[s][3]}}, a[s] };
+			logic [29:0]  aa;
 			logic [26:0]  dd;
 			logic [ 1:0]  xx[3:1];
 			if(1) begin : blkVectorize
@@ -94,14 +96,14 @@ module mvu_4sx4u #(
 				end
 			end : blkVectorize
 
-			uwire [57:0]  pp;
+			uwire [47:0]  pp;
 
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
 			//       with the same effect as zeroing both.
-			if (BEHAVIORAL) begin : genBehav
+			if(BEHAVIORAL) begin : genBehav
 				// Stage #1: Input Refine
-				logic signed [23:0]  B1  = 0;
+				logic signed [17:0]  B1  = 0;
 				always_ff @(posedge clk) begin
 					if(zero)     B1  <= 0;
 					else if(en)  B1  <= bb;
@@ -114,7 +116,7 @@ module mvu_4sx4u #(
 				end
 
 				// Stage #2: Multiply
-				logic signed [50:0]  M2 = 0;
+				logic signed [45:0]  M2 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      M2 <= 0;
 					else if(en)  M2 <=
@@ -125,7 +127,7 @@ module mvu_4sx4u #(
 				end
 
 				// Stage #3: Accumulate
-				logic signed [57:0]  P3 = 0;
+				logic signed [47:0]  P3 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      P3 <= 0;
 					else if(en)  P3 <= M2 + (L[3]? 0 : P3);
@@ -135,7 +137,115 @@ module mvu_4sx4u #(
 			end : genBehav
 `ifndef VERILATOR
 			else begin : genDSP
-				DSP48E2 #(
+				localparam logic [6:0]  OPMODE_INVERSION = 7'b010_01_01;
+				uwire [6:0]  opmode = { { 1'b0, L[2], 1'b0 }, 4'b00_00 };
+				case(VERSION)
+				1: DSP48E1 #(
+					// Feature Control Attributes: Data Path Selection
+					.A_INPUT("DIRECT"),		// Selects A input source, "DIRECT" (A port) or "CASCADE" (ACIN port)
+					.B_INPUT("DIRECT"),		// Selects B input source, "DIRECT" (B port) or "CASCADE" (BCIN port)
+					.USE_DPORT("TRUE"),		// Select D port usage (TRUE or FALSE)
+					.USE_MULT("MULTIPLY"),	// Select multiplier usage ("MULTIPLY", "DYNAMIC", or "NONE")
+					.USE_SIMD("ONE48"),		// SIMD selection ("ONE48", "TWO24", "FOUR12")
+
+					// Pattern Detector Attributes: Pattern Detection Configuration
+					.AUTORESET_PATDET("NO_RESET"),		// "NO_RESET", "RESET_MATCH", "RESET_NOT_MATCH"
+					.MASK('1),							// 48-bit mask value for pattern detect (1=ignore)
+					.PATTERN('0),						// 48-bit pattern match for pattern detect
+					.SEL_MASK("MASK"),					// "C", "MASK", "ROUNDING_MODE1", "ROUNDING_MODE2"
+					.SEL_PATTERN("PATTERN"),			// Select pattern value ("PATTERN" or "C")
+					.USE_PATTERN_DETECT("NO_PATDET"),	// Enable pattern detect ("PATDET" or "NO_PATDET")
+
+					// Register Control Attributes: Pipeline Register Configuration
+					.ACASCREG(0),		// Number of pipeline stages between A/ACIN and ACOUT (0, 1 or 2)
+					.ADREG(1),			// Number of pipeline stages for pre-adder (0 or 1)
+					.ALUMODEREG(0),		// Number of pipeline stages for ALUMODE (0 or 1)
+					.AREG(0),			// Number of pipeline stages for A (0, 1 or 2)
+					.BCASCREG(1),		// Number of pipeline stages between B/BCIN and BCOUT (0, 1 or 2)
+					.BREG(1),			// Number of pipeline stages for B (0, 1 or 2)
+					.CARRYINREG(0),		// Number of pipeline stages for CARRYIN (0 or 1)
+					.CARRYINSELREG(0),	// Number of pipeline stages for CARRYINSEL (0 or 1)
+					.CREG(0),			// Number of pipeline stages for C (0 or 1)
+					.DREG(0),			// Number of pipeline stages for D (0 or 1)
+					.INMODEREG(0),		// Number of pipeline stages for INMODE (0 or 1)
+					.MREG(1),			// Number of multiplier pipeline stages (0 or 1)
+					.OPMODEREG(1),		// Number of pipeline stages for OPMODE (0 or 1)
+					.PREG(1)			// Number of pipeline stages for P (0 or 1)
+				) dsp (
+					// Cascade: 30-bit (each) output: Cascade Ports
+					.ACOUT(),			// 30-bit output: A port cascade output
+					.BCOUT(),			// 18-bit output: B port cascade output
+					.CARRYCASCOUT(),	// 1-bit output: Cascade carry output
+					.MULTSIGNOUT(),		// 1-bit output: Multiplier sign cascade output
+					.PCOUT(),			// 48-bit output: Cascade output
+
+					// Control: 1-bit (each) output: Control Inputs/Status Bits
+					.OVERFLOW(),		 // 1-bit output: Overflow in add/acc output
+					.PATTERNBDETECT(),	 // 1-bit output: Pattern bar detect output
+					.PATTERNDETECT(),	 // 1-bit output: Pattern detect output
+					.UNDERFLOW(),		 // 1-bit output: Underflow in add/acc output
+
+					// Data: 4-bit (each) output: Data Ports
+					.CARRYOUT(),	// 4-bit output: Carry output
+					.P(pp),			// 48-bit output: Primary data output
+
+					// Cascade: 30-bit (each) input: Cascade Ports
+					.ACIN('x),			 // 30-bit input: A cascade data input
+					.BCIN('x),			 // 18-bit input: B cascade input
+					.CARRYCASCIN('x),	 // 1-bit input: Cascade carry input
+					.MULTSIGNIN('x),	 // 1-bit input: Multiplier sign input
+					.PCIN('x),			 // 48-bit input: P cascade input
+
+					// Control: 4-bit (each) input: Control Inputs/Status Bits
+					.CLK(clk),				// 1-bit input: Clock input
+					.ALUMODE('0),			// 4-bit input: ALU control input
+					.CARRYINSEL('0),		// 3-bit input: Carry select input
+					.INMODE(5'b01100),		// 5-bit input: INMODE control input
+					.OPMODE(opmode ^ OPMODE_INVERSION), // 7-bit input: Operation mode input
+
+					// Data: 30-bit (each) input: Data Ports
+					.A(aa),			// 30-bit input: A data input
+					.B(bb),			// 18-bit input: B data input
+					.C('x),			// 48-bit input: C data input
+					.CARRYIN('0),	// 1-bit input: Carry input signal
+					.D(dd),			// 25-bit input: D data input
+
+					// Reset/Clock Enable: 1-bit (each) input: Reset/Clock Enable Inputs
+					.CEA1('0),			// 1-bit input: Clock enable input for 1st stage AREG
+					.CEA2('0),			// 1-bit input: Clock enable input for 2nd stage AREG
+					.CEAD(en),			// 1-bit input: Clock enable input for ADREG
+					.CEALUMODE('0),		// 1-bit input: Clock enable input for ALUMODERE
+					.CEB1('0),			// 1-bit input: Clock enable input for 1st stage BREG
+					.CEB2(en),			// 1-bit input: Clock enable input for 2nd stage BREG
+					.CEC('0),			// 1-bit input: Clock enable input for CREG
+					.CECARRYIN('0),		// 1-bit input: Clock enable input for CARRYINREG
+					.CECTRL(en),		// 1-bit input: Clock enable input for OPMODEREG and CARRYINSELREG
+					.CED('0),			// 1-bit input: Clock enable input for DREG
+					.CEINMODE('0),		// 1-bit input: Clock enable input for INMODEREG
+					.CEM(en),			// 1-bit input: Clock enable input for MREG
+					.CEP(en),			// 1-bit input: Clock enable input for PREG
+					.RSTA('0),			// 1-bit input: Reset input for AREG
+					.RSTB(				// 1-bit input: Reset for BREG
+// synthesis translate_off
+						rst ||
+// synthesis translate_on
+						zero
+					),
+					.RSTC('0),			// 1-bit input: Reset for CREG
+					.RSTD(				// 1-bit input: Reset for DREG and ADREG
+// synthesis translate_off
+						zero ||
+// synthesis translate_on
+						rst
+					),
+					.RSTALLCARRYIN('0),	// 1-bit input: Reset for CARRYINREG
+					.RSTALUMODE('0),	// 1-bit input: Reset for ALUMODEREG
+					.RSTCTRL('0),		// 1-bit input: Reset for OPMODEREG and CARRYINSELREG
+					.RSTINMODE('0),		// 1-bit input: Reset for INMODE register
+					.RSTM(rst),			// 1-bit input: Reset for MREG
+					.RSTP(rst)			// 1-bit input: Reset for PREG
+				);
+				2: DSP48E2 #(
 					// Feature Control Attributes: Data Path Selection
 					.AMULTSEL("AD"),	// Selects A input to multiplier (A, AD)
 					.A_INPUT("DIRECT"),	// Selects A input source, "DIRECT" (A port) or "CASCADE" (ACIN port)
@@ -158,21 +268,21 @@ module mvu_4sx4u #(
 					.USE_PATTERN_DETECT("NO_PATDET"),  // Enable pattern detect (NO_PATDET, PATDET)
 
 					// Programmable Inversion Attributes: Specifies built-in programmable inversion on specific pins
-					.IS_ALUMODE_INVERTED('0),				// Optional inversion for ALUMODE
-					.IS_CARRYIN_INVERTED('0),				// Optional inversion for CARRYIN
-					.IS_CLK_INVERTED('0),					// Optional inversion for CLK
-					.IS_INMODE_INVERTED('0),				// Optional inversion for INMODE
-					.IS_OPMODE_INVERTED(9'b00_010_01_01),	// Optional inversion for OPMODE
-					.IS_RSTALLCARRYIN_INVERTED('0),			// Optional inversion for RSTALLCARRYIN
-					.IS_RSTALUMODE_INVERTED('0),			// Optional inversion for RSTALUMODE
-					.IS_RSTA_INVERTED('0),					// Optional inversion for RSTA
-					.IS_RSTB_INVERTED('0),					// Optional inversion for RSTB
-					.IS_RSTCTRL_INVERTED('0),				// Optional inversion for STCONJUGATE_A
-					.IS_RSTC_INVERTED('0),					// Optional inversion for RSTC
-					.IS_RSTD_INVERTED('0),					// Optional inversion for RSTD
-					.IS_RSTINMODE_INVERTED('0),				// Optional inversion for RSTINMODE
-					.IS_RSTM_INVERTED('0),					// Optional inversion for RSTM
-					.IS_RSTP_INVERTED('0),					// Optional inversion for RSTP
+					.IS_ALUMODE_INVERTED('0),							// Optional inversion for ALUMODE
+					.IS_CARRYIN_INVERTED('0),							// Optional inversion for CARRYIN
+					.IS_CLK_INVERTED('0),								// Optional inversion for CLK
+					.IS_INMODE_INVERTED('0),							// Optional inversion for INMODE
+					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),	// Optional inversion for OPMODE
+					.IS_RSTALLCARRYIN_INVERTED('0),						// Optional inversion for RSTALLCARRYIN
+					.IS_RSTALUMODE_INVERTED('0),						// Optional inversion for RSTALUMODE
+					.IS_RSTA_INVERTED('0),								// Optional inversion for RSTA
+					.IS_RSTB_INVERTED('0),								// Optional inversion for RSTB
+					.IS_RSTCTRL_INVERTED('0),							// Optional inversion for STCONJUGATE_A
+					.IS_RSTC_INVERTED('0),								// Optional inversion for RSTC
+					.IS_RSTD_INVERTED('0),								// Optional inversion for RSTD
+					.IS_RSTINMODE_INVERTED('0),							// Optional inversion for RSTINMODE
+					.IS_RSTM_INVERTED('0),								// Optional inversion for RSTM
+					.IS_RSTP_INVERTED('0),								// Optional inversion for RSTP
 
 					// Register Control Attributes: Pipeline Register Configuration
 					.ACASCREG(0),                      // Number of pipeline stages between A/ACIN and ACOUT (0-2)
@@ -220,7 +330,7 @@ module mvu_4sx4u #(
 					.ALUMODE(4'h0),				// 4-bit input: ALU control
 					.CARRYINSEL('0),			// 3-bit input: Carry select
 					.INMODE(5'b01100),			// 5-bit input: INMODE control
-					.OPMODE({ 2'b00, { 1'b0, L[2], 1'b0 }, 4'b00_00 }),	// 9-bit input: Operation mode
+					.OPMODE({ 2'b00, opmode }),	// 9-bit input: Operation mode
 
 					// Data inputs: Data Ports
 					.A(aa),						// 34-bit input: A data
@@ -264,6 +374,11 @@ module mvu_4sx4u #(
 					.RSTM(rst),			// 1-bit input: Reset for MREG
 					.RSTP(rst)			// 1-bit input: Reset for PREG
 				);
+				default: initial begin
+					$error("Unknown version DSP48E%0d.", VERSION);
+					$finish;
+				end
+				endcase
 			end : genDSP
 `endif
 
@@ -309,7 +424,7 @@ module mvu_4sx4u #(
 			// Conclusive high part accumulation
 			if(i >= PE_REM && i < 3) begin : genHi
 				// Adder Tree across all SIMD high contributions, each from [-1:1]
-				uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
+				uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s][i];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
@@ -333,7 +448,7 @@ module mvu_4sx4u #(
 			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
-				uwire [ROOT_WIDTH-1:0]  tree[2*SIMD-1];
+				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][D[i]+:LO_WIDTH];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
