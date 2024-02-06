@@ -35,13 +35,13 @@ module mvu_axi_tb();
 
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
-	localparam bit IS_MVU = 0;
+	localparam bit IS_MVU = 1;
 	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
 	localparam int unsigned MW = 36;
 	localparam int unsigned MH = 4;
-	localparam int unsigned SIMD = 36;
-	localparam int unsigned PE = 4;
-	localparam int unsigned SEGMENTLEN = 2.0;
+	localparam int unsigned SIMD = 9;
+	localparam int unsigned PE = 2;
+	localparam int unsigned SEGMENTLEN = 1.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
@@ -156,16 +156,6 @@ module mvu_axi_tb();
 
 	function output_vector_t check_output(activation_vector_t a, weight_matrix_t w);
 		automatic output_vector_t res = '{default: 0};
-		// for (int j = 0; j<MH; j++) begin
-		// 	for (int i = 0; i<MW; i++) begin
-		// 		if (SIGNED_ACTIVATIONS)
-		// 			res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed(a[i/SIMD][i%SIMD]) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
-		// 									   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed(a[i/SIMD/PE][i % (SIMD*PE)]) : $signed(a[i/SIMD/PE][(i)%(SIMD*PE)]) ) * $signed(w[0][i/SIMD/PE][i/PE][i%SIMD]);
-		// 		else
-		// 			res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed({1'b0, a[i/SIMD][i%SIMD]}) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
-		// 									   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed({1'b0, a[i/SIMD/PE][i % (SIMD*PE)]}) : $signed({1'b0, a[i/SIMD/PE][i%(SIMD*PE)]}) ) * $signed(w[0][i/SIMD][0][i%SIMD]);
-		// 	end
-		// end
 		// The input stream will have the channels interleaved for VVU when PE>1
 		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
 		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
