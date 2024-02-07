@@ -118,7 +118,7 @@ class SetFolding(Transformation):
         simd_ops = [
             "DownSampler",
             "FMPadding_Batch",
-            "FMPadding_Batch_rtl",
+            "FMPadding_Pixel",
             "ConvolutionInputGenerator",
             "ConvolutionInputGenerator1D",
             "ConvolutionInputGenerator_rtl",
