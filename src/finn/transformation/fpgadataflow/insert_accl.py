@@ -56,8 +56,8 @@ class InsertACCL(Transformation):
 
         accl_out = oh.make_node(
             "ACCLOut",
-            [producer_out.name],
-            [tensor_name],
+            [producer_out.name, sts_from_cclo.name],
+            [tensor_name, cmd_to_cclo.name],
             numInputVectors=producer_shape[:-1],
             NumChannels=producer_shape[-1],
             dataType=str(tensor_dtype),
