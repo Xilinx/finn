@@ -34,6 +34,8 @@ from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl import StreamingFIFO_rtl
+from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MatrixVectorActivation_rtl
+from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VectorVectorActivation_rtl
 
 custom_op = dict()
 
@@ -43,3 +45,5 @@ custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["FMPadding_rtl"] = FMPadding_rtl
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
+custom_op["MatrixVectorActivation_rtl"] = MatrixVectorActivation_rtl
+custom_op["VectorVectorActivation_rtl"] = VectorVectorActivation_rtl
