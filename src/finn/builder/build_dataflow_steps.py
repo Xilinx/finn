@@ -53,7 +53,7 @@ from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-import finn.transformation.fpgadataflow.specialize_to_rtl_layers as to_rtl
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -474,18 +474,9 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Convert layers implemented in HLS to an equivalent specialized RTL
-    implementation if possible."""
-    specialize_to_rtl_transforms = [to_rtl.InferRTLMatrixVectorActivation(), to_rtl.InferRTLVectorVectorActivation()]
-    for trn in specialize_to_rtl_transforms:
-        model = model.transform(trn)
-    
-    # If double-pumping enabled, annotate relevant MVU/VVU layers
-    if cfg.enable_pumped_compute:
-        for n in model.graph.node:
-            if n.op_type in ["MatrixVectorActivation_rtl", "VectorVectorActivation_rtl"]:
-                getCustomOp(n).set_nodeattr("pumpedCompute", 1)
+def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Convert HW custom-ops into custom-ops suitable for FPGA implementation either with HLS or RTL backend."""
+    model = model.transform(SpecializeLayers())
     return model
 
 
@@ -851,7 +842,7 @@ build_dataflow_step_lookup = {
     "step_apply_folding_config": step_apply_folding_config,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
-    "step_specialize_to_rtl": step_specialize_to_rtl,
+    "step_specialize_layers": step_specialize_layers,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
