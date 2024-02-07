@@ -450,6 +450,12 @@ def pytest_generate_tests(metafunc):
 @pytest.mark.bnn_u250
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
+        if topology == "lfc" and build_data["kind"] == "alveo":
+            # There is a known Pynq/XRT issue with larger sets of weights on Alveo.
+            # Accesses to address spaces over 16KB do NOT work as intended.
+            # Disabling Alveo lfc until resolved.
+            pytest.skip("Currently not testing lfc on Alveo due to pynq driver issues")
         if wbits > abits:
             pytest.skip("No wbits > abits end2end network configs for now")
         if topology == "lfc" and not (wbits == 1 and abits == 1):

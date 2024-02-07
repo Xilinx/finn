@@ -198,9 +198,11 @@ class FINNExampleOverlay(Overlay):
                         # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
                         # convert the tinynumpy.ndarray to a list and then copy the list to a
                         # numpy.ndarray.
-                        new_w = np.copy(
-                            list(layer_mmio.array[: layer_w.shape[0]]), dtype=layer_w.dtype
-                        )
+                        # There is a known bug with larger sets of weights. Accesses to address
+                        # spaces over 16KB do NOT work as intended. Be aware of this if seeing
+                        # unexpected behaviour.
+                        new_array = layer_mmio.array[: layer_w.shape[0]]
+                        new_w = np.copy(np.array(([x for x in new_array]), dtype=layer_w.dtype))
                     else:
                         new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
                     assert (layer_w == new_w).all()
