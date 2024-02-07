@@ -1,21 +1,24 @@
 import os
 import subprocess
+from pathlib import Path
 
 from finn.util.basic import alveo_part_map, make_build_dir
 
 def clone_repo():
+    finn_cwd = os.getcwd()
+
     accl_proj_dir = Path(make_build_dir(prefix="accl_proj_"))
-    accl_repo_dir = self.accl_proj_dir / "ACCL"
+    accl_repo_dir = accl_proj_dir / "ACCL"
 
     accl_repository = "https://github.com/zhenhaohe/ACCL.git"
-    git_clone_accl_command = ["git", "clone", ACCL_REPOSITORY, accl_repo_dir]
+    git_clone_accl_command = ["git", "clone", accl_repository, accl_repo_dir]
     process_git_clone = subprocess.Popen(git_clone_accl_command, stdout=subprocess.PIPE)
     process_git_clone.communicate()
     assert (
         process_git_clone.returncode == 0
     ), "Failed to clone ACCL repo. Command is: %s" % " ".join(git_clone_accl_command)
 
-    os.chdir(self.accl_repo_dir)
+    os.chdir(accl_repo_dir)
     git_checkout_command = ["git", "checkout", "external_dma"]
     process_git_checkout = subprocess.Popen(git_checkout_command, stdout=subprocess.PIPE)
     process_git_checkout.communicate()
@@ -29,6 +32,8 @@ def clone_repo():
     assert (
         process_git_submodule.returncode == 0
     ), "Failed to update submodules. Command is: %s" % " ".join(git_submodule_cmd)
+
+    os.chdir(finn_cwd)
 
     return str(accl_repo_dir)
 
@@ -50,9 +55,9 @@ def compile_internals(accl_repo_dir, fpga_part):
     finn_cwd = os.getcwd()
 
     # Now, build kernels
-    os.chdir(accl_repo_dir / "test" / "refdesigns")
+    os.chdir(Path(accl_repo_dir) / "test" / "refdesigns")
     part_to_board = {v: k for k, v in alveo_part_map.items()}
-    board = part_to_board[self.fpga_part]
+    board = part_to_board[fpga_part]
     coyote_board = board.lower()
     build_cclo_cmd = [
         "make",
@@ -75,7 +80,7 @@ def compile_internals(accl_repo_dir, fpga_part):
         process_build_cclo.returncode == 0
     ), "Failed to build CCLO. Command is: %s" % " ".join(build_cclo_cmd)
 
-    os.chdir(accl_repo_dir / "test" / "refdesigns")
+    os.chdir(Path(accl_repo_dir) / "test" / "refdesigns")
     part_to_board = {v: k for k, v in alveo_part_map.items()}
     board = part_to_board[fpga_part]
     coyote_board = board.lower()
@@ -93,5 +98,4 @@ def compile_internals(accl_repo_dir, fpga_part):
     ), "Failed to build plugins. Command is: %s" % " ".join(build_plugins_cmd)
 
     os.chdir(finn_cwd)
-    return (model, False)
 
