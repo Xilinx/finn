@@ -613,7 +613,8 @@ def step_insert_accl(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Build ACCL internals here so that they can be reused across multiple partitions
     needs_bitstream = DataflowOutputType.BITFILE in cfg.generate_outputs
-    if needs_bitstream: accl_utils.compile_internals(cfg.fpga_part)
+    if needs_bitstream:
+        accl_utils.compile_internals(accl_repo, cfg._resolve_fpga_part())
 
     model = model.transform(InsertACCL())
     model = model.transform(GiveUniqueNodeNames())

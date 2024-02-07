@@ -1,11 +1,12 @@
 import os
 import subprocess
+from pathlib import Path
 
 from finn.util.basic import alveo_part_map, make_build_dir
 
 def clone_repo():
     accl_proj_dir = Path(make_build_dir(prefix="accl_proj_"))
-    accl_repo_dir = self.accl_proj_dir / "ACCL"
+    accl_repo_dir = accl_proj_dir / "ACCL"
 
     accl_repository = "https://github.com/zhenhaohe/ACCL.git"
     git_clone_accl_command = ["git", "clone", ACCL_REPOSITORY, accl_repo_dir]
@@ -50,9 +51,9 @@ def compile_internals(accl_repo_dir, fpga_part):
     finn_cwd = os.getcwd()
 
     # Now, build kernels
-    os.chdir(accl_repo_dir / "test" / "refdesigns")
+    os.chdir(Path(accl_repo_dir) / "test" / "refdesigns")
     part_to_board = {v: k for k, v in alveo_part_map.items()}
-    board = part_to_board[self.fpga_part]
+    board = part_to_board[fpga_part]
     coyote_board = board.lower()
     build_cclo_cmd = [
         "make",
@@ -75,7 +76,7 @@ def compile_internals(accl_repo_dir, fpga_part):
         process_build_cclo.returncode == 0
     ), "Failed to build CCLO. Command is: %s" % " ".join(build_cclo_cmd)
 
-    os.chdir(accl_repo_dir / "test" / "refdesigns")
+    os.chdir(Path(accl_repo_dir) / "test" / "refdesigns")
     part_to_board = {v: k for k, v in alveo_part_map.items()}
     board = part_to_board[fpga_part]
     coyote_board = board.lower()
