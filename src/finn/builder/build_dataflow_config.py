@@ -116,6 +116,7 @@ default_build_dataflow_steps = [
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
+    "step_specialize_layers",
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
@@ -139,6 +140,7 @@ estimate_only_dataflow_steps = [
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
+    "step_specialize_layers",
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
@@ -234,7 +236,7 @@ class DataflowBuildConfig:
     #: activations in FINN) will be implemented as stand-alone HLS layers,
     #: instead of being part of MatrixVectorActivation layer. This gives larger
     #: flexibility, and makes it possible to have runtime-writable thresholds.
-    standalone_thresholds: Optional[bool] = True
+    standalone_thresholds: Optional[bool] = False
 
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
