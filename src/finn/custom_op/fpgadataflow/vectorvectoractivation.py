@@ -96,6 +96,8 @@ class VectorVectorActivation(HWCustomOp):
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0, {0, 1}),
+            # Flag to specify whether RTL-based or HLS-based implementation is preferred
+            "preferred_backend": ("s", False, "rtl", {"hls", "rtl"})
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

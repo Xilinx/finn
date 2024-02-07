@@ -116,6 +116,7 @@ default_build_dataflow_steps = [
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
+    "step_specialize_to_rtl",
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
@@ -229,11 +230,14 @@ class DataflowBuildConfig:
     #: very high performance.
     mvau_wwidth_max: Optional[int] = 36
 
+    #: (Optional) Double-pump DSP58s in MVU/VVU layers if possible
+    enable_pumped_compute: Optional[bool] = False
+
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HLS layers,
     #: instead of being part of MatrixVectorActivation layer. This gives larger
     #: flexibility, and makes it possible to have runtime-writable thresholds.
-    standalone_thresholds: Optional[bool] = False
+    standalone_thresholds: Optional[bool] = True
 
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies

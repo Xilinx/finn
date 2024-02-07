@@ -31,6 +31,7 @@ import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.core.datatype import DataType
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -80,11 +81,12 @@ class SetFolding(Transformation):
       unfolded before SIMD is increased
     """
 
-    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True):
+    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True, fpga_part=None):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
         self.two_pass_relaxation = two_pass_relaxation
+        self.fpga_part = fpga_part
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
@@ -94,6 +96,10 @@ class SetFolding(Transformation):
             if cyc < self.target_cycles_per_frame:
                 # finish if target met
                 break
+
+    def _is_versal(self, fpga_part):
+        assert fpga_part is not None, "Please specify a target board before setting the folding configuration for a more efficient folding configuration for RTL-based MVU/VVU"
+        return fpga_part[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpga_partt[0:5] == "xqrvc"
 
     def apply(self, model):
         graph = model.graph
@@ -119,7 +125,7 @@ class SetFolding(Transformation):
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VectorVectorActivation", "Pool_Batch"]
+        depthwise_op_exceptions = ["VectorVectorActivation", "VectorVectorActivation_rtl", "Pool_Batch"]
         for node in graph.node:
             if not is_fpgadataflow_node(node):
                 continue
@@ -149,6 +155,37 @@ class SetFolding(Transformation):
                         break
                 # increase PE until target met or reached max_pe
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
+            if op_type == "MatrixVectorActivation_rtl":
+                max_simd = node_inst.get_nodeattr("MW")
+                max_pe = node_inst.get_nodeattr("MH")
+                node_inst.set_nodeattr("PE", 1)
+                node_inst.set_nodeattr("SIMD", 1)
+                # Depending on the board and the layer's config, either the
+                # SIMD or PE folding dimension would be preferred to enable efficient DSP-packing
+                act_width = DataType[node_inst.get_nodeattr("inputDataType")].bitwidth()
+                weight_width = DataType[node_inst.get_nodeattr("weightDataType")].bitwidth()
+                is_versal = self._is_versal(self.fpga_part)
+                is_dsp48 = act_width < 5 and weight_width < 5 or not(is_versal)
+                preferred_folding_dimension = "PE" if is_dsp48 else "SIMD"
+                preferred_folding_max = max_pe if is_dsp48 else max_simd
+                second_folding_dimension = "SIMD" if is_dsp48 else "PE"
+                second_folding_max = max_simd if is_dsp48 else max_pe
+                for fold_val in divisors(preferred_folding_max):
+                    prev_fold_val = node_inst.get_nodeattr(preferred_folding_dimension)
+                    node_inst.set_nodeattr(preferred_folding_dimension, fold_val)
+                    cyc = node_inst.get_exp_cycles()
+                    if cyc < self.target_cycles_per_frame:
+                        # finish if target met
+                        break
+                    if (
+                        node_inst.get_weight_datatype().bitwidth() * node_inst.get_nodeattr(preferred_folding_dimension)
+                        > self.mvau_wwidth_max
+                    ):
+                        # revert if we've gone above width threshold
+                        node_inst.set_nodeattr(preferred_folding_dimension, prev_fold_val)
+                        break
+                # increase SIMD until target met or reached max_simd
+                self.optimize_attribute_val(node_inst, second_folding_max, second_folding_dimension)
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
@@ -157,37 +194,44 @@ class SetFolding(Transformation):
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type == "VectorVectorActivation":
-                    node_inst.set_nodeattr("SIMD", 1)
+                is_hls_vvu_or_pool = op_type in ["VectorVectorActivation", "Pool_Batch"]
                 max_pe = node_inst.get_nodeattr("Channels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-                # increase SIMD for VVAU once PE is exhausted
-                pe = node_inst.get_nodeattr("PE")
+                max_simd = np.prod(node_inst.get_nodeattr("Kernel")) if op_type.startswith("VectorVectorActivation") else 0
+                preferred_folding_dimension = "PE" if is_hls_vvu_or_pool else "SIMD"
+                preferred_folding_max = max_pe if is_hls_vvu_or_pool else max_simd
+                second_folding_dimension = "SIMD" if is_hls_vvu_or_pool else "PE"
+                second_folding_max = max_simd if is_hls_vvu_or_pool else max_pe
+                if op_type.startswith("VectorVectorActivation"):
+                    node_inst.set_nodeattr(second_folding_dimension, 1)
+                self.optimize_attribute_val(node_inst, preferred_folding_max, preferred_folding_dimension)
+                # increase SIMD(/PE) for VVAU once PE(/SIMD) is exhausted
+                fold_val = node_inst.get_nodeattr(preferred_folding_dimension)
                 cyc = node_inst.get_exp_cycles()
                 if (
-                    op_type == "VectorVectorActivation"
-                    and pe == max_pe
+                    op_type.startswith("VectorVectorActivation")
+                    and fold_val == preferred_folding_max
                     and cyc > self.target_cycles_per_frame
                 ):
-                    max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-                # also set the folding of the upsteam DW SWU
+                    self.optimize_attribute_val(node_inst, second_folding_max, second_folding_dimension)
+                # also set the folding of the upsteam DW SWU (in case of HLS-based VVU)
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
                 if swu_node.op_type.startswith("ConvolutionInputGenerator"):
                     swu_node_inst = getCustomOp(swu_node)
-                    swu_node_inst.set_nodeattr("SIMD", pe)
                     # enable parallel_window mode of RTL SWG if needed
                     if swu_node.op_type == "ConvolutionInputGenerator_rtl":
                         if (
-                            op_type == "VectorVectorActivation"
+                            op_type.startswith("VectorVectorActivation")
                             and node_inst.get_nodeattr("SIMD") > 1
                         ):
                             swu_node_inst.set_nodeattr("parallel_window", 1)
+                            swu_node_inst.set_nodeattr("SIMD", max_pe)
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
+                            pe = node_inst.get_nodeattr("PE")
+                            swu_node_inst.set_nodeattr("SIMD", pe)
                 else:
-                    if op_type == "VectorVectorActivation":
+                    if op_type.startswith("VectorVectorActivation"):
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
                     elif op_type == "Pool_Batch":
                         ksize = node_inst.get_nodeattr("KernelSize")
