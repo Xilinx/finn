@@ -1212,43 +1212,43 @@ void reconfigure_$LAYERNAME$(
     // dimY = height, dimX = width
     unsigned int dimY, unsigned int dimX
 ) {
-    const unsigned int ifm_ch = $IFMCH$;
-    const unsigned int k_h = $KH$, k_w = $KW$;
-    const unsigned int h = dimY, w = dimX;
-    const unsigned int stride_h = $STRIDEH$, stride_w = $STRIDEW$;
-    const unsigned int dilation_h = $DILATIONH$, dilation_w = $DILATIONW$;
-    const unsigned int depthwise = $DEPTHWISE$;
-    const unsigned int simd = $SIMD$;
-    const unsigned int pad_h = 0, pad_w = 0;
-    const unsigned int channel_factor = (ifm_ch / simd);
-    const unsigned int mmv_in = 1;
-    const unsigned int mmv_out = 1;
+    const int ifm_ch = $IFMCH$;
+    const int k_h = $KH$, k_w = $KW$;
+    const int h = dimY, w = dimX;
+    const int stride_h = $STRIDEH$, stride_w = $STRIDEW$;
+    const int dilation_h = $DILATIONH$, dilation_w = $DILATIONW$;
+    const int depthwise = $DEPTHWISE$;
+    const int simd = $SIMD$;
+    const int pad_h = 0, pad_w = 0;
+    const int channel_factor = (ifm_ch / simd);
+    const int mmv_in = 1;
+    const int mmv_out = 1;
 
-    unsigned int out_dim_h = compute_conv_output_dim(h, k_h, stride_h, pad_h, dilation_h);
-    unsigned int out_dim_w = compute_conv_output_dim(w, k_w, stride_w, pad_w, dilation_w);
+    int out_dim_h = compute_conv_output_dim(h, k_h, stride_h, pad_h, dilation_h);
+    int out_dim_w = compute_conv_output_dim(w, k_w, stride_w, pad_w, dilation_w);
 
     // compute minimal buffer length (assuming it holds 1 complete window)
-    const unsigned int buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) *
+    const int buffer_min_size = ((k_h - 1) * dilation_h * w + (k_w - 1) *
         dilation_w + 1) * channel_factor;
-    const unsigned int buffer_actual_size = $BUFFERDEPTH$;
+    const int buffer_actual_size = $BUFFERDEPTH$;
 
     // compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
     // or cols/rows that are skipped due to imperfect stride<->dim combination
-    const unsigned int kernel_width = (k_w - 1) * dilation_w + 1;
-    const unsigned int kernel_height = (k_h - 1) * dilation_h + 1;
-    const unsigned int skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w);
-    const unsigned int skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h);
+    const int kernel_width = (k_w - 1) * dilation_w + 1;
+    const int kernel_height = (k_h - 1) * dilation_h + 1;
+    const int skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w);
+    const int skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h);
 
     // compute address increment values for 5-loop nest
-    unsigned int addr_incr_end_simd = 1;
-    unsigned int addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1;
-    unsigned int addr_incr_end_window_row = (
+    int addr_incr_end_simd = 1;
+    int addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1;
+    int addr_incr_end_window_row = (
         ((w - kernel_width) * channel_factor)  // remaining line
         + ((dilation_h - 1) * w * channel_factor)  // skip lines
         + 1  // wrap-around of minimally sized buffer
     );
-    unsigned int addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1;
-    unsigned int addr_incr_end_row = (
+    int addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1;
+    int addr_incr_end_row = (
         -buffer_min_size
         + ((skip_columns + kernel_width) * channel_factor)  // remaining line
         + ((stride_h - 1) * w * channel_factor)  // skip lines
@@ -1267,28 +1267,28 @@ void reconfigure_$LAYERNAME$(
     }
     // sanity check for wrap logic
     if(abs(addr_incr_end_window) > buffer_actual_size) {
-       printf("ERROR: W increment > buffer size, invalid configuration");
+       printf("ERROR $LAYERNAME$: W increment > buffer size, invalid configuration\\n");
        return;
     }
     if(abs(addr_incr_end_row) > buffer_actual_size) {
-        printf("ERROR: H increment > buffer size, invalid configuration");
+        printf("ERROR $LAYERNAME$: H increment > buffer size, invalid configuration\\n");
         return;
     }
     // default controller loop structure: # iterations (counters) map directly
-    unsigned int loop_h_iterations = out_dim_h;
-    unsigned int loop_w_iterations = out_dim_w;
-    unsigned int loop_kh_iterations = k_h;
-    unsigned int loop_kw_iterations = k_w;
-    unsigned int loop_simd_iterations = channel_factor;
-    unsigned int tail_incr_w, tail_incr_h, tail_incr_last_window;
-    unsigned int elem_per_window;
+    int loop_h_iterations = out_dim_h;
+    int loop_w_iterations = out_dim_w;
+    int loop_kh_iterations = k_h;
+    int loop_kw_iterations = k_w;
+    int loop_simd_iterations = channel_factor;
+    int tail_incr_w, tail_incr_h, tail_incr_last_window;
+    int elem_per_window;
 
     if(depthwise && channel_factor > 1) {
         // re-arrange existing controller loop structure for depthwise convolutions
         loop_kh_iterations = channel_factor;
         loop_kw_iterations = k_h;
         loop_simd_iterations = k_w;
-        unsigned int addr_incr_end_simd_ = addr_incr_end_simd;
+        int addr_incr_end_simd_ = addr_incr_end_simd;
         addr_incr_end_simd = addr_incr_end_window_elem;
         addr_incr_end_window_elem = addr_incr_end_window_row;
         addr_incr_end_window_row = addr_incr_end_simd_;
@@ -1322,21 +1322,21 @@ void reconfigure_$LAYERNAME$(
     }
 
 
-    unsigned int cfg_cntr_simd = loop_simd_iterations - 2; // LOOP_SIMD_ITERATIONS
-    unsigned int cfg_cntr_kw = loop_kw_iterations - 2; // LOOP_KW_ITERATIONS
-    unsigned int cfg_cntr_kh = loop_kh_iterations - 2; // LOOP_KH_ITERATIONS
-    unsigned int cfg_cntr_w = loop_w_iterations - 2; // LOOP_W_ITERATIONS
-    unsigned int cfg_cntr_h = loop_h_iterations - 2; // LOOP_H_ITERATIONS
-    unsigned int cfg_incr_head_simd = addr_incr_end_simd; // HEAD_INCR_SIMD
-    unsigned int cfg_incr_head_kw = addr_incr_end_window_elem; // HEAD_INCR_KW
-    unsigned int cfg_incr_head_kh = addr_incr_end_window_row; // HEAD_INCR_KH
-    unsigned int cfg_incr_head_w = addr_incr_end_window; // HEAD_INCR_W
-    unsigned int cfg_incr_head_h = addr_incr_end_row; // HEAD_INCR_H
-    unsigned int cfg_incr_tail_w = tail_incr_w; // TAIL_INCR_W
-    unsigned int cfg_incr_tail_h = tail_incr_h; // TAIL_INCR_H
-    unsigned int cfg_incr_tail_last = tail_incr_last_window; // TAIL_INCR_LAST
-    unsigned int cfg_last_read = h * w * channel_factor - 1; // LAST_READ_ELEM
-    unsigned int cfg_last_write = ((h - skip_rows - 1) * w + (w - skip_columns))
+    int cfg_cntr_simd = loop_simd_iterations - 2; // LOOP_SIMD_ITERATIONS
+    int cfg_cntr_kw = loop_kw_iterations - 2; // LOOP_KW_ITERATIONS
+    int cfg_cntr_kh = loop_kh_iterations - 2; // LOOP_KH_ITERATIONS
+    int cfg_cntr_w = loop_w_iterations - 2; // LOOP_W_ITERATIONS
+    int cfg_cntr_h = loop_h_iterations - 2; // LOOP_H_ITERATIONS
+    int cfg_incr_head_simd = addr_incr_end_simd; // HEAD_INCR_SIMD
+    int cfg_incr_head_kw = addr_incr_end_window_elem; // HEAD_INCR_KW
+    int cfg_incr_head_kh = addr_incr_end_window_row; // HEAD_INCR_KH
+    int cfg_incr_head_w = addr_incr_end_window; // HEAD_INCR_W
+    int cfg_incr_head_h = addr_incr_end_row; // HEAD_INCR_H
+    int cfg_incr_tail_w = tail_incr_w; // TAIL_INCR_W
+    int cfg_incr_tail_h = tail_incr_h; // TAIL_INCR_H
+    int cfg_incr_tail_last = tail_incr_last_window; // TAIL_INCR_LAST
+    int cfg_last_read = h * w * channel_factor - 1; // LAST_READ_ELEM
+    int cfg_last_write = ((h - skip_rows - 1) * w + (w - skip_columns))
         * channel_factor - 1; // LAST_WRITE_ELEM
 
 
