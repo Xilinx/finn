@@ -1205,7 +1205,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         at runtime. Assumes kernel, stride amounts remain constant."""
 
         reg_ccode_template = """
-#define abs(x) (x < 0 ? -x : x);
 void reconfigure_$LAYERNAME$(
     // base address for ConvolutionInputGenerator AXI lite interface
     unsigned int *reg_base,
@@ -1246,15 +1245,15 @@ void reconfigure_$LAYERNAME$(
     unsigned int addr_incr_end_window_row = (
         ((w - kernel_width) * channel_factor)  // remaining line
         + ((dilation_h - 1) * w * channel_factor)  // skip lines
-        + 1;  // wrap-around of minimally sized buffer
-    )
-    addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1;
+        + 1  // wrap-around of minimally sized buffer
+    );
+    unsigned int addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1;
     unsigned int addr_incr_end_row = (
         -buffer_min_size
         + ((skip_columns + kernel_width) * channel_factor)  // remaining line
         + ((stride_h - 1) * w * channel_factor)  // skip lines
-        + 1;
-    )
+        + 1
+    );
 
     // re-use same controller structure -> re-assign address increments
     if(depthwise) {
@@ -1282,6 +1281,7 @@ void reconfigure_$LAYERNAME$(
     unsigned int loop_kw_iterations = k_w;
     unsigned int loop_simd_iterations = channel_factor;
     unsigned int tail_incr_w, tail_incr_h, tail_incr_last_window;
+    unsigned int elem_per_window;
 
     if(depthwise && channel_factor > 1) {
         // re-arrange existing controller loop structure for depthwise convolutions
@@ -1291,8 +1291,8 @@ void reconfigure_$LAYERNAME$(
         unsigned int addr_incr_end_simd_ = addr_incr_end_simd;
         addr_incr_end_simd = addr_incr_end_window_elem;
         addr_incr_end_window_elem = addr_incr_end_window_row;
-        addr_incr_end_window_row = addr_incr_end_simd_
-        unsigned int elem_per_window = k_h * k_w;
+        addr_incr_end_window_row = addr_incr_end_simd_;
+        elem_per_window = k_h * k_w;
 
         tail_incr_w = addr_incr_end_window + buffer_min_size - channel_factor;
         tail_incr_h = addr_incr_end_row + buffer_min_size - channel_factor;

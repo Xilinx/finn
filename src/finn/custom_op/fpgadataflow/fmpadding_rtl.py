@@ -286,7 +286,7 @@ void reconfigure_$LAYERNAME$(
         reg_ccode = reg_ccode.replace("$PADT$", str(padT))
         reg_ccode = reg_ccode.replace("$PADL$", str(padL))
         reg_ccode = reg_ccode.replace("$PADB$", str(padB))
-        reg_ccode = reg_ccode.replace("$PADR", str(padR))
+        reg_ccode = reg_ccode.replace("$PADR$", str(padR))
 
         return reg_ccode
 
