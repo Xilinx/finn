@@ -29,7 +29,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 
 
 # Creates a model executing stream replication
-def mock_split_multi_heads(num_inputs, num_elems, num, dtype):
+def mock_replicate_streams(num_inputs, num_elems, num, dtype):
     # Create a node representing the stream replication operation
     node = oh.make_node(
         # Operator type from the name of the fpgadataflow hlscustomop
@@ -91,7 +91,7 @@ def mock_split_multi_heads(num_inputs, num_elems, num, dtype):
 # execution
 def test_replicate_stream_python(num_inputs, num_elems, num, dtype):
     # Make dummy model for testing
-    model = mock_split_multi_heads(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
 
     # Prepare the execution context
     context = {
@@ -131,7 +131,7 @@ def test_replicate_stream_python(num_inputs, num_elems, num, dtype):
 # execution
 def test_replicate_stream_cppsim(num_inputs, num_elems, num, dtype):
     # Make dummy model for testing
-    model = mock_split_multi_heads(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
 
     # Prepare the execution context
     context = {
@@ -174,7 +174,7 @@ def test_replicate_stream_cppsim(num_inputs, num_elems, num, dtype):
 # execution
 def test_replicate_stream_rtlsim(num_inputs, num_elems, num, dtype):
     # Make dummy model for testing
-    model = mock_split_multi_heads(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
 
     # Prepare the execution context
     context = {
