@@ -74,7 +74,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
+def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
     pad, kernel_size, stride, dilation = conv_config
     np.random.seed(0)
     idt = DataType["UINT4"]

@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -68,7 +68,7 @@ from finn.util.test import soft_verify_topk
 export_onnx_path = "test_output_synthetic.onnx"
 
 # construct a synthetic graph to test:
-# topk insertion, topk conversion to hls, add conversion to hls
+# topk insertion, topk conversion to hw, add conversion to hw
 # graph should just be a sum
 
 
@@ -137,7 +137,7 @@ def make_model(ch, ifmdim):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
+def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     model = make_model(ch, ifmdim)
     model.save(export_onnx_path)
     model = ModelWrapper(export_onnx_path, fix_float64=True)
@@ -166,7 +166,7 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
 
     model = model.transform(InferDataLayouts())
 
-    # convert to hls
+    # convert to hw
     model.set_tensor_datatype(model.graph.input[0].name, idt)
     # extra streamlining
     model = model.transform(MoveScalarLinearPastInvariants())

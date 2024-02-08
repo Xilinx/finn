@@ -1,4 +1,5 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -134,7 +135,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 prod = registry.getCustomOp(node)
-                assert op_type != "StreamingFIFO", "Found existing FIFOs"
+                assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
                 prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
                 assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"

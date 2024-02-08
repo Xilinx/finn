@@ -82,7 +82,7 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
+def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     np.random.seed(0)
     idt = DataType["UINT4"]
     odt = DataType["UINT4"]

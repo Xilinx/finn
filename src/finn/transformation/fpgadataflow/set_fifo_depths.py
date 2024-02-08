@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,6 +48,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
@@ -294,12 +296,13 @@ class InsertAndSetFIFODepths(Transformation):
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
+        model = model.transform(SpecializeLayers())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
         # gather FIFO names, check they are of expected depth
         fifos = {}
-        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
+        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         for node in fifo_nodes:
             fifos[node.name] = 0
             node = getCustomOp(node)

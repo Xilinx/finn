@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Advanced Micro Devices, Inc.
+# Copyright (c) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,7 @@ from qonnx.transformation.lower_convs_to_matmul import (
 from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -249,10 +249,11 @@ def test_fpgadataflow_conv_dynamic(cfg):
 
     # convert to hardware and prepare simulation
     model = largest_model.transform(LowerConvsToMatMul())
-    model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
-    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
-    model = model.transform(to_hls.InferVectorVectorActivation())
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
+    model = model.transform(SpecializeLayers())
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
@@ -268,8 +269,8 @@ def test_fpgadataflow_conv_dynamic(cfg):
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
-    comp_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
-    comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation")
+    comp_nodes = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation_hls")
     for comp_node in comp_nodes:
         if depthwise:
             getCustomOp(comp_node).set_nodeattr("PE", 4)
@@ -278,6 +279,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))

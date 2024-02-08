@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,24 +49,25 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.test import get_test_model_trained
 
-export_onnx_path_cnv = "test_convert_to_hls_layers_cnv.onnx"
+export_onnx_path_cnv = "test_convert_to_hw_layers_cnv.onnx"
 
 
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 # Standalone or fused thresholding-based activation
 @pytest.mark.parametrize("fused_activation", [True, False])
-def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
+def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     cnv = get_test_model_trained("CNV", 1, 1)
     export_qonnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
     qonnx_cleanup(export_onnx_path_cnv, out_file=export_onnx_path_cnv)
@@ -95,14 +97,21 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
 
-    # if we infer thresholding first, all MultiThresholds get converted to HLS
+    # if we infer thresholding first, all MultiThresholds get converted to HW
     # subsequently, the FC inference will generate passthrough MVAUs
     if not fused_activation:
-        model = model.transform(to_hls.InferThresholdingLayer())
-    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
-    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation())
+        model = model.transform(to_hw.InferThresholdingLayer())
+    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferConvInpGen())
+    conv_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    for cnv in conv_nodes:
+        cnv_inst = getCustomOp(cnv)
+        cnv_inst.set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(SpecializeLayers())
     for node in model.graph.node:
-        if node.op_type == "MatrixVectorActivation":
+        if node.op_type == "MatrixVectorActivation_hls":
             inst = getCustomOp(node)
             inst.set_nodeattr("mem_mode", "decoupled")
             mw = inst.get_nodeattr("MW")
@@ -117,25 +126,23 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
             else:
                 simd = mw
             inst.set_nodeattr("SIMD", simd)
-    model = model.transform(to_hls.InferConvInpGen())
-    model = model.transform(to_hls.InferStreamingMaxPool())
     # check topology status
     finn_nodes = model.get_finn_nodes()
     if fused_activation:
         assert len(finn_nodes) == 18
     else:
         assert len(finn_nodes) == 26
-        thr_nodes = model.get_nodes_by_op_type("Thresholding_Batch")
+        thr_nodes = model.get_nodes_by_op_type("Thresholding_hls")
         assert len(thr_nodes) == 8
     non_finn_nodes = model.get_non_finn_nodes()
     assert len(non_finn_nodes) == 5
     exp_non_finn_nodes = ["Transpose", "Transpose", "Reshape", "Mul", "Add"]
     assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
-    fc_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
+    fc_nodes = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
     assert len(fc_nodes) == 9
-    swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     assert len(swg_nodes) == 6
-    mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_Batch")
+    mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_hls")
     assert len(mp_nodes) == 2
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
