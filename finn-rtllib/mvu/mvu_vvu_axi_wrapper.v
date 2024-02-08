@@ -34,6 +34,7 @@
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	IS_MVU = $IS_MVU$,
 	parameter	COMPUTE_CORE = "$COMPUTE_CORE$",
+	parameter	PUMPED_COMPUTE = $PUMPED_COMPUTE$,
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
 	parameter	PE = $PE$,
@@ -54,6 +55,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	input   ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
@@ -72,11 +76,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 );
 
 mvu_vvu_axi #(
-	.IS_MVU(IS_MVU), .COMPUTE_CORE(COMPUTE_CORE), .MW(MW), .MH(MH), .PE(PE), .SIMD(SIMD),
+	.IS_MVU(IS_MVU), .COMPUTE_CORE(COMPUTE_CORE), .PUMPED_COMPUTE(PUMPED_COMPUTE), .MW(MW), .MH(MH), .PE(PE), .SIMD(SIMD),
 	.ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 	.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 	) inst (
 	.ap_clk(ap_clk),
+	.ap_clk2x(ap_clk2x),
 	.ap_rst_n(ap_rst_n),
 	.s_axis_weights_tdata(weights_V_TDATA),
 	.s_axis_weights_tvalid(weights_V_TVALID),
@@ -89,4 +94,4 @@ mvu_vvu_axi #(
 	.m_axis_output_tready(out_V_TREADY)
 );
 
-endmodule : $MODULE_NAME_AXI_WRAPPER$
+endmodule // $MODULE_NAME_AXI_WRAPPER$

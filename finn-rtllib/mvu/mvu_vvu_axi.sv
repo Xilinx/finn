@@ -67,11 +67,13 @@ module mvu_vvu_axi #(
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
-	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
+	localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE*ACCU_WIDTH,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (OUTPUT_STREAM_WIDTH + 7)/8 * 8,
+	localparam bit  		 SIMD_UNEVEN = SIMD % 2
 )(
 	// Global Control
 	input	logic  ap_clk,
-	input	logic  ap_clk2x,	// only used when PUMPED_COMPUTE
+	input	logic  ap_clk2x,	// synchronous, double-speed clock; only used for PUMPED_COMPUTE
 	input	logic  ap_rst_n,
 
 	// Weight Stream
@@ -126,17 +128,18 @@ module mvu_vvu_axi #(
 			end
 		end
 
-		//- Pumping Constraints ---------
-		if(PUMPED_COMPUTE) begin
-			if(SIMD % 2 != 0) begin
-				$error("Odd SIMD=%0d is incompatible with pumped compute.", SIMD);
-				$finish;
-			end
-		end
+		// //- Pumping Constraints ---------
+		// if(PUMPED_COMPUTE) begin
+		// 	if(SIMD % 2 != 0) begin
+		// 		$error("Odd SIMD=%0d is incompatible with pumped compute.", SIMD);
+		// 		$finish;
+		// 	end
+		// end
 	end
 
-	uwire clk = ap_clk;
-	uwire rst = !ap_rst_n;
+	uwire  clk = ap_clk;
+	uwire  clk2x = ap_clk2x;
+	uwire  rst = !ap_rst_n;
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
 	typedef logic [(IS_MVU? 1:PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
@@ -178,29 +181,6 @@ module mvu_vvu_axi #(
 			end
 		end
 	end : genVVUInput
-	
-	uwire  mvu_w_t  mvu_w = s_axis_weights_tdata;
-	uwire  mvu_a_t  mvu_a = amvau_i;
-
-	//- Flow Control Bracket around Compute Core ----------------------------
-	uwire en;
-	uwire istb = avld && s_axis_weights_tvalid;
-	assign ardy = en && s_axis_weights_tvalid;
-	assign s_axis_weights_tready = en && avld;
-
-	//- Instantiate compute core ----------------------------
-	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
-	uwire dsp_vld;
-	uwire dsp_p_t  dsp_p;
-
-	uwire dsp_clk = ap_clk;
-	uwire dsp_en = en;
-	uwire dsp_last = alast && avld;
-	uwire dsp_zero = !istb;
-	uwire mvu_w_t dsp_w = mvu_w;
-	uwire mvu_a_t dsp_a = mvu_a;
-	uwire ovld = dsp_vld;
-	uwire dsp_p_t  odat = dsp_p;
 
 	//- Flow Control Bracket around Compute Core ----------------------------
 	uwire en;
@@ -213,7 +193,8 @@ module mvu_vvu_axi #(
 	uwire  ovld;
 	uwire dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  DSP_SIMD = SIMD/(PUMPED_COMPUTE+1);
+		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD; 
+		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
@@ -243,56 +224,66 @@ module mvu_vvu_axi #(
 		else begin : genPumpedCompute
 			assign	dsp_clk = clk2x;
 
-			// Identify second fast cycle before active slow clock edge
+			// Identify second fast cycle just before active slow clock edge
 			logic  Active = 0;
-			always_ff @(posedge clk2x)  Active <= clk;
+			if(1) begin : blkActive
+				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
+				always_ff @(posedge clk2x)  Active <= clk_lut[1];
+			end : blkActive
 
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
 			//	- A zero cycle is duplicated across both fast cycles.
 			//	- The last flag must be restricted to the second fast cycle.
-			logic  En = 0;
-			logic  Last[1:0] = '{ default: 1'b0 };
+
+			dsp_w_t  W = 'x;
+			for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
+
+				uwire [2*DSP_SIMD-1:0][WEIGHT_WIDTH-1:0]  w;
+				for(genvar  i =    0; i <       SIMD; i++)  assign  w[i] = mvu_w[pe][i];
+				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  w[i] = 0;
+
+				always_ff @(posedge clk2x) begin
+					if(rst)      W[pe] <= 'x;
+					else if(en)  W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				end
+
+			end : genPERegW
+
+			dsp_a_t  A = 'x;
+			for(genvar  pe = 0; pe < ACT_PE; pe++) begin : genPERegA
+
+				uwire [2*DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  a;
+				for(genvar  i =    0; i <       SIMD; i++)  assign  a[i] = amvau_i[pe][i];
+				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  a[i] = 0;
+
+				always_ff @(posedge clk2x) begin
+					if(rst)      A[pe] <= 'x;
+					else if(en)  A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+				end
+
+			end : genPERegA
+
 			logic  Zero = 1;
-			dsp_w_t  W[1:0] = '{ default: 'x };
-			dsp_a_t  A[1:0] = '{ default: 'x };
+			logic  Last = 0;
 			always_ff @(posedge clk2x) begin
 				if(rst) begin
-					En   <= 0;
-					Last <= '{ default: 1'b0 };
-					Zero <=  1;
-					W <= '{ default: 'x };
-					A <= '{ default: 'x };
+					Zero <= 1;
+					Last <= 0;
 				end
-				else begin
-					if(Active) begin
-						En <= en;
-						if(en) begin
-							Last <= '{ alast && avld, 1'b0 };
-							Zero <= !istb;
-							for(int unsigned  simd = 0; simd < SIMD; simd++) begin
-								for(int unsigned  pe = 0; pe < PE; pe++) begin
-									W[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= mvu_w[pe][simd];
-								end
-								for(int unsigned  pe = 0; pe < ACT_PE; pe++) begin
-									A[simd / DSP_SIMD][pe][simd % DSP_SIMD] <= amvau_i[pe][simd];
-								end
-							end
-						end
-					end
-					else if(En) begin
-						Last <= '{ 'x, Last[1] };
-						W    <= '{ 'x, W[1] };
-						A    <= '{ 'x, A[1] };
-					end
+				else if(en) begin
+					Zero <= !istb;
+					Last <= alast && avld && Active;
 				end
 			end
-			assign	dsp_en = En;
 
-			assign	dsp_last = Last[0];
+			assign	dsp_en = en;
+			assign	dsp_last = Last;
 			assign	dsp_zero = Zero;
-			assign	dsp_w = W[0];
-			assign	dsp_a = A[0];
+			assign	dsp_w = W;
+			assign	dsp_a = A;
 
 			// Since no two consecutive last cycles will ever be asserted on the input,
 			// valid outputs will also always be spaced by, at least, one other cycle.
@@ -305,7 +296,7 @@ module mvu_vvu_axi #(
 					Vld <= 0;
 					P   <= 'x;
 				end
-				else begin
+				else if(en) begin
 					if(dsp_vld)  P <= dsp_p;
 					Vld <= dsp_vld || (Vld && !Active);
 				end
@@ -388,6 +379,5 @@ module mvu_vvu_axi #(
 	// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
 	// These extra bits should never be used. Why not 'x them out?
 	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
-
 
 endmodule : mvu_vvu_axi
