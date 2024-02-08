@@ -35,7 +35,7 @@ module mvu_axi_tb();
 
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
-	localparam bit IS_MVU = 0;
+	localparam bit IS_MVU = 1;
 	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
 	localparam int unsigned MW = 36;
 	localparam int unsigned MH = 4;
