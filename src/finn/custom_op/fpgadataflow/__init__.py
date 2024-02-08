@@ -41,7 +41,12 @@ from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
+<<<<<<< HEAD
 from finn.custom_op.fpgadataflow.pool import Pool
+=======
+from finn.custom_op.fpgadataflow.matrixvectoractivation_rtl import MatrixVectorActivation_rtl
+from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+>>>>>>> origin/feature/mvu_vvu_dsp_pumping
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
@@ -60,6 +65,16 @@ custom_op = dict()
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
 custom_op["MatrixVectorActivation"] = MatrixVectorActivation
+<<<<<<< HEAD
+=======
+custom_op["MatrixVectorActivation_rtl"] = MatrixVectorActivation_rtl
+custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
+custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
+custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
+custom_op["TLastMarker"] = TLastMarker
+custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
+custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
+>>>>>>> origin/feature/mvu_vvu_dsp_pumping
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding"] = Thresholding
 custom_op["VectorVectorActivation"] = VectorVectorActivation

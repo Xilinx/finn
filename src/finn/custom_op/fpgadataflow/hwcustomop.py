@@ -204,15 +204,11 @@ class HWCustomOp(CustomOp):
     def reset_rtlsim(self, sim):
         """Sets reset input in pyverilator to zero, toggles the clock and set it
         back to one"""
-        sim.io.ap_rst_n = 0
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
-        sim.io.ap_rst_n = 1
+        reset_rtlsim(sim)
 
     def toggle_clk(self, sim):
         """Toggles the clock input in pyverilator once."""
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
+        toggle_clk(sim)
 
     def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
@@ -311,6 +307,7 @@ class HWCustomOp(CustomOp):
             trace_file=trace_file,
             sname=sname,
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            do_reset=True,
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 

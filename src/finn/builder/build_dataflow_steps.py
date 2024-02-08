@@ -53,6 +53,7 @@ from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.specialize_to_rtl_layers as to_rtl
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -472,6 +473,15 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
+def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Convert layers implemented in HLS to an equivalent specialized RTL
+    implementation if possible."""
+    specialize_to_rtl_transforms = [to_rtl.InferRTLMatrixVectorActivation()]
+    for trn in specialize_to_rtl_transforms:
+        model = model.transform(trn)
+    return model
+
+
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Tighten the weight and accumulator bit widths for each layer."""
     if cfg.minimize_bit_width:
@@ -569,7 +579,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
-            model = model.transform(ApplyConfig(cfg.folding_config_file))
+            model = model.transform(
+                ApplyConfig(
+                    cfg.folding_config_file,
+                    node_filter=lambda x: x.op_type == "StreamingFIFO",
+                )
+            )
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -829,6 +844,7 @@ build_dataflow_step_lookup = {
     "step_apply_folding_config": step_apply_folding_config,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
+    "step_specialize_to_rtl": step_specialize_to_rtl,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
