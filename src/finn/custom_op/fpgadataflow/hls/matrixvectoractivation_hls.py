@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from pyverilator.util.axi_utils import toggle_clk, reset_rtlsim
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -53,6 +54,84 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         my_attrs.update(MatrixVectorActivation.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        # TODO add in/out FIFO contributions
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        MW = self.get_nodeattr("MW")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        # determine tdt with input and weight data types
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        # parameters from experiments in paper mentioned above
+        c0 = 300
+        c1 = 1.1
+        c2 = 0
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
+
+        # multiplication
+        res_type = self.get_nodeattr("resType")
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # adder tree
+        addertree_luts = (W + A) * (2 * Q - 1)
+        # accumulator
+        acc_datatype = self.get_accumulator_datatype()
+        # if accDataType is not set, then it will default to INT32, which would
+        # be a large overestimate in most (if not all) cases. In this scenario,
+        # we would use the minimum accumulator as determined by the data types
+        # bound, derived in https://arxiv.org/abs/2301.13376
+        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
+        acc_bits = min(
+            acc_datatype.bitwidth(),
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
+        )
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.get_nodeattr("noActivation")
+        tmem_style = self.get_nodeattr("ram_style_thresholds")
+        if (noact == 0) and (tmem_style == "distributed"):
+            odt = self.get_output_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2**B - 1) * acc_bits
+
+        return int(
+            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
+        )
+
+    def dsp_estimation(self):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        res_type = self.get_nodeattr("resType")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -468,8 +547,8 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            self.reset_rtlsim(sim)
-            self.toggle_clk(sim)
+            reset_rtlsim(sim)
+            toggle_clk(sim)
             if mem_mode in ["external", "decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
@@ -501,3 +580,14 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
                     mode
                 )
             )
+
+    def code_generation_ipi(self, cmd):
+        # instantiate the HLS IP
+        vlnv = self.get_nodeattr("ip_vlnv")
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (vlnv, node_name, node_name)
+            )
+        else:
+            cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name))
