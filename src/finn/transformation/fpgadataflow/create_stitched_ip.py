@@ -48,13 +48,12 @@ def is_external_input(model, node, i):
     # True only if input is unconnected and has no initializer
     # Only esception is second input of FC layers when mem_mode is external
     node_inst = getCustomOp(node)
-    op_type = node.op_type
     producer = model.find_producer(node.input[i])
     if producer is None:
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if op_type.startswith("MatrixVectorActivation"):
+            if node.op_type == "MatrixVectorActivation":
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
@@ -103,6 +102,7 @@ class CreateStitchedIP(Transformation):
         # keep track of top-level interface names
         self.intf_names = {
             "clk": [],
+            "clk2x": [],
             "rst": [],
             "s_axis": [],
             "m_axis": [],
@@ -110,10 +110,19 @@ class CreateStitchedIP(Transformation):
             "axilite": [],
         }
 
+    def _is_double_pumped(self, node):
+        try:
+            pumped_compute = getCustomOp(node).get_nodeattr("pumpedCompute")
+            return pumped_compute==1
+        except:
+            return False
+
     def connect_clk_rst(self, node):
         inst_name = node.name
         node_inst = getCustomOp(node)
         clock_intf_name = node_inst.get_verilog_top_module_intf_names()["clk"][0]
+        if self._is_double_pumped(node):
+            clock2x_intf_name = node_inst.get_verilog_top_module_intf_names()["clk2x"][0]
         reset_intf_name = node_inst.get_verilog_top_module_intf_names()["rst"][0]
         # make clock and reset external, if they aren't already
         if not self.clock_reset_are_external:
@@ -128,6 +137,22 @@ class CreateStitchedIP(Transformation):
             self.clock_reset_are_external = True
             self.intf_names["clk"] = ["ap_clk"]
             self.intf_names["rst"] = ["ap_rst_n"]
+        # make clk2x external, if it isn't already and connect clk and reset
+        elif self._is_double_pumped(node) and not self.clock2x_is_external:
+            self.connect_cmds.append(
+                "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, clock2x_intf_name)
+            )
+            self.connect_cmds.append("set_property name ap_clk2x [get_bd_ports ap_clk2x_0]")
+            self.clock2x_is_external = True
+            self.intf_names["clk2x"] = ["ap_clk2x"]
+            self.connect_cmds.append(
+                "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/%s]"
+                % (inst_name, reset_intf_name)
+            )
+            self.connect_cmds.append(
+                "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/%s]"
+                % (inst_name, clock_intf_name)
+            )
         # otherwise connect clock and reset
         else:
             self.connect_cmds.append(
@@ -138,6 +163,11 @@ class CreateStitchedIP(Transformation):
                 "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/%s]"
                 % (inst_name, clock_intf_name)
             )
+            if self._is_double_pumped(node):
+                self.connect_cmds.append(
+                    "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins %s/%s]"
+                    % (inst_name, clock2x_intf_name)
+                )
 
     def connect_axi(self, node):
         inst_name = node.name
@@ -285,7 +315,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA_hls"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
@@ -377,6 +407,7 @@ class CreateStitchedIP(Transformation):
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
+        tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2*fclk_hz))
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)

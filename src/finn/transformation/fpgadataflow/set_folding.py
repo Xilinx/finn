@@ -118,7 +118,7 @@ class SetFolding(Transformation):
         simd_ops = [
             "DownSampler",
             "FMPadding_Batch",
-            "FMPadding_Pixel",
+            "FMPadding_Batch_rtl",
             "ConvolutionInputGenerator",
             "ConvolutionInputGenerator1D",
             "ConvolutionInputGenerator_rtl",
@@ -131,7 +131,7 @@ class SetFolding(Transformation):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type.startswith("MatrixVectorActivation"):
+            if op_type == "MatrixVectorActivation":
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
