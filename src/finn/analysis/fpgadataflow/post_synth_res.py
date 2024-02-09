@@ -64,7 +64,7 @@ def post_synth_res(model, override_synth_report_filename=None):
         "FF": 6,
         "BRAM_36K": 7,
         "BRAM_18K": 8,
-        "DSP48": 10,
+        "DSP": 10,
     }
     restype_to_ind_vitis = {
         "LUT": 4,
