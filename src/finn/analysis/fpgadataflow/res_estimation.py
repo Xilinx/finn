@@ -72,7 +72,7 @@ def res_estimation_complete(model):
                 inst.set_nodeattr("resType", "lut")
                 res_dict[node.name].append(inst.node_res_estimation())
                 inst.set_nodeattr("resType", orig_restype)
-            elif op_type == "ConvolutionInputGenerator":
+            elif op_type.startswith("ConvolutionInputGenerator"):
                 orig_ramstyle = inst.get_nodeattr("ram_style")
                 res_dict[node.name] = []
                 inst.set_nodeattr("ram_style", "block")

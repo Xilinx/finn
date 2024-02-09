@@ -704,9 +704,6 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
-        fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
-        assert len(fifo_layers) > 0
-        model = model.transform(SpecializeLayers())
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         assert len(fifo_layers) > 0
         model.save(get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board))

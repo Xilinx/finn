@@ -75,7 +75,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
             return (model, run_again)
         # apply manual fix for DuplicateStreams and AddStreams for
         # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_Batch")
+        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
         for addstrm_node in addstrm_nodes:
             # we currently only support the case where one branch is
             # a bypass
@@ -84,8 +84,8 @@ class DeriveCharacteristic(NodeLocalTransformation):
             if (b0 is None) or (b1 is None):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)
-            b0_is_bypass = b0.op_type == "DuplicateStreams_Batch"
-            b1_is_bypass = b1.op_type == "DuplicateStreams_Batch"
+            b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
+            b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
             if (not b0_is_bypass) and (not b1_is_bypass):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)

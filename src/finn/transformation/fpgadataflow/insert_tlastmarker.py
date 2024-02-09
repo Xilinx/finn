@@ -119,7 +119,7 @@ class InsertTLastMarker(Transformation):
                     if inp_idx > 0:
                         if first_node.op_type.startswith("MatrixVectorActivation") and inp_idx == 1:
                             stream_width = int(custom_op.get_weightstream_width())
-                        elif first_node.op_type == "AddStreams_Batch" and inp_idx == 1:
+                        elif first_node.op_type.startswith("AddStreams") and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width())
                         else:
                             raise Exception("No method to determine stream width")

@@ -104,7 +104,7 @@ class StreamingFIFO(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         depth = self.get_adjusted_depth()
-        assert depth >= 2, """Depth is too low"""
+        assert depth >= 1, """Depth is too low"""
         if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
             warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
         return self.get_nodeattr("normal_shape")

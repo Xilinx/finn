@@ -285,14 +285,14 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA_hls"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO_rtl", "IODMA_hls"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
-        if model.graph.node[0].op_type == "StreamingFIFO":
+        if model.graph.node[0].op_type == "StreamingFIFO_rtl":
             firstfifo = getCustomOp(model.graph.node[0])
             if firstfifo.get_nodeattr("impl_style") == "vivado":
                 warnings.warn(
@@ -349,7 +349,7 @@ class CreateStitchedIP(Transformation):
 
         if self.signature:
             # extract number of checksum layer from graph
-            checksum_layers = model.get_nodes_by_op_type("checksum")
+            checksum_layers = model.get_nodes_by_op_type("CheckSum_hls")
             self.insert_signature(len(checksum_layers))
 
         # create a temporary folder for the project
