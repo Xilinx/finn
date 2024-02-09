@@ -703,7 +703,16 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
-        model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+        if topology == "cnv" and wbits == 2 and abits == 2 and board == "Pynq-Z1":
+            # Enabling swg_exception for this single test case. Disabling the exception results in
+            # a design that exceeds the resources of the Pynq-Z1 board. In future this should be
+            # revisited and handled correctly as the swg_exception is poorly justified.
+            model = model.transform(
+                InsertAndSetFIFODepths(test_fpga_part, target_clk_ns, swg_exception=True)
+            )
+        else:
+            model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         assert len(fifo_layers) > 0
         model.save(get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board))
