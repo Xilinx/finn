@@ -625,7 +625,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_hls", 1),
-                ("ConvolutionInputGenerator_rtl", 6),
+                ("ConvolutionInputGenerator_hls", 6),
                 ("MatrixVectorActivation_hls", 9),
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
