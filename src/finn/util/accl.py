@@ -9,14 +9,14 @@ def clone_repo():
     accl_repo_dir = accl_proj_dir / "ACCL"
 
     accl_repository = "https://github.com/zhenhaohe/ACCL.git"
-    git_clone_accl_command = ["git", "clone", ACCL_REPOSITORY, accl_repo_dir]
+    git_clone_accl_command = ["git", "clone", accl_repository, accl_repo_dir]
     process_git_clone = subprocess.Popen(git_clone_accl_command, stdout=subprocess.PIPE)
     process_git_clone.communicate()
     assert (
         process_git_clone.returncode == 0
     ), "Failed to clone ACCL repo. Command is: %s" % " ".join(git_clone_accl_command)
 
-    os.chdir(self.accl_repo_dir)
+    os.chdir(accl_repo_dir)
     git_checkout_command = ["git", "checkout", "external_dma"]
     process_git_checkout = subprocess.Popen(git_checkout_command, stdout=subprocess.PIPE)
     process_git_checkout.communicate()
