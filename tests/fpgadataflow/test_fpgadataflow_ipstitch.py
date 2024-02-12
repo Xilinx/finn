@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -78,10 +79,10 @@ def create_one_fc_model(mem_mode="const"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MatrixVectorActivation_hls",
         ["inp", "w0"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -130,10 +131,10 @@ def create_two_fc_model(mem_mode="decoupled"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MatrixVectorActivation_hls",
         ["inp", "w0"],
         ["mid"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -149,10 +150,10 @@ def create_two_fc_model(mem_mode="decoupled"):
     )
 
     fc1 = helper.make_node(
-        "MatrixVectorActivation",
+        "MatrixVectorActivation_hls",
         ["mid", "w1"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -208,7 +209,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    assert model.graph.node[0].op_type == "MatrixVectorActivation"
+    assert model.graph.node[0].op_type == "MatrixVectorActivation_hls"
     assert model.graph.node[-1].op_type == "TLastMarker_hls"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 

@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -59,6 +60,7 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
         backend="fpgadataflow",
         depth=Depth,
         folded_shape=fld_shape,
+        normal_shape=Shape,
         dataType=str(finn_dtype.name),
     )
 
