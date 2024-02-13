@@ -94,5 +94,4 @@ def compile_internals(accl_repo_dir, fpga_part):
     ), "Failed to build plugins. Command is: %s" % " ".join(build_plugins_cmd)
 
     os.chdir(finn_cwd)
-    return (model, False)
 
