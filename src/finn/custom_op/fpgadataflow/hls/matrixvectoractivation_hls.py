@@ -495,6 +495,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
+        # TODO ensure codegen dir exists
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         elif mode == "rtlsim":
@@ -512,6 +513,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         for inputs in node.input:
             # it is assumed that the first input of the node is the data input
             # the second input are the weights
+            # the third input are the thresholds
             if in_ind == 0:
                 assert (
                     str(context[inputs].dtype) == "float32"
@@ -519,7 +521,12 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                export_idt = self.get_input_datatype()
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType["BINARY"]
+                else:
+                    export_idt = self.get_input_datatype()
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
@@ -549,9 +556,13 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             reset_rtlsim(sim)
             toggle_clk(sim)
-            if mem_mode in ["external", "decoupled"]:
+            if mem_mode == "external" or mem_mode == "decoupled":
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
+                # we have converted bipolar weights to binary for export,
+                # so use it as such for weight generation
+                if self.get_weight_datatype() == DataType["BIPOLAR"]:
+                    export_wdt = DataType["BINARY"]
                 wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 io_dict = {
@@ -568,6 +579,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -576,14 +588,15 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to "rtlsim" """.format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
 
-    def code_generation_ipi(self, cmd):
+    def instantiate_ip(self, cmd):
         # instantiate the HLS IP
         vlnv = self.get_nodeattr("ip_vlnv")
+        node_name = self.onnx_node.name
         if self.get_nodeattr("mem_mode") == "decoupled":
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
