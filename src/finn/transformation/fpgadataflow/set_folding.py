@@ -99,33 +99,32 @@ class SetFolding(Transformation):
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
-            "AddStreams_Batch",
-            "ChannelwiseOp_Batch",
-            "DuplicateStreams_Batch",
-            "GlobalAccPool_Batch",
-            "Thresholding_Batch",
+            "AddStreams_hls",
+            "ChannelwiseOp_hls",
+            "DuplicateStreams_hls",
+            "GlobalAccPool_hls",
+            "Thresholding_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
         # ConvolutionInputGenerator_rtl supports additional parallelism by
         # setting parallel_window=1 mode after maxing out SIMD
         simd_ops = [
-            "DownSampler",
-            "FMPadding_Batch",
-            "FMPadding_Pixel",
-            "ConvolutionInputGenerator",
-            "ConvolutionInputGenerator1D",
+            "DownSampler_hls",
+            "FMPadding_hls",
+            "FMPadding_Pixel_hls",
+            "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VectorVectorActivation", "Pool_Batch"]
+        depthwise_op_exceptions = ["VectorVectorActivation_hls", "Pool_hls"]
         for node in graph.node:
             if not is_fpgadataflow_node(node):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type == "MatrixVectorActivation":
+            if op_type == "MatrixVectorActivation_hls":
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
@@ -152,12 +151,12 @@ class SetFolding(Transformation):
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "LabelSelect_Batch":
+            elif op_type == "LabelSelect_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type == "VectorVectorActivation":
+                if op_type == "VectorVectorActivation_hls":
                     node_inst.set_nodeattr("SIMD", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
@@ -165,7 +164,7 @@ class SetFolding(Transformation):
                 pe = node_inst.get_nodeattr("PE")
                 cyc = node_inst.get_exp_cycles()
                 if (
-                    op_type == "VectorVectorActivation"
+                    op_type == "VectorVectorActivation_hls"
                     and pe == max_pe
                     and cyc > self.target_cycles_per_frame
                 ):
@@ -187,9 +186,9 @@ class SetFolding(Transformation):
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                 else:
-                    if op_type == "VectorVectorActivation":
+                    if op_type == "VectorVectorActivation_hls":
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
-                    elif op_type == "Pool_Batch":
+                    elif op_type == "Pool_hls":
                         ksize = node_inst.get_nodeattr("KernelSize")
                     else:
                         raise Exception("Undefined edge case for %s" % op_type)

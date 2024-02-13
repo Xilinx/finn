@@ -1280,3 +1280,421 @@ class InferStreamingEltwise(Transformation):
                 graph_modified = True
 
         return (model, graph_modified)
+
+
+class InferBinaryMatrixVectorActivation(Transformation):
+    """Convert XnorPopcountMatMul layers to
+    MatrixVectorActivation layers. Any immediately following MultiThreshold
+    layers will also be absorbed into the MVTU."""
+
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "XnorPopcountMatMul":
+                mm_input = n.input[0]
+                mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
+                assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
+                    n.name
+                    + """: First
+                input for xnorpopcount is not Wset to FINN DataType BINARY."""
+                )
+                assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
+                    n.name
+                    + """: Second
+                input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
+                )
+                idt = DataType["BINARY"]
+                wdt = DataType["BINARY"]
+                mm_output = n.output[0]
+                W = model.get_initializer(mm_weight)
+                # extract weight shape, note that ONNX and finn-hlslib
+                # make different assumptions about dim order here
+                # ONNX assumes W has (in, out) shape
+                # finn-hlslib assumes W has (out, in) shape
+                mh = int(W.shape[1])
+                mw = int(W.shape[0])
+                # create node with no parallelization first
+                pe = 1
+                simd = 1
+                wmem = mw * mh // (pe * simd)
+                assert mw * mh == wmem * pe * simd, (
+                    n.name
+                    + """: Requirement (MW * MH) divisiable by
+                (WMEM * PE * SIMD) is violated."""
+                )
+                # see if we have any following thresholds
+                consumer = model.find_consumer(mm_output)
+                if consumer is not None and consumer.op_type == "MultiThreshold":
+                    # TODO ensure integer thresholds?
+                    # create MVTU (i.e. including activation)
+                    mt_output = consumer.output[0]
+                    mt_out_shape = model.get_tensor_shape(mt_output)
+                    mt_thres = consumer.input[1]
+                    T = model.get_initializer(mt_thres)
+                    assert T.shape[0] == 1 or T.shape[0] == mh, (
+                        consumer.name
+                        + """: First dimension of
+                    thresholds neither 1 nor MH."""
+                    )
+                    odt = model.get_tensor_datatype(mt_output)
+                    if odt.bitwidth() == 1:
+                        # covers both bipolar and binary
+                        actval = 0
+                    else:
+                        actval = odt.min()
+                    model.set_tensor_shape(mm_input, mm_in_shape)
+                    model.set_tensor_shape(mt_output, mt_out_shape)
+                    # create and insert new MatrixVectorActivation node
+                    new_node = helper.make_node(
+                        "MatrixVectorActivation",
+                        [mm_input, mm_weight, mt_thres],
+                        [mt_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        MW=mw,
+                        MH=mh,
+                        SIMD=simd,
+                        PE=pe,
+                        inputDataType=idt.name,
+                        weightDataType=wdt.name,
+                        outputDataType=odt.name,
+                        ActVal=actval,
+                        binaryXnorMode=1,
+                        noActivation=0,
+                        numInputVectors=list(mm_in_shape[:-1]),
+                        mem_mode=self.mem_mode,
+                        name=n.name,
+                    )
+                    graph.node.insert(node_ind, new_node)
+                    # remove old nodes
+                    graph.node.remove(n)
+                    graph.node.remove(consumer)
+                    graph_modified = True
+                else:
+                    # no activation, matmul only
+                    odt = model.get_tensor_datatype(mm_output)
+                    model.set_tensor_shape(mm_input, mm_in_shape)
+                    model.set_tensor_shape(mm_output, mm_out_shape)
+                    # create and insert new MatrixVectorActivation node
+                    new_node = helper.make_node(
+                        "MatrixVectorActivation",
+                        [mm_input, mm_weight],
+                        [mm_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        MW=mw,
+                        MH=mh,
+                        SIMD=simd,
+                        PE=pe,
+                        inputDataType=idt.name,
+                        weightDataType=wdt.name,
+                        outputDataType=odt.name,
+                        ActVal=0,
+                        binaryXnorMode=1,
+                        noActivation=1,
+                        numInputVectors=list(mm_in_shape[:-1]),
+                        mem_mode=self.mem_mode,
+                        name=n.name,
+                    )
+                    graph.node.insert(node_ind, new_node)
+                    # remove old node
+                    graph.node.remove(n)
+                    graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferQuantizedMatrixVectorActivation(Transformation):
+    """Convert MatMul layers with quantized inputs and weights to
+    MatrixVectorActivation layers."""
+
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
+                mm_input = n.input[0]
+                mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
+                idt = model.get_tensor_datatype(mm_input)
+                wdt = model.get_tensor_datatype(mm_weight)
+                if idt.is_integer() and wdt.is_integer():
+                    mm_output = n.output[0]
+                    W = model.get_initializer(mm_weight)
+                    # extract weight shape, note that ONNX and finn-hlslib
+                    # make different assumptions about dim order here
+                    # ONNX assumes W has (in, out) shape
+                    # finn-hlslib assumes W has (out, in) shape
+                    mh = int(W.shape[1])
+                    mw = int(W.shape[0])
+                    # create node with no parallelization first
+                    pe = 1
+                    simd = 1
+                    wmem = mw * mh // (pe * simd)
+                    assert mw * mh == wmem * pe * simd, (
+                        n.name
+                        + """: Requirement (MW * MH) divisible by
+                    (WMEM * PE * SIMD) is violated."""
+                    )
+                    # see if we have any following thresholds
+                    consumer = model.find_consumer(mm_output)
+                    if consumer is not None and consumer.op_type == "MultiThreshold":
+                        # TODO ensure integer thresholds?
+                        # create MVTU (i.e. including activation)
+                        mt_output = consumer.output[0]
+                        mt_out_shape = model.get_tensor_shape(mt_output)
+                        mt_thres = consumer.input[1]
+                        T = model.get_initializer(mt_thres)
+                        assert T.shape[0] == 1 or T.shape[0] == mh, (
+                            consumer.name
+                            + """: First dimension of
+                        thresholds neither 1 nor MH."""
+                        )
+                        odt = model.get_tensor_datatype(mt_output)
+                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        assert int(actval) == actval, (
+                            consumer.name + ": out_bias must be integer for HLS conversion."
+                        )
+                        actval = int(actval)
+                        odt_is_bipolar = odt == DataType["BIPOLAR"]
+                        bipolar_ok = odt_is_bipolar and (scale == 2.0) and (actval == -1)
+                        assert scale == 1.0 or bipolar_ok, (
+                            consumer.name + ": out_scale=1 or bipolar output needed for conversion."
+                        )
+                        assert (not odt.signed()) or (actval < 0), (
+                            consumer.name + ": Signed output requres actval < 0"
+                        )
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mt_output, mt_out_shape)
+                        if bipolar_ok:
+                            # remove bias for bipolar, since
+                            # binary->bipolar is achieved by reinterpretation
+                            actval = 0
+                        # create and insert new MatrixVectorActivation node
+                        new_node = helper.make_node(
+                            "MatrixVectorActivation",
+                            [mm_input, mm_weight, mt_thres],
+                            [mt_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            MW=mw,
+                            MH=mh,
+                            SIMD=simd,
+                            PE=pe,
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=actval,
+                            binaryXnorMode=0,
+                            noActivation=0,
+                            numInputVectors=list(mm_in_shape[:-1]),
+                            mem_mode=self.mem_mode,
+                            name="MatrixVectorActivation_" + n.name,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old nodes
+                        graph.node.remove(n)
+                        graph.node.remove(consumer)
+                        graph_modified = True
+                    else:
+                        # no activation, matmul only
+                        odt = model.get_tensor_datatype(mm_output)
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mm_output, mm_out_shape)
+                        # create and insert new MatrixVectorActivation node
+                        new_node = helper.make_node(
+                            "MatrixVectorActivation",
+                            [mm_input, mm_weight],
+                            [mm_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            MW=mw,
+                            MH=mh,
+                            SIMD=simd,
+                            PE=pe,
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=0,
+                            binaryXnorMode=0,
+                            noActivation=1,
+                            numInputVectors=list(mm_in_shape[:-1]),
+                            mem_mode=self.mem_mode,
+                            name="MatrixVectorActivation_" + n.name,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old node
+                        graph.node.remove(n)
+                        graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferVectorVectorActivation(Transformation):
+    """Convert MatMul layers with quantized inputs and weights to
+    VectorVectorActivation layers, if the sparsity annotation
+    of the weight matrix indicates that the MatMul layer belongs to
+    a depthwise convolution. Any immediately following MultiThreshold
+    layers will also be absorbed into the VVAU."""
+
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is not None:
+                sparsity = model.get_tensor_sparsity(n.input[1])
+                try:
+                    k_h, k_w = sparsity["dw"]["kernel_shape"]
+                except KeyError:
+                    raise Exception(
+                        n.name
+                        + """: sparsity annotation doesn't indicate that MatMul
+                        belongs to a depthwise convolution."""
+                    )
+
+                mm_input = n.input[0]
+                mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
+                idt = model.get_tensor_datatype(mm_input)
+                wdt = model.get_tensor_datatype(mm_weight)
+                if idt.is_integer() and wdt.is_integer():
+                    mm_output = n.output[0]
+                    W = model.get_initializer(mm_weight)
+                    # infer dense weight tensor from sparse weight matrix
+                    # kernel size (k_h, k_w) which was extracted above and the value of
+                    # the channels is used.
+                    # the weight matrix has a shape of (k_h * k_w * Channels, Channels)
+                    # we need to reverse the creation of the sparse weight matrix
+                    # to achieve a weight tensor of shape (Channels, 1, k_h, k_w)
+                    channels = int(W.shape[1])
+                    # transpose to achieve a shape of (k_h * k_w * Channels, Channels)
+                    W = W.T
+                    # reshape to (Channels, k_h, k_w, Channels) to transpose afterwards
+                    # to (Channels, Channels, k_h, k_w)
+                    W = W.reshape(channels, k_h, k_w, channels)
+                    W = W.transpose(0, 3, 1, 2)
+                    # now we can extract the values using a for loop over the channels
+                    # and fill a zero numpy array in the correct shape
+                    w_tensor = np.zeros((channels, 1, k_h, k_w), dtype=np.float32)
+                    for ch in range(channels):
+                        w_tensor[ch][0] = W[ch][ch]
+                    model.set_initializer(mm_weight, w_tensor)
+                    model.set_tensor_shape(mm_weight, (channels, 1, k_h, k_w))
+                    # create node with pe=channels as default
+                    pe = channels
+                    # see if we have any following thresholds
+                    consumer = model.find_consumer(mm_output)
+                    if consumer is not None and consumer.op_type == "MultiThreshold":
+                        # create VVAU (i.e. including activation)
+                        mt_output = consumer.output[0]
+                        mt_out_shape = model.get_tensor_shape(mt_output)
+                        mt_thres = consumer.input[1]
+                        T = model.get_initializer(mt_thres)
+                        assert T.shape[0] == 1 or T.shape[0] == channels, (
+                            consumer.name
+                            + """: First dimension of
+                        thresholds neither 1 nor Channels."""
+                        )
+                        odt = model.get_tensor_datatype(mt_output)
+                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        assert scale == 1.0, (
+                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
+                        )
+                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        assert int(actval) == actval, (
+                            consumer.name + ": out_bias must be integer for HLS conversion."
+                        )
+                        actval = int(actval)
+                        assert (not odt.signed()) or (actval < 0), (
+                            consumer.name + ": Signed output requres actval < 0"
+                        )
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mt_output, mt_out_shape)
+                        # create and insert new VectorVectorActivation node
+                        new_node = helper.make_node(
+                            "VectorVectorActivation",
+                            [mm_input, mm_weight, mt_thres],
+                            [mt_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            resType="lut",
+                            PE=pe,
+                            Dim=[mm_in_shape[1], mm_in_shape[2]],
+                            Channels=channels,
+                            Kernel=[k_h, k_w],
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=actval,
+                            noActivation=0,
+                            name="VectorVectorActivation_" + n.name,
+                            mem_mode=self.mem_mode,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old nodes
+                        graph.node.remove(n)
+                        graph.node.remove(consumer)
+                        graph_modified = True
+                    else:
+                        # no activation, matmul only
+                        odt = model.get_tensor_datatype(mm_output)
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mm_output, mm_out_shape)
+                        # create and insert new VVAU node
+                        new_node = helper.make_node(
+                            "VectorVectorActivation",
+                            [mm_input, mm_weight],
+                            [mm_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            resType="lut",
+                            PE=pe,
+                            Dim=[mm_in_shape[1], mm_in_shape[2]],
+                            Channels=channels,
+                            Kernel=[k_h, k_w],
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=0,
+                            noActivation=1,
+                            name="VectorVectorActivation_" + n.name,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old node
+                        graph.node.remove(n)
+                        graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)

@@ -30,8 +30,6 @@ import warnings
 from onnx import helper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
@@ -224,7 +222,4 @@ class SpecializeLayers(Transformation):
             # remove old nodes
             graph.node.remove(node)
             graph_modified = True
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
         return (model, graph_modified)

@@ -60,9 +60,11 @@ def res_estimation_complete(model):
     res_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            op_type = node.op_type
             inst = registry.getCustomOp(node)
-            if op_type == "MatrixVectorActivation" or op_type == "VectorVectorActivation":
+            op_type = node.op_type
+            if op_type.startswith("MatrixVectorActivation") or op_type.startswith(
+                "VectorVectorActivation"
+            ):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")
@@ -70,7 +72,7 @@ def res_estimation_complete(model):
                 inst.set_nodeattr("resType", "lut")
                 res_dict[node.name].append(inst.node_res_estimation())
                 inst.set_nodeattr("resType", orig_restype)
-            elif op_type == "ConvolutionInputGenerator":
+            elif op_type.startswith("ConvolutionInputGenerator"):
                 orig_ramstyle = inst.get_nodeattr("ram_style")
                 res_dict[node.name] = []
                 inst.set_nodeattr("ram_style", "block")

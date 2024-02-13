@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -47,6 +48,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
@@ -101,7 +103,7 @@ class RemoveShallowFIFOs(Transformation):
             else:
                 is_first_node = True
             if (
-                node.op_type == "StreamingFIFO"
+                node.op_type.startswith("StreamingFIFO")
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
                 and (not is_first_node)
             ):
@@ -165,16 +167,16 @@ class CapConvolutionFIFODepths(Transformation):
         for node in model.graph.node:
             # look for following pattern:
             # ConvolutionInputGenerator -> StreamingFIFO -> MatrixVectorActivation
-            if node.op_type == "StreamingFIFO":
+            if node.op_type.startswith("StreamingFIFO"):
                 fifo_prod = model.find_producer(node.input[0])
                 fifo_cons = model.find_consumer(node.output[0])
                 if fifo_prod is None:
                     continue
-                if fifo_prod.op_type != "ConvolutionInputGenerator":
+                if not fifo_prod.op_type.startswith("ConvolutionInputGenerator"):
                     continue
                 if fifo_cons is None:
                     continue
-                if fifo_cons.op_type != "MatrixVectorActivation":
+                if not fifo_cons.op_type.startswith("MatrixVectorActivation"):
                     continue
                 op_inst = getCustomOp(node)
                 depth = op_inst.get_nodeattr("depth")
@@ -257,14 +259,15 @@ class InsertAndSetFIFODepths(Transformation):
     def apply(self, model):
         # these optypes may potentially use external weights
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MatrixVectorActivation", "VectorVectorActivation"]
+        extw_optypes = ["MatrixVectorActivation_hls", "VectorVectorActivation_hls"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
         for node in model.graph.node:
             # verify assumptions
             assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(node)
-            assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
+            op_type = node.op_type
+            assert not op_type.startswith("StreamingFIFO"), "Found existing StreamingFIFO node"
             node = getCustomOp(node)
             ifd = node.get_nodeattr("inFIFODepths")
             ofd = node.get_nodeattr("outFIFODepths")
@@ -281,7 +284,7 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
 
-            if node.onnx_node.op_type in extw_optypes:
+            if op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -294,12 +297,13 @@ class InsertAndSetFIFODepths(Transformation):
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
+        model = model.transform(SpecializeLayers())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
         # gather FIFO names, check they are of expected depth
         fifos = {}
-        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
+        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         for node in fifo_nodes:
             fifos[node.name] = 0
             node = getCustomOp(node)
@@ -373,7 +377,9 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             # do rtlsim in C++ for FIFO sizing
             # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type]
+            swg_nodes = [
+                x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
+            ]
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
@@ -397,7 +403,7 @@ class InsertAndSetFIFODepths(Transformation):
         for node in model.graph.node:
             # set FIFO depth, reset FIFO implementation,
             # and set implementation/ram styles
-            if node.op_type == "StreamingFIFO":
+            if node.op_type.startswith("StreamingFIFO"):
                 assert node.name in fifos, "FIFO node not found in size dictionary"
                 # set depth of FIFO
                 depth = optimize_depth(fifos[node.name])
@@ -441,7 +447,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # reflect final values in attributes
         for node in model.graph.node:
-            if node.op_type != "StreamingFIFO":
+            if not node.op_type.startswith("StreamingFIFO"):
                 node_inst = getCustomOp(node)
                 fifodepth_in = []
                 for node_inp in node.input:
@@ -456,7 +462,7 @@ class InsertAndSetFIFODepths(Transformation):
                             pass
                     else:
                         # there is a producer for this input
-                        if prod.op_type == "StreamingFIFO":
+                        if prod.op_type.startswith("StreamingFIFO"):
                             prod_inst = getCustomOp(prod)
                             fifodepth_in.append(prod_inst.get_nodeattr("depth"))
                         else:
@@ -475,7 +481,7 @@ class InsertAndSetFIFODepths(Transformation):
                             pass
                     else:
                         # there is a consumer for this input
-                        if cons.op_type == "StreamingFIFO":
+                        if cons.op_type.startswith("StreamingFIFO"):
                             cons_inst = getCustomOp(cons)
                             fifodepth_out.append(cons_inst.get_nodeattr("depth"))
                         else:
@@ -562,7 +568,7 @@ class SplitLargeFIFOs(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type == "StreamingFIFO":
+            if node.op_type.startswith("StreamingFIFO"):
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)

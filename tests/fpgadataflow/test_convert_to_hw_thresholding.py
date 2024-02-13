@@ -129,7 +129,7 @@ def test_convert_multithreshold_to_hardware(
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
 
-    # See convert_to_hls_layers::InferThresholdingLayer:
+    # See convert_to_hw_layers::InferThresholdingLayer:
     # assert (not odt.signed()) or (actval < 0)
     # This implies that it expects a negative activation, BIPOLAR does not provide that
     if activation == DataType["BIPOLAR"]:

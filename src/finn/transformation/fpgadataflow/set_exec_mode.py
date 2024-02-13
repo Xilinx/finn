@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,12 +30,15 @@
 import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import Transformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_fpgadataflow_node, is_rtl_node
 
 
 class SetExecMode(Transformation):
     """Set attribute exec_mode in all fpgadataflow nodes to specify which
-    kind of execution should be used ("cppsim" or "rtlsim")"""
+    kind of execution should be used ("cppsim" or "rtlsim").
+    Note that RTL components do not support cppsim.
+    If cppsim is selected, only HLS components will be set for cppsim,
+    RTL components default in this case to rtlsim execution mode."""
 
     def __init__(self, mode):
         super().__init__()
@@ -43,12 +47,16 @@ class SetExecMode(Transformation):
     def apply(self, model):
         for node in model.graph.node:
             op_type = node.op_type
-            if is_fpgadataflow_node(node) is True:
+            if is_fpgadataflow_node(node):
+                if self.mode == "cppsim" and is_rtl_node(node):
+                    mode = "rtlsim"
+                else:
+                    mode = self.mode
                 try:
                     # lookup op_type in registry of CustomOps
                     inst = registry.getCustomOp(node)
                     # set sim_mode accordingly to argument mode
-                    inst.set_nodeattr("exec_mode", self.mode)
+                    inst.set_nodeattr("exec_mode", mode)
                     # ensure that sim_mode is now set
                     assert (
                         inst.get_nodeattr("exec_mode") != ""

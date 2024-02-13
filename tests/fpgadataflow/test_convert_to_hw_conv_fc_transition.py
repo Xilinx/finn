@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,6 +35,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames, RemoveUnusedTensors
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -42,14 +44,16 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
@@ -78,7 +82,7 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
+def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     np.random.seed(0)
     idt = DataType["UINT4"]
     odt = DataType["UINT4"]
@@ -187,15 +191,20 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     new_model = new_model.transform(InferDataLayouts())
     new_model = new_model.transform(RemoveUnusedTensors())
 
-    # convert_to_hls
+    # convert_to_hw
     if depthwise is True:
-        new_model = new_model.transform(to_hls.InferVectorVectorActivation())
-    new_model = new_model.transform(to_hls.InferQuantizedMatrixVectorActivation())
-    new_model = new_model.transform(to_hls.InferThresholdingLayer())
-    new_model = new_model.transform(to_hls.InferConvInpGen())
-    new_model = new_model.transform(to_hls.InferStreamingMaxPool())
+        new_model = new_model.transform(to_hw.InferVectorVectorActivation())
+    new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    new_model = new_model.transform(to_hw.InferThresholdingLayer())
+    new_model = new_model.transform(to_hw.InferConvInpGen())
+    new_model = new_model.transform(to_hw.InferStreamingMaxPool())
     new_model = new_model.transform(RemoveCNVtoFCFlatten())
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
+    for node in new_model.graph.node:
+        if is_fpgadataflow_node(node):
+            inst = getCustomOp(node)
+            inst.set_nodeattr("preferred_impl_style", "hls")
+    new_model = new_model.transform(SpecializeLayers())
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferDataLayouts())
 

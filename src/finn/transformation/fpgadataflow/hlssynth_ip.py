@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +32,7 @@ import qonnx.custom_op.registry as registry
 import warnings
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node
 
 
 class HLSSynthIP(NodeLocalTransformation):
@@ -42,7 +43,7 @@ class HLSSynthIP(NodeLocalTransformation):
     Any nodes that already have a ipgen_path attribute pointing to a valid path
     will be skipped.
 
-    This transformation calls Vivado HLS for synthesis, so it will run for
+    This transformation calls Vitis HLS for synthesis, so it will run for
     some time (minutes to hours depending on configuration).
 
     * num_workers (int or None) number of parallel workers, see documentation in
@@ -54,7 +55,7 @@ class HLSSynthIP(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node) and is_hls_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)

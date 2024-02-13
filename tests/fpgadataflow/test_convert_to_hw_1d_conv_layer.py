@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,7 +42,7 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -49,6 +50,8 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 # conv_config:
@@ -71,7 +74,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
+def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
     pad, kernel_size, stride, dilation = conv_config
     np.random.seed(0)
     idt = DataType["UINT4"]
@@ -86,7 +89,7 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
     pad_w = pad[1] + pad[3]
 
     if use_rtl_swg and exec_mode == "cppsim":
-        pytest.skip("cppsim not supported for RTL SWG")
+        pytest.skip("Skip cppsim if SWG is in rtl")
 
     if depthwise is True:
         group = out_chn = in_chn
@@ -135,12 +138,19 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
     model = model.transform(InferDataTypes())
 
     new_model = model.transform(LowerConvsToMatMul())
-    new_model = new_model.transform(to_hls.InferConvInpGen(use_rtl_variant=use_rtl_swg))
+    new_model = new_model.transform(to_hw.InferConvInpGen())
+    if not use_rtl_swg:
+        for node in new_model.graph.node:
+            if is_fpgadataflow_node(node):
+                inst = getCustomOp(node)
+                inst.set_nodeattr("preferred_impl_style", "hls")
     if depthwise is True:
-        new_model = new_model.transform(to_hls.InferVectorVectorActivation())
+        new_model = new_model.transform(to_hw.InferVectorVectorActivation())
+        new_model = new_model.transform(SpecializeLayers())
     else:
-        new_model = new_model.transform(to_hls.InferQuantizedMatrixVectorActivation())
-        fc_node = new_model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+        new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+        new_model = new_model.transform(SpecializeLayers())
+        fc_node = new_model.get_nodes_by_op_type("MatrixVectorActivation_hls")[0]
         fc_inst = getCustomOp(fc_node)
         mw = fc_inst.get_nodeattr("MW")
         mh = fc_inst.get_nodeattr("MH")
@@ -171,12 +181,12 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
     assert oxe.compare_execution(model, new_model, inp_dict)
 
     if pad_h == 1 and pad_w == 1:
-        padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
+        padding_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
         padding_inst = getCustomOp(padding_node)
         assert padding_inst.get_nodeattr("SIMD") == in_chn
 
     if depthwise is True and exec_mode == "rtlsim":
-        node = new_model.get_nodes_by_op_type("VectorVectorActivation")[0]
+        node = new_model.get_nodes_by_op_type("VectorVectorActivation_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)

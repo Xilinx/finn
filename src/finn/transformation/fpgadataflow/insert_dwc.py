@@ -88,9 +88,9 @@ class InsertDWC(Transformation):
                         # - if FC and external mem, it could be connected to input 1
                         # - if concat, could be connected to any input
                         if (
-                            consumer.op_type == "MatrixVectorActivation"
+                            consumer.op_type.startswith("MatrixVectorActivation")
                             and n1.get_nodeattr("mem_mode") == "external"
-                        ) or (consumer.op_type == "StreamingConcat"):
+                        ) or (consumer.op_type.startswith("StreamingConcat")):
                             # get input idx
                             in_idx = None
                             for idx, n_input in enumerate(consumer.input):

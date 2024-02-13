@@ -472,5 +472,5 @@ compilation transformations?
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
         ret = max([instream, outstream])
-        assert ret <= 32768, "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
+        assert ret <= 8191, "AP_INT_MAX_W=%d is larger than allowed maximum of 8191" % ret
         return ret

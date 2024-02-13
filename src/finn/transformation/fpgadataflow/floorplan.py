@@ -95,7 +95,7 @@ class Floorplan(Transformation):
                     narrow_neighbour = model.find_producer(node.input[0])
                 node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
-            if node.op_type == "StreamingFIFO":
+            if node.op_type.startswith("StreamingFIFO"):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
@@ -150,7 +150,7 @@ class Floorplan(Transformation):
                 continue
 
             elif not (
-                node.op_type == "MatrixVectorActivation"
+                node.op_type.startswith("MatrixVectorActivation")
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):
