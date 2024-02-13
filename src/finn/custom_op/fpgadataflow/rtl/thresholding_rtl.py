@@ -183,7 +183,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
         thresholds = model.get_initializer(self.onnx_node.input[1])
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         min_threshold = thresholds.min()
         max_threshold = thresholds.max()
         min_input = self.get_input_datatype().min()
@@ -248,7 +248,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])
 
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+    def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0
@@ -661,12 +661,13 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         return intf_names
 
-    def get_dynamic_config(self, model, address_stride=1):
+    def get_dynamic_config(self, weights, address_stride=1):
         """Returns a configuration dictionary containing axilite write commands
         in order to program the thresholds into the RTL core during runtime.
         The default address stride for the weights is 1 byte."""
 
-        thresholds = model.get_initializer(self.onnx_node.input[1])
+        # thresholds = model.get_initializer(self.onnx_node.input[1])
+        thresholds = weights
         num_channels, num_weights_per_channel = thresholds.shape
 
         weight_addr_boundary = find_next_power_of_2(num_weights_per_channel)
@@ -740,7 +741,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         * weight_file_name : filename for the weight file to be generated
 
         """
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
+        threshold_tensor = self.get_hw_compatible_threshold_tensor(weights)
         tdt = self.get_weight_datatype()
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
@@ -760,52 +761,22 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 1, -1, pe * n_thres_steps
             )
             decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
-            width_padded = roundup_to_integer_multiple(pe * n_thres_steps, 4)
+            width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
+            # # zero pad the row
+            weight_padded = np.zeros((weights.shape[0],width_padded))
+            weight_padded[:weights.shape[0], :n_thres_steps ] = weights
+            weight_stream = []
+            for channel in weight_padded:
+                for weight in channel:
+                    wdt = self.get_weight_datatype()
+                    bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
+                    weight_stream.append(pack_innermost_dim_as_hex_string(
+                        [weight], wdt, bw_hexdigit, prefix=""
+                    ).item())
 
-            # zero pad the columns
-            thres_padded = np.zeros((1, self.calc_tmem() ,width_padded))
-            thres_padded[0, :self.calc_tmem(), :(pe * n_thres_steps) ] = decoupled_thres_pe_flipped
-            decoupled_thres_pe_flipped = thres_padded.copy()
-            weight_tensor_pe_flipped = []
-            if weight_file_mode == "decoupled_npy":
-                # save weight stream into npy for cppsim
-                np.save(weight_file_name, decoupled_thres)
-            elif weight_file_mode == "decoupled_verilog_dat":
-                # convert weight values into hexstring
-                weight_width = self.get_weightstream_width()
-                # pad to nearest 4 bits to get hex strings
-                weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
-                )
-                weight_stream = weight_tensor_pe_flipped.flatten()
-                weight_stream = weight_stream.copy()
-                with open(weight_file_name, "w") as f:
-                    for val in weight_stream:
-                        f.write(val + "\n")
-            elif weight_file_mode == "decoupled_runtime":
-                # memstream axi-lite interface will map each mem line to
-                # one or multiple 32-bit words
-                weight_width = self.get_weightstream_width()
-                words_per_memwidth = 2 ** ceil(log2(weight_width / 32))
-                if words_per_memwidth < 1:
-                    words_per_memwidth = 1
-                weight_width_padded = words_per_memwidth * 32 # convert to bits
-                # first, pack and ensure padding to 32 bits
-                for channel in decoupled_thres_pe_flipped[0]:
-                    for weight in channel:
-                        wdt = self.get_weight_datatype()
-                        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
-                        weight_tensor_pe_flipped.append(pack_innermost_dim_as_hex_string(
-                            [weight], wdt, bw_hexdigit, prefix=""
-                        ).item())
-                weight_stream = weight_tensor_pe_flipped.copy()
+            with open(weight_file_name, "w") as f:
+                for val in weight_stream:
+                    f.write(val + "\n")
 
-                with open(weight_file_name, "w") as f:
-                    for val in weight_stream:
-                        f.write(val + "\n")
-            else:
-                raise Exception("Decoupled weight export not yet implemented")
         else:
             raise Exception("Unknown weight_file_mode")
-
