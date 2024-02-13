@@ -241,7 +241,7 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
 
     def lut_estimation(self):
         simd = self.get_nodeattr("SIMD")
-        is1D = self.get_noadeattr("is1D")
+        is1D = self.get_nodeattr("is1D")
         if not is1D:
             ifm_ch = self.get_nodeattr("IFMChannels")
             ifm_dim = self.get_nodeattr("IFMDim")[0]
