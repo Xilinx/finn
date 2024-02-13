@@ -63,7 +63,7 @@ class MatrixVectorActivation(HWCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
+            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -152,11 +152,13 @@ class MatrixVectorActivation(HWCustomOp):
             odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
-            # NHWC to NCHW for multithreshold node
-            result = result.transpose((0, 3, 1, 2))
+            if result.ndim == 4:
+                # NHWC to NCHW for multithreshold node
+                result = result.transpose((0, 3, 1, 2))
             result = multithreshold(result, mvau_thr, out_scale, out_bias)
-            # NCHW to NHWC
-            result = result.transpose((0, 2, 3, 1))
+            if result.ndim == 4:
+                # NCHW to NHWC
+                result = result.transpose((0, 2, 3, 1))
 
         context[node.output[0]] = result
 
@@ -878,7 +880,7 @@ class MatrixVectorActivation(HWCustomOp):
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
             # Instantiate either the HLS or RTL IP depending on operator
-            self.code_generation_ipi(cmd)
+            self.instantiate_ip(cmd)
             
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "amd.com:finn:memstream:1.0"
@@ -950,7 +952,7 @@ class MatrixVectorActivation(HWCustomOp):
             cmd.append("save_bd_design")
         elif mem_mode == "const" or mem_mode == "external":
             # base class impl sufficient for const/external modes
-            self.code_generation_ipi(cmd)
+            self.instantiate_ip(cmd)
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
