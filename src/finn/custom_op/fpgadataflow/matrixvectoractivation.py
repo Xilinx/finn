@@ -879,7 +879,7 @@ class MatrixVectorActivation(HWCustomOp):
             )
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
-            
+
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"

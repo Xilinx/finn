@@ -26,14 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
+from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from pyverilator.util.axi_utils import toggle_clk, reset_rtlsim
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -598,9 +599,6 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         vlnv = self.get_nodeattr("ip_vlnv")
         node_name = self.onnx_node.name
         if self.get_nodeattr("mem_mode") == "decoupled":
-            cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (vlnv, node_name, node_name)
-            )
+            cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
             cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name))
