@@ -1560,7 +1560,9 @@ class CoyoteBuild(Transformation):
             address_map_file.write("\n".join(address_map))
 
     def apply(self, model: ModelWrapper):
-        accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
+        # accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
+        # NOTE: ACCL mode disable as missing some functionality in another PR
+        accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.ACCLMode.NONE
         is_accl_mode: bool = accl_mode != CoyoteBuild.ACCLMode.NONE
         model.set_metadata_prop("address_map", make_build_dir("address_map_"))
 
