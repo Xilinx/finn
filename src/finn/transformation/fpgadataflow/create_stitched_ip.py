@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,7 +41,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def is_external_input(model, node, i):
@@ -302,7 +303,9 @@ class CreateStitchedIP(Transformation):
                 )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
-            assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
+            assert is_hls_node(node) or is_rtl_node(
+                node
+            ), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
