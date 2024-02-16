@@ -199,8 +199,7 @@ class InsertIODMA(Transformation):
             # attached IODMA
             fc_extw_nodes = list(
                 filter(
-                    lambda x: x.op_type
-                    in ["MatrixVectorActivation_hls", "VectorVectorActivation_hls"]
+                    lambda x: x.op_type in ["MVAU_hls", "VectorVectorActivation_hls"]
                     and getCustomOp(x).get_nodeattr("mem_mode") == "external"
                     and model.find_producer(x.input[1]) is None,
                     all_nodes,

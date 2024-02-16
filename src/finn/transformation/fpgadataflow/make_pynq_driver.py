@@ -282,9 +282,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type.startswith("MatrixVectorActivation") or node.op_type.startswith(
-                    "Thresholding"
-                ):
+                if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

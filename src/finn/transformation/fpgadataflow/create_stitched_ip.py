@@ -55,7 +55,7 @@ def is_external_input(model, node, i):
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if op_type.startswith("MatrixVectorActivation"):
+            if op_type.startswith("MVAU"):
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False

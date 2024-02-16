@@ -33,7 +33,7 @@ from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -44,7 +44,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
+class MVAU_hls(MVAU, HLSBackend):
     """Corresponds to finn-hlslib MatrixVectorActivation_Batch function."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -52,7 +52,7 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(MatrixVectorActivation.get_nodeattr_types(self))
+        my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 

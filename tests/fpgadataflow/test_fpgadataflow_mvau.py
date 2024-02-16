@@ -91,7 +91,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         actval = 0
         no_act = 1
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -400,9 +400,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation_hls")[0]
+    node = model.get_nodes_by_op_type("MVAU_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -505,11 +505,11 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     if backend == "hls":
-        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+        assert "MVAU_hls_0" in hls_synt_res_est
     else:
-        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
+        assert "MVAU_rtl_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    node = model.get_nodes_by_op_type("MVAU")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)

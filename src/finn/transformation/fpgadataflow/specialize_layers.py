@@ -35,7 +35,7 @@ from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 
 restricted_layers = []
-restricted_layers.append("MatrixVectorActivation")
+restricted_layers.append("MVAU")
 restricted_layers.append("VectorVectorActivation")
 restricted_layers.append("Thresholding")
 

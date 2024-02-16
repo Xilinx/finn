@@ -1356,7 +1356,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
                     model.set_tensor_shape(mt_output, mt_out_shape)
                     # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "MatrixVectorActivation",
+                        "MVAU",
                         [mm_input, mm_weight, mt_thres],
                         [mt_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -1387,7 +1387,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
                     model.set_tensor_shape(mm_output, mm_out_shape)
                     # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "MatrixVectorActivation",
+                        "MVAU",
                         [mm_input, mm_weight],
                         [mm_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -1493,7 +1493,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             actval = 0
                         # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "MatrixVectorActivation",
+                            "MVAU",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -1510,7 +1510,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="MatrixVectorActivation_" + n.name,
+                            name="MVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -1524,7 +1524,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "MatrixVectorActivation",
+                            "MVAU",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -1541,7 +1541,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="MatrixVectorActivation_" + n.name,
+                            name="MVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

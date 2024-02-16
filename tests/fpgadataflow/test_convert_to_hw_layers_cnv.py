@@ -111,7 +111,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     model = model.transform(to_hw.InferStreamingMaxPool())
     model = model.transform(SpecializeLayers())
     for node in model.graph.node:
-        if node.op_type == "MatrixVectorActivation_hls":
+        if node.op_type == "MVAU_hls":
             inst = getCustomOp(node)
             inst.set_nodeattr("mem_mode", "decoupled")
             mw = inst.get_nodeattr("MW")
@@ -138,7 +138,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     assert len(non_finn_nodes) == 5
     exp_non_finn_nodes = ["Transpose", "Transpose", "Reshape", "Mul", "Add"]
     assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
-    fc_nodes = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_nodes = model.get_nodes_by_op_type("MVAU_hls")
     assert len(fc_nodes) == 9
     swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     assert len(swg_nodes) == 6

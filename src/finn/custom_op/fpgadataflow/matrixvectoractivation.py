@@ -51,7 +51,7 @@ from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation(HWCustomOp):
+class MVAU(HWCustomOp):
     """Abstraction layer for HW implementation of MatrixVectorActivation layers."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -121,9 +121,6 @@ class MatrixVectorActivation(HWCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
-
-    def base_op_type(self):
-        return "MatrixVectorActivation"
 
     def execute_node(self, context, graph):
         node = self.onnx_node

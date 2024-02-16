@@ -41,7 +41,10 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hw_layers import InferConvInpGen
+from finn.transformation.fpgadataflow.convert_to_hw_layers import (
+    InferConvInpGen,
+    InferQuantizedMatrixVectorActivation,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
     InferPixelPaddingDeconv,
@@ -164,8 +167,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
 
     model = ref_model.transform(InferPixelPaddingDeconv())
     model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
-    # TODO: uncomment when MV(A)U is in new class hierarchy
-    # model = model.transform(InferQuantizedMatrixVectorActivation())
+    model = model.transform(InferQuantizedMatrixVectorActivation())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
 
@@ -178,7 +180,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
         elif n.op_type == "FMPadding":
             pad_node = getCustomOp(n)
             pad_node.set_nodeattr("preferred_impl_style", "hls")
-        elif n.op_type == "MatrixVectorActivation":
+        elif n.op_type == "MVAU":
             mvau_node = getCustomOp(n)
             mvau_node.set_nodeattr("PE", pe)
             mvau_node.set_nodeattr("SIMD", simd)

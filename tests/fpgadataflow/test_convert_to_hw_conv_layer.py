@@ -135,7 +135,7 @@ def test_convert_to_hw_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode
     else:
         new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
         new_model = new_model.transform(SpecializeLayers())
-        fc_node = new_model.get_nodes_by_op_type("MatrixVectorActivation_hls")[0]
+        fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]
         fc_inst = getCustomOp(fc_node)
         mw = fc_inst.get_nodeattr("MW")
         mh = fc_inst.get_nodeattr("MH")

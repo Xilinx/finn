@@ -176,7 +176,7 @@ class CapConvolutionFIFODepths(Transformation):
                     continue
                 if fifo_cons is None:
                     continue
-                if not fifo_cons.op_type.startswith("MatrixVectorActivation"):
+                if not fifo_cons.op_type.startswith("MVAU"):
                     continue
                 op_inst = getCustomOp(node)
                 depth = op_inst.get_nodeattr("depth")
@@ -259,7 +259,7 @@ class InsertAndSetFIFODepths(Transformation):
     def apply(self, model):
         # these optypes may potentially use external weights
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MatrixVectorActivation_hls", "VectorVectorActivation_hls"]
+        extw_optypes = ["MVAU_hls", "VectorVectorActivation_hls"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
@@ -568,7 +568,7 @@ class SplitLargeFIFOs(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type.startswith("StreamingFIFO"):
+            if node.op_type == ("StreamingFIFO_rtl"):
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
@@ -593,10 +593,10 @@ class SplitLargeFIFOs(Transformation):
                             graph.value_info.append(out_tensor)
                             model.set_tensor_datatype(out_tensor.name, DataType[dtype])
                         fifo_node = helper.make_node(
-                            "StreamingFIFO",
+                            "StreamingFIFO_rtl",
                             [inp],
                             [outp],
-                            domain="finn.custom_op.fpgadataflow",
+                            domain="finn.custom_op.fpgadataflow.rtl",
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
