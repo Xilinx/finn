@@ -127,6 +127,8 @@ default_build_dataflow_steps = [
     "step_hls_codegen",
     "step_hls_ipgen",
     "step_set_fifo_depths",
+    "step_insert_accl",
+    "step_split_dataflow",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",

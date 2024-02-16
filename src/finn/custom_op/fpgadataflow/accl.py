@@ -272,20 +272,19 @@ class ACCLOut(ACCLOp):
         dest = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """
-            accl_out<{}, {}, {}>(
-                {},
+            f"""
+            if (!in0_{self.hls_sname()}.empty()) {{
+            accl_out<{stream_width}, {num_bits}, {step}>(
+                {dest},
                 comm_adr,
                 dpcfg_adr,
                 cmd_to_cclo,
                 sts_from_cclo,
                 data_to_cclo,
-                in0_{},
+                in0_{self.hls_sname()},
                 wait_for_ack
-            );""".format(
-                stream_width, num_bits, step, dest, self.hls_sname()
-            ),
-            """
+            );
+            }}
             #ifdef CPPSIM
             cclo->stop();
             #endif

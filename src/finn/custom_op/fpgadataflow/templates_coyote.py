@@ -1077,7 +1077,7 @@ def get_finn_interface(accl_mode, axilites, intf_names, model):
             coyote_build.AXI4Stream(
                 intf_names["m_axis"][0][0],
                 intf_names["m_axis"][0][1],
-                accl_mode == coyote_build.CoyoteBuild.ACCLMode.ACCL_TLAST
+                accl_mode == coyote_build.CoyoteBuild.ACCLMode.ACCL_IN
                 or accl_mode == coyote_build.CoyoteBuild.ACCLMode.NONE,
                 coyote_build.AXIInterface.Delimiter.UNDERSCORE,
                 False,
@@ -1085,7 +1085,10 @@ def get_finn_interface(accl_mode, axilites, intf_names, model):
         ]
     )
 
-    if accl_mode != coyote_build.CoyoteBuild.ACCLMode.NONE:
+    if (
+        accl_mode == coyote_build.CoyoteBuild.ACCLMode.ACCL_IN_OUT
+        or accl_mode == coyote_build.CoyoteBuild.ACCLMode.ACCL_OUT
+    ):
         finn_interfaces.extend(
             [
                 coyote_build.AXI4Stream(
@@ -1096,22 +1099,8 @@ def get_finn_interface(accl_mode, axilites, intf_names, model):
                     False,
                 ),
                 coyote_build.AXI4Stream(
-                    intf_names["s_axis"][2][0],
-                    intf_names["s_axis"][2][1],
-                    False,
-                    coyote_build.AXIInterface.Delimiter.UNDERSCORE,
-                    False,
-                ),
-                coyote_build.AXI4Stream(
                     intf_names["m_axis"][1][0],
                     intf_names["m_axis"][1][1],
-                    False,
-                    coyote_build.AXIInterface.Delimiter.UNDERSCORE,
-                    False,
-                ),
-                coyote_build.AXI4Stream(
-                    intf_names["m_axis"][2][0],
-                    intf_names["m_axis"][2][1],
                     False,
                     coyote_build.AXIInterface.Delimiter.UNDERSCORE,
                     False,

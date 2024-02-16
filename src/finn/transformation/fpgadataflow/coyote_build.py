@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import copy as copy_class
 import functools
 import json
 import operator
@@ -719,7 +720,7 @@ class CreateStitchedIPForCoyote(Transformation):
         # NOTE: We only want the TLastMarker node at the output since the Coyote interface already
         # provides tlast to the input width converter
         if (
-            self.accl_mode == CoyoteBuild.ACCLMode.ACCL_TLAST
+            self.accl_mode == CoyoteBuild.ACCLMode.ACCL_IN
             or self.accl_mode == CoyoteBuild.ACCLMode.NONE
         ):
             model = model.transform(InsertTLastMarker())
@@ -1137,6 +1138,8 @@ class CoyoteBuild(Transformation):
     def next_power_of_2(x: int):
         return 1 << (x - 1).bit_length()
 
+    rank: int = 0
+
     @staticmethod
     def get_axilites_with_width(wrapper_file: str, axilites: List[str]) -> List[Interface.Signal]:
         """The function reads the actual axilites addresses width directly from the finn_design.v
@@ -1155,12 +1158,16 @@ class CoyoteBuild(Transformation):
         contents = None
         with open(wrapper_file, "r") as f:
             contents = f.read()
+        print(f"Wrapper file for rank {rank}: {wrapper_file}")
 
         assert contents is not None
 
         axilites_with_addr_width: List[Tuple[str, int]] = []
         for axilite in axilites:
-            match = re.search(r"input \[(\d+)\:0\]%s_awaddr" % axilite, contents)
+            pattern = r"input \[(\d+)\:0\]%s_awaddr" % axilite
+            match = re.search(pattern, contents)
+            if not match:
+                print(f"Failed to match: {pattern} for rank {rank}")
             assert match
             addr_width = int(match.group(1)) + 1
             assert addr_width <= 32
@@ -1481,8 +1488,9 @@ class CoyoteBuild(Transformation):
 
     class ACCLMode(Enum):
         NONE = 0
-        ACCL_TLAST = 1
-        ACCL_NO_TLAST = 2
+        ACCL_IN = 1
+        ACCL_OUT = 2
+        ACCL_IN_OUT = 3
 
     @staticmethod
     def __accl_mode(model: ModelWrapper) -> ACCLMode:
@@ -1494,10 +1502,12 @@ class CoyoteBuild(Transformation):
             if "ACCLIn" in node.name:
                 has_accl_in = True
 
-        if has_accl_out and has_accl_in or has_accl_out:
-            return CoyoteBuild.ACCLMode.ACCL_NO_TLAST
+        if has_accl_out and has_accl_in:
+            return CoyoteBuild.ACCLMode.ACCL_IN_OUT
         elif has_accl_in:
-            return CoyoteBuild.ACCLMode.ACCL_TLAST
+            return CoyoteBuild.ACCLMode.ACCL_IN
+        elif has_accl_out:
+            return CoyoteBuild.ACCLMode.ACCL_OUT
         else:
             return CoyoteBuild.ACCLMode.NONE
 
@@ -1524,7 +1534,7 @@ class CoyoteBuild(Transformation):
         return weight_start_idx
 
     def get_hls_address_map(self, model: ModelWrapper, accl_mode: ACCLMode):
-        if accl_mode == CoyoteBuild.ACCLMode.ACCL_TLAST or accl_mode == CoyoteBuild.ACCLMode.NONE:
+        if accl_mode == CoyoteBuild.ACCLMode.ACCL_IN or accl_mode == CoyoteBuild.ACCLMode.NONE:
             tlast_node = model.get_nodes_by_op_type("TLastMarker")
             assert len(tlast_node) == 1
             tlast_op: CustomOp = getCustomOp(tlast_node[0])
@@ -1560,9 +1570,12 @@ class CoyoteBuild(Transformation):
             address_map_file.write("\n".join(address_map))
 
     def apply(self, model: ModelWrapper):
-        # accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
-        # NOTE: ACCL mode disable as missing some functionality in another PR
-        accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.ACCLMode.NONE
+        global rank
+        rank = int(model.get_metadata_prop("rank"))
+        # model = ModelWrapper(
+        #     f"/pub/scratch/adegendt/full_automation/cybersecurity_three/automation_start_{rank}.onnx"
+        # )
+        accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
         is_accl_mode: bool = accl_mode != CoyoteBuild.ACCLMode.NONE
         model.set_metadata_prop("address_map", make_build_dir("address_map_"))
 
@@ -1582,11 +1595,18 @@ class CoyoteBuild(Transformation):
             )
         )
 
+        model.save(
+            "/pub/scratch/adegendt/full_automation"
+            f"/cybersecurity_three/automation_start_{rank}.onnx"
+        )
+
         # Handle FINN interface
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
+        print(f"Interface for rank {rank} is: {intf_names}")
 
         CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
         weight_start_idx = CoyoteBuild.__update_intf_axilite_weight(intf_names["axilite"])
+        print(f"Interface for rank {rank} is: {intf_names}")
 
         if not is_accl_mode:
             assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
@@ -1716,6 +1736,10 @@ class CoyoteBuild(Transformation):
                 instantiations["axi_crossbar_finn_0_inst"] = Instantiation(
                     instantiation_name="axi_crossbar_finn_0_inst", ip=finn_interconnect_bd
                 )
+            else:
+                address_map += ["Address space after FINN HLS bridge:"] + [
+                    "s_axi_control_0\t: 0x0000000000000000"
+                ]
             self.write_address_map_to_file(model=model, address_map=address_map)
 
         coyote_interface: ExternalInterface = (
@@ -1839,29 +1863,50 @@ class CoyoteBuild(Transformation):
 
             # FINN connections
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
-                design, coyote_interface["axis_host_3_sink"], is_self_input=False
-            )
+            if accl_mode == CoyoteBuild.ACCLMode.ACCL_OUT:
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, coyote_interface["axis_host_3_sink"], is_self_input=False
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
-                design, coyote_interface["axis_host_3_src"]
-            )
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][1][0]].connect(
+                    design, instantiations["accl_bd_inst"]["ack_clients_1_0"]
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][1][0]].connect(
-                design, instantiations["accl_bd_inst"]["ack_clients_1_0"]
-            )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["s_axis_krnl_0"]
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["s_axis"][2][0]].connect(
-                design, instantiations["accl_bd_inst"]["m_axis_krnl_0"]
-            )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][1][0]].connect(
+                    design, instantiations["accl_bd_inst"]["cmd_clients_1_0"]
+                )
+            elif accl_mode == CoyoteBuild.ACCLMode.ACCL_IN:
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["m_axis_krnl_0"], is_self_input=False
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][1][0]].connect(
-                design, instantiations["accl_bd_inst"]["cmd_clients_1_0"]
-            )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+                    design, coyote_interface["axis_host_3_src"]
+                )
+            else:
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["m_axis_krnl_0"], is_self_input=False
+                )
+                instantiations["finn_kernel_inst"][intf_names["s_axis"][1][0]].connect(
+                    design, instantiations["accl_bd_inst"]["ack_clients_1_0"]
+                )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+                    design, instantiations["accl_bd_inst"]["s_axis_krnl_0"]
+                )
+                instantiations["finn_kernel_inst"][intf_names["m_axis"][1][0]].connect(
+                    design, instantiations["accl_bd_inst"]["cmd_clients_1_0"]
+                )
 
-            instantiations["finn_kernel_inst"][intf_names["m_axis"][2][0]].connect(
-                design, instantiations["accl_bd_inst"]["s_axis_krnl_0"]
-            )
+            for interface_name, interface in instantiations["accl_bd_inst"].ip.interfaces.items():
+                if not interface.connected and isinstance(interface, AXI4Stream):
+                    coyote_interface.interfaces.update(
+                        {f"{interface_name}_dummy": copy_class.deepcopy(interface)}
+                    )
+                    interface.connect(design, coyote_interface[f"{interface_name}_dummy"])
 
         else:
             instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(

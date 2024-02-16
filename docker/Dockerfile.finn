@@ -38,6 +38,11 @@ WORKDIR /workspace
 ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
+ENV http_proxy http://proxy.ethz.ch:3128
+ENV https_proxy http://proxy.ethz.ch:3128
+ENV HTTPS_PROXY http://proxy.ethz.ch:3128
+ENV HTTP_PROXY http://proxy.ethz.ch:3128
+
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
@@ -61,10 +66,19 @@ RUN apt-get update && \
     python3 \
     python-is-python3 \
     python3-pip \
+    python3-setuptools-scm \
+    python3-venv \
+    # support Coyote
     cmake \
+    # support ACCL
     xvfb \
     libgtk-3-dev \
-    libtinfo5
+    libtinfo5 \
+    doxygen \
+    libboost-dev \
+    libjsoncpp-dev \
+    libtclap-dev \
+    libzmq3-dev
 
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
@@ -128,24 +142,10 @@ RUN pip install tokenize-rt==4.2.1
 # pyverilator
 RUN pip install tclwrapper==0.0.1
 
-# install accl and dependencies
-# for hls driver and the emulator the main branch should be fine
-RUN apt-get update && \
-    apt-get install -y \
-    cmake \
-    doxygen \
-    libboost-dev \
-    libjsoncpp-dev \
-    libtclap-dev \
-    libzmq3-dev \
-    xvfb
-
 RUN git clone https://github.com/zeromq/zmqpp && \
     cd zmqpp && \
     make && \
     make install PREFIX=/usr/
-
-RUN git clone https://github.com/Xilinx/ACCL --recursive
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
