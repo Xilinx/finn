@@ -218,7 +218,7 @@ class ACCLOut(ACCLOp):
             "#pragma HLS INTERFACE axis port=in0_{}".format(self.hls_sname()),
             "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
             "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
-            "#pragma HLS INTERFACE s_axilite port=return bundle=control",
+            "#pragma HLS INTERFACE ap_ctrl_none port=return",
         ]
 
     def strm_decl(self):
@@ -515,8 +515,5 @@ class ACCLIn(ACCLOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
-
         intf_names["s_axis"] = [("data_from_cclo", accl_word_size)]
-        intf_names["axilite"] = ["s_axi_control"]
-
         return intf_names
