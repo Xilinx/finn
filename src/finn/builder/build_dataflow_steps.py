@@ -573,6 +573,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 InsertAndSetFIFODepths(
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
+                    swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     force_python_sim=force_python_sim,
                 )

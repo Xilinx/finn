@@ -296,6 +296,10 @@ class DataflowBuildConfig:
     #: Which memory mode will be used for compute layers
     default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
 
+    #: Call CapConvolutionFIFODepths in InsertAndSetFIFODepths transform
+    #: to make convolution FIFOs smaller where appropriate
+    default_swg_exception: Optional[bool] = False
+
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
