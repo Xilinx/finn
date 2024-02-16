@@ -601,4 +601,4 @@ class MatrixVectorActivation_hls(MatrixVectorActivation, HLSBackend):
         if self.get_nodeattr("mem_mode") == "decoupled":
             cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
-            cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name))
+            cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))
