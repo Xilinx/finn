@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.accl import ACCLIn, ACCLOut
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.checksum import CheckSum
@@ -43,6 +44,7 @@ from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
+from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
@@ -83,6 +85,7 @@ custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
 custom_op["Pool_Batch"] = Pool_Batch
 custom_op["FMPadding_Batch"] = FMPadding_Batch
+custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
@@ -97,3 +100,5 @@ custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["ACCLIn"] = ACCLIn
+custom_op["ACCLOut"] = ACCLOut
