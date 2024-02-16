@@ -517,6 +517,6 @@ class ACCLIn(ACCLOp):
         intf_names = super().get_verilog_top_module_intf_names()
 
         intf_names["s_axis"] = [("data_from_cclo", accl_word_size)]
-        intf_names["axilite"] = ["s_axi_control"]
+        # intf_names["axilite"] = ["s_axi_control"]
 
         return intf_names
