@@ -670,6 +670,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "deep_pipeline",
         "inFIFODepths",
         "outFIFODepths",
+        "pumpedCompute",
+        "pumpedMemory",
     ]
     extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
