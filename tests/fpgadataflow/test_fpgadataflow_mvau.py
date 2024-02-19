@@ -153,7 +153,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -236,7 +236,7 @@ def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -329,7 +329,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -431,7 +431,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
+def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh, backend
 ):
     if nf == -1:
@@ -538,7 +538,7 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
+def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
     if nf == -1:
         nf = mh
     if sf == -1:
