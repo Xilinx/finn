@@ -69,7 +69,7 @@ class ACCLOp(HLSCustomOp):
         with ACCLOp.lock:
             barrier = ACCLOp.barriers[edge_name]
 
-        timeout_s = 20
+        timeout_s = None
         idx = barrier.wait(timeout=timeout_s)
 
         emulator = None
@@ -251,7 +251,6 @@ class ACCLOut(ACCLOp):
             "std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});".format(
                 world_size, rank, start_port
             ),
-            "bool wait_for_ack = true;",
             "ap_uint<32> comm_adr = accl->get_communicator_addr();",
             """
             ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr(
@@ -280,8 +279,7 @@ class ACCLOut(ACCLOp):
                 cmd_to_cclo,
                 sts_from_cclo,
                 data_to_cclo,
-                in0_{},
-                wait_for_ack
+                in0_{}
             );""".format(
                 stream_width, num_bits, step, dest, self.hls_sname()
             ),
@@ -354,8 +352,7 @@ class ACCLOut(ACCLOp):
                 STREAM<stream_word> &data_to_cclo,
                 ap_uint<32> comm_adr,
                 ap_uint<32> dpcfg_adr,
-                hls::stream<ap_uint<{}>> &in0_{},
-                bool wait_for_ack
+                hls::stream<ap_uint<{}>> &in0_{}
             )""".format(
                 self.onnx_node.name, self.get_instream_width(), self.hls_sname()
             )
