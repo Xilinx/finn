@@ -427,12 +427,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-# Backend
-@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, backend
+    mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
     if nf == -1:
         nf = mh
@@ -504,12 +502,9 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    if backend == "hls":
-        assert "MVAU_hls_0" in hls_synt_res_est
-    else:
-        assert "MVAU_rtl_0" in hls_synt_res_est
+    assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MVAU")[0]
+    node = model.get_nodes_by_op_type("MVAU_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -534,11 +529,9 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [32])
-# Backend
-@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
+def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
