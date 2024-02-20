@@ -15,7 +15,6 @@ void accl_out(
     STREAM<command_word> &sts_from_cclo,
     STREAM<stream_word> &data_to_cclo,
     hls::stream<ap_uint<stream_width>> &in,
-    bool wait_for_ack
 ) {
     STREAM<stream_word> data_from_cclo;
 
@@ -62,7 +61,6 @@ void accl_out(
         data.push(accl_word, 0);
     }
 
-
     unsigned int data_from_cclo_id = 9;
 
     // Currently the hls driver does not allow us to call stream_put in a non-blocking
@@ -78,7 +76,7 @@ void accl_out(
     std::cerr << "accl_out waiting on ack" << std::endl;
 #endif
 
-    if (wait_for_ack) accl.finalize_call();
+    accl.finalize_call();
 
 #ifdef CPPSIM
     std::cerr << "accl_out finished" << std::endl;

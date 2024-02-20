@@ -251,7 +251,6 @@ class ACCLOut(ACCLOp):
             "std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});".format(
                 world_size, rank, start_port
             ),
-            "bool wait_for_ack = true;",
             "ap_uint<32> comm_adr = accl->get_communicator_addr();",
             """
             ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr(
@@ -281,7 +280,6 @@ class ACCLOut(ACCLOp):
                 sts_from_cclo,
                 data_to_cclo,
                 in0_{},
-                wait_for_ack
             );""".format(
                 stream_width, num_bits, step, dest, self.hls_sname()
             ),
@@ -355,7 +353,6 @@ class ACCLOut(ACCLOp):
                 ap_uint<32> comm_adr,
                 ap_uint<32> dpcfg_adr,
                 hls::stream<ap_uint<{}>> &in0_{},
-                bool wait_for_ack
             )""".format(
                 self.onnx_node.name, self.get_instream_width(), self.hls_sname()
             )
