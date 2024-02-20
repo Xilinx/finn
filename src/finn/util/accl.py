@@ -5,6 +5,8 @@ from pathlib import Path
 from finn.util.basic import alveo_part_map, make_build_dir
 
 def clone_repo():
+    finn_cwd = os.getcwd()
+
     accl_proj_dir = Path(make_build_dir(prefix="accl_proj_"))
     accl_repo_dir = accl_proj_dir / "ACCL"
 
@@ -30,6 +32,8 @@ def clone_repo():
     assert (
         process_git_submodule.returncode == 0
     ), "Failed to update submodules. Command is: %s" % " ".join(git_submodule_cmd)
+
+    os.chdir(finn_cwd)
 
     return str(accl_repo_dir)
 
