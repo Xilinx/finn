@@ -14,7 +14,7 @@ void accl_out(
     STREAM<command_word> &cmd_to_cclo,
     STREAM<command_word> &sts_from_cclo,
     STREAM<stream_word> &data_to_cclo,
-    hls::stream<ap_uint<stream_width>> &in,
+    hls::stream<ap_uint<stream_width>> &in
 ) {
     STREAM<stream_word> data_from_cclo;
 

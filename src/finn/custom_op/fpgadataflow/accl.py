@@ -69,7 +69,7 @@ class ACCLOp(HLSCustomOp):
         with ACCLOp.lock:
             barrier = ACCLOp.barriers[edge_name]
 
-        timeout_s = 20
+        timeout_s = None
         idx = barrier.wait(timeout=timeout_s)
 
         emulator = None
@@ -279,7 +279,7 @@ class ACCLOut(ACCLOp):
                 cmd_to_cclo,
                 sts_from_cclo,
                 data_to_cclo,
-                in0_{},
+                in0_{}
             );""".format(
                 stream_width, num_bits, step, dest, self.hls_sname()
             ),
@@ -352,7 +352,7 @@ class ACCLOut(ACCLOp):
                 STREAM<stream_word> &data_to_cclo,
                 ap_uint<32> comm_adr,
                 ap_uint<32> dpcfg_adr,
-                hls::stream<ap_uint<{}>> &in0_{},
+                hls::stream<ap_uint<{}>> &in0_{}
             )""".format(
                 self.onnx_node.name, self.get_instream_width(), self.hls_sname()
             )
