@@ -753,6 +753,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # TODO add flips/reversals as needed here
             # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
             pe = self.get_nodeattr("PE")
+            ch = self.get_nodeattr("NumChannels")
             n_thres_steps = self.get_nodeattr("numSteps")
             decoupled_thres_pe_flipped = np.flip(decoupled_thres, axis=-2)
             decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
@@ -762,21 +763,32 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             )
             decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
             width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
-            # # zero pad the row
             weight_padded = np.zeros((weights.shape[0],width_padded))
             weight_padded[:weights.shape[0], :n_thres_steps ] = weights
             weight_stream = []
-            for channel in weight_padded:
-                for weight in channel:
-                    wdt = self.get_weight_datatype()
-                    bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
-                    weight_stream.append(pack_innermost_dim_as_hex_string(
-                        [weight], wdt, bw_hexdigit, prefix=""
-                    ).item())
+            wdt = self.get_weight_datatype()
+            bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
+            padding = np.zeros(width_padded, dtype=np.int32)
 
+            chan_ind = 0
+            cf = ch//pe
+            for fold in range(cf):
+                for c in range(2**pe.bit_length()):
+                    if (c==0 or c%pe != 0) and c < pe:
+                        for w in weight_padded[chan_ind]:
+                            w_packed = pack_innermost_dim_as_hex_string(
+                                [w], wdt, bw_hexdigit, prefix=""
+                            ).item()
+                            weight_stream.append(w_packed)
+                        chan_ind +=1
+                    else:
+                        for z in padding:
+                            w_packed = pack_innermost_dim_as_hex_string(
+                                [z], wdt, bw_hexdigit, prefix=""
+                            ).item()
+                            weight_stream.append(w_packed)
             with open(weight_file_name, "w") as f:
                 for val in weight_stream:
                     f.write(val + "\n")
-
         else:
             raise Exception("Unknown weight_file_mode")
