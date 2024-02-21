@@ -196,7 +196,7 @@ module thresholding_tb #(
 				end
 			join_any
 			done <= 1;
-			repeat((DEEP_PIPELINE+1)*N+6)  @(posedge clk);
+			repeat((DEEP_PIPELINE+1)*N+8)  @(posedge clk);
 
 			assert(QW.size() == 0) else begin
 				$error("[%0d] Missing %0d outputs.", i, QW.size());

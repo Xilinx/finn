@@ -146,16 +146,32 @@ module thresholding #(
 		end
 
 		// PE Configuration Address Decoding
-		uwire  cfg_sel[PE];
-		if(PE == 1)  assign  cfg_sel[0] = 1;
+		logic  cfg_sel[PE];
+		logic  cfg_oob;
+		logic [N-1:0]  cfg_ofs;
+		if(PE == 1) begin
+			assign	cfg_sel[0] = 1;
+			assign	cfg_oob = 0;
+			assign	cfg_ofs = cfg_a[0+:N];
+		end
 		else begin
-			for(genvar  pe = 0; pe < PE; pe++) begin
-				assign	cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_a[N+:$clog2(PE)] == pe);
+			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[N+:$clog2(PE)];
+			always_comb begin
+				foreach(cfg_sel[pe]) begin
+					cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_pe == pe);
+				end
+				cfg_oob = (cfg_pe >= PE);
+				cfg_ofs = cfg_a[0+:N];
+				if(cfg_oob && !cfg_we) begin
+					// Map readbacks from padded rows (non-existent PEs) to padded highest threshold index of first PE
+					cfg_sel[0] = 1;
+					cfg_ofs = '1;
+				end
 			end
 		end
 
 		uwire ptr_t  iptr;
-		assign	iptr[0+:N] = cfg_a[0+:N];
+		assign	iptr[0+:N] = cfg_ofs;
 		if(CF > 1) begin
 			// Channel Fold Rotation
 			logic [$clog2(CF)-1:0]  CnlCnt = 0;
