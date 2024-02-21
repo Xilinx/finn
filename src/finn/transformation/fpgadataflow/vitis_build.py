@@ -84,11 +84,13 @@ class CreateVitisXO(Transformation):
     def __init__(self, ip_name="finn_design"):
         super().__init__()
         self.ip_name = ip_name
+        print(f"[DBG HELP] Calling CreateVitisXO with ip_name {ip_name}")
 
     def apply(self, model):
         _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
+        print(f"[DBG HELP] vivado stitched id proj dir: {stitched_ip_dir}")
         interfaces = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
         args_string = []
         arg_id = 0
@@ -131,6 +133,7 @@ class CreateVitisXO(Transformation):
         xo_name = self.ip_name + ".xo"
         xo_path = vivado_proj_dir + "/" + xo_name
         model.set_metadata_prop("vitis_xo", xo_path)
+        print(f"[DBG HELP] Creating Vitis XO file with the name {xo_name} at path {xo_path}")
 
         # generate the package_xo command in a tcl script
         package_xo_string = "package_xo -force -xo_path %s -kernel_name %s -ip_directory %s" % (
@@ -187,6 +190,7 @@ class VitisLink(Transformation):
         object_files = []
         idma_idx = 0
         odma_idx = 0
+        mem_idx = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -194,6 +198,7 @@ class VitisLink(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_xo = kernel_model.get_metadata_prop("vitis_xo")
+            print(f"[DBG HELP LINK] Looking at node {node.name} with vitis_xo attribute field value {kernel_xo}")
             object_files.append(kernel_xo)
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
@@ -212,13 +217,16 @@ class VitisLink(Transformation):
             # check top-level in/out list instead
             if producer is None:
                 instance_names[node.name] = "idma" + str(idma_idx)
+                print(f"[DBG HELP LINK] Renaming node {node.name} into {instance_names[node.name]} for the instance!")
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 idma_idx += 1
             elif consumer == []:
                 instance_names[node.name] = "odma" + str(odma_idx)
+                print(f"[DBG HELP LINK] Renaming node {node.name} into {instance_names[node.name]} for the instance!")
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 odma_idx += 1
             else:
+                print(f"[DBG HELP LINK] Node name {node.name} keeps its name as an instance!")
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
@@ -227,18 +235,20 @@ class VitisLink(Transformation):
             if node_slr != -1:
                 config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
             # assign memory banks
-            if producer is None or consumer is None:
+            if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
                     if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
-                        mem_idx = 0
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        mem_idx += 1
                     elif "u200" in self.platform:
                         # Use DDR controller in static region of U200
                         mem_type = "DDR"
                         mem_idx = 1
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     elif "u250" in self.platform:
                         # Use DDR controller on the node's SLR if set, otherwise 0
                         mem_type = "DDR"
@@ -246,10 +256,11 @@ class VitisLink(Transformation):
                             mem_idx = 0
                         else:
                             mem_idx = node_slr
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     else:
                         mem_type = "DDR"
                         mem_idx = 1
-                    node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                 config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
@@ -267,8 +278,11 @@ class VitisLink(Transformation):
                             )
                         )
 
+        print(f"[DBG HELP LINK] Linking together object files: {object_files}")
+
         # create a temporary folder for the project
         link_dir = make_build_dir(prefix="vitis_link_proj_")
+        print(f"[DBG HELP LINK] Setting link directory for vitis_link_proj to {link_dir}")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
         # add Vivado physopt directives if desired
@@ -398,6 +412,7 @@ class VitisBuild(Transformation):
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
+            print(f"[DBG HELP BUILD] Creating a stitched ip for the node {sdp_node.name}")
             prefix = sdp_node.name + "_"
             sdp_node = getCustomOp(sdp_node)
             dataflow_model_filename = sdp_node.get_nodeattr("model")

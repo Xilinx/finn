@@ -40,6 +40,7 @@ __pycache__/*
 .cache/*
 .*.swp
 *.ipynb_checkpoints*
+*.sif
 
 # Project files
 .vscode
@@ -65,6 +66,7 @@ coverage.xml
 .pytest_cache/
 
 # Build and docs folder/files
+finn_build_single_job.sh
 build/*
 dist/*
 sdist/*

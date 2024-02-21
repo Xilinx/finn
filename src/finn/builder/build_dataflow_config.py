@@ -61,6 +61,7 @@ class DataflowOutputType(str, Enum):
     RTLSIM_PERFORMANCE = "rtlsim_performance"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
+    CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
@@ -91,6 +92,12 @@ class LargeFIFOMemStyle(str, Enum):
     BRAM = "block"
     LUTRAM = "distributed"
     URAM = "ultra"
+
+
+class CPPDriverTransferType(str, Enum):
+    """A stream transfer directly """
+    STREAM = "stream"
+    MEMORY_BUFFERED = "memory_buffered"
 
 
 class VerificationStepType(str, Enum):
@@ -129,6 +136,7 @@ default_build_dataflow_steps = [
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_make_pynq_driver",
+    "step_make_cpp_driver",
     "step_deployment_package",
 ]
 
@@ -350,6 +358,15 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
+
+    #: Determine which type of data transfer the driver should use. 
+    #: Stream streams the data directly into the pipeline, memory_buffered writes to board memory first
+    cpp_driver_transfer_type : Optional[CPPDriverTransferType] = None
+    
+    #: If set to True, the C++ Driver will be build inside the container during synthesis
+    #: Otherwise, building the C++ driver will be skipped
+    cpp_driver_build_during_synthesis : Optional[bool] = False
+
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

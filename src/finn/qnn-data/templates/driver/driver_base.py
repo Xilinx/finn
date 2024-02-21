@@ -78,6 +78,7 @@ class FINNExampleOverlay(Overlay):
             Path to runtime weights folder.
         """
         super().__init__(bitfile_name, download=download, device=device)
+        self.device = device
         self.runtime_weight_dir = runtime_weight_dir
         self._io_shape_dict = io_shape_dict
         self.ibuf_packed_device = None
