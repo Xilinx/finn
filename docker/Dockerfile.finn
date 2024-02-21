@@ -38,11 +38,6 @@ WORKDIR /workspace
 ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-ENV http_proxy http://proxy.ethz.ch:3128
-ENV https_proxy http://proxy.ethz.ch:3128
-ENV HTTPS_PROXY http://proxy.ethz.ch:3128
-ENV HTTP_PROXY http://proxy.ethz.ch:3128
-
 RUN apt-get update && \
     apt-get install -y \
     build-essential \

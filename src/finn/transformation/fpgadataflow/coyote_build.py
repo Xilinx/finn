@@ -1138,8 +1138,6 @@ class CoyoteBuild(Transformation):
     def next_power_of_2(x: int):
         return 1 << (x - 1).bit_length()
 
-    rank: int = 0
-
     @staticmethod
     def get_axilites_with_width(wrapper_file: str, axilites: List[str]) -> List[Interface.Signal]:
         """The function reads the actual axilites addresses width directly from the finn_design.v
@@ -1158,7 +1156,6 @@ class CoyoteBuild(Transformation):
         contents = None
         with open(wrapper_file, "r") as f:
             contents = f.read()
-        print(f"Wrapper file for rank {rank}: {wrapper_file}")
 
         assert contents is not None
 
@@ -1166,8 +1163,6 @@ class CoyoteBuild(Transformation):
         for axilite in axilites:
             pattern = r"input \[(\d+)\:0\]%s_awaddr" % axilite
             match = re.search(pattern, contents)
-            if not match:
-                print(f"Failed to match: {pattern} for rank {rank}")
             assert match
             addr_width = int(match.group(1)) + 1
             assert addr_width <= 32
@@ -1570,11 +1565,6 @@ class CoyoteBuild(Transformation):
             address_map_file.write("\n".join(address_map))
 
     def apply(self, model: ModelWrapper):
-        global rank
-        rank = int(model.get_metadata_prop("rank"))
-        # model = ModelWrapper(
-        #     f"/pub/scratch/adegendt/full_automation/cybersecurity_three/automation_start_{rank}.onnx"
-        # )
         accl_mode: CoyoteBuild.ACCLMode = CoyoteBuild.__accl_mode(model)
         is_accl_mode: bool = accl_mode != CoyoteBuild.ACCLMode.NONE
         model.set_metadata_prop("address_map", make_build_dir("address_map_"))
@@ -1595,18 +1585,11 @@ class CoyoteBuild(Transformation):
             )
         )
 
-        model.save(
-            "/pub/scratch/adegendt/full_automation"
-            f"/cybersecurity_three/automation_start_{rank}.onnx"
-        )
-
         # Handle FINN interface
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
-        print(f"Interface for rank {rank} is: {intf_names}")
 
         CoyoteBuild.__update_intf_axilite_control(intf_names["axilite"])
         weight_start_idx = CoyoteBuild.__update_intf_axilite_weight(intf_names["axilite"])
-        print(f"Interface for rank {rank} is: {intf_names}")
 
         if not is_accl_mode:
             assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
