@@ -95,7 +95,8 @@ class LargeFIFOMemStyle(str, Enum):
 
 
 class CPPDriverTransferType(str, Enum):
-    """A stream transfer directly """
+    """A stream transfer directly"""
+
     STREAM = "stream"
     MEMORY_BUFFERED = "memory_buffered"
 
@@ -359,14 +360,15 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by HLS implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
-    #: Determine which type of data transfer the driver should use. 
-    #: Stream streams the data directly into the pipeline, memory_buffered writes to board memory first
-    cpp_driver_transfer_type : Optional[CPPDriverTransferType] = None
-    
+    #: Determine which type of data transfer the driver should use.
+    #: Stream streams the data directly into the pipeline, memory_buffered writes
+    #: to board memory first
+    cpp_driver_transfer_type: Optional[CPPDriverTransferType] = None
+
     #: If set to True, the C++ Driver will be build inside the container during synthesis
     #: Otherwise, building the C++ driver will be skipped
-    cpp_driver_build_during_synthesis : Optional[bool] = False
-
+    # TODO: Change container to make build during synthesis possible
+    cpp_driver_build_during_synthesis: Optional[bool] = False
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
