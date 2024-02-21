@@ -198,7 +198,6 @@ class VitisLink(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_xo = kernel_model.get_metadata_prop("vitis_xo")
-            print(f"[DBG HELP LINK] Looking at node {node.name} with vitis_xo attribute field value {kernel_xo}")
             object_files.append(kernel_xo)
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
@@ -217,16 +216,13 @@ class VitisLink(Transformation):
             # check top-level in/out list instead
             if producer is None:
                 instance_names[node.name] = "idma" + str(idma_idx)
-                print(f"[DBG HELP LINK] Renaming node {node.name} into {instance_names[node.name]} for the instance!")
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 idma_idx += 1
             elif consumer == []:
                 instance_names[node.name] = "odma" + str(odma_idx)
-                print(f"[DBG HELP LINK] Renaming node {node.name} into {instance_names[node.name]} for the instance!")
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 odma_idx += 1
             else:
-                print(f"[DBG HELP LINK] Node name {node.name} keeps its name as an instance!")
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
@@ -243,7 +239,7 @@ class VitisLink(Transformation):
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                        mem_idx += 1
+                        # mem_idx += 1
                     elif "u200" in self.platform:
                         # Use DDR controller in static region of U200
                         mem_type = "DDR"

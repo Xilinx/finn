@@ -89,7 +89,7 @@ io_shape_dict = {
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Execute FINN-generated accelerator on numpy inputs, or run throughput test')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="alveo")
+    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="$PLATFORM$")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--device', help='FPGA device to be used', type=int, default=0)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
