@@ -30,7 +30,7 @@ import qonnx.custom_op.registry as registry
 import warnings
 import xml.etree.ElementTree as ET
 
-from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 def hls_synth_res_estimation(model):
@@ -44,7 +44,7 @@ def hls_synth_res_estimation(model):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) and is_hls_node(node):
+        if is_hls_node(node):
             # init values to zero
             res_dict[node.name] = dict()
             res_dict[node.name]["BRAM_18K"] = 0

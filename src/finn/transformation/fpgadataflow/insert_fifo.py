@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,8 +46,8 @@ def _is_fifo_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
-            if _is_fifo_node(node) is False:
+        if is_fpgadataflow_node(node):
+            if not _is_fifo_node(node):
                 return True
             else:
                 return False

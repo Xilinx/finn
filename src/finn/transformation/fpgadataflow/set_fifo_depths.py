@@ -49,7 +49,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
 
@@ -265,7 +265,9 @@ class InsertAndSetFIFODepths(Transformation):
         modified_fc_nodes = []
         for node in model.graph.node:
             # verify assumptions
-            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(node)
+            assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
+                node
+            )
             op_type = node.op_type
             assert not op_type.startswith("StreamingFIFO"), "Found existing StreamingFIFO node"
             node = getCustomOp(node)

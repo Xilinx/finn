@@ -32,11 +32,11 @@ import qonnx.custom_op.registry as registry
 import warnings
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 class HLSSynthIP(NodeLocalTransformation):
-    """For each node: generate IP block from code in folder
+    """For each HLS node: generate IP block from code in folder
     that is referenced in node attribute "code_gen_dir_ipgen"
     and save path of generated project in node attribute "ipgen_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
@@ -55,7 +55,7 @@ class HLSSynthIP(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) and is_hls_node(node):
+        if is_hls_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)

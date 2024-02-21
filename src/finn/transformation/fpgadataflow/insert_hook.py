@@ -34,7 +34,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def _is_hook_node(node):
@@ -46,8 +46,8 @@ def _is_hook_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
-            if _is_hook_node(node) is False:
+        if is_hls_node(node) or is_rtl_node(node):
+            if not _is_hook_node(node):
                 return True
             else:
                 return False
