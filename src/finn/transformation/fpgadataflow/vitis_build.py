@@ -84,13 +84,11 @@ class CreateVitisXO(Transformation):
     def __init__(self, ip_name="finn_design"):
         super().__init__()
         self.ip_name = ip_name
-        print(f"[DBG HELP] Calling CreateVitisXO with ip_name {ip_name}")
 
     def apply(self, model):
         _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
-        print(f"[DBG HELP] vivado stitched id proj dir: {stitched_ip_dir}")
         interfaces = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
         args_string = []
         arg_id = 0
@@ -133,7 +131,6 @@ class CreateVitisXO(Transformation):
         xo_name = self.ip_name + ".xo"
         xo_path = vivado_proj_dir + "/" + xo_name
         model.set_metadata_prop("vitis_xo", xo_path)
-        print(f"[DBG HELP] Creating Vitis XO file with the name {xo_name} at path {xo_path}")
 
         # generate the package_xo command in a tcl script
         package_xo_string = "package_xo -force -xo_path %s -kernel_name %s -ip_directory %s" % (
@@ -274,11 +271,8 @@ class VitisLink(Transformation):
                             )
                         )
 
-        print(f"[DBG HELP LINK] Linking together object files: {object_files}")
-
         # create a temporary folder for the project
         link_dir = make_build_dir(prefix="vitis_link_proj_")
-        print(f"[DBG HELP LINK] Setting link directory for vitis_link_proj to {link_dir}")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
         # add Vivado physopt directives if desired
@@ -408,7 +402,6 @@ class VitisBuild(Transformation):
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
-            print(f"[DBG HELP BUILD] Creating a stitched ip for the node {sdp_node.name}")
             prefix = sdp_node.name + "_"
             sdp_node = getCustomOp(sdp_node)
             dataflow_model_filename = sdp_node.get_nodeattr("model")
