@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
@@ -115,7 +116,7 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
-@pytest.mark.parametrize("impl_style", ["hls"])  # TODO: add rtl later
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_multithreshold_to_hardware(
@@ -162,7 +163,10 @@ def test_convert_multithreshold_to_hardware(
     )
 
     model = model.transform(InferThresholdingLayer())
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", impl_style)
     model = model.transform(SpecializeLayers())
     model = model.transform(InferShapes())
-    # TODO functional verification
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
