@@ -227,8 +227,9 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
     assert (y_produced == y_expected).all()
 
     if exec_mode == "rtlsim":
-        hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-        assert model.graph.node[0].name in hls_synt_res_est
+        if impl_style == "hls":
+            hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+            assert model.graph.node[0].name in hls_synt_res_est
         node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
