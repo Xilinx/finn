@@ -1,14 +1,13 @@
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.create_generic_partitions import PartitionFromLambda
-from qonnx.util.basic import get_by_name
 
 from finn.util.basic import make_build_dir
 
+
 class SplitDataflow(Transformation):
     def __init__(self):
-        self.partition_model_dir = make_build_dir('distributed_partitions_')
+        self.partition_model_dir = make_build_dir("distributed_partitions_")
 
     def apply(self, model):
         def assign_partition_id(node):
@@ -30,7 +29,5 @@ class SplitDataflow(Transformation):
             p_node.domain = "finn.custom_op.fpgadataflow"
             new_p_node_inst = getCustomOp(p_node)
             new_p_node_inst.set_nodeattr("device_id", partition_ind)
-
-        model.save('model.onnx')
 
         return (model, False)
