@@ -773,7 +773,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             chan_ind = 0
             cf = ch//pe
             for fold in range(cf):
-                for c in range(2**pe.bit_length()):
+                for c in range(2**(pe-1).bit_length()):
                     if (c==0 or c%pe != 0) and c < pe:
                         for w in weight_padded[chan_ind]:
                             w_packed = pack_innermost_dim_as_hex_string(
