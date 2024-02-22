@@ -276,10 +276,12 @@ def test_runtime_thresholds_read(impl_style,cfg):
 
     op_inst = getCustomOp(model.graph.node[0])
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
-    op_inst.make_weight_file(T, "decoupled_runtime", "old_weights.dat")
-    with open("old_weights.dat", "r") as f:
+
+    dat_fname = f"old_weights_{cfg}.dat"
+    op_inst.make_weight_file(T, "decoupled_runtime", dat_fname)
+    with open(dat_fname, "r") as f:
         old_weight_stream = f.read().strip()
-    os.remove("old_weights.dat")
+    os.remove(dat_fname)
     old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
     old_weight_stream = list(old_weight_stream)
     # need to create stitched IP for runtime weight testing
@@ -378,10 +380,11 @@ def test_runtime_thresholds_write(impl_style,cfg):
     # provide non-decreasing thresholds
     T_write = np.sort(T_write, axis=1)
 
-    op_inst.make_weight_file(T_write, "decoupled_runtime", "T_write.dat")
-    with open("T_write.dat", "r") as f:
+    dat_fname = f"T_write_{cfg}.dat" # distinguish fname per paramter for distributed testing
+    op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
+    with open(dat_fname, "r") as f:
         T_write_stream = f.read().strip()
-    os.remove("T_write.dat")
+    os.remove(dat_fname)
 
     T_write_stream = map(lambda x: int(x, 16), T_write_stream.split("\n"))
     T_write_stream = list(T_write_stream)
@@ -402,8 +405,6 @@ def test_runtime_thresholds_write(impl_style,cfg):
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    # trace_file = "trace_wr_01.vcd"
-    # model.set_metadata_prop("rtlsim_trace",trace_file)
     exec_ctx_write = {"inp": in_tensor}
     def write_weights(sim):
         addr = 0
