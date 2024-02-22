@@ -56,7 +56,9 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-pip install --no-build-isolation --no-warn-script-location -e ${FINN_ROOT}/deps/qonnx
+mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
+pip install --user -e ${FINN_ROOT}/deps/qonnx
+mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
 # finn-experimental
 pip install --user -e ${FINN_ROOT}/deps/finn-experimental
 # brevitas
