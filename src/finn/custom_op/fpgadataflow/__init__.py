@@ -40,7 +40,7 @@ from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
 from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
@@ -59,7 +59,7 @@ custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
-custom_op["MatrixVectorActivation"] = MatrixVectorActivation
+custom_op["MVAU"] = MVAU
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding"] = Thresholding
 custom_op["VectorVectorActivation"] = VectorVectorActivation

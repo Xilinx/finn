@@ -116,9 +116,9 @@ def test_infer_data_layouts_cnv():
     # since the concept of channels changes with lowering... but it is
     # conceptually close to NHWC since the innermost dim gets multiplied
     assert model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("MatrixVectorActivation_3_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("MVAU_3_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("MatrixVectorActivation_6_out0") == DataLayout.NC
+    assert model.get_tensor_layout("MVAU_6_out0") == DataLayout.NC
     assert model.get_tensor_layout("global_out") == DataLayout.NC
 
     os.remove(export_onnx_path_cnv)

@@ -41,9 +41,7 @@ from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
-from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import (
-    MatrixVectorActivation_hls,
-)
+from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
@@ -81,5 +79,5 @@ custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
 custom_op["Thresholding_hls"] = Thresholding_hls
 custom_op["TLastMarker_hls"] = TLastMarker_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
-custom_op["MatrixVectorActivation_hls"] = MatrixVectorActivation_hls
+custom_op["MVAU_hls"] = MVAU_hls
 custom_op["VectorVectorActivation_hls"] = VectorVectorActivation_hls

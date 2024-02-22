@@ -35,7 +35,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 def _codegen_single_node(node, model):
@@ -79,7 +79,7 @@ class PrepareCppSim(Transformation):
             self._num_workers = mp.cpu_count()
 
     def prepareCppSim_node(self, node):
-        if is_fpgadataflow_node(node) and is_hls_node(node):
+        if is_hls_node(node):
             _codegen_single_node(node, self.model)
         return (node, False)
 

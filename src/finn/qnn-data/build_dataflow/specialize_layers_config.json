@@ -3,25 +3,25 @@
   "Thresholding_0": {
     "preferred_impl_style": "hls"
   },
-  "MatrixVectorActivation_0": {
+  "MVAU_0": {
     "preferred_impl_style": "hls"
   },
   "Thresholding_1": {
     "preferred_impl_style": ""
   },
-  "MatrixVectorActivation_1": {
+  "MVAU_1": {
     "preferred_impl_style": ""
   },
   "Thresholding_2": {
     "preferred_impl_style": ""
   },
-  "MatrixVectorActivation_2": {
+  "MVAU_2": {
     "preferred_impl_style": ""
   },
   "Thresholding_3": {
     "preferred_impl_style": "rtl"
   },
-  "MatrixVectorActivation_3": {
+  "MVAU_3": {
     "preferred_impl_style": ""
   },
   "LabelSelect_0": {

@@ -43,7 +43,7 @@ def _is_dwc_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node):
             if _is_dwc_node(node):
                 # no DWC for DWCs
                 return False
@@ -88,7 +88,7 @@ class InsertDWC(Transformation):
                         # - if FC and external mem, it could be connected to input 1
                         # - if concat, could be connected to any input
                         if (
-                            consumer.op_type.startswith("MatrixVectorActivation")
+                            consumer.op_type.startswith("MVAU")
                             and n1.get_nodeattr("mem_mode") == "external"
                         ) or (consumer.op_type.startswith("StreamingConcat")):
                             # get input idx

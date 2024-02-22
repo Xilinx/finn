@@ -51,7 +51,7 @@ from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation(HWCustomOp):
+class MVAU(HWCustomOp):
     """Abstraction layer for HW implementation of MatrixVectorActivation layers."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -122,9 +122,6 @@ class MatrixVectorActivation(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def base_op_type(self):
-        return "MatrixVectorActivation"
-
     def execute_node(self, context, graph):
         node = self.onnx_node
         in_act = context[node.input[0]]
@@ -150,11 +147,13 @@ class MatrixVectorActivation(HWCustomOp):
             odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
-            # NHWC to NCHW for multithreshold node
-            result = result.transpose((0, 3, 1, 2))
+            if result.ndim == 4:
+                # NHWC to NCHW for multithreshold node
+                result = result.transpose((0, 3, 1, 2))
             result = multithreshold(result, mvau_thr, out_scale, out_bias)
-            # NCHW to NHWC
-            result = result.transpose((0, 2, 3, 1))
+            if result.ndim == 4:
+                # NCHW to NHWC
+                result = result.transpose((0, 2, 3, 1))
 
         context[node.output[0]] = result
 
@@ -435,84 +434,6 @@ class MatrixVectorActivation(HWCustomOp):
         wbits = W * D_in * D_out
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
-
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs based on:
-        - FINN-R: An End-to-End Deep-Learning Framework for Fast
-        Exploration of Quantized Neural Networks
-        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
-        Y. Umuroglu, M. Leeser and K. Vissers
-        - 12. Sep 2018
-        """
-        # TODO add in/out FIFO contributions
-        P = self.get_nodeattr("PE")
-        Q = self.get_nodeattr("SIMD")
-        MW = self.get_nodeattr("MW")
-        wdt = self.get_weight_datatype()
-        W = wdt.bitwidth()
-        # determine tdt with input and weight data types
-        idt = self.get_input_datatype()
-        A = idt.bitwidth()
-        # parameters from experiments in paper mentioned above
-        c0 = 300
-        c1 = 1.1
-        c2 = 0
-        mmode = self.get_nodeattr("mem_mode")
-        mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
-            mmode == "const" and self.calc_wmem() <= 128
-        ):
-            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
-
-        # multiplication
-        res_type = self.get_nodeattr("resType")
-        if res_type == "dsp":
-            mult_luts = 0
-        else:
-            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
-        # adder tree
-        addertree_luts = (W + A) * (2 * Q - 1)
-        # accumulator
-        acc_datatype = self.get_accumulator_datatype()
-        # if accDataType is not set, then it will default to INT32, which would
-        # be a large overestimate in most (if not all) cases. In this scenario,
-        # we would use the minimum accumulator as determined by the data types
-        # bound, derived in https://arxiv.org/abs/2301.13376
-        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
-        acc_bits = min(
-            acc_datatype.bitwidth(),
-            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
-        )
-        acc_luts = acc_bits
-        # thresholds and threshold comparators
-        thr_luts = 0
-        comp_luts = 0
-        noact = self.get_nodeattr("noActivation")
-        tmem_style = self.get_nodeattr("ram_style_thresholds")
-        if (noact == 0) and (tmem_style == "distributed"):
-            odt = self.get_output_datatype()
-            B = odt.bitwidth()
-            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
-            comp_luts = (2**B - 1) * acc_bits
-
-        return int(
-            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
-        )
-
-    def dsp_estimation(self):
-        # multiplication
-        P = self.get_nodeattr("PE")
-        res_type = self.get_nodeattr("resType")
-        Q = self.get_nodeattr("SIMD")
-        wdt = self.get_weight_datatype()
-        W = wdt.bitwidth()
-        idt = self.get_input_datatype()
-        A = idt.bitwidth()
-        if res_type == "dsp":
-            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
-        else:
-            mult_dsp = 0
-        return int(mult_dsp)
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
@@ -953,11 +874,8 @@ class MatrixVectorActivation(HWCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the hls ip
-            cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
-            )
+            # Instantiate either the HLS or RTL IP depending on operator
+            self.instantiate_ip(cmd)
 
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "amd.com:finn:memstream:1.0"
@@ -1029,7 +947,7 @@ class MatrixVectorActivation(HWCustomOp):
             cmd.append("save_bd_design")
         elif mem_mode == "const" or mem_mode == "external":
             # base class impl sufficient for const/external modes
-            return super().code_generation_ipi()
+            self.instantiate_ip(cmd)
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd

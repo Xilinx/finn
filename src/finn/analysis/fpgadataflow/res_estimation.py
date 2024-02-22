@@ -28,7 +28,7 @@
 
 import qonnx.custom_op.registry as registry
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def res_estimation(model):
@@ -41,7 +41,7 @@ def res_estimation(model):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
             res_dict[node.name] = inst.node_res_estimation()
 
@@ -59,12 +59,10 @@ def res_estimation_complete(model):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
             op_type = node.op_type
-            if op_type.startswith("MatrixVectorActivation") or op_type.startswith(
-                "VectorVectorActivation"
-            ):
+            if op_type.startswith("MVAU") or op_type.startswith("VectorVectorActivation"):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")

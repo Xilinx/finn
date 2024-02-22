@@ -91,7 +91,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         actval = 0
         no_act = 1
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -153,7 +153,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -236,7 +236,7 @@ def test_fpgadataflow_fclayer_hwop(idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -273,6 +273,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType["INT32"]
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
@@ -280,6 +281,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers())
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
@@ -327,7 +329,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -389,8 +391,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
     model = model.transform(SpecializeLayers())
-    # model = model.transform(SetExecMode("rtlsim"))
-    model.set_metadata_prop("exec_mode", "rtlsim")
+    model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -399,9 +400,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
+    assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation_hls")[0]
+    node = model.get_nodes_by_op_type("MVAU_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -426,12 +427,10 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-# Backend
-@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, backend
+def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
     if nf == -1:
         nf = mh
@@ -503,12 +502,9 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    if backend == "hls":
-        assert "MatrixVectorActivation_hls_0" in hls_synt_res_est
-    else:
-        assert "MatrixVectorActivation_rtl_0" in hls_synt_res_est
+    assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    node = model.get_nodes_by_op_type("MVAU_hls")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -533,11 +529,9 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [32])
-# Backend
-@pytest.mark.parametrize("backend", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, backend):
+def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:

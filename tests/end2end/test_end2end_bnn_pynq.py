@@ -122,7 +122,7 @@ def get_checkpoint_name(topology, wbits, abits, step):
 
 
 def fold_tfc(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
@@ -140,7 +140,7 @@ def fold_tfc(model):
 
 
 def fold_lfc(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [
         (32, 49, "block"),
@@ -162,7 +162,7 @@ def fold_lfc(model):
 
 
 def fold_cnv_large(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (16, 3),
@@ -189,7 +189,7 @@ def fold_cnv_large(model):
 
 
 def fold_cnv_small(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (8, 3, "distributed"),
@@ -560,26 +560,26 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding", 1),
-                ("MatrixVectorActivation", 4),
+                ("MVAU", 4),
                 ("LabelSelect", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding", 4),
-                ("MatrixVectorActivation", 4),
+                ("MVAU", 4),
                 ("LabelSelect", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding", 1),
-                ("MatrixVectorActivation", 4),
+                ("MVAU", 4),
                 ("LabelSelect", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
                 ("ConvolutionInputGenerator", 6),
-                ("MatrixVectorActivation", 9),
+                ("MVAU", 9),
                 ("StreamingMaxPool", 2),
                 ("LabelSelect", 1),
             ],
@@ -607,26 +607,26 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding_hls", 1),
-                ("MatrixVectorActivation_hls", 4),
+                ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding_hls", 4),
-                ("MatrixVectorActivation_hls", 4),
+                ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding_hls", 1),
-                ("MatrixVectorActivation_hls", 4),
+                ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_hls", 1),
                 ("ConvolutionInputGenerator_hls", 6),
-                ("MatrixVectorActivation_hls", 9),
+                ("MVAU_hls", 9),
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],

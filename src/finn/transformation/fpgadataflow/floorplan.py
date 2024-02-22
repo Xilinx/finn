@@ -150,7 +150,7 @@ class Floorplan(Transformation):
                 continue
 
             elif not (
-                node.op_type.startswith("MatrixVectorActivation")
+                node.op_type.startswith("MVAU")
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):

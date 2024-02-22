@@ -256,7 +256,7 @@ def test_end2end_mobilenet_folding():
     assert extra_fold in [1, 2, 4]
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation_hls")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
         (32, 3, "block"),

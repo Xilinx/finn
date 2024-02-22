@@ -72,7 +72,7 @@ def create_two_fc_model():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         ["inp", "w0"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow",
@@ -91,7 +91,7 @@ def create_two_fc_model():
     )
 
     fc1 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         ["mid", "w1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",

@@ -182,8 +182,8 @@ def test_end2end_cybsec_mlp_build():
     # examine the report contents
     with open(est_cycles_report, "r") as f:
         est_cycles_dict = json.load(f)
-        assert est_cycles_dict["MatrixVectorActivation_hls_0"] == 80
-        assert est_cycles_dict["MatrixVectorActivation_hls_1"] == 64
+        assert est_cycles_dict["MVAU_hls_0"] == 80
+        assert est_cycles_dict["MVAU_hls_1"] == 64
     with open(est_res_report, "r") as f:
         est_res_dict = json.load(f)
         assert est_res_dict["total"]["LUT"] == 7899.0

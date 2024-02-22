@@ -30,7 +30,7 @@
 import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 class CompileCppSim(NodeLocalTransformation):
@@ -51,7 +51,7 @@ class CompileCppSim(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) and is_hls_node(node):
+        if is_hls_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)

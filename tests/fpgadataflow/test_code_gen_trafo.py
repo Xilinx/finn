@@ -51,7 +51,7 @@ def test_code_gen_trafo():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     node_inp_list = ["inp", "weights", "thresh"]
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation_hls",
+        "MVAU_hls",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow.hls",
