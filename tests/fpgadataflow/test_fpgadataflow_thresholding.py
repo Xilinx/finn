@@ -239,11 +239,10 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
         assert exp_cycles != 0
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
-@pytest.mark.parametrize("cf", [2])
-@pytest.mark.parametrize("ch", [6])
+@pytest.mark.parametrize("cfg", [(1,1), (6,2), (6,3), (8,2), (8,4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style,cf,ch):
+def test_runtime_thresholds_read(impl_style,cfg):
     """ Read back threshold weights during runtime
 
         1. Create random initial weights T
@@ -251,13 +250,12 @@ def test_runtime_thresholds_read(impl_style,cf,ch):
         3. Read back weights via AXI
         4. Compare with initial weights T
     """
+    ch = cfg[0]
+    pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
     mem_mode = "decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
-    pe = ch // cf
-    assert ch % pe == 0
-
     odt = act
     n_steps = act.get_num_possible_values() - 1
     np.random.seed(2)
@@ -330,12 +328,11 @@ def test_runtime_thresholds_read(impl_style,cf,ch):
     # Validate the output is as expected
     assert (y == expected).all()
 
-@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
-@pytest.mark.parametrize("cf", [8])
-@pytest.mark.parametrize("ch", [16])
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.parametrize("cfg", [(1,1), (6,2), (6,3), (8,2), (8,4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style,cf,ch):
+def test_runtime_thresholds_write(impl_style,cfg):
     """ Write threshold weights during runtime
 
         1. Create random initial weights T_init
@@ -346,12 +343,13 @@ def test_runtime_thresholds_write(impl_style,cf,ch):
         6. Compare T_write and T_read
         7. Validate outputs with expected vectors
     """
+    ch = cfg[0]
+    pe = cfg[1]
+
     n_inp_vecs = [1, 2, 2]
     mem_mode = "decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
-    pe = ch // cf
-    assert ch % pe == 0
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
