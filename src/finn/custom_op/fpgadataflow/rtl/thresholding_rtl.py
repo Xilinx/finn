@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -60,16 +60,6 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-"""@package Thresholding_rtl
-- ONNX i/o tensor shape assumptions for Thresholding:
-- input 0 is the input tensor, shape (..., NumChannels)
-- input 1 is the threshold tensor, shape (NumChannels, n_thres)
-- output 0 is the output tensor, shape (..., NumChannels) - same as input
-- the '...' here can be any shape (representing groups of vectors)
-
-This module creates an RTL IP, HLS is not supported. See 'thresholding_batch'
-for a HLS equivalent.
-"""
 
 class Thresholding_rtl(Thresholding, RTLBackend):
     """Class that corresponds to finn-rtllib 'thresholding' function."""
