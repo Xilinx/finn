@@ -36,38 +36,29 @@ from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 class SetExecMode(Transformation):
     """Set attribute exec_mode in all fpgadataflow nodes to specify which
     kind of execution should be used ("cppsim" or "rtlsim").
-    Note that RTL components do not support cppsim.
-    For now, only a model consisting of 100% of HLS layers can be executed
-    using cppsim."""
+    Note that RTL components do not support cppsim. When cppsim is selected
+    for RTL components, by default the execution of the HW op parent is
+    executed."""
 
     def __init__(self, mode):
         super().__init__()
         self.mode = mode
 
     def apply(self, model):
-        mode = self.mode
-        # if "cppsim" selected, check if model does not contain RTL layers
-        if mode == "cppsim" and any(is_rtl_node(node) for node in model.graph.node):
-            raise Exception(
-                """Model contains RTL layers,
-               cppsim can only be used on models consisting of HLS layers
-               and non fpgadataflow nodes."""
-            )
-        else:
-            for node in model.graph.node:
-                op_type = node.op_type
-                if is_hls_node(node) or is_rtl_node(node):
-                    try:
-                        # lookup op_type in registry of CustomOps
-                        inst = registry.getCustomOp(node)
-                        # set sim_mode accordingly to argument mode
-                        inst.set_nodeattr("exec_mode", mode)
-                        # ensure that sim_mode is now set
-                        assert (
-                            inst.get_nodeattr("exec_mode") != ""
-                        ), """Transformation
-                            was not successful. Node attribute "exec_mode" is not set"""
-                    except KeyError:
-                        # exception if op_type is not supported
-                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+        for node in model.graph.node:
+            op_type = node.op_type
+            if is_hls_node(node) or is_rtl_node(node):
+                try:
+                    # lookup op_type in registry of CustomOps
+                    inst = registry.getCustomOp(node)
+                    # set sim_mode accordingly to argument mode
+                    inst.set_nodeattr("exec_mode", self.mode)
+                    # ensure that sim_mode is now set
+                    assert (
+                        inst.get_nodeattr("exec_mode") != ""
+                    ), """Transformation
+                        was not successful. Node attribute "exec_mode" is not set"""
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (model, False)

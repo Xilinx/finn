@@ -96,7 +96,7 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_rtlsim(config, exec_mode):
+def test_fpgadataflow_dwc(config, exec_mode):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -114,16 +114,12 @@ def test_fpgadataflow_dwc_rtlsim(config, exec_mode):
     assert y.shape == tuple(shape), """The output shape is incorrect."""
 
     model = model.transform(SpecializeLayers())
+    model = model.transform(GiveUniqueNodeNames())
     if exec_mode == "cppsim":
-        if model.graph.node[0].op_type == "StreamingDataWidthConverter_rtl":
-            pytest.skip("cppsim not supported for RTL DWC")
-        else:
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(PrepareCppSim())
-            model = model.transform(CompileCppSim())
-            model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
-        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(test_fpga_part, 5))
         model = model.transform(HLSSynthIP())
         model = model.transform(SetExecMode("rtlsim"))

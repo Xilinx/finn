@@ -170,27 +170,27 @@ class HWCustomOp(CustomOp):
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
-        HLSCustomOp class but has to be filled by every node"""
+        HWCustomOp class but has to be filled by every node"""
         return 0
 
     def uram_estimation(self):
         """Function for UltraRAM resource estimation, is member function of
-        HLSCustomOp class but has to be filled by every node"""
+        HWCustomOp class but has to be filled by every node"""
         return 0
 
     def lut_estimation(self):
         """Function for LUT resource estimation, is member function of
-        HLSCustomOp class but has to be filled by every node"""
+        HWCustomOp class but has to be filled by every node"""
         return 0
 
     def dsp_estimation(self):
         """Function for DSP resource estimation, is member function of
-        HLSCustomOp class but has to be filled by every node"""
+        HWCustomOp class but has to be filled by every node"""
         return 0
 
     def get_exp_cycles(self):
         """Function for estimation of expected cycles for set folding,
-        is member function of HLSCustomOp class but has to be filled
+        is member function of HWCustomOp class but has to be filled
         by every node"""
         return 0
 
@@ -316,14 +316,14 @@ class HWCustomOp(CustomOp):
 
     def generate_params(self, model, path):
         """Function to generate parameters (i.e. weights and thresholds),
-        is member function of HLSCustomOp class but has to be filled
-        by every node."""
+        is member function of HWCustomOp class but has to be filled
+        by every node that needs to generate parameters."""
         pass
 
     @abstractmethod
     def get_number_output_values(self):
         """Function to get the number of expected output values,
-        is member function of HLSCustomOp class but has to be filled
+        is member function of HWCustomOp class but has to be filled
         by every node."""
         pass
 

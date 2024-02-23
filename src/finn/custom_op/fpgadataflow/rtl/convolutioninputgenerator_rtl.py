@@ -30,6 +30,7 @@ import math
 import numpy as np
 import os
 import shutil
+import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -285,15 +286,68 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         if mode == "cppsim":
-            raise Exception("cppsim not possible for RTL SWG, please set exec_mode to rtlsim")
+            warnings.warn(
+                """RTL components cannot be executed with cppsim.
+                By default the execution of the HW abstraction parent will be used."""
+            )
+            ConvolutionInputGenerator.execute_node(self, context, graph)
         elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            node = self.onnx_node
+            exp_ishape = self.get_normal_input_shape()
+            exp_oshape = self.get_normal_output_shape()
+            folded_ishape = self.get_folded_input_shape()
+
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert (
+                inp.shape == exp_ishape
+            ), """Input shape doesn't match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+            if self.get_input_datatype() == DataType["BIPOLAR"]:
+                # store bipolar activations as binary
+                inp = (inp + 1) / 2
+                export_idt = DataType["BINARY"]
+            else:
+                export_idt = self.get_input_datatype()
+
+            # reshape input into folded form
+            inp = inp.reshape(folded_ishape)
+            # make copy before saving array
+            reshaped_input = inp.copy()
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+            )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            odt = export_idt
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[node.output[0]] = output
+
+            # binary -> bipolar if needed
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
+            assert (
+                context[node.output[0]].shape == exp_oshape
+            ), """Output
+            shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -301,51 +355,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
                     mode
                 )
             )
-
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-        if self.get_input_datatype() == DataType["BIPOLAR"]:
-            # store bipolar activations as binary
-            inp = (inp + 1) / 2
-            export_idt = DataType["BINARY"]
-        else:
-            export_idt = self.get_input_datatype()
-
-        # reshape input into folded form
-        inp = inp.reshape(folded_ishape)
-        # make copy before saving array
-        reshaped_input = inp.copy()
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        sim = self.get_rtlsim()
-        nbits = self.get_instream_width()
-        rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-        super().reset_rtlsim(sim)
-        super().toggle_clk(sim)
-        rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-        odt = export_idt
-        target_bits = odt.bitwidth()
-        packed_bits = self.get_outstream_width()
-        out_npy_path = "{}/output.npy".format(code_gen_dir)
-        out_shape = self.get_folded_output_shape()
-        rtlsim_output_to_npy(rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-        # load and reshape output
-        output = np.load(out_npy_path)
-        output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-        context[node.output[0]] = output
-
-        # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType["BIPOLAR"]:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output
-        shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
 
     def prepare_codegen_default(self):
         """Fills code generation dict for the default implementation style by computing
