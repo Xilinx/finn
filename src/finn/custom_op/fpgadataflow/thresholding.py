@@ -42,10 +42,6 @@ class Thresholding(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # memory mode for the thresholds
-            # const -- embedded thresholds, default
-            # decoupled -- streaming thresholds with  streamer packaged inside IP
-            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
             # whether weights (thresholds) will be
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.

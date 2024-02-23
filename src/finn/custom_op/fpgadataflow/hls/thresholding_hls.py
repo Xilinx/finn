@@ -60,6 +60,10 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with  streamer packaged inside IP
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
             # string defining memory type
             "ram_style": ("s", False, "distributed", {"distributed", "block"}),
         }
