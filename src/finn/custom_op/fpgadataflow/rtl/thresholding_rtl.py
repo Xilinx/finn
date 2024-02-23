@@ -120,12 +120,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
         return res_dict
 
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        num_channels = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        return num_channels // pe
-
     def infer_node_datatype(self, model):
         """Used for FINN DataType inference: set the output tensors' datatypes
         accordingly for this node"""

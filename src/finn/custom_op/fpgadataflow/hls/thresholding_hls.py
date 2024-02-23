@@ -67,12 +67,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        mh = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        return mh // pe
-
     def bram_estimation(self):
         """Calculates BRAM cost if resource set to BRAM"""
         style = self.get_nodeattr("ram_style")
