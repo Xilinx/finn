@@ -30,7 +30,6 @@ import math
 import numpy as np
 import os
 import shutil
-import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -289,10 +288,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         if mode == "cppsim":
-            warnings.warn(
-                """RTL components cannot be executed with cppsim.
-                By default the execution of the HW abstraction parent will be used."""
-            )
             ConvolutionInputGenerator.execute_node(self, context, graph)
         elif mode == "rtlsim":
             node = self.onnx_node

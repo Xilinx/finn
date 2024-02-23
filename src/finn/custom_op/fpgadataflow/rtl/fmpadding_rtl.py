@@ -30,7 +30,6 @@ import math
 import numpy as np
 import os
 import shutil
-import warnings
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
@@ -74,10 +73,6 @@ class FMPadding_rtl(FMPadding, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         if mode == "cppsim":
-            warnings.warn(
-                """RTL components cannot be executed with cppsim.
-                By default the execution of the HW abstraction parent will be used."""
-            )
             FMPadding.execute_node(self, context, graph)
         elif mode == "rtlsim":
             node = self.onnx_node

@@ -29,7 +29,6 @@
 import numpy as np
 import os
 import shutil
-import warnings
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
@@ -77,10 +76,6 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         if mode == "cppsim":
-            warnings.warn(
-                """RTL components cannot be executed with cppsim.
-                By default the execution of the HW abstraction parent will be used."""
-            )
             StreamingDataWidthConverter.execute_node(self, context, graph)
         elif mode == "rtlsim":
             node = self.onnx_node
