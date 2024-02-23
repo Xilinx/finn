@@ -34,19 +34,9 @@ from qonnx.transformation.base import Transformation
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 
-restricted_layers = []
-restricted_layers.append("MVAU")
-restricted_layers.append("VectorVectorActivation")
-restricted_layers.append("Thresholding")
-
 
 def _determine_impl_style(node):
     optype = node.op_type
-
-    # if rtl variant has specific restrictions
-    # use always the hls variant for now
-    if optype in restricted_layers:
-        return "hls"
 
     # check if there is an HLS or RTL variant or both
     hls_variant = optype + "_hls" in hls_variants.keys()
@@ -77,7 +67,7 @@ def _determine_impl_style(node):
 
     # check if user setting can be fulfilled
     # otherwise change impl_style
-    if impl_style == "hls":
+    elif impl_style == "hls":
         if optype == "ConvolutionInputGenerator":
             if not _swg_hls_possible(node):
                 warn_str = (
