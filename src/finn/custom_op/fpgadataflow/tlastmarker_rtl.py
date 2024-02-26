@@ -26,7 +26,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+import onnx.helper as helper
+import os
+import shutil
+import warnings
+from qonnx.core.datatype import DataType
+
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 
 class TLastMarker_rtl(HLSCustomOp):
@@ -48,9 +61,33 @@ class TLastMarker_rtl(HLSCustomOp):
             "StreamWidth": ("i", True, 0),
             # width of individual element in stream, in bits
             "ElemWidth": ("i", True, 0),
+            # factor to multiply spatial size with to get NumIters
+            # only needed for runtime dynamic reconfig of FM sizes
+            "SpatialSizeToIters": ("i", False, 1),
+            # FINN input datatype
+            "inputDataType": ("s", True, ""),
+            # shape of input/output tensors
+            "shape": ("ints", True, []),
+            # attribute to save top module name - not user configurable
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_normal_input_shape(self, ind=0):
+        return tuple(self.get_nodeattr("shape"))
+
+    def get_normal_output_shape(self, ind=0):
+        return self.get_normal_input_shape()
+
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        ret = DataType[self.get_nodeattr("inputDataType")]
+        return ret
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output. (Same as input datatype)"""
+        return self.get_input_datatype()
 
     def execute_node(self, context, graph):
         # TLastMarker's behavior is only visible when doing
@@ -62,156 +99,6 @@ class TLastMarker_rtl(HLSCustomOp):
         o_name = self.onnx_node.output[0]
         i_tensor = context[i_name]
         context[o_name] = i_tensor
-
-    def make_shape_compatible_op(self, model):
-        # not supported for shape inference
-        pass
-
-    def infer_node_datatype(self, model):
-        # not supported for datatype inference
-        pass
-
-    def verify_node(self):
-        # TODO implement verify_node for TLastMarker
-        pass
-
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "ap_axi_sdata.h"']
-
-    def defines(self, var):
-        stream_width = self.get_nodeattr("StreamWidth")
-        direction = self.get_nodeattr("Direction")
-        protocol = self.get_nodeattr("Protocol")
-        # output stream must have TLAST, so we use this stream data type:
-        # qdma_axis<stream_data_width,0,0,0 >
-        if direction == "out":
-            if protocol == "external":
-                out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "internal":
-                out_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
-            else:
-                raise Exception("Unrecognized Protocol in TLastMarker")
-            in_stream_dtype = "ap_uint<%d>" % stream_width
-        elif direction == "in":
-            out_stream_dtype = "ap_uint<%d>" % stream_width
-            if protocol == "external":
-                in_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "internal":
-                in_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
-            else:
-                raise Exception("Unrecognized Protocol in TLastMarker")
-        else:
-            raise Exception("Unrecognized Direction in TLastMarker")
-
-        self.code_gen_dict["$DEFINES$"] = [
-            "#define StreamWidth %d" % stream_width,
-            "#define OutDType %s" % out_stream_dtype,
-            "#define InDType %s" % in_stream_dtype,
-            "#define NumItersPerImg %d" % self.get_nodeattr("NumIters"),
-        ]
-
-    def read_npy_data(self):
-        self.code_gen_dict["$READNPYDATA$"] = []
-
-    def docompute(self):
-        dyn_iters = self.get_nodeattr("DynIters")
-        direction = self.get_nodeattr("Direction")
-        use_qdma_axis = self.get_nodeattr("Protocol") == "external"
-        if direction == "in":
-            # read from input and just pass data along; ignore tlast
-            # no dyn iters on input, it doesnt make sense
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "for(unsigned int i=0; i<NumItersPerImg; i++) {",
-                "#pragma HLS PIPELINE II=1",
-                "out_%s.write(in0_%s.read().get_data());" % (self.hls_sname(), self.hls_sname())
-                if use_qdma_axis
-                else "out_%s.write(in0_%s.read().data);" % (self.hls_sname(), self.hls_sname()),
-                "}",
-            ]
-
-        elif dyn_iters == 1:
-            # output, with dynamic iteration counts
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "unsigned int n = 1;",
-                "OutDType t;",
-                "t.set_keep(-1);" if use_qdma_axis else "t.keep = -1;",
-                "io_section: { // start of cycle accurate region",
-                "#pragma HLS protocol fixed",
-                "// do a first read from stream before we decide on numIters",
-                "// giving software a chance to set up the numIters prior to startup",
-                "t.set_data(in0_%s.read());" % self.hls_sname()
-                if use_qdma_axis
-                else "t.data = in0_%s.read();" % self.hls_sname(),
-                "n = (numIters == 0 ? NumItersPerImg : numIters);",
-                "t.set_last(n==1);" if use_qdma_axis else "t.last = (n==1);",
-                "out_%s.write(t);" % self.hls_sname(),
-                "} // end of cycle accurate region",
-                "// do one less iteration than spec since we already did one",
-                "for(unsigned int i=1; i<n; i++) {",
-                "#pragma HLS PIPELINE II=1",
-                "t.set_data(in0_%s.read());" % self.hls_sname()
-                if use_qdma_axis
-                else "t.data = in0_%s.read();" % self.hls_sname(),
-                "t.set_last(i==(n-1));" if use_qdma_axis else "t.last = (i==(n-1));",
-                "out_%s.write(t);" % self.hls_sname(),
-                "}",
-            ]
-
-        else:
-            # output, with static iteration counts
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "unsigned int n = 1;",
-                "OutDType t;",
-                "t.set_keep(-1);" if use_qdma_axis else "t.keep = -1;",
-                "for(unsigned int i=0; i<NumItersPerImg; i++) {",
-                "#pragma HLS PIPELINE II=1",
-                "t.set_data(in0_%s.read());" % self.hls_sname()
-                if use_qdma_axis
-                else "t.data = in0_%s.read();" % self.hls_sname(),
-                "t.set_last(i==(NumItersPerImg-1));"
-                if use_qdma_axis
-                else "t.last = (i==(NumItersPerImg-1));",
-                "out_%s.write(t);" % self.hls_sname(),
-                "}",
-            ]
-
-    def dataoutstrm(self):
-        self.code_gen_dict["$DATAOUTSTREAM$"] = []
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def blackboxfunction(self):
-        dyn_iters = self.get_nodeattr("DynIters")
-
-        if dyn_iters == 1:
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void %s(hls::stream<InDType> &in0_%s,
-                    hls::stream<OutDType> &out_%s, unsigned int numIters)"""
-                % (self.onnx_node.name, self.hls_sname(), self.hls_sname())
-            ]
-        else:
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void %s(hls::stream<InDType> &in0_%s,
-                hls::stream<OutDType> &out_%s)"""
-                % (self.onnx_node.name, self.hls_sname(), self.hls_sname())
-            ]
-
-    def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
-
-        dyn_iters = self.get_nodeattr("DynIters")
-        if dyn_iters == 1:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
-            )
-
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
@@ -234,15 +121,6 @@ class TLastMarker_rtl(HLSCustomOp):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
 
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<InDType> in0_%s ("in0_%s");' % (self.hls_sname(), self.hls_sname())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<OutDType> out_%s ("out_%s");' % (self.hls_sname(), self.hls_sname())
-        )
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         stream_width = self.get_nodeattr("StreamWidth")
@@ -250,3 +128,216 @@ class TLastMarker_rtl(HLSCustomOp):
         intf_names["m_axis"] = [("out_V", stream_width)]
         intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def make_shape_compatible_op(self, model):
+        return helper.make_node(
+            "Identity",
+            inputs=[self.onnx_node.input[0]],
+            outputs=[self.onnx_node.output[0]],
+        )
+
+    def infer_node_datatype(self, model):
+        # TLastMarker does not change datatype
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        model.set_tensor_datatype(node.output[0], idt)
+
+    def get_template_values(self):
+        stream_width = self.get_instream_width_padded()
+        period_init = self.get_nodeattr("NumIters")
+        # use 32 bits to cover for large number of stream bits
+        period_bits = 32
+        # always keep the period upon reset for now
+        period_init_upon_reset = 0
+        topname = self.get_verilog_top_module_name()
+
+        code_gen_dict = {
+            "STREAM_WIDTH": int(stream_width),
+            "PERIOD_BITS": int(period_bits),
+            "PERIOD_INIT": int(period_init),
+            "PERIOD_INIT_UPON_RESET": int(period_init_upon_reset),
+            "TOP_MODULE_NAME": topname,
+        }
+        return code_gen_dict
+
+    def get_dynamic_config_ccode(self):
+        """Returns C code to generate register values to re-configure FM dimension.
+        at runtime."""
+
+        reg_ccode_template = """
+void reconfigure_$LAYERNAME$(
+    // base address for TLastMarker_rtl AXI lite interface
+    unsigned int *reg_base,
+    // spatial dimensions for input
+    // dimY = height, dimX = width
+    unsigned int dimY, unsigned int dimX
+) {
+    reg_base[0] = (dimY*dimX) * $SPATIAL_SIZE_TO_ITERS;
+}
+"""
+        spatialSizeToIters = self.get_nodeattr("SpatialSizeToIters")
+        layer_name = self.onnx_node.name
+        reg_ccode = reg_ccode_template
+        reg_ccode = reg_ccode.replace("$LAYERNAME$", layer_name)
+        reg_ccode = reg_ccode.replace("$SPATIAL_SIZE_TO_ITERS$", str(spatialSizeToIters))
+
+        return reg_ccode
+
+    def get_dynamic_config(self, ifm_dims):
+        """Returns a configuration dict to re-configure FM dimension
+        during runtime."""
+
+        spatial_dim = np.prod(ifm_dims)
+        period = spatial_dim * self.get_nodeattr("SpatialSizeToIters")
+        config = {
+            "PERIOD": (0 * 4, period),
+        }
+        return config
+
+    def generate_hdl(self):
+        rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/tlast_marker/hdl"
+        template_path = rtlsrc + "/tlast_marker_template.v"
+        code_gen_dict = self.get_template_values()
+        # save top module name so we can refer to it after this node has been renamed
+        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
+
+        # apply code generation to templates
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        with open(template_path, "r") as f:
+            template = f.read()
+        for key_name in code_gen_dict:
+            key = "$%s$" % key_name
+            template = template.replace(key, str(code_gen_dict[key_name]))
+
+        with open(
+            os.path.join(code_gen_dir, self.get_verilog_top_module_name() + ".v"),
+            "w",
+        ) as f:
+            f.write(template)
+
+        sv_files = ["tlast_marker.sv"]
+        for sv_file in sv_files:
+            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        return verilog_paths
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
+        )
+        return verilog_file
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+        # Modified to use generated (System-)Verilog instead of HLS output products
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        verilog_files = [
+            "tlast_marker.sv",
+            self.get_nodeattr("gen_top_module") + ".v",
+        ]
+
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_files,
+            auto_eval=False,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
+
+    def code_generation_ipi(self):
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        sourcefiles = [
+            "tlast_marker.sv",
+            self.get_nodeattr("gen_top_module") + ".v",
+        ]
+
+        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
+        for f in sourcefiles:
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+        cmd += [
+            "create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+        ]
+        return cmd
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Normally: Generates C++ code and tcl script for IP generation.
+        Here: Generates (System-)Verilog code for IP generation."""
+        self.generate_hdl()
+
+    def ipgen_singlenode_code(self):
+        """Normally: Builds the bash script for IP generation."""
+        pass
+
+    def code_generation_cppsim(self, model):
+        """Normally: Generates C++ code for simulation (cppsim)."""
+        pass
+
+    def compile_singlenode_code(self):
+        pass
+
+    def global_includes(self):
+        pass
+
+    def defines(self, var):
+        pass
+
+    def read_npy_data(self):
+        pass
+
+    def strm_decl(self):
+        pass
+
+    def docompute(self):
+        pass
+
+    def dataoutstrm(self):
+        pass
+
+    def save_as_npy(self):
+        pass
+
+    def blackboxfunction(self):
+        pass
+
+    def pragmas(self):
+        pass
+
+    def verify_node(self):
+        pass

@@ -76,6 +76,7 @@ from finn.custom_op.fpgadataflow.thresholding_binary_search import (
     Thresholding_Binary_Search,
 )
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
+from finn.custom_op.fpgadataflow.tlastmarker_rtl import TLastMarker_rtl
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 from finn.custom_op.fpgadataflow.vectorvectoractivation_rtl import (
@@ -95,6 +96,7 @@ custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["ConvolutionInputGenerator_rtl_mmv"] = ConvolutionInputGenerator_rtl_mmv
 custom_op["TLastMarker"] = TLastMarker
+custom_op["TLastMarker_rtl"] = TLastMarker_rtl
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op[
     "StreamingDataWidthConverter_ParallelWindow_rtl"
