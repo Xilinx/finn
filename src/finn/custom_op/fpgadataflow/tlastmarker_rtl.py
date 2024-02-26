@@ -204,7 +204,7 @@ void reconfigure_$LAYERNAME$(
 
     def generate_hdl(self):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/tlast_marker/hdl"
-        template_path = rtlsrc + "/tlast_marker_template.v"
+        template_path = rtlsrc + "/tlast_marker_wrapper.v"
         code_gen_dict = self.get_template_values()
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
