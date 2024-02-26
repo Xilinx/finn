@@ -52,7 +52,7 @@
  *	interface.
  *****************************************************************************/
 module tlast_marker #(
-	type  T,
+	int unsigned           DATA_WIDTH,
 	int unsigned           PERIOD_BITS,
 	bit [PERIOD_BITS-1:0]  PERIOD_INIT,
 	bit                    PERIOD_INIT_UPON_RESET = 0
@@ -81,12 +81,12 @@ module tlast_marker #(
 	output	logic [1:0]  s_axilite_RRESP,
 
 	// Input Stream without TLAST marker
-	input	T  src_TDATA,
+	input	logic [DATA_WIDTH-1:0]  src_TDATA,
 	input	logic  src_TVALID,
 	output	logic  src_TREADY,
 
 	// Output Stream with TLAST marker
-	output	T  dst_TDATA,
+	output	logic [DATA_WIDTH-1:0]  dst_TDATA,
 	output	logic  dst_TVALID,
 	input	logic  dst_TREADY,
 	output	logic  dst_TLAST
