@@ -32,7 +32,7 @@
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *****************************************************************************/
 module tlast_marker_tb;
-	typedef logic [7:0]  T;
+	localparam int unsigned           DATA_WIDTH  =  8;
 	localparam int unsigned           PERIOD_BITS =  5;
 	localparam bit [PERIOD_BITS-1:0]  PERIOD_INIT = 12;
 	localparam bit                    PERIOD_INIT_UPON_RESET = 0;
@@ -66,17 +66,17 @@ module tlast_marker_tb;
 	uwire [1:0]  s_axilite_RRESP;
 
 	// Input Stream without TLAST marker
-	T  src_TDATA;
+	logic [DATA_WIDTH-1:0]  src_TDATA;
 	logic  src_TVALID;
 	uwire  src_TREADY;
 
 	// Output Stream with TLAST marker
-	uwire T  dst_TDATA;
+	uwire [DATA_WIDTH-1:0]  dst_TDATA;
 	uwire  dst_TVALID;
 	logic  dst_TREADY;
 	uwire  dst_TLAST;
 
-	tlast_marker #(.T(T), .PERIOD_BITS(PERIOD_BITS), .PERIOD_INIT(PERIOD_INIT), .PERIOD_INIT_UPON_RESET(PERIOD_INIT_UPON_RESET)) dut (
+	tlast_marker #(.DATA_WIDTH(DATA_WIDTH), .PERIOD_BITS(PERIOD_BITS), .PERIOD_INIT(PERIOD_INIT), .PERIOD_INIT_UPON_RESET(PERIOD_INIT_UPON_RESET)) dut (
 		.ap_clk(clk), .ap_rst_n(!rst),
 
 		.s_axilite_AWVALID, .s_axilite_AWREADY, .s_axilite_AWADDR,
