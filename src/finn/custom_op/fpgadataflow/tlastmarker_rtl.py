@@ -180,7 +180,7 @@ void reconfigure_$LAYERNAME$(
     // dimY = height, dimX = width
     unsigned int dimY, unsigned int dimX
 ) {
-    reg_base[0] = (dimY*dimX) * $SPATIAL_SIZE_TO_ITERS;
+    reg_base[0] = (dimY*dimX) * $SPATIAL_SIZE_TO_ITERS$;
 }
 """
         spatialSizeToIters = self.get_nodeattr("SpatialSizeToIters")
