@@ -51,7 +51,7 @@
  *	The current period setting can also be read back via the AXI-lite
  *	interface.
  *****************************************************************************/
-module tlast_marker_wrapper #(
+module $TOP_MODULE_NAME$ #(
 	parameter DATA_WIDTH  = $DATA_WIDTH$,
 	parameter PERIOD_BITS = $PERIOD_BITS$,
 	parameter PERIOD_INIT = $PERIOD_INIT$,
@@ -95,7 +95,7 @@ module tlast_marker_wrapper #(
 	output	out_V_TLAST
 );
 
-	tlast_marker_wrapper #(
+	tlast_marker #(
 		.DATA_WIDTH(DATA_WIDTH),
 		.PERIOD_BITS(PERIOD_BITS),
 		.PERIOD_INIT(PERIOD_INIT),

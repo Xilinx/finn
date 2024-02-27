@@ -160,7 +160,7 @@ class TLastMarker_rtl(HLSCustomOp):
         topname = self.get_verilog_top_module_name()
 
         code_gen_dict = {
-            "STREAM_WIDTH": int(stream_width),
+            "DATA_WIDTH": int(stream_width),
             "PERIOD_BITS": int(period_bits),
             "PERIOD_INIT": int(period_init),
             "PERIOD_INIT_UPON_RESET": int(period_init_upon_reset),
