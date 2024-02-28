@@ -105,11 +105,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def get_weightstream_width(self):
         """Returns weight stream width. Used only in decoupled mode."""
         if self.get_nodeattr("mem_mode") == "decoupled":
-            pe = self.get_nodeattr("PE")
-            wp = self.get_weight_datatype().bitwidth()
-            n_thres_steps = self.get_nodeattr("numSteps")
-            w_width = pe * wp * n_thres_steps
-            return w_width
+            return super().get_weightstream_width()
         else:
             return 0
 
