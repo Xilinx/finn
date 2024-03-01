@@ -31,13 +31,9 @@ import numpy as np
 import os
 import shutil
 import warnings
-from math import ceil, log2
 from pyverilator.util.axi_utils import rtlsim_multi_io, reset_rtlsim
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
-    interleave_matrix_outer_dim_from_partitions,
-    roundup_to_integer_multiple,
-)
+from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
@@ -316,6 +312,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Retrieve the destination directory for the final RTL files
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
+        weights = model.get_initializer(self.onnx_node.input[1])
+        weights_fname = f"{code_gen_dir}/memblock.dat"
+        self.make_weight_file(weights,"decoupled", weights_fname)
+
         for rtl_file_path in self.get_rtl_file_paths():
             # read in original RTL template file
             template_data = self.get_rtl_template_data(rtl_file_path)
@@ -565,7 +565,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 """Please set mem_mode to "const", "decoupled",
                 currently no other parameter value is supported!"""
             )
-    def make_weight_file(self, weights, weight_file_name):
+    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
         format for this layer. This file can be used for either synthesis or
         run-time reconfig of weights.
