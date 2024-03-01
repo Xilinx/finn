@@ -274,7 +274,8 @@ def test_runtime_thresholds_read(impl_style,cfg):
     # Make sure that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
-    op_inst = getCustomOp(model.graph.node[0])
+    node = model.get_nodes_by_op_type(f"Thresholding_{impl_style}")[0]
+    op_inst = getCustomOp(node)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     dat_fname = f"old_weights_{cfg}.dat"
