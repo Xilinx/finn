@@ -403,7 +403,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.specialize_layers_config_file is not None:
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     return model
