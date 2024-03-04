@@ -266,8 +266,7 @@ class InsertAndSetFIFODepths(Transformation):
         for node in model.graph.node:
             # verify assumptions
             assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(node)
-            op_type = node.op_type
-            assert not op_type.startswith("StreamingFIFO"), "Found existing StreamingFIFO node"
+            assert not node.op_type.startswith("StreamingFIFO"), "Found existing StreamingFIFO node"
             node = getCustomOp(node)
             ifd = node.get_nodeattr("inFIFODepths")
             ofd = node.get_nodeattr("outFIFODepths")
@@ -283,8 +282,7 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
-
-            if op_type in extw_optypes:
+            if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -297,7 +295,7 @@ class InsertAndSetFIFODepths(Transformation):
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(self.fpgapart))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
