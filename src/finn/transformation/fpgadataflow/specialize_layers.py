@@ -26,21 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 import warnings
 from onnx import helper
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
+from finn.util.fpgadataflow import is_versal
 
 restricted_layers = []
-restricted_layers.append("MVAU")
-restricted_layers.append("VectorVectorActivation")
 restricted_layers.append("Thresholding")
 
 
-def _determine_impl_style(node):
+def _determine_impl_style(node, fpgapart=""):
     optype = node.op_type
 
     # if rtl variant has specific restrictions
@@ -62,10 +63,10 @@ def _determine_impl_style(node):
         if optype == "StreamingDataWidthConverter":
             return _dwc_determine_impl_style(node)
         if rtl_variant:
-            return "rtl"
+            impl_style = "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
-            return "hls"
+            impl_style = "hls"
         # if there is neither an rtl nor hls variant
         # throw error
         else:
@@ -121,6 +122,28 @@ def _determine_impl_style(node):
             else:
                 # user setting can be fulfilled
                 return "rtl"
+        elif optype == "MVAU":
+            if _mvu_rtl_possible(node):
+                if getCustomOp(node).get_nodeattr("noActivation") == 0:
+                    # Split thresholding
+                    pass
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+        elif optype == "VectorVectorActivation":
+            if _vvu_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+
         if rtl_variant:
             return "rtl"
         elif hls_variant:
@@ -194,8 +217,47 @@ def _swg_hls_possible(node):
             return False
 
 
+def _mvu_rtl_possible(n):
+    # Checks whether RTL-based MVU is supported
+    act_width_in_range = (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
+    ) or (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
+        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    )
+    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    folding_supported = (
+        getCustomOp(n).get_nodeattr("MH") % getCustomOp(n).get_nodeattr("PE") == 0
+    ) and (getCustomOp(n).get_nodeattr("MW") % getCustomOp(n).get_nodeattr("SIMD") == 0)
+
+    return act_width_in_range and weight_width_in_range and folding_supported
+
+
+def _vvu_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based VVU is supported
+    act_width_in_range = (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
+    ) or (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
+        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    )
+    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    folding_supported = (
+        getCustomOp(n).get_nodeattr("Channels") % getCustomOp(n).get_nodeattr("PE") == 0
+    ) and (
+        np.prod(getCustomOp(n).get_nodeattr("Kernel")) % getCustomOp(n).get_nodeattr("SIMD") == 0
+    )
+    is_versal_family = is_versal(fpgapart)
+
+    return act_width_in_range and weight_width_in_range and folding_supported and is_versal_family
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
+
+    def __init__(self, fpgapart):
+        super().__init__()
+        self.fpgapart = fpgapart
 
     def apply(self, model):
         graph = model.graph
@@ -206,7 +268,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node)
+            impl_style = _determine_impl_style(node, self.fpgapart)
             optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
