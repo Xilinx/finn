@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +35,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def divisors(num):
@@ -120,7 +121,7 @@ class SetFolding(Transformation):
         # as explained in the SetFolding docstring
         depthwise_op_exceptions = ["VectorVectorActivation_hls", "Pool_hls"]
         for node in graph.node:
-            if not is_fpgadataflow_node(node):
+            if not (is_hls_node(node) or is_rtl_node(node)):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)

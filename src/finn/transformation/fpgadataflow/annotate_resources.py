@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +35,7 @@ from qonnx.transformation.base import Transformation
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
-from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class AnnotateResources(Transformation):
@@ -68,7 +69,7 @@ class AnnotateResources(Transformation):
         children_dict = {}
         # annotate node resources
         for node in graph.node:
-            if _is_fpgadataflow_node(node) and node.name in self.res_dict.keys():
+            if is_fpgadataflow_node(node) and node.name in self.res_dict.keys():
                 op_inst = registry.getCustomOp(node)
                 op_inst.set_nodeattr("res_" + self.mode, str(self.res_dict[node.name]))
                 children_dict[node.name] = self.res_dict[node.name]

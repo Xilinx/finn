@@ -202,12 +202,9 @@ def test_fpgadataflow_slidingwindow(
             inst.set_nodeattr("parallel_window", parallel_window)
 
     if exec_mode == "cppsim":
-        if model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl":
-            pytest.skip("cppsim not supported for RTL DWC")
-        else:
-            model = model.transform(SetExecMode("cppsim"))
-            model = model.transform(PrepareCppSim())
-            model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
@@ -220,7 +217,10 @@ def test_fpgadataflow_slidingwindow(
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
-    if dw == 0:
+    # if cppsim and impl style rtl is selected, the node execution is done by the hw op parent
+    # so, no reordering/shaping of the output is needed
+    # because there is no concept of SIMD parallelism in the hw abstraction layer execution
+    if dw == 0 or (impl_style == "rtl" and exec_mode == "cppsim"):
         assert (y_produced == y_expected).all()
     else:
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)

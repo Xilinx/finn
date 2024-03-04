@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +32,7 @@ import xml.etree.ElementTree as ET
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def post_synth_res(model, override_synth_report_filename=None):
@@ -102,7 +103,7 @@ def post_synth_res(model, override_synth_report_filename=None):
             sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
             sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
             res_dict.update(sdp_res_dict)
-        elif _is_fpgadataflow_node(node):
+        elif is_hls_node(node) or is_rtl_node(node):
             node_dict = get_instance_stats(node.name)
             if node_dict is not None:
                 res_dict[node.name] = node_dict

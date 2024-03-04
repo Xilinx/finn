@@ -35,15 +35,12 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_dwc_node(node):
-    if node.op_type.startswith("StreamingDataWidthConverter"):
-        return True
-    else:
-        return False
+    return node.op_type.startswith("StreamingDataWidthConverter")
 
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node):
             if _is_dwc_node(node):
                 # no DWC for DWCs
                 return False

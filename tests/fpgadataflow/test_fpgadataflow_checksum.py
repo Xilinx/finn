@@ -141,6 +141,7 @@ def test_fpgadataflow_checksum():
     # use a graph consisting of two fc layers to test
     # checksum node insertion
     model = create_two_fc_model()
+    model = model.transform(SpecializeLayers())
 
     # set checksum output hook
     for n in model.graph.node:
