@@ -542,7 +542,7 @@ class MVAU(HWCustomOp):
             self.set_nodeattr("weightDataType", wdt.name)
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+    def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0
@@ -845,6 +845,19 @@ class MVAU(HWCustomOp):
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
+        if mem_mode == "external":
+            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
+        if mem_mode == "decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
 
     def code_generation_ipi(self):
         cmd = []
