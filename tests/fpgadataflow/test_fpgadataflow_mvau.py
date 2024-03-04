@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import pickle
 import pytest
 
 import numpy as np
@@ -37,7 +35,12 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames, ApplyConfig
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
     calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
@@ -45,19 +48,25 @@ from qonnx.util.basic import (
 )
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -394,6 +403,7 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("rtlsim_trace", "mvau_trace.vcd")
+        inst.set_nodeattr("preferred_impl_style", "hls")
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
@@ -610,36 +620,26 @@ def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, b
     assert chrc_out[0, exp_total_cycles] == nf
 
 
-# @pytest.mark.parametrize("mh", [36])
-# @pytest.mark.parametrize("mw", [256])
-@pytest.mark.parametrize("mh", [1])
-@pytest.mark.parametrize("mw", [8])
-# @pytest.mark.parametrize("pe", [1, 4, 9, 36])
-# @pytest.mark.parametrize("simd", [1, 4, 16, 64, 256])
-# @pytest.mark.parametrize("pe", [1, 3, 9])
-# @pytest.mark.parametrize("simd", [1, 3, 6, 18, 36])
-@pytest.mark.parametrize("pe", [1])
-@pytest.mark.parametrize("simd", [4])
-# @pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
-# @pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
-@pytest.mark.parametrize("idt", [DataType["UINT4"]])
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
-# @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e"])
-@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
-# @pytest.mark.parametrize("clk_ns", [1.66, 4])
-@pytest.mark.parametrize("clk_ns", [4])
+@pytest.mark.parametrize("mh", [18])
+@pytest.mark.parametrize("mw", [128])
+@pytest.mark.parametrize("pe", [1, 6, 9, 18])
+@pytest.mark.parametrize("simd", [1, 4, 16, 64, 128])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e"])
+@pytest.mark.parametrize("clk_ns", [1.66, 4])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_mvau(
-    mh, mw, pe, simd, idt, wdt, part, clk_ns
-):
+def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     if part == "xcku3p-ffva676-1-e" and clk_ns != 1.66:
-        pytest.skip("Skip test for varying clk for devices other than Versal, since this variable doesn't change anything for this test")
+        pytest.skip(
+            """Skip test for varying clk for devices other than Versal,
+            since this variable only affects DSP58s"""
+        )
 
-    build_dir = os.environ["FINN_BUILD_DIR"]
     # Create test input vector (produced by SWG)
-    ofm_shape = (2, 2)
+    ofm_shape = (3, 3)
     ofm_h, ofm_w = ofm_shape
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
     ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
@@ -648,17 +648,14 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
 
-    model.save(build_dir + "/matmul.onnx")
-
     # Create MatMul & obtain golden reference output
-    A = gen_finn_dt_tensor(model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in"))
+    A = gen_finn_dt_tensor(
+        model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in")
+    )
     input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
 
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
-
-    with open(build_dir + "/onnx_output.pkl", "wb") as f:
-        pickle.dump(output_matmul, f)
 
     # Create MVAU (HLS)
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
@@ -671,46 +668,38 @@ def test_fpgadataflow_rtl_mvau(
             "PE": pe,
             "SIMD": simd,
             "mem_mode": "decoupled",
-            "ram_style": "auto",
             "resType": "dsp",
-            "preferred_impl_style" : "rtl"
+            "preferred_impl_style": "rtl",
         },
     }
     model = model.transform(ApplyConfig(folding_config))
-    model.save(build_dir + "/mvau_hls.onnx")
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    # make sure the changed datatypes are propagated through the network
+    model = model.transform(InferDataTypes())
 
     # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
-    model.save(build_dir + "/mvau_rtl.onnx")
-
-    # Reset rtlsim_so and ip-related paths such that new Pyverilator SO and IP is generated
-    for n in model.graph.node:
-        getCustomOp(n).set_nodeattr("rtlsim_trace", build_dir + "/mvu_trace_rtl_nodebynode.vcd")
-
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
 
-    with open(build_dir + "/mvau_rtl_output.pkl", "wb") as f:
-        pickle.dump(output_mvau_rtl, f)
-
-    model.save(build_dir + "/mvau_rtl_sim.onnx")
-    import pdb; pdb.set_trace()
-    assert (output_matmul == output_mvau_rtl).all(), "Output of ONNX model not matching output of node-by-node sim!"
+    assert (
+        output_matmul == output_mvau_rtl
+    ).all(), "Output of ONNX model not matching output of node-by-node sim!"
 
     model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
     model.set_metadata_prop("rtlsim_so", "")
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", build_dir + "/mvu_trace_rtl_stitch.vcd")
-    model.save(build_dir + "/stitched_ip.onnx")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
 
-    assert (output_matmul == output_mvau_rtl_stitch).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+    assert (
+        output_matmul == output_mvau_rtl_stitch
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
