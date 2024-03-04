@@ -202,12 +202,9 @@ def test_fpgadataflow_slidingwindow(
             inst.set_nodeattr("parallel_window", parallel_window)
 
     if exec_mode == "cppsim":
-        if model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl":
-            pytest.skip("cppsim not supported for RTL DWC")
-        else:
-            model = model.transform(SetExecMode("cppsim"))
-            model = model.transform(PrepareCppSim())
-            model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())

@@ -113,8 +113,6 @@ def make_single_fmpadding_modelwrapper(impl_style, idim, padding, num_ch, simd, 
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
-    if impl_style == "rtl" and mode == "cppsim":
-        pytest.skip("rtl implstyle has no cppsim, skipping")
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
 
