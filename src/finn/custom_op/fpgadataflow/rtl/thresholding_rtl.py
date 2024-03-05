@@ -31,7 +31,7 @@ import numpy as np
 import os
 import shutil
 import warnings
-from pyverilator.util.axi_utils import rtlsim_multi_io, reset_rtlsim
+from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -76,7 +76,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # setting to 0 may save some FFs but otherwise leave on
             "deep_pipeline": ("i", False, 1, {0, 1}),
         }
-        my_attrs.update(Thresholding.get_nodeattr_types(self)) 
+        my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
@@ -314,7 +314,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         weights = model.get_initializer(self.onnx_node.input[1])
         weights_fname = f"{code_gen_dir}/memblock.dat"
-        self.make_weight_file(weights,"decoupled", weights_fname)
+        self.make_weight_file(weights, "decoupled", weights_fname)
 
         for rtl_file_path in self.get_rtl_file_paths():
             # read in original RTL template file
@@ -346,7 +346,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
-        verilog_files = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
+        verilog_files = [
+            x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()
+        ]
         dat_files = self.get_all_meminit_filenames(abspath=True)
         single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
         for dat_file in dat_files:
@@ -376,7 +378,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             )
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":
-            raise Exception("cppsim not possible for RTL Thresholding, please set exec_mode to rtlsim")
+            raise Exception(
+                "cppsim not possible for RTL Thresholding, please set exec_mode to rtlsim"
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -442,13 +446,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         os.chdir(so_dir)
         num_out_values = self.get_number_output_values()
         reset_rtlsim(sim)
-        total_cycle_count = rtlsim_multi_io(sim,
-                                             io_dict,
-                                             num_out_values,
-                                             trace_file=trace_file,
-                                             sname=sname,
-                                             liveness_threshold=pyverilate_get_liveness_threshold_cycles()
-                                             )
+        total_cycle_count = rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
         os.chdir(olcwd)
         output = io_dict["outputs"][ostream_name]
@@ -472,7 +477,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        rtl_file_list = [x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()]
+        rtl_file_list = [
+            x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()
+        ]
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
@@ -565,6 +572,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 """Please set mem_mode to "const", "decoupled",
                 currently no other parameter value is supported!"""
             )
+
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
         format for this layer. This file can be used for either synthesis or
@@ -587,24 +595,24 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         n_thres_steps = self.get_nodeattr("numSteps")
 
         width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
-        weight_padded = np.zeros((weights.shape[0],width_padded))
-        weight_padded[:weights.shape[0], :n_thres_steps ] = weights
+        weight_padded = np.zeros((weights.shape[0], width_padded))
+        weight_padded[: weights.shape[0], :n_thres_steps] = weights
         weight_stream = []
         wdt = self.get_weight_datatype()
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
         padding = np.zeros(width_padded, dtype=np.int32)
 
         chan_ind = 0
-        cf = ch//pe
+        cf = ch // pe
         for fold in range(cf):
-            for c in range(2**(pe-1).bit_length()):
-                if (c==0 or c%pe != 0) and c < pe:
+            for c in range(2 ** (pe - 1).bit_length()):
+                if (c == 0 or c % pe != 0) and c < pe:
                     for w in weight_padded[chan_ind]:
                         w_packed = pack_innermost_dim_as_hex_string(
                             [w], wdt, bw_hexdigit, prefix=""
                         ).item()
                         weight_stream.append(w_packed)
-                    chan_ind +=1
+                    chan_ind += 1
                 else:
                     for z in padding:
                         w_packed = pack_innermost_dim_as_hex_string(

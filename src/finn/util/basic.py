@@ -270,7 +270,7 @@ mem_primitives_versal = {
 def get_memutil_alternatives(
     req_mem_spec, mem_primitives=mem_primitives_versal, sort_min_waste=True
 ):
-    '''Computes how many instances of a memory primitive are necessary to
+    """Computes how many instances of a memory primitive are necessary to
     implement a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
     as tuples of (mem_width, mem_depth). Returns a list of tuples of the form
@@ -278,7 +278,7 @@ def get_memutil_alternatives(
     range [0,1] indicates how much of the total capacity is utilized, and waste
     indicates how many bits of storage are wasted. If sort_min_waste is True,
     the list is sorted by increasing waste.
-    '''
+    """
     ret = [
         (primitive_name, memutil(req_mem_spec, primitive_spec))
         for (primitive_name, primitive_spec) in mem_primitives.items()

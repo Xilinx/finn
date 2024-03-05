@@ -31,6 +31,7 @@ import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
@@ -165,7 +166,6 @@ class Thresholding(HWCustomOp):
         return o_bits * self.get_nodeattr("PE")
 
     def get_folded_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         fold = self.calc_tmem()
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -193,7 +193,6 @@ class Thresholding(HWCustomOp):
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])
-
 
     def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into

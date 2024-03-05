@@ -42,7 +42,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.core.rtlsim_exec import rtlsim_exec, reset_rtlsim
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -56,6 +56,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
+
 def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
     return np.random.randint(
         input_data_type.min(),
@@ -63,8 +64,10 @@ def generate_random_threshold_values(input_data_type, num_input_channels, num_st
         (num_input_channels, num_steps),
     ).astype(np.float32)
 
+
 def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
+
 
 # n = batch, c = channel, h = height, w = width of feature map
 # Standard = NCHW; FINN = NHWC
@@ -72,12 +75,15 @@ def sort_thresholds_increasing(thresholds):
 def layout_FINN2NCHW(data):
     return np.transpose(data, (0, 3, 1, 2))
 
+
 # Convert from NCHW(Standard) to NHWC(FINN)
 def layout_NCHW2FINN(data):
     return np.transpose(data, (0, 2, 3, 1))
 
 
-def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs):
+def make_single_thresholding_modelwrapper(
+    impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs
+):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])
@@ -100,7 +106,7 @@ def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, m
         ActVal=actval,
         mem_mode=mem_mode,
         numInputVectors=n_inp_vecs,
-        preferred_impl_style=impl_style
+        preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -136,7 +142,7 @@ def make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, m
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_mode):
+def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem_mode):
     if impl_style == "rtl" and exec_mode == "cppsim":
         pytest.skip("rtl implstyle has no cppsim, skipping")
     if nf == -1:
@@ -152,9 +158,7 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
     n_steps = act.get_num_possible_values() - 1
 
     # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(
-        idt, ich, n_steps
-    )
+    thresholds = generate_random_threshold_values(idt, ich, n_steps)
 
     thresholds = sort_thresholds_increasing(thresholds)
 
@@ -165,15 +169,8 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
 
     # Build DUT
     model = make_single_thresholding_modelwrapper(
-            impl_style,
-            thresholds,
-            pe,
-            idt,
-            odt,
-            actval,
-            mem_mode,
-            n_inp_vecs
-        )
+        impl_style, thresholds, pe, idt, odt, actval, mem_mode, n_inp_vecs
+    )
 
     # Expected Reference output
     # multithreshold util fxn wants NCHW input, not NHWC
@@ -238,17 +235,18 @@ def test_fpgadataflow_thresholding(impl_style,idt, act, nf, ich, exec_mode, mem_
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
 
+
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
-@pytest.mark.parametrize("cfg", [(1,1), (6,2), (6,3), (8,2), (8,4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style,cfg):
-    """ Read back threshold weights during runtime
+def test_runtime_thresholds_read(impl_style, cfg):
+    """Read back threshold weights during runtime
 
-        1. Create random initial weights T
-        2. Execute model
-        3. Read back weights via AXI
-        4. Compare with initial weights T
+    1. Create random initial weights T
+    2. Execute model
+    3. Read back weights via AXI
+    4. Compare with initial weights T
     """
     ch = cfg[0]
     pe = cfg[1]
@@ -268,7 +266,9 @@ def test_runtime_thresholds_read(impl_style,cfg):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = make_single_thresholding_modelwrapper(
+        impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs
+    )
     model = model.transform(SpecializeLayers())
 
     # Make sure that specialize layer did not default to HLS implementation
@@ -303,6 +303,7 @@ def test_runtime_thresholds_read(impl_style,cfg):
 
     exec_ctx = {"inp": in_tensor}
     extracted_weight_stream = []
+
     def read_weights(sim):
         addr = 0
         for i in range(len(old_weight_stream)):
@@ -331,20 +332,21 @@ def test_runtime_thresholds_read(impl_style,cfg):
     # Validate the output is as expected
     assert (y == expected).all()
 
+
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
-@pytest.mark.parametrize("cfg", [(1,1), (6,2), (6,3), (8,2), (8,4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style,cfg):
-    """ Write threshold weights during runtime
+def test_runtime_thresholds_write(impl_style, cfg):
+    """Write threshold weights during runtime
 
-        1. Create random initial weights T_init
-        2. Create model with initial weights
-        3. Create new set of weights T_write
-        4. Write T_write using AXI bus
-        5. Read back using AXI bus to T_read
-        6. Compare T_write and T_read
-        7. Validate outputs with expected vectors
+    1. Create random initial weights T_init
+    2. Create model with initial weights
+    3. Create new set of weights T_write
+    4. Write T_write using AXI bus
+    5. Read back using AXI bus to T_read
+    6. Compare T_write and T_read
+    7. Validate outputs with expected vectors
     """
     ch = cfg[0]
     pe = cfg[1]
@@ -366,7 +368,9 @@ def test_runtime_thresholds_write(impl_style,cfg):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(impl_style, T_init, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = make_single_thresholding_modelwrapper(
+        impl_style, T_init, pe, idt, odt, actval, mem_mode, n_inp_vecs
+    )
     model = model.transform(SpecializeLayers())
 
     # Validate that specialize layer did not default to HLS implementation
@@ -381,7 +385,7 @@ def test_runtime_thresholds_write(impl_style,cfg):
     # provide non-decreasing thresholds
     T_write = np.sort(T_write, axis=1)
 
-    dat_fname = f"T_write_{cfg}.dat" # distinguish fname per paramter for distributed testing
+    dat_fname = f"T_write_{cfg}.dat"  # distinguish fname per paramter for distributed testing
     op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
     with open(dat_fname, "r") as f:
         T_write_stream = f.read().strip()
@@ -407,12 +411,15 @@ def test_runtime_thresholds_write(impl_style,cfg):
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
     exec_ctx_write = {"inp": in_tensor}
+
     def write_weights(sim):
         addr = 0
         for nw in T_write_stream:
             axilite_write(sim, addr, nw, basename="s_axilite_0_")
             addr += 4
+
     T_read_stream = []
+
     def read_weights(sim):
         addr = 0
         for i in range(len(T_write_stream)):

@@ -32,10 +32,10 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.custom_op.registry import getCustomOp
 
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
