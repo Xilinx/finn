@@ -102,13 +102,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         # total cost
         return comparator_cost + lutram_cost
 
-    def get_weightstream_width(self):
-        """Returns weight stream width. Used only in decoupled mode."""
-        if self.get_nodeattr("mem_mode") == "decoupled":
-            return super().get_weightstream_width()
-        else:
-            return 0
-
     def get_weightstream_width_padded(self):
         """Returns weight stream width padded to a multiple of 8. This is required
         by the AXI Stream spec. Used in decoupled mode."""
@@ -116,9 +109,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
-        weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        ap_int_max_w = super().get_ap_int_max_w()
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            weightstream = self.get_weightstream_width()
+            ap_int_max_w = max([weightstream, ap_int_max_w])
+        return ap_int_max_w
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
