@@ -30,7 +30,6 @@ import math
 import numpy as np
 import os
 import shutil
-import warnings
 from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -115,28 +114,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             res_count, eff, waste = primary_alt[1]
             res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
         return res_dict
-
-    def infer_node_datatype(self, model):
-        """Used for FINN DataType inference: set the output tensors' datatypes
-        accordingly for this node"""
-        node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype().name),
-                str(idt.name),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
-        # set output datatype from property
-        odt = self.get_output_datatype()
-        model.set_tensor_datatype(node.output[0], odt)
-
-    def verify_node(self):
-        """Required by the FINN nalysis module. Checks if custom ops in graph
-        are correctly built, with all attributes and inputs."""
-        return []
 
     def bram_estimation(self):
         res_dict = self.get_memory_estimate()
@@ -301,9 +278,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             f.write(data)
         return
 
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl(model)
-
     def generate_hdl(self, model):
         """Prepare HDL files from templates for synthesis"""
         # Generate a dictionary of values to put in RTL template
@@ -369,20 +343,92 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return sim
 
     def execute_node(self, context, graph):
-        # Perform input checks
-        if self.get_nodeattr("exec_mode") != "rtlsim":
-            raise Exception(
-                "Invalid exec_mode value: {}; exec_mode must be set to '{}'".format(
-                    self.get_nodeattr("exec_mode"), "rtlsim"
-                )
-            )
         mode = self.get_nodeattr("exec_mode")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         if mode == "cppsim":
-            raise Exception(
-                "cppsim not possible for RTL Thresholding, please set exec_mode to rtlsim"
-            )
+            Thresholding.execute_node(self, context, graph)
         elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            node = self.onnx_node
+            # create a npy file fore each input of the node (in_ind is input index)
+            in_ind = 0
+            for inputs in node.input:
+                # it is assumed that the first input of the node is the data input
+                # the second input are the thresholds
+                if in_ind == 0:
+                    assert (
+                        str(context[inputs].dtype) == "float32"
+                    ), """Input datatype is
+                    not float32 as expected."""
+                    expected_inp_shape = self.get_folded_input_shape()
+                    reshaped_input = context[inputs].reshape(expected_inp_shape)
+
+                    if self.get_input_datatype() == DataType["BIPOLAR"]:
+                        # store bipolar activations as binary
+                        reshaped_input = (reshaped_input + 1) / 2
+                        export_idt = DataType["BINARY"]
+                    else:
+                        export_idt = self.get_input_datatype()
+
+                    # make copy before saving the array
+                    reshaped_input = reshaped_input.copy()
+                    np.save(
+                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                        reshaped_input,
+                    )
+                elif in_ind > 2:
+                    raise Exception("Unexpected input found for Thresholding_rtl")
+                in_ind += 1
+
+            # Create a PyVerilator wrapper of the RTLSim .so
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            io_names = self.get_verilog_top_module_intf_names()
+            istream_name = io_names["s_axis"][0][0]
+            ostream_name = io_names["m_axis"][0][0]
+            io_dict = {
+                "inputs": {istream_name: inp},
+                "outputs": {ostream_name: []},
+            }
+
+            trace_file = self.get_nodeattr("rtlsim_trace")
+            if trace_file == "default":
+                trace_file = self.onnx_node.name + ".vcd"
+            sname = "_"
+
+            # Change into so directory to ensure threshold files can be found
+            rtlsim_so = self.get_nodeattr("rtlsim_so")
+            so_dir = os.path.dirname(os.path.realpath(rtlsim_so))
+            olcwd = os.getcwd()
+            os.chdir(so_dir)
+            num_out_values = self.get_number_output_values()
+            reset_rtlsim(sim)
+            total_cycle_count = rtlsim_multi_io(
+                sim,
+                io_dict,
+                num_out_values,
+                trace_file=trace_file,
+                sname=sname,
+                liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            )
+            self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+            os.chdir(olcwd)
+            output = io_dict["outputs"][ostream_name]
+
+            # Manage output data
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -390,89 +436,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     mode
                 )
             )
-        node = self.onnx_node
-
-        # create a npy file fore each input of the node (in_ind is input index)
-        in_ind = 0
-        for inputs in node.input:
-            # it is assumed that the first input of the node is the data input
-            # the second input are the thresholds
-            if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
-                expected_inp_shape = self.get_folded_input_shape()
-                reshaped_input = context[inputs].reshape(expected_inp_shape)
-
-                if self.get_input_datatype() == DataType["BIPOLAR"]:
-                    # store bipolar activations as binary
-                    reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType["BINARY"]
-                else:
-                    export_idt = self.get_input_datatype()
-
-                # make copy before saving the array
-                reshaped_input = reshaped_input.copy()
-                np.save(
-                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                    reshaped_input,
-                )
-            elif in_ind > 2:
-                raise Exception("Unexpected input found for Thresholding_rtl")
-            in_ind += 1
-
-        # Create a PyVerilator wrapper of the RTLSim .so
-        sim = self.get_rtlsim()
-        nbits = self.get_instream_width()
-        inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-        io_names = self.get_verilog_top_module_intf_names()
-        istream_name = io_names["s_axis"][0][0]
-        ostream_name = io_names["m_axis"][0][0]
-        io_dict = {
-            "inputs": {istream_name: inp},
-            "outputs": {ostream_name: []},
-        }
-
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file == "default":
-            trace_file = self.onnx_node.name + ".vcd"
-        sname = "_"
-
-        # Change into so directory to ensure threshold files can be found
-        rtlsim_so = self.get_nodeattr("rtlsim_so")
-        so_dir = os.path.dirname(os.path.realpath(rtlsim_so))
-        olcwd = os.getcwd()
-        os.chdir(so_dir)
-        num_out_values = self.get_number_output_values()
-        reset_rtlsim(sim)
-        total_cycle_count = rtlsim_multi_io(
-            sim,
-            io_dict,
-            num_out_values,
-            trace_file=trace_file,
-            sname=sname,
-            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
-        )
-        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
-        os.chdir(olcwd)
-        output = io_dict["outputs"][ostream_name]
-
-        # Manage output data
-        odt = self.get_output_datatype()
-        target_bits = odt.bitwidth()
-        packed_bits = self.get_outstream_width()
-        out_npy_path = "{}/output.npy".format(code_gen_dir)
-        out_shape = self.get_folded_output_shape()
-
-        rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-
-        # load and reshape output
-        output = np.load(out_npy_path)
-        oshape = self.get_normal_output_shape()
-        output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-        context[node.output[0]] = output
-        return
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL

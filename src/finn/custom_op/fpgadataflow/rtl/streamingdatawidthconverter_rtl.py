@@ -137,7 +137,7 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         }
         return code_gen_dict
 
-    def generate_hdl(self):
+    def generate_hdl(self, model):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/dwc/hdl"
         template_path = rtlsrc + "/dwc_template.v"
         code_gen_dict = self.get_template_values()

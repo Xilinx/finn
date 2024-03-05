@@ -839,7 +839,7 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
         return impl_style
 
-    def generate_hdl(self):
+    def generate_hdl(self, model):
         """Generates HDL code and wrapper for the IP, depending on required
         implementation style."""
         impl_style = self.select_impl_style()
