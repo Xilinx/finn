@@ -514,28 +514,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         return config
 
-    def generate_params(self, model, path):
-        code_gen_dir = path
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
-            # save thresholds in thresh.h
-            weight_filename = "{}/thresh.h".format(code_gen_dir)
-            self.make_weight_file(thresholds, "hls_header", weight_filename)
-        elif mem_mode == "decoupled":
-            # save decoupled weights for cppsim
-            weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
-            self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
-            # also save weights as Verilog .dat file
-            # This file will be ignored when synthesizing UltraScale memory.
-            weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-            self.make_weight_file(thresholds, "decoupled_verilog_dat", weight_filename_rtl)
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled",
-                currently no other parameter value is supported!"""
-            )
-
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
         format for this layer. This file can be used for either synthesis or
