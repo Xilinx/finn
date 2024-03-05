@@ -235,6 +235,7 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+# configuration (ch, pe)
 @pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -332,6 +333,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
 
 
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+# configuration (ch, pe)
 @pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
