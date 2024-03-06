@@ -94,7 +94,7 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["UINT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
 # input dimension

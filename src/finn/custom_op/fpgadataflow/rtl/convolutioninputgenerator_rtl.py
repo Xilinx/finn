@@ -33,6 +33,7 @@ import shutil
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
+from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -860,6 +861,12 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
         code_gen_dict["$BIT_WIDTH$"] = [str(self.get_input_datatype().bitwidth())]
+        code_gen_dict["$IN_WIDTH_PADDED$"] = [
+            str(roundup_to_integer_multiple(self.get_instream_width(), 8))
+        ]
+        code_gen_dict["$OUT_WIDTH_PADDED$"] = [
+            str(roundup_to_integer_multiple(self.get_outstream_width(), 8))
+        ]
         ram_style = self.get_nodeattr("ram_style")
         code_gen_dict["$RAM_STYLE$"] = ['"{}"'.format(ram_style)]
 
