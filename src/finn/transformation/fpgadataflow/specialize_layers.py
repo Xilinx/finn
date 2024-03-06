@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 import warnings
 from onnx import helper
 from qonnx.core.datatype import DataType
@@ -35,7 +34,6 @@ from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.fpgadataflow import is_versal
 
 
 def _determine_impl_style(node, fpgapart=""):
@@ -55,10 +53,10 @@ def _determine_impl_style(node, fpgapart=""):
         if optype == "StreamingDataWidthConverter":
             return _dwc_determine_impl_style(node)
         if rtl_variant:
-            impl_style = "rtl"
+            return "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
-            impl_style = "hls"
+            return "hls"
         # if there is neither an rtl nor hls variant
         # throw error
         else:
@@ -119,15 +117,6 @@ def _determine_impl_style(node, fpgapart=""):
                 if getCustomOp(node).get_nodeattr("noActivation") == 0:
                     # Split thresholding
                     pass
-                return "rtl"
-            else:
-                warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant.""" % (
-                    node.name,
-                )
-                warnings.warn(warn_str)
-        elif optype == "VectorVectorActivation":
-            if _vvu_rtl_possible(node, fpgapart):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
@@ -221,27 +210,16 @@ def _mvu_rtl_possible(n):
     folding_supported = (
         getCustomOp(n).get_nodeattr("MH") % getCustomOp(n).get_nodeattr("PE") == 0
     ) and (getCustomOp(n).get_nodeattr("MW") % getCustomOp(n).get_nodeattr("SIMD") == 0)
+    targets_dsp = getCustomOp(n).get_nodeattr("resType") in ["dsp", "auto"]
+    external_memmode = getCustomOp(n).get_nodeattr("mem_mode") in ["decoupled", "external"]
 
-    return act_width_in_range and weight_width_in_range and folding_supported
-
-
-def _vvu_rtl_possible(n, fpgapart):
-    # Checks whether RTL-based VVU is supported
-    act_width_in_range = (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
-    ) or (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
-        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    return (
+        act_width_in_range
+        and weight_width_in_range
+        and folding_supported
+        and targets_dsp
+        and external_memmode
     )
-    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
-    folding_supported = (
-        getCustomOp(n).get_nodeattr("Channels") % getCustomOp(n).get_nodeattr("PE") == 0
-    ) and (
-        np.prod(getCustomOp(n).get_nodeattr("Kernel")) % getCustomOp(n).get_nodeattr("SIMD") == 0
-    )
-    is_versal_family = is_versal(fpgapart)
-
-    return act_width_in_range and weight_width_in_range and folding_supported and is_versal_family
 
 
 class SpecializeLayers(Transformation):
