@@ -80,6 +80,20 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return my_attrs
 
     def get_pe_mem_geometries(self):
+        ''' return a list of (bitwidth, depth) for PE memory configurations to be used in resource estimation
+
+         for each bitwidth, the depth is calculated as the
+         number of thresholds that can be stored in a single
+         memory block
+         the bitwidth is the bitwidth of the threshold values
+         the depth is the number of thresholds that can be stored
+         in a single memory block
+         the number of memory blocks is calculated as the number
+         of thresholds divided by the depth
+         the number of memory blocks is then multiplied by the
+         number of PEs to get the total number of memory blocks
+         required for the entire layer
+        '''
         pe = self.get_nodeattr("PE")
         wdt = self.get_weight_datatype()
         wdt_bits = wdt.bitwidth()
@@ -95,6 +109,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return ret
 
     def get_memory_estimate(self):
+        ''' return the memory estimate for this node '''
         res_dict = {}
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
@@ -116,14 +131,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return res_dict
 
     def bram_estimation(self):
+        ''' return the number of BRAMs required for this node '''
         res_dict = self.get_memory_estimate()
         return res_dict.get("BRAM", 0)
 
     def uram_estimation(self):
+        ''' return the number of URAMs required for this node '''
         res_dict = self.get_memory_estimate()
         return res_dict.get("URAM", 0)
 
     def lut_estimation(self):
+        ''' return the number of LUTs required for this node '''
         res_dict = self.get_memory_estimate()
         return res_dict.get("LUTRAM", 0)
 
@@ -467,52 +485,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             intf_names["axilite"] = ["s_axilite"]
 
         return intf_names
-
-    def get_dynamic_config(self, weights, address_stride=1):
-        """Returns a configuration dictionary containing axilite write commands
-        in order to program the thresholds into the RTL core during runtime.
-        The default address stride for the weights is 1 byte."""
-
-        # thresholds = model.get_initializer(self.onnx_node.input[1])
-        thresholds = weights
-        num_channels, num_weights_per_channel = thresholds.shape
-
-        weight_addr_boundary = find_next_power_of_2(num_weights_per_channel)
-        # Make sure that the next power of 2 (output) is greater than the input
-        assert weight_addr_boundary >= num_weights_per_channel
-
-        config = {}
-        channel_cntr = 0
-        wdt = self.get_weight_datatype()
-        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
-        for channel in thresholds:
-            channel_start_addr = channel_cntr * weight_addr_boundary * address_stride
-            weight_cntr = 0
-            addr = 0
-            for weight in channel:
-                key_name = "{}_{}{}_{}{}".format(
-                    "axilite", "ch", str(channel_cntr), "w", str(weight_cntr)
-                )
-                config[key_name] = (
-                    channel_start_addr + addr,
-                    int(
-                        str(
-                            pack_innermost_dim_as_hex_string(
-                                [weight],
-                                wdt,
-                                bw_hexdigit,
-                            )
-                        ),
-                        0,
-                    ),
-                )
-
-                weight_cntr += 1
-                addr += address_stride
-
-            channel_cntr += 1
-
-        return config
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
