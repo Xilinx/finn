@@ -217,8 +217,8 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced == y_expected).all(), "cppsim hw-op failed"
 
 
-# mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
+# mem_mode: internal_embedded or internal_decoupled
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
@@ -310,8 +310,8 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced == y_expected).all(), "cppsim hls-op failed"
 
 
-# mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
+# mem_mode: internal_embedded or internal_decoupled
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
@@ -411,8 +411,8 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert exp_cycles != 0
 
 
-# mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["decoupled"])
+# mem_mode: internal_embedded or internal_decoupled
+@pytest.mark.parametrize("mem_mode", ["internal_decoupled"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [DataType["INT4"]])
 # weight datatype
@@ -513,8 +513,8 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     assert exp_cycles != 0
 
 
-# mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
+# mem_mode: internal_embedded or internal_decoupled
+@pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [DataType["INT4"]])
 # weight datatype

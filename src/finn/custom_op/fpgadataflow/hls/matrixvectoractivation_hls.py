@@ -78,8 +78,8 @@ class MVAU_hls(MVAU, HLSBackend):
         c2 = 0
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
-            mmode == "const" and self.calc_wmem() <= 128
+        if (mmode == "internal_decoupled" and mstyle == "distributed") or (
+            mmode == "internal_embedded" and self.calc_wmem() <= 128
         ):
             c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
@@ -178,7 +178,7 @@ class MVAU_hls(MVAU, HLSBackend):
         sname = self.hls_sname()
         if mem_mode == "external":
             intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
-        if mem_mode == "decoupled":
+        if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
             if runtime_writable:
@@ -190,9 +190,9 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["const", "decoupled", "external"]:
+        if mem_mode not in ["internal_embedded", "internal_decoupled", "external"]:
             raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
         self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
@@ -228,7 +228,7 @@ class MVAU_hls(MVAU, HLSBackend):
                 numReps,
             )
         ]
-        if mem_mode == "decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
             self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
 
@@ -259,7 +259,7 @@ class MVAU_hls(MVAU, HLSBackend):
         )
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
             elem_bits = wdt.bitwidth()
             packed_bits = self.get_weightstream_width()
@@ -294,7 +294,7 @@ class MVAU_hls(MVAU, HLSBackend):
             )
         )
 
-        if mem_mode == "decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> weights_{} ("weights_{}");'.format(
                     self.get_weightstream_width(), self.hls_sname(), self.hls_sname()
@@ -314,7 +314,7 @@ class MVAU_hls(MVAU, HLSBackend):
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
                 (in0_{}, out_{}, weights, {}, numReps, {});""".format(
@@ -327,7 +327,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]
@@ -351,7 +351,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
         else:
             raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
 
@@ -389,7 +389,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(hls::stream<ap_uint<{}>> &in0_{},
                     hls::stream<ap_uint<{}>> &out_{}
@@ -401,7 +401,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     self.hls_sname(),
                 )
             ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(
                     hls::stream<ap_uint<{}>> &in0_{},
@@ -420,8 +420,8 @@ class MVAU_hls(MVAU, HLSBackend):
 
         else:
             raise Exception(
-                """Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!"""
+                """Please set mem_mode to "internal_embedded" or "internal_decoupled",
+                    currently no other parameter value is supported!"""
             )
 
     def pragmas(self):
@@ -435,21 +435,21 @@ class MVAU_hls(MVAU, HLSBackend):
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
                 ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
             )
-        elif mem_mode == "decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
             )
 
         else:
             raise Exception(
-                """Please set mem_mode to "const", "decoupled", or external,
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", or external,
                 currently no other parameter value is supported!"""
             )
 
@@ -482,7 +482,7 @@ class MVAU_hls(MVAU, HLSBackend):
     def get_ap_int_max_w(self):
         # base class impl (max of inp/out stream widths)
         max_of_io = super().get_ap_int_max_w()
-        # decoupled mode weight stream
+        # internal_decoupled mode weight stream
         weightstream = self.get_weightstream_width()
         # single PE weight entry
         weight_bits = self.get_weight_datatype().bitwidth()
@@ -556,7 +556,7 @@ class MVAU_hls(MVAU, HLSBackend):
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
             self.toggle_clk(sim)
-            if mem_mode == "external" or mem_mode == "decoupled":
+            if mem_mode == "external" or mem_mode == "internal_decoupled":
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
                 # we have converted bipolar weights to binary for export,
@@ -597,7 +597,7 @@ class MVAU_hls(MVAU, HLSBackend):
         # instantiate the HLS IP
         vlnv = self.get_nodeattr("ip_vlnv")
         node_name = self.onnx_node.name
-        if self.get_nodeattr("mem_mode") == "decoupled":
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
             cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
             cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))

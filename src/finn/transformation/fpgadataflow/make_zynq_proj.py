@@ -65,7 +65,7 @@ def collect_ip_dirs(model, ipstitch_path):
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
         if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
-            if node_inst.get_nodeattr("mem_mode") == "decoupled":
+            if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:

@@ -91,7 +91,7 @@ def _make_single_vvau_modelwrapper(
     odt,
     T=None,
     tdt=None,
-    mem_mode="const",
+    mem_mode="internal_embedded",
 ):
     in_shape = [1, dim_h, dim_w, k_h * k_w * channels]  # [N, H, W, K*K*CH]
     out_shape = [
@@ -181,7 +181,7 @@ def prepare_inputs(input_tensor):
 # Number of input and output channels
 @pytest.mark.parametrize("channels", [3, 6])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow

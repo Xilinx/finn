@@ -62,7 +62,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
-def create_one_fc_model(mem_mode="const"):
+def create_one_fc_model(mem_mode="internal_embedded"):
     # create a model with a MatrixVectorActivation instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType["INT2"]
@@ -114,7 +114,7 @@ def create_one_fc_model(mem_mode="const"):
     return model
 
 
-def create_two_fc_model(mem_mode="decoupled"):
+def create_two_fc_model(mem_mode="internal_decoupled"):
     # create a model with two MatrixVectorActivation instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
@@ -195,7 +195,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     return model
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
@@ -214,7 +214,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
@@ -232,7 +232,7 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
@@ -281,7 +281,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     assert (rtlsim_res == x).all()
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -336,7 +336,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
         pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
     fpga_part = alveo_part_map[board]
-    model = create_two_fc_model("external" if extw else "decoupled")
+    model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"

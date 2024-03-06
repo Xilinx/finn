@@ -1287,9 +1287,8 @@ class InferBinaryMatrixVectorActivation(Transformation):
     MatrixVectorActivation layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
-    def __init__(self, mem_mode="const"):
+    def __init__(self):
         super().__init__()
-        self.mem_mode = mem_mode
 
     def apply(self, model):
         graph = model.graph
@@ -1372,7 +1371,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         binaryXnorMode=1,
                         noActivation=0,
                         numInputVectors=list(mm_in_shape[:-1]),
-                        mem_mode=self.mem_mode,
                         name=n.name,
                     )
                     graph.node.insert(node_ind, new_node)
@@ -1403,7 +1401,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                         binaryXnorMode=1,
                         noActivation=1,
                         numInputVectors=list(mm_in_shape[:-1]),
-                        mem_mode=self.mem_mode,
                         name=n.name,
                     )
                     graph.node.insert(node_ind, new_node)
@@ -1420,9 +1417,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
     MatrixVectorActivation layers."""
 
-    def __init__(self, mem_mode="const"):
+    def __init__(self):
         super().__init__()
-        self.mem_mode = mem_mode
 
     def apply(self, model):
         graph = model.graph
@@ -1509,7 +1505,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             binaryXnorMode=0,
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
-                            mem_mode=self.mem_mode,
                             name="MVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
@@ -1540,7 +1535,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             binaryXnorMode=0,
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
-                            mem_mode=self.mem_mode,
                             name="MVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
@@ -1560,9 +1554,8 @@ class InferVectorVectorActivation(Transformation):
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
 
-    def __init__(self, mem_mode="const"):
+    def __init__(self):
         super().__init__()
-        self.mem_mode = mem_mode
 
     def apply(self, model):
         graph = model.graph
@@ -1659,7 +1652,6 @@ class InferVectorVectorActivation(Transformation):
                             ActVal=actval,
                             noActivation=0,
                             name="VectorVectorActivation_" + n.name,
-                            mem_mode=self.mem_mode,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes

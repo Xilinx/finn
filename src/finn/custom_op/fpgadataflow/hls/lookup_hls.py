@@ -57,7 +57,7 @@ class Lookup_hls(Lookup, HLSBackend):
         mem_mode = self.get_nodeattr("mem_mode")
         global_incls = []
         global_incls.append('#include "lookup.hpp"')
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             global_incls.append('#include "embeddings.hpp"')
         self.code_gen_dict["$GLOBALS$"] = global_incls
 
@@ -80,7 +80,7 @@ class Lookup_hls(Lookup, HLSBackend):
             my_defines.append("#define EmbeddingAlign %d" % ext_mem_emb_align)
             my_defines.append("#define T_SRC %s" % elem_hls_type)
             my_defines.append("#define T_DST ap_uint<MemBits>")
-        elif mem_mode == "const":
+        elif mem_mode == "internal_embedded":
             my_defines.append("#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings"))
             my_defines.append("#define EmbeddingDim %d" % emb_dim)
             my_defines.append("#define InputType %s" % elem_hls_type)
@@ -143,7 +143,7 @@ class Lookup_hls(Lookup, HLSBackend):
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
                 InputType, EmbeddingType >(in0_%s, out_%s, embeddings);"""
@@ -162,7 +162,7 @@ class Lookup_hls(Lookup, HLSBackend):
         packed_input_hls_type = "ap_uint<%d>" % ibits
         obits = self.get_outstream_width()
         packed_output_hls_type = "ap_uint<%d>" % obits
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
                 % (
@@ -188,7 +188,7 @@ class Lookup_hls(Lookup, HLSBackend):
         my_pragmas = ["#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()]
         my_pragmas.append("#pragma HLS INTERFACE axis port=out_" + self.hls_sname())
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")
         elif mem_mode == "external":
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
@@ -203,7 +203,7 @@ class Lookup_hls(Lookup, HLSBackend):
     def generate_params(self, model, path):
         mem_mode = self.get_nodeattr("mem_mode")
         embeddings = model.get_initializer(self.onnx_node.input[1])
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             code_gen_dir = path
             weight_filename = "{}/embeddings.hpp".format(code_gen_dir)
             edt = DataType[self.get_nodeattr("EmbeddingType")]
@@ -257,8 +257,8 @@ class Lookup_hls(Lookup, HLSBackend):
         folded_oshape = tuple(self.get_folded_output_shape())
         mem_mode = self.get_nodeattr("mem_mode")
         assert (
-            mem_mode == "const"
-        ), "Only mem_mode=const is supported for simulation of Lookup layer"
+            mem_mode == "internal_embedded"
+        ), "Only mem_mode=internal_embedded is supported for simulation of Lookup layer"
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
