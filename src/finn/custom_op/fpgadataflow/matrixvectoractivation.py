@@ -476,7 +476,7 @@ class MVAU(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
-            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
@@ -485,7 +485,7 @@ class MVAU(HWCustomOp):
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
             acc_min = min(min_threshold, acc_min)
@@ -762,7 +762,7 @@ class MVAU(HWCustomOp):
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
                 wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
