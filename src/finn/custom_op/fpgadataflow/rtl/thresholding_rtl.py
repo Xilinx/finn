@@ -37,7 +37,6 @@ from qonnx.util.basic import roundup_to_integer_multiple
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.util.basic import (
-    find_next_power_of_2,
     get_memutil_alternatives,
     get_rtlsim_trace_depth,
     make_build_dir,
