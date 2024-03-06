@@ -654,10 +654,14 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
     model = model.transform(GiveUniqueNodeNames())
 
+    # Apply convert-to-rtl step
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
-        "MVAU_0": {
+        "MVAU_rtl_0": {
             "PE": pe,
             "SIMD": simd,
             "mem_mode": "decoupled",
@@ -671,9 +675,16 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     # make sure the changed datatypes are propagated through the network
     model = model.transform(InferDataTypes())
 
-    # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
+    # Run CPPsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    output_mvau_hls = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        output_matmul == output_mvau_hls
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+
+    # Run node-by-node RTLsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
@@ -682,8 +693,9 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
 
     assert (
         output_matmul == output_mvau_rtl
-    ).all(), "Output of ONNX model not matching output of node-by-node sim!"
+    ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
+    # Run stitched-ip RTLsim
     model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
