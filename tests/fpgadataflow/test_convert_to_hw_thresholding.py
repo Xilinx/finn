@@ -36,9 +36,11 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-
+from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.custom_op.general.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+import finn.core.onnx_exec as oxe
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -48,6 +50,18 @@ target_clk_ns = 5
 def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
 
+def prepare_inputs(input_tensor):
+    return {"inp": input_tensor}
+
+# n = batch, c = channel, h = height, w = width of feature map
+# Standard = NCHW; FINN = NHWC
+# Convert from NHWC(FINN) to NCHW(Standard)
+def layout_FINN2NCHW(data):
+    return np.transpose(data, (0, 3, 1, 2))
+
+# Convert from NCHW(Standard) to NHWC(FINN)
+def layout_NCHW2FINN(data):
+    return np.transpose(data, (0, 2, 3, 1))
 
 def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
     return np.random.randint(
@@ -164,6 +178,27 @@ def test_convert_multithreshold_to_hardware(
 
     model = model.transform(InferThresholdingLayer())
 
+    # Perform functional validation of the InferThresholdingLayer transform
+    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+
+    x_nchw = layout_FINN2NCHW(x)
+    y_expected = multithreshold(x_nchw, thresholds)
+
+    # convert back to NHWC for comparison to hw outputs
+    y_expected = layout_NCHW2FINN(y_expected)
+    if activation == DataType["BIPOLAR"]:
+        # binary to bipolar
+        y_expected = 2 * y_expected - 1
+    else:
+        # signed offset
+        y_expected += activation.min()
+
+    input_dict = prepare_inputs(x)
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert (y_produced == y_expected).all()
+
+    # Transform to the specified implementation style, either the RTL or HLS according to test parameters
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", impl_style)
