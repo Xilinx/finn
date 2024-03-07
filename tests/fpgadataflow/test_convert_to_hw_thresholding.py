@@ -144,14 +144,6 @@ def test_convert_multithreshold_to_hardware(
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
 
-    # See convert_to_hw_layers::InferThresholdingLayer:
-    # assert (not odt.signed()) or (actval < 0)
-    # This implies that it expects a negative activation, BIPOLAR does not provide that
-    if activation == DataType["BIPOLAR"]:
-        pytest.skip(
-            "Only negative activations are supported for " "RTL Thresholding Binary Search node"
-        )
-
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
     output_data_type = activation
