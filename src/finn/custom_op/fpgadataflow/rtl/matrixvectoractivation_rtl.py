@@ -139,17 +139,11 @@ class MVAU_rtl(MVAU, RTLBackend):
     def dsp_estimation(self):
         # multiplication
         P = self.get_nodeattr("PE")
-        res_type = self.get_nodeattr("resType")
         Q = self.get_nodeattr("SIMD")
-        wdt = self.get_weight_datatype()
-        W = wdt.bitwidth()
-        idt = self.get_input_datatype()
-        A = idt.bitwidth()
-        if res_type == "dsp":
-            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
-        else:
-            mult_dsp = 0
-        return int(mult_dsp)
+        dsp_res = {}
+        dsp_res["DSP48"] = np.ceil(P / 4) * Q
+        dsp_res["DSP58"] = P * np.ceil(Q / 3)
+        return dsp_res
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         self.generate_hdl(model, fpgapart, clk)
@@ -258,7 +252,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
-        # code_gen_dict["$PUMPED_COMPUTE$"] = [str(0)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
@@ -298,3 +291,19 @@ class MVAU_rtl(MVAU, RTLBackend):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
 
         return sim
+
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # Path to (System-)Verilog files used by top-module & path to top-module
+        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
+        return verilog_paths
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/{}_wrapper.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
+        )
+        return verilog_file
