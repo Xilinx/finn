@@ -171,7 +171,7 @@ class FMPadding_rtl(FMPadding, RTLBackend):
         }
         return config
 
-    def generate_hdl(self):
+    def generate_hdl(self, model, fpgapart, clk):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/fmpadding/hdl"
         template_path = rtlsrc + "/fmpadding_template.v"
         dims = self.get_nodeattr("ImgDim")

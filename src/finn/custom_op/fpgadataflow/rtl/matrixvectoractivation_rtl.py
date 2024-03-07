@@ -145,9 +145,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         dsp_res["DSP58"] = P * np.ceil(Q / 3)
         return dsp_res
 
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl(model, fpgapart, clk)
-
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
