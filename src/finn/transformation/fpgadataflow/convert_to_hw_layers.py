@@ -239,7 +239,7 @@ class InferThresholdingLayer(Transformation):
 
                 # a signed activation should always have a negative bias,
                 # but BIPOLAR uses the -1 as 0 encoding so the assert does not apply
-                if odt != "BIPOLAR":
+                if odt != DataType["BIPOLAR"]:
                     assert (not odt.signed()) or (actval < 0), (
                         node.name + ": Signed output requires actval < 0"
                     )
