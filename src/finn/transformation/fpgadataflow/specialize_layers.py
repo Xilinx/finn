@@ -200,7 +200,7 @@ def _swg_hls_possible(node):
 
 def _mvu_rtl_possible(n):
     # Checks whether RTL-based MVU is supported
-    act_width_in_range = (
+    inp_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
@@ -214,7 +214,7 @@ def _mvu_rtl_possible(n):
     external_memmode = getCustomOp(n).get_nodeattr("mem_mode") in ["decoupled", "external"]
 
     return (
-        act_width_in_range
+        inp_width_in_range
         and weight_width_in_range
         and folding_supported
         and targets_dsp
