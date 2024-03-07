@@ -79,20 +79,21 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return my_attrs
 
     def get_pe_mem_geometries(self):
-        ''' return a list of (bitwidth, depth) for PE memory configurations to be used in resource estimation
+        """return a list of (bitwidth, depth) for PE memory configurations to be used
+        in resource estimation
 
-         for each bitwidth, the depth is calculated as the
-         number of thresholds that can be stored in a single
-         memory block
-         the bitwidth is the bitwidth of the threshold values
-         the depth is the number of thresholds that can be stored
-         in a single memory block
-         the number of memory blocks is calculated as the number
-         of thresholds divided by the depth
-         the number of memory blocks is then multiplied by the
-         number of PEs to get the total number of memory blocks
-         required for the entire layer
-        '''
+        for each bitwidth, the depth is calculated as the
+        number of thresholds that can be stored in a single
+        memory block
+        the bitwidth is the bitwidth of the threshold values
+        the depth is the number of thresholds that can be stored
+        in a single memory block
+        the number of memory blocks is calculated as the number
+        of thresholds divided by the depth
+        the number of memory blocks is then multiplied by the
+        number of PEs to get the total number of memory blocks
+        required for the entire layer
+        """
         pe = self.get_nodeattr("PE")
         wdt = self.get_weight_datatype()
         wdt_bits = wdt.bitwidth()
@@ -108,7 +109,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return ret
 
     def get_memory_estimate(self):
-        ''' return the memory estimate for this node '''
+        """return the memory estimate for this node"""
         res_dict = {}
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
@@ -130,17 +131,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         return res_dict
 
     def bram_estimation(self):
-        ''' return the number of BRAMs required for this node '''
+        """return the number of BRAMs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("BRAM", 0)
 
     def uram_estimation(self):
-        ''' return the number of URAMs required for this node '''
+        """return the number of URAMs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("URAM", 0)
 
     def lut_estimation(self):
-        ''' return the number of LUTs required for this node '''
+        """return the number of LUTs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("LUTRAM", 0)
 

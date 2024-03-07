@@ -32,15 +32,16 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
-from qonnx.custom_op.general.multithreshold import multithreshold
+
+import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-import finn.core.onnx_exec as oxe
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -50,8 +51,10 @@ target_clk_ns = 5
 def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
 
+
 def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
+
 
 # n = batch, c = channel, h = height, w = width of feature map
 # Standard = NCHW; FINN = NHWC
@@ -59,9 +62,11 @@ def prepare_inputs(input_tensor):
 def layout_FINN2NCHW(data):
     return np.transpose(data, (0, 3, 1, 2))
 
+
 # Convert from NCHW(Standard) to NHWC(FINN)
 def layout_NCHW2FINN(data):
     return np.transpose(data, (0, 2, 3, 1))
+
 
 def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
     return np.random.randint(
@@ -190,7 +195,8 @@ def test_convert_multithreshold_to_hardware(
 
     assert (y_produced == y_expected).all()
 
-    # Transform to the specified implementation style, either the RTL or HLS according to test parameters
+    # Transform to the specified implementation style, either the
+    # RTL or HLS according to test parameters
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", impl_style)

@@ -81,9 +81,7 @@ def layout_NCHW2FINN(data):
     return np.transpose(data, (0, 2, 3, 1))
 
 
-def make_single_thresholding_modelwrapper(
-    impl_style, T, idt, odt, actval, n_inp_vecs
-):
+def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])

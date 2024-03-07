@@ -235,6 +235,7 @@ def which(program):
 
     return None
 
+
 mem_primitives_versal = {
     "URAM_72x4096": (72, 4096),
     "URAM_36x8192": (36, 8192),
