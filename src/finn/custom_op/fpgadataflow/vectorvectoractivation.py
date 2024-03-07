@@ -67,11 +67,16 @@ class VectorVectorActivation(HWCustomOp):
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0, {0, 1}),
             # memory mode for the layer weights
-            # const -- embedded weights, default, long compile/synth times
-            # decoupled -- streaming weights with weight streamer packaged inside IP
+            # internal_embedded -- embedded weights, long compile/synth times
+            # internal_decoupled -- default, streaming weights with streamer packaged inside IP
             # external -- streaming weights with external streamer
-            "mem_mode": ("s", False, "const", {"const", "decoupled", "external"}),
-            # (mem_mode = decoupled only) whether weights will be writable through
+            "mem_mode": (
+                "s",
+                False,
+                "internal_decoupled",
+                {"internal_embedded", "internal_decoupled", "external"},
+            ),
+            # (mem_mode = internal_decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
             # see finn-rtllib/memstream/doc/README for more about the memory
@@ -81,7 +86,7 @@ class VectorVectorActivation(HWCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            # FPGA resource type for memories in decoupled mode
+            # FPGA resource type for memories in internal_decoupled mode
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
@@ -200,9 +205,9 @@ class VectorVectorActivation(HWCustomOp):
         return in_width
 
     def get_weightstream_width(self):
-        """Returns weight stream width. Used only in decoupled mode."""
+        """Returns weight stream width. Used only in internal_decoupled mode."""
         if (
-            self.get_nodeattr("mem_mode") == "decoupled"
+            self.get_nodeattr("mem_mode") == "internal_decoupled"
             or self.get_nodeattr("mem_mode") == "external"
         ):
             simd = self.get_nodeattr("SIMD")
@@ -220,7 +225,7 @@ class VectorVectorActivation(HWCustomOp):
 
     def get_weightstream_width_padded(self):
         """Returns weight stream width padded to a multiple of 8. This is required
-        by the AXI Stream spec. Used in decoupled mode."""
+        by the AXI Stream spec. Used in internal_decoupled mode."""
         weight_width = self.get_weightstream_width()
         return roundup_to_integer_multiple(weight_width, 8)
 
@@ -300,8 +305,8 @@ class VectorVectorActivation(HWCustomOp):
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
         if (
-            (mmode == "decoupled" and mstyle != "ultra")
-            or (mmode == "const")
+            (mmode == "internal_decoupled" and mstyle != "ultra")
+            or (mmode == "internal_embedded")
             or (mmode == "external")
         ):
             return 0
@@ -324,9 +329,9 @@ class VectorVectorActivation(HWCustomOp):
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
         if (
-            (mmode == "decoupled" and mstyle in ["distributed", "ultra"])
+            (mmode == "internal_decoupled" and mstyle in ["distributed", "ultra"])
             or (mstyle == "auto" and self.calc_wmem() <= 128)
-            or (mmode == "const" and self.calc_wmem() <= 128)
+            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
             or (mmode == "external")
         ):
             return 0
@@ -392,8 +397,8 @@ class VectorVectorActivation(HWCustomOp):
         c2 = 0
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
-            mmode == "const" and self.calc_wmem() <= 128
+        if (mmode == "internal_decoupled" and mstyle == "distributed") or (
+            mmode == "internal_embedded" and self.calc_wmem() <= 128
         ):
             c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
@@ -679,7 +684,7 @@ class VectorVectorActivation(HWCustomOp):
             f_weights.write(weight_hls_code)
             f_weights.close()
         elif "decoupled" in weight_file_mode:
-            # create a weight stream for various flavors of decoupled mode:
+            # create a weight stream for various flavors of internal_decoupled mode:
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
             # reverse SIMD flip for saving weights in .npy
@@ -744,22 +749,22 @@ class VectorVectorActivation(HWCustomOp):
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             # save hlslib-compatible weights in params.h
             weight_filename = "{}/params.h".format(code_gen_dir)
             self.make_weight_file(weights, "hls_header", weight_filename)
-        elif mem_mode == "decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external":
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
-            # save decoupled weights for cppsim
+            # save internal_decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
-            if mem_mode == "decoupled":
+            if mem_mode == "internal_decoupled":
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
                 weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
                 self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
 
@@ -845,7 +850,7 @@ class VectorVectorActivation(HWCustomOp):
             "outputs": {"out": []},
         }
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["decoupled", "external"]:
+        if mem_mode in ["internal_decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
@@ -855,7 +860,7 @@ class VectorVectorActivation(HWCustomOp):
         cmd = []
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "decoupled":
+        if mem_mode == "internal_decoupled":
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
             if self.get_nodeattr("ram_style") == "ultra":
                 assert (
@@ -952,8 +957,8 @@ class VectorVectorActivation(HWCustomOp):
                 # TODO calculate and pass in segment size here
                 cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
-        elif mem_mode == "const" or mem_mode == "external":
-            # base class impl sufficient for const/external modes
+        elif mem_mode == "internal_embedded" or mem_mode == "external":
+            # base class impl sufficient for internal_embedded/external modes
             return super().code_generation_ipi()
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")

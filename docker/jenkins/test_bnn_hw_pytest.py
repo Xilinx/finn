@@ -87,6 +87,11 @@ def pytest_generate_tests(metafunc):
 
     if len(scenarios) > 0:
         for scenario in scenarios:
+            # There is a known Pynq/XRT issue with larger sets of weights on Alveo.
+            # Accesses to address spaces over 16KB do NOT work as intended.
+            # Disabling Alveo lfc HW test until resolved.
+            if scenario[0] == "U250_bnn_w1_a1_lfc_batchSize-1_platform-alveo":
+                continue
             idlist.append(scenario[0])
             items = scenario[1].items()
             argnames = [x[0] for x in items]

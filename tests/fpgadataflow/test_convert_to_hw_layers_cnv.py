@@ -113,7 +113,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     for node in model.graph.node:
         if node.op_type == "MVAU_hls":
             inst = getCustomOp(node)
-            inst.set_nodeattr("mem_mode", "decoupled")
+            inst.set_nodeattr("mem_mode", "internal_decoupled")
             mw = inst.get_nodeattr("MW")
             mh = inst.get_nodeattr("MH")
             if mh % 4 == 0:

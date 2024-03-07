@@ -94,7 +94,7 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["UINT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
 # input dimension
@@ -217,7 +217,10 @@ def test_fpgadataflow_slidingwindow(
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
-    if dw == 0:
+    # if cppsim and impl style rtl is selected, the node execution is done by the hw op parent
+    # so, no reordering/shaping of the output is needed
+    # because there is no concept of SIMD parallelism in the hw abstraction layer execution
+    if dw == 0 or (impl_style == "rtl" and exec_mode == "cppsim"):
         assert (y_produced == y_expected).all()
     else:
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)

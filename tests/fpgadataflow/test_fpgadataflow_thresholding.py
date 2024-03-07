@@ -82,7 +82,7 @@ def layout_NCHW2FINN(data):
 
 
 def make_single_thresholding_modelwrapper(
-    impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs
+    impl_style, T, idt, odt, actval, n_inp_vecs
 ):
     NumChannels = T.shape[0]
 
@@ -98,13 +98,11 @@ def make_single_thresholding_modelwrapper(
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=NumChannels,
-        PE=pe,
         numSteps=T.shape[1],
         inputDataType=idt.name,
         weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
         outputDataType=odt.name,
         ActVal=actval,
-        mem_mode=mem_mode,
         numInputVectors=n_inp_vecs,
         preferred_impl_style=impl_style,
     )
@@ -137,7 +135,7 @@ def make_single_thresholding_modelwrapper(
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -167,7 +165,7 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
 
     # Build DUT
     model = make_single_thresholding_modelwrapper(
-        impl_style, thresholds, pe, idt, odt, actval, mem_mode, n_inp_vecs
+        impl_style, thresholds, idt, odt, actval, n_inp_vecs
     )
 
     # Expected Reference output
@@ -200,6 +198,10 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
     model = model.transform(SpecializeLayers())
     # Make sure that SpecializeLayers did not default to HLS implementation unexpectedly
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -250,7 +252,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
     ch = cfg[0]
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
-    mem_mode = "decoupled"
+    mem_mode = "internal_decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
     odt = act
