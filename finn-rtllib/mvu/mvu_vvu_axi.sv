@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,10 +31,9 @@
  * @brief	Matrix Vector Unit (MVU) & Vector Vector Unit (VVU) AXI-lite interface wrapper.
  * @details
  *	 The following compute cores are supported:
- *   - 4-bit MVU on DSP48 & DSP58 achieving 4 MACs/DSP, 
- *     (4,8]-bit MVU on DSP48 achieving 2 MACs/DSP,
- *     [4,9]-bit MVU and VVU on DSP58 achieving 3 MACs/DSP,
- *     'unconstrained' LUT-based MVU and VVU.
+ *   - 4-bit MVU on DSP48 achieving 4 MACs/DSP, 
+ *   - (4,8]-bit MVU on DSP48 achieving 2 MACs/DSP,
+ *   - [4,9]-bit MVU and VVU on DSP58 achieving 3 MACs/DSP,
  *  Folding hints:
  *	 - PE scaling should divide MH.
  *   - SIMD scaling should divide MW.

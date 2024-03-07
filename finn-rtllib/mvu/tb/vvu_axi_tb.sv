@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Testbench for MVU AXI-lite interface wrapper.
+ * @brief	Testbench for VVU AXI wrapper module.
  *****************************************************************************/
 
 module vvu_axi_tb();
@@ -39,9 +39,9 @@ module vvu_axi_tb();
 	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
 	localparam int unsigned MW = 25; // Kernel*Kernel
 	localparam int unsigned MH = 4; // Channels
-	localparam int unsigned SIMD = 25; // MW%SIMD == 0
-	localparam int unsigned PE = 2; // MH%PE == 0
-	localparam int unsigned SEGMENTLEN = 3.0;
+	localparam int unsigned SIMD = 1; // MW%SIMD == 0
+	localparam int unsigned PE = 1; // MH%PE == 0
+	localparam int unsigned SEGMENTLEN = 1.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config

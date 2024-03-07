@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Matrix Vector Unit (MVU) core compute kernel utilizing DSP58.
+ * @brief	Matrix/Vector Vector Unit (MVU/VVU) core compute kernel utilizing DSP58.
  *****************************************************************************/
 
 module mvu_vvu_8sx9_dsp58 #(
