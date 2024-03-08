@@ -37,7 +37,7 @@ from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 from finn.util.fpgadataflow import is_versal
 
 
-def _determine_impl_style(node, fpgapart=""):
+def _determine_impl_style(node):
     optype = node.op_type
 
     # check if there is an HLS or RTL variant or both
@@ -225,7 +225,7 @@ def _mvu_rtl_possible(n):
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
-    def __init__(self, fpgapart):
+    def __init__(self, fpgapart=""):
         super().__init__()
         self.fpgapart = fpgapart
 
@@ -251,8 +251,8 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
-            is_versal_family = is_versal(self.fpgapart)
             if new_node.op_type == "MVAU_rtl":
+                is_versal_family = is_versal(self.fpgapart)
                 getCustomOp(new_node).set_nodeattr("is_versal", is_versal_family)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
