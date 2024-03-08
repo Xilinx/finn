@@ -54,6 +54,11 @@ def _determine_impl_style(node):
         if optype == "StreamingDataWidthConverter":
             return _dwc_determine_impl_style(node)
         if rtl_variant:
+            if optype == "MVAU":
+                if _mvu_rtl_possible(node):
+                    return "rtl"
+                else:
+                    return "hls"
             return "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
