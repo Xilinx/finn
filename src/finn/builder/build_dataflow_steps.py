@@ -66,6 +66,7 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation_complete,
 )
 from finn.builder.build_dataflow_config import (
+    CPPDriverTransferType,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
@@ -87,7 +88,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -719,10 +720,40 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     accelerator."""
 
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
-        driver_dir = cfg.output_dir + "/driver"
+        driver_dir = os.path.join(cfg.output_dir, "driver")
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         copy_tree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
         print("PYNQ Python driver written into " + driver_dir)
+    return model
+
+
+def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
+    if DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
+        if cfg.cpp_driver_transfer_type is None:
+            cfg.cpp_driver_transfer_type = CPPDriverTransferType.MEMORY_BUFFERED
+        if cfg.cpp_driver_build_during_synthesis is None:
+            cfg.cpp_driver_build_during_synthesis = False
+
+        model = model.transform(
+            MakeCPPDriver(
+                cfg._resolve_driver_platform(),
+                transfer_mode=cfg.cpp_driver_transfer_type,
+                build_driver=cfg.cpp_driver_build_during_synthesis,
+                cpp_template_dir=os.path.join(
+                    os.path.dirname(__file__),
+                    "..",
+                    "transformation",
+                    "fpgadataflow",
+                    "finn-cpp-driver",
+                ),
+                output_dir=cfg.output_dir,
+            )
+        )
+    else:
+        print(
+            "WARNING: The step step_make_cpp_driver is in the build list but will not be executed"
+            + " since CPP_DRIVER is not in generate_outputs in your build.py file!"
+        )
     return model
 
 
@@ -835,6 +866,7 @@ build_dataflow_step_lookup = {
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_pynq_driver": step_make_pynq_driver,
+    "step_make_cpp_driver": step_make_cpp_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,

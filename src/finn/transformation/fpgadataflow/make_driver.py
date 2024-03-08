@@ -31,11 +31,18 @@ import os
 import qonnx
 import shutil
 import warnings
+import subprocess
+import json
+from string import Template
+from typing import Dict, List, Tuple
+from multiprocessing import cpu_count
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 
+from finn.builder.build_dataflow_config import CPPDriverTransferType
+from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 import finn.util
 import finn.util.data_packing as dpk
 from finn.util.basic import make_build_dir
@@ -45,7 +52,6 @@ from finn.util.data_packing import (
 )
 
 from . import template_driver
-
 
 def to_external_tensor(init, w_dtype):
     """Return an appropriately formatted and packed numpy byte array for given
@@ -60,6 +66,173 @@ def to_external_tensor(init, w_dtype):
         ext_weight = np.append(ext_weight, array_line)
 
     return ext_weight
+
+class MakeCPPDriver(Transformation):
+    # TODO: Enable multiple input types! Now only assumes the first one
+    def resolve_dt_name(s: str) -> str:
+        s = s.replace("DataType[", "").replace("]", "")
+        print("Converting tensor datatype " + str(s))
+        if s in ["BINARY", "TERNARY", "BIPOLAR"]:
+            return "Datatype" + s[0] + s[1:].lower()
+        elif s.startswith("U"):
+                return "DatatypeUint<" + s.replace("UINT", "") + ">"
+        elif s.startswith("I"):
+                return "DatatypeInt<" + s.replace("INT", "") + ">"
+        elif "FLOAT" in s:
+            return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
+        elif "FIXED" in s:
+            return "DatatypeFixed" + s.replace("FIXED", "")
+        else:
+            return "UNKNOWN_DATATYPE_ERROR_BY_FINN_COMPILER"
+
+    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, build_driver: bool, cpp_template_dir: str, output_dir: str, run_name: str = "RUN_ID"):
+        super().__init__()
+        self.run_name = run_name
+        self.platform: str = platform
+        self.transfer_mode: CPPDriverTransferType = transfer_mode
+        self.build_driver: bool = build_driver
+        self.cpp_template_dir = cpp_template_dir
+        self.output_dir = output_dir
+
+        # Locations of files
+        self.xclbin_path = os.path.join(output_dir, "bitfile", "finn-accel.xclbin")
+        self.template_target_dir = os.path.join(output_dir, "finn-cpp-driver")
+        self.json_path = os.path.join(output_dir, "driver", "cppdconfig.json")
+        self.header_path = os.path.join(output_dir, "driver", "FinnDriverUsedDatatypes.h")
+        self.finn_driver_exec_path = os.path.join(output_dir, "driver", "finn")
+
+    def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
+        driver_shapes: Dict = get_driver_shapes(model)
+        ext_weight_dma_cnt: int
+        weights_dir: str
+        # ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
+
+        #* Creating the driver dir if it doesnt exist yet
+        driver_dir = os.path.join(self.output_dir, "driver")
+        if not os.path.isdir(driver_dir):
+            os.mkdir(driver_dir)
+
+        #* Copying the finn-cpp-driver into the output folder to have a clean template every run
+        if os.path.isdir(self.template_target_dir):
+            subprocess.run("rm -rf " + self.template_target_dir, shell=True, stdout=subprocess.PIPE)
+        print("Copying finn-cpp-driver from " + self.cpp_template_dir + " to " + self.template_target_dir)
+        subprocess.run(f"cp -r {self.cpp_template_dir} {self.template_target_dir}", shell=True, stdout=subprocess.PIPE)
+
+        #* Writing the header file
+        inputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["idt"][0].replace("'", ""))#.get_canonical_name())
+        outputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["odt"][0].replace("'", ""))#.get_canonical_name())
+        print(f"Writing input header file for run with name {self.run_name}. Used datatypes will be {inputDatatype} and {outputDatatype}!")
+        with open(os.path.join(self.cpp_template_dir, "src", "FINNCppDriver", "config", "FinnDriverUsedDatatypes.h.in"), 'r') as f_in:
+            header = f_in.read()
+            template_handler = Template(header)
+            templated_str = template_handler.substitute(inputDatatype=inputDatatype,outputDatatype=outputDatatype)
+            with open(self.header_path, 'w+') as f:
+                f.write(templated_str)
+                
+        print("Successfully created config header file.")
+
+
+        #* Writing the json file
+        # TODO: Update this for multi-fpga usage (more than one device!)
+        # Path of the xclbin in the finn compiler project
+        # Get kernel names using xclbinutil
+        assert shutil.which("xclbinutil") is not None, "xclbinutil not in PATH or not installed. Required to read kernel names for driver config!"
+        subprocess.run(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", shell=True)
+        ips = None
+        with open("ip_layout.json") as f:
+            ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
+
+        # Get only ips that are kernels
+        isIO = lambda x: x["m_type"] == "IP_KERNEL" and x["m_base_address"] != "not_used" and ("idma" in x["m_name"] or "odma" in x["m_name"])
+        idmas = [x["m_name"] for x in ips if isIO(x) and "idma" in x["m_name"]]
+        odmas = [x["m_name"] for x in ips if isIO(x) and "odma" in x["m_name"]]
+        
+        def formatKernelName(kname:str):
+            kparts = kname.split(":")
+            return kparts[0]+":{"+kparts[1]+"}"
+
+        # Create idma and odma entries
+        jsonIdmas = []
+        jsonOdmas = []
+        for i in range(len(driver_shapes["idma_names"])):
+            jsonIdmas.append({
+                "kernelName": [formatKernelName(name) for name in idmas if driver_shapes["idma_names"][i] in name][0],
+                "normalShape": driver_shapes["ishape_normal"][i],
+                "foldedShape": driver_shapes["ishape_folded"][i],
+                "packedShape": driver_shapes["ishape_packed"][i]
+            })
+        for i in range(len(driver_shapes["odma_names"])):
+            jsonOdmas.append({
+                "kernelName": [formatKernelName(name) for name in odmas if driver_shapes["odma_names"][i] in name][0],
+                "normalShape": driver_shapes["oshape_normal"][i],
+                "foldedShape": driver_shapes["oshape_folded"][i],
+                "packedShape": driver_shapes["oshape_packed"][i]
+            })
+
+        data = [] 
+        data.append({
+            "xrtDeviceIndex": 0,
+            "xclbinPath":os.path.abspath(self.xclbin_path),
+
+            "name": "MainDevice",
+            "idmas": jsonIdmas,
+            "odmas": jsonOdmas
+        })
+        with open(self.json_path, 'w+') as f:
+            f.write(json.dumps(data, indent=4))
+            
+        print("Created runtime json config file")
+
+        #* Compilation
+        if(self.build_driver == True):
+            #TODO: build dependencies
+            build_path = os.path.join(self.template_target_dir, "build")
+            if not os.path.isdir(build_path):
+                os.mkdir(build_path)
+            n_procs = cpu_count()
+            compile_result = subprocess.run(f"cmake -DCMAKE_BUILD_TYPE=Release -DFINN_HEADER_LOCATION=\"{self.header_path}\" -DFINNC_ENABLE_SANITIZERS=Off ..;make -j{n_procs}", shell=True, cwd=build_path, capture_output=True)
+            print(compile_result.stdout.decode('utf-8'),flush=True)
+            print(compile_result.stderr.decode('utf-8'),flush=True)
+            assert compile_result.returncode == 0, "[MakeCPPDriver - Transformation] Compilation failed!"
+            print("Compiled C++ driver successfully.")
+
+            #* Copy exec back 
+            shutil.copy(os.path.join(build_path, "src", "finn"), self.finn_driver_exec_path)
+
+        # TODO: Generating weight files
+        # weights_dir = output_dir + "/runtime_weights"
+
+        # os.makedirs(weights_dir)
+        # idma_idx = 0
+        # ext_weight_dma_cnt = 0
+
+        # for node in model.graph.node:
+        #     assert (
+        #         node.op_type == "StreamingDataflowPartition"
+        #     ), "CreateDataflowPartition needs to be applied before driver generation"
+
+        #     if len(node.input) > 0:
+        #         producer = model.find_producer(node.input[0])
+        #         init_tensor = model.get_initializer(node.input[0])
+        #     else:
+        #         producer = None
+        #         init_tensor = None
+
+        #     if producer is None:  # input dma?
+        #         sdp_inst = getCustomOp(node)
+        #         idma_name = sdp_inst.get_nodeattr("instance_name")
+        #         df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
+        #         assert df_model.graph.node[0].op_type == "IODMA"
+        #         iodma_node = getCustomOp(df_model.graph.node[0])
+        #         if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
+        #             init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
+        #             ext_weight_dma_cnt += 1
+        #             w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
+        #             init_external_tensor = to_external_tensor(init_tensor, w_dtype)
+        #             np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
+        #         idma_idx += 1
+
+        return (model, False)
 
 
 class MakePYNQDriver(Transformation):
