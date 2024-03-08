@@ -312,7 +312,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         inst.set_nodeattr("mem_mode", mem_mode)
         # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
@@ -402,7 +402,6 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
-        inst.set_nodeattr("rtlsim_trace", "mvau_trace.vcd")
         inst.set_nodeattr("preferred_impl_style", "hls")
 
     # prepare input data
@@ -424,13 +423,12 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    model.save("mvau_rtl.onnx")
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
@@ -449,7 +447,7 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType["INT4"]])
+@pytest.mark.parametrize("act", [None, DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
@@ -462,11 +460,15 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
+# Backend
+@pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
 ):
+    if preferred_impl_style == "rtl" and act is not None:
+        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -507,6 +509,8 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("resType", "auto")
+        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
@@ -527,7 +531,9 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -537,9 +543,10 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MVAU_hls_0" in hls_synt_res_est
+    if preferred_impl_style == "hls":
+        assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MVAU_hls")[0]
+    node = model.get_nodes_by_op_type("MVAU")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -551,7 +558,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType["INT4"]])
+@pytest.mark.parametrize("act", [None, DataType["INT4"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
@@ -564,9 +571,15 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [32])
+# Backend
+@pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_mvau_fifocharacterize_rtlsim(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+):
+    if preferred_impl_style == "rtl" and (mem_mode == "const" or act is not None):
+        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -591,9 +604,13 @@ def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("resType", "auto")
+        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
     exp_total_cycles = total_fold + 10
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -608,7 +625,7 @@ def test_mvau_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # first sf cycles should read input continuously
-    assert (chrc_in[0, :sf] == range(1, sf + 1)).all()
+    assert (chrc_in[0, :sf] == list(range(1, sf + 1))).all()
     # all outputs should be produced within the exp n of cycles
     assert chrc_out[0, exp_total_cycles] == nf
 
