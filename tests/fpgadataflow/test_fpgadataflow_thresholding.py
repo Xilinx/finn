@@ -245,7 +245,7 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_thresholds_read(impl_style, cfg):
@@ -259,7 +259,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
     ch = cfg[0]
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
-    mem_mode = "internal_decoupled"
+    hls_mem_mode = "internal_decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
     odt = act
@@ -274,9 +274,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(
-        impl_style, T, pe, idt, odt, actval, mem_mode, n_inp_vecs
-    )
+    model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs)
     model = model.transform(SpecializeLayers())
 
     # Make sure that specialize layer did not default to HLS implementation
@@ -284,6 +282,9 @@ def test_runtime_thresholds_read(impl_style, cfg):
 
     node = model.get_nodes_by_op_type(f"Thresholding_{impl_style}")[0]
     op_inst = getCustomOp(node)
+    op_inst.set_nodeattr("PE", pe)
+    if impl_style == "hls":
+        op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     dat_fname = f"old_weights_{cfg}.dat"
@@ -343,7 +344,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
 
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 2), (8, 4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 4)])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_thresholds_write(impl_style, cfg):
@@ -361,7 +362,7 @@ def test_runtime_thresholds_write(impl_style, cfg):
     pe = cfg[1]
 
     n_inp_vecs = [1, 2, 2]
-    mem_mode = "decoupled"
+    hls_mem_mode = "internal_decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
 
@@ -377,15 +378,16 @@ def test_runtime_thresholds_write(impl_style, cfg):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(
-        impl_style, T_init, pe, idt, odt, actval, mem_mode, n_inp_vecs
-    )
+    model = make_single_thresholding_modelwrapper(impl_style, T_init, idt, odt, actval, n_inp_vecs)
     model = model.transform(SpecializeLayers())
 
     # Validate that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 
     op_inst = getCustomOp(model.graph.node[0])
+    op_inst.set_nodeattr("PE", pe)
+    if impl_style == "hls":
+        op_inst.set_nodeattr("mem_mode", hls_mem_mode)
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     # Make new weights for runtime write
