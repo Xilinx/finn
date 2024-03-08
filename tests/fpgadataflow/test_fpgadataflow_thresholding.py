@@ -139,6 +139,14 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem_mode):
+    # the mem_mode parameter can only be used for the hls thresholding
+    # so the test will only be executed once for impl_style=rtl and once skipped
+    # when the mem_mode is varied. Otherwise, the same test configuration would always
+    # run twice.
+    if impl_style == "rtl" and mem_mode == "internal_decoupled":
+        pytest.skip(
+            "Skip, because test is identical to impl_style=rtl and mem_mode=internal_embedded"
+        )
     if nf == -1:
         nf = ich
     pe = ich // nf
@@ -199,7 +207,8 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
     node = model.graph.node[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
-    inst.set_nodeattr("mem_mode", mem_mode)
+    if impl_style == "hls":
+        inst.set_nodeattr("mem_mode", mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
