@@ -643,7 +643,7 @@ class MVAU(HWCustomOp):
         * weight_file_name : filename for the weight file to be generated
 
         """
-        # convert weights into hlslib-compatible format
+        # convert weights into hlslib/rtllib-compatible format
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
         # we have converted bipolar weights to binary for export,
