@@ -238,7 +238,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node, self.fpgapart)
+            impl_style = _determine_impl_style(node)
             optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
