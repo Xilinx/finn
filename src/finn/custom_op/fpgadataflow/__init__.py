@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.accl import ACCLIn, ACCLOut
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.checksum import CheckSum
@@ -99,3 +100,5 @@ custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["ACCLIn"] = ACCLIn
+custom_op["ACCLOut"] = ACCLOut
