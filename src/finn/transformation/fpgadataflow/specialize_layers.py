@@ -34,6 +34,7 @@ from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
+from finn.util.fpgadataflow import is_versal
 
 
 def _determine_impl_style(node, fpgapart=""):
@@ -114,9 +115,6 @@ def _determine_impl_style(node, fpgapart=""):
                 return "rtl"
         elif optype == "MVAU":
             if _mvu_rtl_possible(node):
-                if getCustomOp(node).get_nodeattr("noActivation") == 0:
-                    # Split thresholding
-                    pass
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
@@ -212,6 +210,7 @@ def _mvu_rtl_possible(n):
     ) and (getCustomOp(n).get_nodeattr("MW") % getCustomOp(n).get_nodeattr("SIMD") == 0)
     targets_dsp = getCustomOp(n).get_nodeattr("resType") in ["dsp", "auto"]
     external_memmode = getCustomOp(n).get_nodeattr("mem_mode") in ["decoupled", "external"]
+    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
 
     return (
         inp_width_in_range
@@ -219,6 +218,7 @@ def _mvu_rtl_possible(n):
         and folding_supported
         and targets_dsp
         and external_memmode
+        and no_activation
     )
 
 
@@ -251,6 +251,9 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+            is_versal_family = is_versal(self.fpgapart)
+            if new_node.op_type == "MVAU_rtl":
+                getCustomOp(new_node).set_nodeattr("is_versal", is_versal_family)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)
