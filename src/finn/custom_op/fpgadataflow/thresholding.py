@@ -30,6 +30,7 @@ import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
+from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -42,6 +43,10 @@ class Thresholding(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             # parallelization; channels thresholded per cycle
             "PE": ("i", True, 0),
             # number of channels (each may have different thresholds)
@@ -118,10 +123,18 @@ class Thresholding(HWCustomOp):
         """Returns FINN DataType of thresholds, here called weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
+    def get_weightstream_width(self):
+        """Returns weight stream width"""
+        pe = self.get_nodeattr("PE")
+        wp = self.get_weight_datatype().bitwidth()
+        n_thres_steps = self.get_nodeattr("numSteps")
+        w_width = pe * wp * n_thres_steps
+        return w_width
+
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
         thresholds = model.get_initializer(self.onnx_node.input[1])
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         min_threshold = thresholds.min()
         max_threshold = thresholds.max()
         min_input = self.get_input_datatype().min()
@@ -153,9 +166,8 @@ class Thresholding(HWCustomOp):
         return o_bits * self.get_nodeattr("PE")
 
     def get_folded_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
-        fold = ich // pe
+        fold = self.calc_tmem()
         vecs = list(self.get_nodeattr("numInputVectors"))
         folded_input_shape = tuple(vecs + [fold, pe])
         return folded_input_shape
@@ -182,6 +194,50 @@ class Thresholding(HWCustomOp):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])
 
+    def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0
+        * for unsigned inputs, ensure thresholds are positive
+        * interleave rows between PEs
+        * reshape into (PE, TMEM, n_thres_steps) and return
+        """
+        mh = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        tmem = mh // pe
+        assert mh % pe == 0, "Requirement NumChannels divisable by PE is violated."
+        assert (
+            orig_thres_matrix.ndim == 2
+        ), """Threshold matrix dimension is
+        not as expected (2)."""
+        n_thres_steps = orig_thres_matrix.shape[1]
+        assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
+        if not self.get_input_datatype().signed():
+            # ensure all thresholds are nonnegative
+            assert (orig_thres_matrix >= 0).all()
+        # ensure all thresholds are integer
+        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
+        ret = orig_thres_matrix
+        # ensure channels = mh , duplicating if necessary
+        if ret.shape[0] == 1:
+            ret = np.tile(ret, (mh, 1))
+        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        assert (
+            ret.shape[0] == pe
+        ), """First dimension after distribution of the
+        rows between PEs is not as expected (pe)"""
+        assert (
+            ret.shape[1] == tmem
+        ), """Second dimension after distribution of the
+        rows between PEs is not as expected (tmem)"""
+        assert (
+            ret.shape[2] == n_thres_steps
+        ), """Third dimension after distribution of the
+        rows between PEs is not as expected (n_thres_steps)"""
+        return ret.reshape(1, pe, tmem, n_thres_steps)
+
     def execute_node(self, context, graph):
         node = self.onnx_node
         inp_values = context[node.input[0]]
@@ -197,3 +253,9 @@ class Thresholding(HWCustomOp):
             # signed offset
             y += act.min()
         context[node.output[0]] = y
+
+    def calc_tmem(self):
+        """Calculates and returns TMEM."""
+        num_channels = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        return num_channels // pe

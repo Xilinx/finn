@@ -31,10 +31,7 @@ import os
 import textwrap
 from math import ceil, log2
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
-    interleave_matrix_outer_dim_from_partitions,
-    roundup_to_integer_multiple,
-)
+from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
@@ -60,8 +57,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # string defining memory type
-            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
             # memory mode for the thresholds
             # internal_embedded -- embedded thresholds
             # internal_decoupled -- default, streaming thresholds with  streamer packaged inside IP
@@ -71,6 +66,8 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 "internal_decoupled",
                 {"internal_embedded", "internal_decoupled"},
             ),
+            # string defining memory type
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
             # (mem_mode = internal_decoupled only) whether weights (thresholds) will be
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -85,12 +82,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         my_attrs.update(Thresholding.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
-
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        mh = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        return mh // pe
 
     def bram_estimation(self):
         """Calculates BRAM cost if resource set to BRAM"""
@@ -141,9 +132,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
-        weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        ap_int_max_w = HLSBackend.get_ap_int_max_w(self)
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            weightstream = self.get_weightstream_width()
+            ap_int_max_w = max([weightstream, ap_int_max_w])
+        return ap_int_max_w
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -158,50 +151,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
         return ret
 
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
-        """Convert the original numpy weight matrix orig_weight_matrix into
-        a form suitable for passing to the hlslib call:
-        * ensure MH % PE == 0
-        * for unsigned inputs, ensure thresholds are positive
-        * interleave rows between PEs
-        * reshape into (PE, TMEM, n_thres_steps) and return
-        """
-        mh = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        tmem = mh // pe
-        assert mh % pe == 0, "Requirement NumChannels divisable by PE is violated."
-        assert (
-            orig_thres_matrix.ndim == 2
-        ), """Threshold matrix dimension is
-        not as expected (2)."""
-        n_thres_steps = orig_thres_matrix.shape[1]
-        assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
-        if not self.get_input_datatype().signed():
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
-        # ensure all thresholds are integer
-        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
-        ret = orig_thres_matrix
-        # ensure channels = mh , duplicating if necessary
-        if ret.shape[0] == 1:
-            ret = np.tile(ret, (mh, 1))
-        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
-        # distribute rows between PEs
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        assert (
-            ret.shape[0] == pe
-        ), """First dimension after distribution of the
-        rows between PEs is not as expected (pe)"""
-        assert (
-            ret.shape[1] == tmem
-        ), """Second dimension after distribution of the
-        rows between PEs is not as expected (tmem)"""
-        assert (
-            ret.shape[2] == n_thres_steps
-        ), """Third dimension after distribution of the
-        rows between PEs is not as expected (n_thres_steps)"""
-        return ret.reshape(1, pe, tmem, n_thres_steps)
-
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
         format for this layer. This file can be used for either synthesis or
@@ -215,7 +164,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         * weight_file_name : filename for the weight file to be generated
 
         """
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
+        threshold_tensor = self.get_hw_compatible_threshold_tensor(weights)
         tdt = self.get_weight_datatype()
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
