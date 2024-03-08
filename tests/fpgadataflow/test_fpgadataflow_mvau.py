@@ -546,7 +546,10 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     if preferred_impl_style == "hls":
         assert "MVAU_hls_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MVAU")[0]
+    if preferred_impl_style == "hls":
+        node = model.get_nodes_by_op_type("MVAU_hls")[0]
+    else:
+        node = model.get_nodes_by_op_type("MVAU_rtl")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
