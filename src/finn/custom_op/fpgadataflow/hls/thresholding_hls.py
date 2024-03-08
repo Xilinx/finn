@@ -133,7 +133,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def get_ap_int_max_w(self):
         ap_int_max_w = HLSBackend.get_ap_int_max_w(self)
-        if self.get_nodeattr("mem_mode") == "decoupled":
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
             weightstream = self.get_weightstream_width()
             ap_int_max_w = max([weightstream, ap_int_max_w])
         return ap_int_max_w
