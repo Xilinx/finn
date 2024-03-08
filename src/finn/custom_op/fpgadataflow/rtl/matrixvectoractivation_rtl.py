@@ -34,7 +34,6 @@ from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.fpgadataflow import is_versal
 
 try:
     from pyverilator import PyVerilator
@@ -57,7 +56,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # Flag to indicate if Versal device is targeted
+            "is_versal": ("i", False, 0, {0, 1}),
+        }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -140,10 +142,11 @@ class MVAU_rtl(MVAU, RTLBackend):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        dsp_res = {}
-        dsp_res["DSP48"] = np.ceil(P / 4) * Q
-        dsp_res["DSP58"] = P * np.ceil(Q / 3)
-        return dsp_res
+        if self.get_nodeattr("is_versal"):
+            mult_dsp = P * np.ceil(Q / 3)
+        else:
+            mult_dsp = np.ceil(P / 4) * Q
+        return int(mult_dsp)
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
@@ -196,7 +199,7 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         act_width = self.get_input_datatype(0).bitwidth()
         weight_width = self.get_input_datatype(1).bitwidth()
-        is_versal_family = is_versal(fpgapart)
+        is_versal_family = self.get_nodeattr("is_versal")
 
         if is_versal_family:
             return "mvu_vvu_8sx9_dsp58"
