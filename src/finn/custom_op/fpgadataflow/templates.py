@@ -28,6 +28,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # template for single node execution
+from typing import Dict, List
+
 docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
@@ -94,7 +96,7 @@ set config_toplevelfxn "$TOPFXN$"
 set config_clkperiod $CLKPERIOD$
 
 open_project $config_proj_name
-add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++14 -I$config_bnnlibdir -I$config_customhlsdir"
+add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++14 -I$config_bnnlibdir -I$config_customhlsdir $CFLAGS$"
 
 set_top $config_toplevelfxn
 open_solution sol1

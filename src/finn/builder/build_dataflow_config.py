@@ -50,6 +50,7 @@ class ShellFlowType(str, Enum):
 
     VIVADO_ZYNQ = "vivado_zynq"
     VITIS_ALVEO = "vitis_alveo"
+    COYOTE_ALVEO = "coyote_alveo"
 
 
 class DataflowOutputType(str, Enum):
@@ -104,6 +105,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_insert_accl, using C++ for each HLS node
+    ACCL_HLS_CPPSIM = "insert_accl"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -291,6 +294,7 @@ class DataflowBuildConfig:
 
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    # or `shell_flow_type = ShellFlowType.COYOTE_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
     #: If not specified but "board" is specified, will use the FINN
     #: default (if any) for that Alveo board
@@ -298,11 +302,13 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    # or `shell_flow_type = ShellFlowType.COYOTE_ALVEO`
     #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    # or `shell_flow_type = ShellFlowType.COYOTE_ALVEO`
     vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
 
     #: Whether intermediate ONNX files will be saved during the build process.
@@ -361,7 +367,10 @@ class DataflowBuildConfig:
     def _resolve_driver_platform(self):
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
-        elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+        elif (
+            self.shell_flow_type == ShellFlowType.VITIS_ALVEO
+            or self.shell_flow_type == ShellFlowType.COYOTE_ALVEO
+        ):
             return "alveo"
         else:
             raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
@@ -371,7 +380,10 @@ class DataflowBuildConfig:
             # lookup from part map if not specified
             if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
                 return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+            elif (
+                self.shell_flow_type == ShellFlowType.VITIS_ALVEO
+                or self.shell_flow_type == ShellFlowType.COYOTE_ALVEO
+            ):
                 return alveo_part_map[self.board]
             else:
                 raise Exception("Couldn't resolve fpga_part for " + self.board)
@@ -406,7 +418,7 @@ class DataflowBuildConfig:
             return alveo_default_platform[self.board]
         else:
             raise Exception(
-                "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
+                "Could not resolve Vitis platform: need either board or vitis_platform specified"
             )
 
     def _resolve_verification_steps(self):

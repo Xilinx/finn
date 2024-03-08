@@ -62,7 +62,19 @@ RUN apt-get update && \
     python-is-python3 \
     python3-pip \
     python3-setuptools-scm \
-    python3-venv
+    python3-venv \
+    # support Coyote
+    cmake \
+    # support ACCL
+    xvfb \
+    libgtk-3-dev \
+    libtinfo5 \
+    doxygen \
+    libboost-dev \
+    libjsoncpp-dev \
+    libtclap-dev \
+    libzmq3-dev
+
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
@@ -124,6 +136,11 @@ RUN pip install dependencies==2.0.1
 RUN pip install tokenize-rt==4.2.1
 # pyverilator
 RUN pip install tclwrapper==0.0.1
+
+RUN git clone https://github.com/zeromq/zmqpp && \
+    cd zmqpp && \
+    make && \
+    make install PREFIX=/usr/
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"

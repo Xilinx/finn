@@ -310,6 +310,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$FPGAPART$"] = [fpgapart]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+        self.code_gen_dict["$CFLAGS$"] = self.ipgen_cflags()
         self.code_gen_dict["$DEFAULT_DIRECTIVES$"] = self.ipgen_default_directives()
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
@@ -324,6 +325,10 @@ class HLSCustomOp(CustomOp):
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
+
+    def ipgen_cflags(self):
+        """Return a list of optional cflags for the top compilation unit"""
+        return []
 
     def ipgen_default_directives(self):
         """Return list of default HLS synthesis directives"""
