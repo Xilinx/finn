@@ -1,0 +1,4 @@
+# This file is automatically written.  Do not modify.
+proc gen_USERPARAMETER_CF_VALUE {C PE } {expr $C/$PE}
+proc gen_USERPARAMETER_ADDR_BITS_VALUE {C PE N } {expr int(ceil(log($C/$PE)/log(2))+ceil(log($PE)/log(2))+$N+2)}
+proc gen_USERPARAMETER_O_BITS_VALUE {BIAS N } {expr int(ceil($BIAS >= 0? log(pow(2,$N)+$BIAS)/log(2) : 1+log(-$BIAS >= pow(2,$N-1)? -$BIAS : pow(2,$N)+$BIAS)/log(2)))}

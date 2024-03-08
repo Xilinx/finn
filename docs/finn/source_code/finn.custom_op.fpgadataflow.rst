@@ -203,6 +203,14 @@ finn.custom\_op.fpgadataflow.thresholding\_batch
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.thresholding\_binary\_search
+-----------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.thresholding_binary_search
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 finn.custom\_op.fpgadataflow.tlastmarker
 -----------------------------------------------
