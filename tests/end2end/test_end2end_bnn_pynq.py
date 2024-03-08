@@ -108,7 +108,7 @@ from finn.util.test import (
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 20
-mem_mode = "decoupled"
+mem_mode = "internal_decoupled"
 rtlsim_trace = False
 
 
@@ -134,7 +134,7 @@ def fold_tfc(model):
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_hls")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
-    inp_qnt.set_nodeattr("mem_mode", "decoupled")
+    inp_qnt.set_nodeattr("mem_mode", "internal_decoupled")
     inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
 

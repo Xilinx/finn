@@ -86,7 +86,6 @@ def test_split_large_fifos(depth, force_python_rtlsim):
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
-        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
     with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:

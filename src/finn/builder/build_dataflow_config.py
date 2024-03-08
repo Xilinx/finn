@@ -65,15 +65,6 @@ class DataflowOutputType(str, Enum):
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
-class ComputeEngineMemMode(str, Enum):
-    """Memory mode for generated compute engines. See
-    https://finn.readthedocs.io/en/latest/internals.html#matrixvectoractivation-mem-mode
-    for more information."""
-
-    CONST = "const"
-    DECOUPLED = "decoupled"
-
-
 class VitisOptStrategyCfg(str, Enum):
     """Vitis optimization strategy with serializable string enum values."""
 
@@ -292,9 +283,6 @@ class DataflowBuildConfig:
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
     #: If not specified it will default to synth_clk_period_ns
     hls_clk_period_ns: Optional[float] = None
-
-    #: Which memory mode will be used for compute layers
-    default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
 
     #: Call CapConvolutionFIFODepths in InsertAndSetFIFODepths transform
     #: to make convolution FIFOs smaller where appropriate

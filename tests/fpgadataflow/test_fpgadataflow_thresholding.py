@@ -57,7 +57,7 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs):
+def make_single_thresholding_modelwrapper(T, idt, odt, actval, n_inp_vecs):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])
@@ -72,13 +72,11 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_i
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=NumChannels,
-        PE=pe,
         numSteps=T.shape[1],
         inputDataType=idt.name,
         weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
         outputDataType=odt.name,
         ActVal=actval,
-        mem_mode=mem_mode,
         numInputVectors=n_inp_vecs,
     )
     graph = helper.make_graph(
@@ -110,7 +108,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_i
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -135,7 +133,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode, n_inp_vecs)
+    model = make_single_thresholding_modelwrapper(T, idt, odt, actval, n_inp_vecs)
 
     # calculate reference output
     # multithreshold util fxn wants NCHW input, not NHWC
@@ -163,6 +161,10 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     assert (y_produced == y_expected).all()
 
     model = model.transform(SpecializeLayers())
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -201,7 +203,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 @pytest.mark.vivado
 def test_runtime_thresholds_single_layer():
     n_inp_vecs = [1, 2, 2]
-    mem_mode = "decoupled"
+    mem_mode = "internal_decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
     nf = 8

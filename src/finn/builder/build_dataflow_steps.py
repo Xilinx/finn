@@ -337,14 +337,13 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     In the end am empty json file is created which can be used to set user specific
     preferred implementation styles for each node."""
 
-    mem_mode = cfg.default_mem_mode.value
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hw.InferThresholdingLayer())
     # needed for bipolar MatMul layers
-    model = model.transform(to_hw.InferBinaryMatrixVectorActivation(mem_mode))
+    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     # needed for non-bipolar MatMul layers
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode))
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     # TopK to LabelSelect
     model = model.transform(to_hw.InferLabelSelectLayer())
     # input quantization (if any) as standalone threshold

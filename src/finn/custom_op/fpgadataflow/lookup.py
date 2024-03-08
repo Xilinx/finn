@@ -57,9 +57,9 @@ class Lookup(HWCustomOp):
             # Input shape
             "InputShape": ("ints", False, [1]),
             # Memory mode
-            # const : parameters baked into bitfile (BRAM)
+            # internal_embedded : parameters baked into bitfile (BRAM)
             # external : lookup performed in external memory over AXI MM
-            "mem_mode": ("s", False, "const", ["const", "external"]),
+            "mem_mode": ("s", False, "internal_embedded", ["internal_embedded", "external"]),
             # Width for AXI-MM interface
             # only relevant when mem_mode="external"
             "ext_mem_width": ("i", False, 32),
@@ -90,7 +90,7 @@ class Lookup(HWCustomOp):
         ishape = self.get_normal_input_shape()
         mem_mode = self.get_nodeattr("mem_mode")
         emb_dim = self.get_nodeattr("EmbeddingDim")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             oshape = list(ishape) + [emb_dim]
         elif mem_mode == "external":
             ext_mem_width = self.get_nodeattr("ext_mem_width")
@@ -187,9 +187,9 @@ class Lookup(HWCustomOp):
 
     def bram_estimation(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             # current calculation assumes embeddings always stored in BRAM_18Ks
-            # when mem_mode is const
+            # when mem_mode is internal_embedded
             width_factor = ceil(self.get_outstream_width() / 16)
             depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
             return width_factor * depth_factor

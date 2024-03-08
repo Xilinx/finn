@@ -73,7 +73,7 @@ def test_runtime_weights_single_layer():
     model = model.transform(SpecializeLayers())
     fcl = model.get_nodes_by_op_type("MVAU_hls")[0]
     op_inst = getCustomOp(fcl)
-    op_inst.set_nodeattr("mem_mode", "decoupled")
+    op_inst.set_nodeattr("mem_mode", "internal_decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     old_weights = model.get_initializer(fcl.input[1])
     op_inst.make_weight_file(old_weights, "decoupled_runtime", "old_weights.dat")

@@ -289,10 +289,11 @@ class InsertAndSetFIFODepths(Transformation):
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
-                    node.set_nodeattr("mem_mode", "decoupled")
+                    node.set_nodeattr("mem_mode", "internal_decoupled")
                     reset_implementation(node)
                     warnings.warn(
-                        "Changed mem_mode from external to decoupled for " + node.onnx_node.name
+                        "Changed mem_mode from external to internal_decoupled for "
+                        + node.onnx_node.name
                     )
 
         # insert stream infrastructure (DWC/FIFO)
