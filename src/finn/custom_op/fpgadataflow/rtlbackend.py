@@ -42,7 +42,7 @@ class RTLBackend(ABC):
         }
 
     @abstractmethod
-    def generate_hdl(model, fpgapart, clk):
+    def generate_hdl(self, model, fpgapart, clk):
         pass
 
     @abstractmethod
