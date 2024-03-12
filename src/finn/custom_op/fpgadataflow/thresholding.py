@@ -242,9 +242,16 @@ class Thresholding(HWCustomOp):
         node = self.onnx_node
         inp_values = context[node.input[0]]
         th_val = context[node.input[1]]
-
-        y = multithreshold(np.transpose(inp_values, (0, 3, 1, 2)), th_val)
-        y = y.transpose(0, 2, 3, 1)
+        # MT expects inputs to be in the shape (N,C,H,W) or (N, C)
+        # if 4D then input values in context are (N,H,W,C) and need to
+        # be transposed.
+        # if 2D then inputs can be passed directly to MT function
+        is_4d = len(inp_values.shape) == 4
+        if is_4d:
+            inp_values = np.transpose(inp_values, (0, 3, 1, 2))
+        y = multithreshold(inp_values, th_val)
+        if is_4d:
+            y = y.transpose(0, 2, 3, 1)
         act = DataType[self.get_nodeattr("outputDataType")]
         if act == DataType["BIPOLAR"]:
             # binary to bipolar
