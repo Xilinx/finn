@@ -57,7 +57,7 @@ module mvu_vvu_axi #(
 	int unsigned ACCU_WIDTH,
 	bit SIGNED_ACTIVATIONS = 0,
 
-	bit PUMPED_COMPUTE = 0,	// requires an even SIMD % 2 == 0
+	bit PUMPED_COMPUTE = 0,
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
@@ -315,13 +315,6 @@ module mvu_vvu_axi #(
 		"mvu_8sx8u_dsp48":
 			mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(DSP_SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 			.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
-				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
-				.vld(dsp_vld), .p(dsp_p)
-			);
-		"mvu_vvu_lut":
-			mvu_vvu_lut #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(DSP_SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH),
-			.WEIGHT_WIDTH(WEIGHT_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .M_REG(M_REG_LUT)) core (
 				.clk(dsp_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)

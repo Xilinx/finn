@@ -81,7 +81,7 @@ mvu_vvu_axi #(
 	.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 	) inst (
 	.ap_clk(ap_clk),
-	.ap_clk2x(1'b0),
+	.ap_clk2x(1'b0), // wired to ground since double-pumped compute not enabled through FINN for now
 	.ap_rst_n(ap_rst_n),
 	.s_axis_weights_tdata(weights_V_TDATA),
 	.s_axis_weights_tvalid(weights_V_TVALID),
