@@ -515,7 +515,8 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width == 1.0:
             thresholds = np.empty([1, 1], dtype=np_default_dtype)
             thresholds[0] = 0
-            return thresholds
+            num_thresholds = 1
+
         else:
             if narrow:
                 num_distinct_values = 2**bit_width - 1
@@ -537,13 +538,13 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
-            # ToDo: The index 1 needs to be changed to -1 for the channels last format
-            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
-            final_shape = (num_output_channels, num_thresholds)
-            if thresholds.shape != final_shape:
-                thresholds = np.broadcast_to(thresholds, final_shape)
+        # ToDo: The index 1 needs to be changed to -1 for the channels last format
+        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
+        final_shape = (num_output_channels, num_thresholds)
+        if thresholds.shape != final_shape:
+            thresholds = np.broadcast_to(thresholds, final_shape)
 
-            return thresholds
+        return thresholds
 
     def _calculate_act_scale(self):
         # Gather parameters
