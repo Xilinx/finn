@@ -57,10 +57,10 @@ class RoundAndClipThresholds(Transformation):
                     model.set_tensor_datatype(n.input[1], idtype)
                     graph_modified = True
                 if idtype.is_integer() and (
-                    (Tnew < (idtype.min() - 1)).any() or (Tnew > (idtype.max() + 1)).any()
+                    (Tnew < (idtype.min())).any() or (Tnew > (idtype.max())).any()
                 ):
                     # clip any large thresholds to input range + 1
-                    Tnew = np.clip(Tnew, idtype.min() - 1, idtype.max() + 1)
+                    Tnew = np.clip(Tnew, idtype.min(), idtype.max())
                     model.set_initializer(n.input[1], Tnew)
                     # use same datatype as inputs for thresholds
                     model.set_tensor_datatype(n.input[1], idtype)
