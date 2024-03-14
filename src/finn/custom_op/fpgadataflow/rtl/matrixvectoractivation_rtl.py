@@ -101,7 +101,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 reset_rtlsim(sim)
                 toggle_clk(sim)
-                if mem_mode in ["external", "decoupled"]:
+                if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()
                     export_wdt = self.get_weight_datatype()
                     wei = npy_to_rtlsim_input(
