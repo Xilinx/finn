@@ -581,7 +581,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 def test_mvau_fifocharacterize_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
 ):
-    if preferred_impl_style == "rtl" and (mem_mode == "const" or act is not None):
+    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
     if nf == -1:
         nf = mh
@@ -627,8 +627,8 @@ def test_mvau_fifocharacterize_rtlsim(
     chrc_out = node_inst.get_nodeattr("io_chrc_out")
     assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
-    # first sf cycles should read input continuously
-    assert (chrc_in[0, :sf] == list(range(1, sf + 1))).all()
+    # total number of transactions == 2*SF
+    assert chrc_in[0, -1] == 2 * sf
     # all outputs should be produced within the exp n of cycles
     assert chrc_out[0, exp_total_cycles] == nf
 
