@@ -37,7 +37,7 @@ from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 from finn.util.fpgadataflow import is_versal
 
 
-def _determine_impl_style(node):
+def _determine_impl_style(node, fpgapart):
     optype = node.op_type
 
     # check if there is an HLS or RTL variant or both
@@ -56,6 +56,11 @@ def _determine_impl_style(node):
         if rtl_variant:
             if optype == "MVAU":
                 if _mvu_rtl_possible(node):
+                    return "rtl"
+                else:
+                    return "hls"
+            elif optype == "VVAU":
+                if _vvu_rtl_possible(node, fpgapart):
                     return "rtl"
                 else:
                     return "hls"
@@ -125,6 +130,18 @@ def _determine_impl_style(node):
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
                         thresholds are implemented as standalone layer""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+        elif optype == "VVAU":
+            if _vvu_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
+                        thresholds are implemented as standalone layer. Note that the RTL-variant
+                        of this layer is only supported on Versal boards""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -217,6 +234,21 @@ def _mvu_rtl_possible(n):
     return inp_width_in_range and weight_width_in_range and no_activation
 
 
+def _vvu_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based VVU is supported
+    in_width_in_range = (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
+    ) or (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
+        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    )
+    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    is_versal_family = is_versal(fpgapart)
+    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
+
+    return in_width_in_range and weight_width_in_range and is_versal_family and no_activation
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
@@ -233,7 +265,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node)
+            impl_style = _determine_impl_style(node, self.fpgapart)
             optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
