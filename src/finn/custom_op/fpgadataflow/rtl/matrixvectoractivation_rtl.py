@@ -193,7 +193,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         assert (
             self.get_nodeattr("resType") != "lut"
         ), """LUT-based RTL-MVU implementation currently not supported!
-        Please change resType for {}""".format(
+        Please change resType for {} to 'dsp' or consider switching to HLS-based MVAU!""".format(
             self.onnx_node.name
         )
 
