@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath("../../src/"))
 # -- Project information -----------------------------------------------------
 
 project = "FINN"
-copyright = "2020, Xilinx"
+copyright = "2020-2022, Xilinx, 2022-2024, AMD"
 author = "Y. Umuroglu and J. Petri-Koenig"
 
 
