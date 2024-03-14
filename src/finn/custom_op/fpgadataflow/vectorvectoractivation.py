@@ -43,7 +43,7 @@ from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
-class VectorVectorActivation(HWCustomOp):
+class VVAU(HWCustomOp):
     """Abstraction layer for HW implementation of VectorVectorActivation layers."""
 
     def __init__(self, onnx_node, **kwargs):
@@ -105,9 +105,6 @@ class VectorVectorActivation(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def base_op_type(self):
-        return "VectorVectorActivation"
-
     def _infer_sparse_weight_tensor(self, W_conv, k_h, k_w, channels):
         W_sparse = np.zeros((channels, channels, k_h, k_w), dtype=np.float32)
         for ch in range(channels):
@@ -124,7 +121,17 @@ class VectorVectorActivation(HWCustomOp):
         (_, dim_h, dim_w, _) = in_act.shape
         (k_h, k_w) = self.get_nodeattr("Kernel")
         channels = self.get_nodeattr("Channels")
-        pe = self.get_nodeattr("PE")
+        producer = [x for x in graph.node if x.output[0] == node.input[0]]
+        exec_mode = self.get_nodeattr("exec_mode")
+        if (
+            not bool(producer)
+            or producer[0].op_type == "ConvolutionInputGenerator_hls"
+            or (producer[0].op_type == "ConvolutionInputGenerator_rtl" and exec_mode == "rtlsim")
+        ):
+            pe = self.get_nodeattr("PE")
+        else:
+            pe = channels
+
         # Reorder the input activations. Note that PE gets interleaved by the SWG,
         # so we have to untangle and for simplicity of computation assume pe=1.
         # Note that PE has no effect on the QONNX node
@@ -183,7 +190,14 @@ class VectorVectorActivation(HWCustomOp):
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        # when performing FIFO insertion on an FC layer with ext weights, the ind
+        # parameter can be > 0 (referring to the weights) so handle that here
+        if ind == 0:
+            return DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            return DataType[self.get_nodeattr("weightDataType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
@@ -198,7 +212,7 @@ class VectorVectorActivation(HWCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype().bitwidth()
+        i_bits = self.get_input_datatype(ind).bitwidth()
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
         in_width = i_bits * simd * pe
@@ -499,7 +513,7 @@ class VectorVectorActivation(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
-            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
@@ -508,7 +522,7 @@ class VectorVectorActivation(HWCustomOp):
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
             acc_min = min(min_threshold, acc_min)
@@ -566,7 +580,7 @@ class VectorVectorActivation(HWCustomOp):
             self.set_nodeattr("weightDataType", wdt.name)
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+    def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0
@@ -691,6 +705,8 @@ class VectorVectorActivation(HWCustomOp):
             weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
             # PE flip for saving weights in .dat
             weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+            # SIMD & PE flip
+            weight_tensor_pe_simd_flipped = np.flip(weight_tensor_pe_flipped, axis=-1)
             # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
@@ -700,19 +716,32 @@ class VectorVectorActivation(HWCustomOp):
             # flipped
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
+            # SIMD & PE flipped
+            weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.reshape(1, -1, pe * simd)
+            weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
-                np.save(weight_file_name, weight_tensor_simd_flipped)
+                if self.onnx_node.op_type == "VVAU_rtl":
+                    weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
+                    weight_tensor_unflipped = weight_tensor_unflipped.copy()
+                    np.save(weight_file_name, weight_tensor_unflipped)
+                else:
+                    np.save(weight_file_name, weight_tensor_simd_flipped)
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_weightstream_width()
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
-                )
+                if self.onnx_node.op_type == "VVAU_rtl":
+                    weight_arr = pack_innermost_dim_as_hex_string(
+                        weight_tensor_pe_simd_flipped, export_wdt, weight_width_padded, prefix=""
+                    )
+                else:
+                    weight_arr = pack_innermost_dim_as_hex_string(
+                        weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                    )
                 # add zeroes to pad out file to 1024 entries
-                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_arr.flatten()
                 weight_stream = weight_stream.copy()
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
@@ -772,7 +801,7 @@ class VectorVectorActivation(HWCustomOp):
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
                 wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
@@ -884,11 +913,9 @@ class VectorVectorActivation(HWCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the hls ip
-            cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
-            )
+            # Instantiate either the HLS or RTL IP depending on operator
+            self.instantiate_ip(cmd)
+
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
@@ -959,7 +986,7 @@ class VectorVectorActivation(HWCustomOp):
             cmd.append("save_bd_design")
         elif mem_mode == "internal_embedded" or mem_mode == "external":
             # base class impl sufficient for internal_embedded/external modes
-            return super().code_generation_ipi()
+            self.instantiate_ip(cmd)
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
