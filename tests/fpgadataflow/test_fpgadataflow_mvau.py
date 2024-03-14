@@ -671,7 +671,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
 
     # Create MVAU (HLS)
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(GiveUniqueNodeNames())
 
     # Apply convert-to-rtl step
@@ -684,9 +684,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
         "MVAU_rtl_0": {
             "PE": pe,
             "SIMD": simd,
-            "mem_mode": "decoupled",
             "resType": "dsp",
-            "preferred_impl_style": "rtl",
         },
     }
     model = model.transform(ApplyConfig(folding_config))
@@ -710,7 +708,6 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
-
     assert (
         output_matmul == output_mvau_rtl
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
