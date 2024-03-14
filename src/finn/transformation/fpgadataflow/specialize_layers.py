@@ -128,6 +128,7 @@ def _determine_impl_style(node):
                     node.name,
                 )
                 warnings.warn(warn_str)
+                return "hls"
 
         if rtl_variant:
             return "rtl"
