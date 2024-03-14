@@ -123,7 +123,8 @@ def _determine_impl_style(node):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant.""" % (
+                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
+                        thresholds are implemented as standalone layer""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -210,21 +211,9 @@ def _mvu_rtl_possible(n):
         and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
     )
     weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
-    folding_supported = (
-        getCustomOp(n).get_nodeattr("MH") % getCustomOp(n).get_nodeattr("PE") == 0
-    ) and (getCustomOp(n).get_nodeattr("MW") % getCustomOp(n).get_nodeattr("SIMD") == 0)
-    targets_dsp = getCustomOp(n).get_nodeattr("resType") in ["dsp", "auto"]
-    external_memmode = getCustomOp(n).get_nodeattr("mem_mode") in ["decoupled", "external"]
     no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
 
-    return (
-        inp_width_in_range
-        and weight_width_in_range
-        and folding_supported
-        and targets_dsp
-        and external_memmode
-        and no_activation
-    )
+    return inp_width_in_range and weight_width_in_range and no_activation
 
 
 class SpecializeLayers(Transformation):
