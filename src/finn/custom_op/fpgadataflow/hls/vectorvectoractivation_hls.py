@@ -31,11 +31,11 @@ import os
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class VectorVectorActivation_hls(VectorVectorActivation, HLSBackend):
+class VVAU_hls(VVAU, HLSBackend):
     """Corresponds to finn-hlslib Vector_Vector_Activate_Batch function"""
 
     def __init__(self, onnx_node, **kwargs):
@@ -43,7 +43,7 @@ class VectorVectorActivation_hls(VectorVectorActivation, HLSBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(VectorVectorActivation.get_nodeattr_types(self))
+        my_attrs.update(VVAU.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
@@ -464,3 +464,12 @@ class VectorVectorActivation_hls(VectorVectorActivation, HLSBackend):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def instantiate_ip(self, cmd):
+        # instantiate the HLS IP
+        vlnv = self.get_nodeattr("ip_vlnv")
+        node_name = self.onnx_node.name
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
+        else:
+            cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))
