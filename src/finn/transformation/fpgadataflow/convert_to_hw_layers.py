@@ -1636,7 +1636,7 @@ class InferVectorVectorActivation(Transformation):
                         model.set_tensor_shape(mt_output, mt_out_shape)
                         # create and insert new VectorVectorActivation node
                         new_node = helper.make_node(
-                            "VectorVectorActivation",
+                            "VVAU",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -1651,7 +1651,7 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
-                            name="VectorVectorActivation_" + n.name,
+                            name="VVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -1665,7 +1665,7 @@ class InferVectorVectorActivation(Transformation):
                         model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new VVAU node
                         new_node = helper.make_node(
-                            "VectorVectorActivation",
+                            "VVAU",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -1680,7 +1680,7 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
-                            name="VectorVectorActivation_" + n.name,
+                            name="VVAU_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

@@ -53,7 +53,7 @@ from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 
 custom_op = dict()
 
@@ -62,7 +62,7 @@ custom_op = dict()
 custom_op["MVAU"] = MVAU
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["Thresholding"] = Thresholding
-custom_op["VectorVectorActivation"] = VectorVectorActivation
+custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
 custom_op["AddStreams"] = AddStreams

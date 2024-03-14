@@ -119,7 +119,7 @@ class SetFolding(Transformation):
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VectorVectorActivation_hls", "Pool_hls"]
+        depthwise_op_exceptions = ["VVAU_hls", "Pool_hls"]
         for node in graph.node:
             if not (is_hls_node(node) or is_rtl_node(node)):
                 continue
@@ -157,18 +157,14 @@ class SetFolding(Transformation):
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type == "VectorVectorActivation_hls":
+                if op_type == "VVAU_hls":
                     node_inst.set_nodeattr("SIMD", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
                 # increase SIMD for VVAU once PE is exhausted
                 pe = node_inst.get_nodeattr("PE")
                 cyc = node_inst.get_exp_cycles()
-                if (
-                    op_type == "VectorVectorActivation_hls"
-                    and pe == max_pe
-                    and cyc > self.target_cycles_per_frame
-                ):
+                if op_type == "VVAU_hls" and pe == max_pe and cyc > self.target_cycles_per_frame:
                     max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
                 # also set the folding of the upsteam DW SWU
@@ -179,15 +175,12 @@ class SetFolding(Transformation):
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # enable parallel_window mode of RTL SWG if needed
                     if swu_node.op_type == "ConvolutionInputGenerator_rtl":
-                        if (
-                            op_type == "VectorVectorActivation"
-                            and node_inst.get_nodeattr("SIMD") > 1
-                        ):
+                        if op_type.startswith("VVAU") and node_inst.get_nodeattr("SIMD") > 1:
                             swu_node_inst.set_nodeattr("parallel_window", 1)
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                 else:
-                    if op_type == "VectorVectorActivation_hls":
+                    if op_type == "VVAU_hls":
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
                     elif op_type == "Pool_hls":
                         ksize = node_inst.get_nodeattr("KernelSize")

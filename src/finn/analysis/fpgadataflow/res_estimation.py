@@ -62,7 +62,7 @@ def res_estimation_complete(model):
         if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
             op_type = node.op_type
-            if op_type.startswith("MVAU") or op_type.startswith("VectorVectorActivation"):
+            if op_type.startswith("MVAU") or op_type.startswith("VVAU"):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")
