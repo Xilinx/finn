@@ -35,7 +35,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-# ONNX i/o tensor shape assumptions for MatrixVectorActivation:
+# ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
 # (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
