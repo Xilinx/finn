@@ -40,7 +40,7 @@ module mvu_8sx9_tb();
 	localparam int unsigned MW = 600;
 	localparam int unsigned SIMD = 60;
 	localparam int unsigned SEGMENTLEN = 4;
-	// Bit-width config  
+	// Bit-width config
 	localparam int unsigned ACTIVATION_WIDTH = 8;
 	localparam int unsigned WEIGHT_WIDTH = 4;
 	localparam bit SIGNED_ACTIVATIONS = 1;
@@ -76,7 +76,7 @@ module mvu_8sx9_tb();
 			for (int i = 0; i<MW; i++) begin
 				res[j/PE][j%PE] = $signed(res[j/PE][j%PE]) + $signed(a[i/SIMD][i%SIMD]) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]);
 			end
-		end  
+		end
 		return res;
 	endfunction : check_output;
 
@@ -124,7 +124,7 @@ module mvu_8sx9_tb();
 		end
 
 		last <= 0;
-		zero <= 1;  
+		zero <= 1;
 
 		// Continue until all NF outputs are produced & compared
 		@(posedge clk && (NF_CNT==NF));
@@ -141,10 +141,10 @@ module mvu_8sx9_tb();
 	always_ff @(posedge clk iff (vld && en)) begin
 		foreach(p[i]) begin
 			assert ($signed(p[i]) == $signed(GOLDEN_OUTPUT[NF_CNT][i])) $display(">>> [t=%0t] Test succeeded (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(p[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
-			else begin 
+			else begin
 				$error(">>> [t=%0t] TEST failed (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(p[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
 				$stop;
-			end  
+			end
 		end
 		NF_CNT += 1;
 	end
