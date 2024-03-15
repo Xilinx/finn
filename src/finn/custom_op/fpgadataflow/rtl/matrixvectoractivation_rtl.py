@@ -41,10 +41,9 @@ except ModuleNotFoundError:
     PyVerilator = None
 
 
-# ONNX i/o tensor shape assumptions for MatrixVectorActivation:
+# ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
-# (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
 # output 0 is the output tensor, shape (.., o_size) = (..., MH)
 # the ... here can be any shape (representing groups of vectors)
 
@@ -92,7 +91,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                         os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                         reshaped_input,
                     )
-                elif in_ind > 2:
+                elif in_ind > 1:
                     raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
                 in_ind += 1
 
@@ -291,19 +290,3 @@ class MVAU_rtl(MVAU, RTLBackend):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
 
         return sim
-
-    def get_all_verilog_paths(self):
-        "Return list of all folders containing Verilog code for this node."
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
-        return verilog_paths
-
-    def get_verilog_top_filename(self):
-        "Return the Verilog top module filename for this node."
-
-        verilog_file = "{}/{}_wrapper.v".format(
-            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
-        )
-        return verilog_file
