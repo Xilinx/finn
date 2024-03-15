@@ -82,7 +82,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             ret["ap_none"] = ["maxcount"]
         return ret
 
-    def generate_hdl(self, model):
+    def generate_hdl(self, model, fpgapart, clk):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/fifo/hdl"
         template_path = rtlsrc + "/fifo_template.v"
 

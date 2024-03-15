@@ -42,7 +42,7 @@ class RTLBackend(ABC):
         }
 
     @abstractmethod
-    def generate_hdl(self):
+    def generate_hdl(self, model, fpgapart, clk):
         pass
 
     @abstractmethod
@@ -54,7 +54,7 @@ class RTLBackend(ABC):
         pass
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        self.generate_hdl(model)
+        self.generate_hdl(model, fpgapart, clk)
 
     # TODO: Implement alternative
     def hls_sname(self):

@@ -63,7 +63,7 @@ class MVAU(HWCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
+            "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -483,7 +483,7 @@ class MVAU(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
-            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
@@ -492,7 +492,7 @@ class MVAU(HWCustomOp):
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
             acc_min = min(min_threshold, acc_min)
@@ -549,7 +549,7 @@ class MVAU(HWCustomOp):
             self.set_nodeattr("weightDataType", wdt.name)
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+    def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0
@@ -600,7 +600,7 @@ class MVAU(HWCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
+    def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0 and MW % SIMD == 0
@@ -650,8 +650,8 @@ class MVAU(HWCustomOp):
         * weight_file_name : filename for the weight file to be generated
 
         """
-        # convert weights into hlslib-compatible format
-        weight_tensor = self.get_hls_compatible_weight_tensor(weights)
+        # convert weights into hlslib/rtllib-compatible format
+        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
@@ -769,7 +769,7 @@ class MVAU(HWCustomOp):
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
                 wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
@@ -852,6 +852,19 @@ class MVAU(HWCustomOp):
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
+        if mem_mode == "external":
+            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
+        if mem_mode == "internal_decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
 
     def code_generation_ipi(self):
         cmd = []

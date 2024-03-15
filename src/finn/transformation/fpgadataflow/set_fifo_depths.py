@@ -259,7 +259,7 @@ class InsertAndSetFIFODepths(Transformation):
     def apply(self, model):
         # these optypes may potentially use external weights
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MVAU_hls", "VectorVectorActivation_hls"]
+        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VectorVectorActivation_hls"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
@@ -285,8 +285,7 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
-
-            if op_type in extw_optypes:
+            if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -300,7 +299,7 @@ class InsertAndSetFIFODepths(Transformation):
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(self.fpgapart))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 

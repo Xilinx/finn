@@ -35,7 +35,7 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-# ONNX i/o tensor shape assumptions for MatrixVectorActivation:
+# ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
 # (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
@@ -171,19 +171,6 @@ class MVAU_hls(MVAU, HLSBackend):
         ret["TDstI"] = "Slice<%s>" % out_hls_str
 
         return ret
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
-        if mem_mode == "external":
-            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
-        if mem_mode == "internal_decoupled":
-            # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
-                intf_names["axilite"] = ["s_axilite"]
-        return intf_names
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']

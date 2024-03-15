@@ -28,11 +28,13 @@
 
 import warnings
 from onnx import helper
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
+from finn.util.fpgadataflow import is_versal
 
 
 def _determine_impl_style(node):
@@ -56,6 +58,11 @@ def _determine_impl_style(node):
         if optype == "Thresholding":
             return "hls"
         if rtl_variant:
+            if optype == "MVAU":
+                if _mvu_rtl_possible(node):
+                    return "rtl"
+                else:
+                    return "hls"
             return "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
@@ -115,6 +122,18 @@ def _determine_impl_style(node):
             else:
                 # user setting can be fulfilled
                 return "rtl"
+        elif optype == "MVAU":
+            if _mvu_rtl_possible(node):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
+                        thresholds are implemented as standalone layer""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+
         if rtl_variant:
             return "rtl"
         elif hls_variant:
@@ -188,8 +207,31 @@ def _swg_hls_possible(node):
             return False
 
 
+def _mvu_rtl_possible(n):
+    # Checks whether RTL-based MVU is supported
+    # Currently, for DSP48 we only support computations up to
+    # 8sx8s and for DSP58 we support up to 8sx9s. Next to that,
+    # embedded thresholding functionality is not supported and
+    # neither binaryxnormode computation
+    inp_width_in_range = (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
+    ) or (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
+        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    )
+    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
+    not_binaryxnor_mode = getCustomOp(n).get_nodeattr("binaryXnorMode") == 0
+
+    return inp_width_in_range and weight_width_in_range and no_activation and not_binaryxnor_mode
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
+
+    def __init__(self, fpgapart=""):
+        super().__init__()
+        self.fpgapart = fpgapart
 
     def apply(self, model):
         graph = model.graph
@@ -213,6 +255,9 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+            if new_node.op_type == "MVAU_rtl":
+                is_versal_family = is_versal(self.fpgapart)
+                getCustomOp(new_node).set_nodeattr("is_versal", is_versal_family)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)
