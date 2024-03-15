@@ -209,9 +209,10 @@ def _swg_hls_possible(node):
 
 def _mvu_rtl_possible(n):
     # Checks whether RTL-based MVU is supported
-    # Currently, for DSP48 we only support 8sx8s and for
-    # DSP58 we support 8sx9s. Next to that, embedded thresholding
-    # functionality is not supported and neither binaryxnormode computation
+    # Currently, for DSP48 we only support computations up to
+    # 8sx8s and for DSP58 we support up to 8sx9s. Next to that,
+    # embedded thresholding functionality is not supported and
+    # neither binaryxnormode computation
     inp_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
