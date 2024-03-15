@@ -859,7 +859,7 @@ class MVAU(HWCustomOp):
         sname = self.hls_sname()
         if mem_mode == "external":
             intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
-        if mem_mode == "decoupled":
+        if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
             if runtime_writable:
