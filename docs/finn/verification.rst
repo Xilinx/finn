@@ -4,7 +4,7 @@
 Functional Verification
 ***********************
 
-.. image:: ../../notebooks/end2end_example/bnn-pynq/verification.png
+.. image:: ../../notebooks/end2end_example/bnn-pynq/verification.svg
    :scale: 70%
    :align: center
 

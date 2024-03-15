@@ -130,6 +130,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_hls")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -154,6 +155,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_hls")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -179,6 +181,7 @@ def fold_cnv_large(model):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
@@ -207,6 +210,7 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
@@ -539,9 +543,9 @@ class TestEnd2End:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
             model = model.transform(to_hw.InferThresholdingLayer())
         # needed for bipolar MatMul layers
-        model = model.transform(to_hw.InferBinaryMatrixVectorActivation(mem_mode))
+        model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
         # needed for non-bipolar MatMul layers
-        model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode))
+        model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
         # TopK to LabelSelect
         model = model.transform(to_hw.InferLabelSelectLayer())
         # input quantization (if any) to standalone thresholding

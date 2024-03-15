@@ -101,6 +101,10 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     # subsequently, the FC inference will generate passthrough MVAUs
     if not fused_activation:
         model = model.transform(to_hw.InferThresholdingLayer())
+        tr_nodes = model.get_nodes_by_op_type("Thresholding")
+        for tr in tr_nodes:
+            tr_inst = getCustomOp(tr)
+            tr_inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferConvInpGen())
