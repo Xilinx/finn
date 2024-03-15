@@ -188,6 +188,12 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         o_bitwidth = DataType[output_data_type].bitwidth()
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
 
+        # If a single threshold value is found, broadcast it to all channels
+        n_thres_steps = self.get_nodeattr("numSteps")
+        expected_shape = (num_channels, n_thres_steps)
+        if t_packed.shape != expected_shape:
+             t_packed = np.broadcast_to(t_packed, expected_shape)
+
         channel_fold = int(num_channels / pe)
 
         for stage in range(o_bitwidth):
@@ -506,6 +512,12 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         pe = self.get_nodeattr("PE")
         ch = self.get_nodeattr("NumChannels")
         n_thres_steps = self.get_nodeattr("numSteps")
+
+        # If a single threshold value is found, broadcast it to all channels
+        n_thres_steps = self.get_nodeattr("numSteps")
+        expected_shape = (ch, n_thres_steps)
+        if weights.shape != expected_shape:
+             weights = np.broadcast_to(weights, expected_shape)
 
         width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
         weight_padded = np.zeros((weights.shape[0], width_padded))
