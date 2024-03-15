@@ -885,6 +885,19 @@ class VVAU(HWCustomOp):
             io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
+        if mem_mode == "external":
+            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
+        if mem_mode == "internal_decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
+
     def code_generation_ipi(self):
         cmd = []
         # add streamer if needed
