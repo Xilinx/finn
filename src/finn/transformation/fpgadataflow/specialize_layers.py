@@ -53,6 +53,10 @@ def _determine_impl_style(node):
     if impl_style == "":
         if optype == "StreamingDataWidthConverter":
             return _dwc_determine_impl_style(node)
+        # TODO extensively test RTL thresholding
+        # for now use HLS component for thresholding
+        if optype == "Thresholding":
+            return "hls"
         if rtl_variant:
             if optype == "MVAU":
                 if _mvu_rtl_possible(node):

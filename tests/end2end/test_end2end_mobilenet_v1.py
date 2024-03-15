@@ -92,7 +92,6 @@ test_board = "U250"
 test_platform = alveo_default_platform[test_board]
 test_fpga_part = alveo_part_map[test_board]
 target_clk_ns = 3
-mem_mode = "internal_decoupled"
 large_fifo_ram_style = "ultra"
 extra_fold = 1
 first_layer_res_type = "dsp"
@@ -226,7 +225,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
     model = model.transform(to_hw.InferPool())
     model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferVectorVectorActivation())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation(mem_mode))
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferChannelwiseLinearLayer())
     model = model.transform(to_hw.InferLabelSelectLayer())
     model = model.transform(InferShapes())
