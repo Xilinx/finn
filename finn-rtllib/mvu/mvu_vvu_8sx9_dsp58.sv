@@ -78,7 +78,8 @@ module mvu_vvu_8sx9_dsp58 #(
 
 //-------------------- Shift register for opmode select signal --------------------\\
 	localparam int unsigned MAX_PIPELINE_STAGES = (CHAINLEN + SEGLEN-1)/SEGLEN; // >=1 (== number of pipeline registers + 1 (A/B inputs always have 1 register))
-	logic L [0:1+MAX_PIPELINE_STAGES] = '{default: 0}; // After MAX_PIPELINE_STAGES (== number of pipeline stages for input data), we have 3 additional cycles latency (A/B reg, Mreg, Preg). Thus, we add +2 (since OPMODE is buffered by 1 cycle in the DSP fabric)
+	logic L [0:1+MAX_PIPELINE_STAGES] = '{default: 0}; // After MAX_PIPELINE_STAGES (== number of pipeline stages for input data), we have 3 additional cycles latency (A/B reg, Mreg, Preg).
+	// Thus, we add +2 (since OPMODE is buffered by 1 cycle in the DSP fabric)
 
 	always_ff @(posedge clk) begin
 		if(rst)     L <= '{default: 0};
@@ -115,16 +116,16 @@ module mvu_vvu_8sx9_dsp58 #(
 				always_ff @(posedge clk) begin
 					if (rst)     A <= '{default: 0};
 					else if(en) begin
-						A[EXTERNAL_PREGS-1] <= 
-	// synthesis translate_off
-							zero ? '1 : 
-	// synthesis translate_on						
+						A[EXTERNAL_PREGS-1] <=
+// synthesis translate_off
+							zero ? '1 :
+// synthesis translate_on
 							a[SIMD*k + 3*i +: LANES_OCCUPIED];
 						if (EXTERNAL_PREGS > 1)   A[0:EXTERNAL_PREGS-2] <= A[1:EXTERNAL_PREGS-1];
 					end
 				end
 				for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
-				assign a_in_i[CHAINLEN*k+i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{A[0][j][ACTIVATION_WIDTH-1]}}, A[0][j] } 
+				assign a_in_i[CHAINLEN*k+i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{A[0][j][ACTIVATION_WIDTH-1]}}, A[0][j] }
 													  : PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{1'b0}}, A[0][j] } ;
 				end : genAin
 				for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
@@ -133,10 +134,10 @@ module mvu_vvu_8sx9_dsp58 #(
 			end : genExternalPregAct
 			else begin : genInpDSPAct
 				for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
-					assign a_in_i[CHAINLEN*k+i][9*j +: 9] = 
-	// synthesis translate_off
-						zero ? '1 : 				
-	// synthesis translate_on
+					assign a_in_i[CHAINLEN*k+i][9*j +: 9] =
+// synthesis translate_off
+						zero ? '1 :
+// synthesis translate_on
 						SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? a[SIMD*k+3*i+j] : { {PAD_BITS_ACT{a[SIMD*k+3*i+j][ACTIVATION_WIDTH-1]}}, a[SIMD*k+3*i+j] }
 													: PAD_BITS_ACT == 0 ? a[SIMD*k+3*i+j] : { {PAD_BITS_ACT{1'b0}}, a[SIMD*k+3*i+j] } ;
 				end : genAin
@@ -161,10 +162,10 @@ module mvu_vvu_8sx9_dsp58 #(
 				always_ff @(posedge clk) begin
 					if (rst)    B <= '{default: 0};
 					else if (en) begin
-						B[i][EXTERNAL_PREGS-1] <= 
+						B[i][EXTERNAL_PREGS-1] <=
 // synthesis translate_off
-							zero ? '1 : 						
-// synthesis translate_on							
+							zero ? '1 :
+// synthesis translate_on
 							//w[i][3*j +: LANES_OCCUPIED];
 							w[SIMD*i+3*j +: LANES_OCCUPIED];
 						if (EXTERNAL_PREGS > 1) B[i][0:EXTERNAL_PREGS-2] <= B[i][1:EXTERNAL_PREGS-1];
@@ -179,11 +180,10 @@ module mvu_vvu_8sx9_dsp58 #(
 			end : genExternalPregWeight
 			else begin : genInpDSPWeight
 				for (genvar k = 0; k < LANES_OCCUPIED; k++) begin : genBin
-					assign b_in_i[i][j][8*k +: 8] = 
-// synthesis translate_off					
-						zero ? '1 : 
-// synthesis translate_on					
-						//PAD_BITS_WEIGHT == 0 ? w[i][3*j+k] : { {PAD_BITS_WEIGHT{w[i][3*j+k][WEIGHT_WIDTH-1]}}, w[i][3*j+k] };
+					assign b_in_i[i][j][8*k +: 8] =
+// synthesis translate_off
+						zero ? '1 :
+// synthesis translate_on
 						PAD_BITS_WEIGHT == 0 ? w[SIMD*i+3*j+k] : { {PAD_BITS_WEIGHT{w[SIMD*i+3*j+k][WEIGHT_WIDTH-1]}}, w[SIMD*i+3*j+k] };
 				end : genBin
 				for (genvar k=LANES_OCCUPIED; k<3; k++) begin : genBinZero

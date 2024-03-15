@@ -31,7 +31,7 @@
  * @brief	Matrix Vector Unit (MVU) & Vector Vector Unit (VVU) AXI-lite interface wrapper.
  * @details
  *	 The following compute cores are supported:
- *   - 4-bit MVU on DSP48 achieving 4 MACs/DSP, 
+ *   - 4-bit MVU on DSP48 achieving 4 MACs/DSP,
  *   - (4,8]-bit MVU on DSP48 achieving 2 MACs/DSP,
  *   - [4,9]-bit MVU and VVU on DSP58 achieving 3 MACs/DSP,
  *  Folding hints:
@@ -184,7 +184,7 @@ module mvu_vvu_axi #(
 	uwire  ovld;
 	uwire dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD; 
+		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
 		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
