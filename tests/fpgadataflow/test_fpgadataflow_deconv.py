@@ -166,7 +166,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
 
     model = ref_model.transform(InferPixelPaddingDeconv())
-    model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
+    model = model.transform(InferConvInpGen())
     model = model.transform(InferQuantizedMatrixVectorActivation())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
@@ -174,7 +174,6 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     for n in model.graph.node:
         if n.op_type == "ConvolutionInputGenerator" and not convinpgen_rtl:
             convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", simd)
             # to test cppsim, set preferred_impl_style for swg to hls
             convinputgen_node.set_nodeattr("preferred_impl_style", "hls")
         elif n.op_type == "FMPadding":
@@ -182,13 +181,22 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
             pad_node.set_nodeattr("preferred_impl_style", "hls")
         elif n.op_type == "MVAU":
             mvau_node = getCustomOp(n)
-            mvau_node.set_nodeattr("PE", pe)
-            mvau_node.set_nodeattr("SIMD", simd)
+            mvau_node.set_nodeattr("preferred_impl_style", "hls")
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
 
     model = model.transform(SpecializeLayers())
+
+    for n in model.graph.node:
+        if n.op_type.startswith("ConvolutionInputGenerator"):
+            convinputgen_node = getCustomOp(n)
+            convinputgen_node.set_nodeattr("SIMD", simd)
+        elif n.op_type.startswith("MVAU"):
+            mvau_node = getCustomOp(n)
+            mvau_node.set_nodeattr("PE", pe)
+            mvau_node.set_nodeattr("SIMD", simd)
+
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
 
     # cppsim

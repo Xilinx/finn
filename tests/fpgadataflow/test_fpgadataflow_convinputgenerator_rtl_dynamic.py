@@ -270,6 +270,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
     comp_nodes = model.get_nodes_by_op_type("MVAU_hls")
+    comp_nodes += model.get_nodes_by_op_type("MVAU_rtl")
     comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation_hls")
     for comp_node in comp_nodes:
         if depthwise:

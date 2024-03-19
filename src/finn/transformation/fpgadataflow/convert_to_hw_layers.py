@@ -44,9 +44,8 @@ from qonnx.util.onnx import nchw_to_nhwc
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
 
-    def __init__(self, use_rtl_variant=False):
+    def __init__(self):
         super().__init__()
-        self.use_rtl_variant = use_rtl_variant
 
     def apply(self, model):
         graph = model.graph
