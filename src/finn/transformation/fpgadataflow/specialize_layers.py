@@ -245,6 +245,8 @@ def _mvu_rtl_possible(n):
 
 def _vvu_rtl_possible(n, fpgapart):
     # Checks whether RTL-based VVU is supported
+    # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs.
+    # Next to that, embedded thresholding functionality is not supported
     in_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
