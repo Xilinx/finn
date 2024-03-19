@@ -126,16 +126,6 @@ class HWCustomOp(CustomOp):
         intf_names["ap_none"] = []
         return intf_names
 
-    def get_verilog_top_filename(self):
-        "Return the Verilog top module filename for this node."
-
-        verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-            self.get_nodeattr("code_gen_dir_ipgen"),
-            self.onnx_node.name,
-            self.get_verilog_top_module_name(),
-        )
-        return verilog_file
-
     def get_rtlsim(self):
         """Return a PyVerilator wrapper for the Verilator emulation library
         for this node."""

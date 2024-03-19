@@ -49,6 +49,9 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
     InferPixelPaddingDeconv,
 )
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -147,14 +150,6 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     idim_h, idim_w = idim
     stride_h, stride_w = stride
 
-    if idim_h == idim_w and stride_h == stride_w:
-        convinpgen_rtl = False
-    else:
-        convinpgen_rtl = True
-
-    if exec_mode == "cppsim" and convinpgen_rtl:
-        pytest.skip("ConvolutionInputGenerator_rtl has no cppsim, skipping cppsim")
-
     ref_model = set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding)
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
@@ -166,29 +161,26 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
 
     model = ref_model.transform(InferPixelPaddingDeconv())
-    model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
+    model = model.transform(InferConvInpGen())
     model = model.transform(InferQuantizedMatrixVectorActivation())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
-
-    for n in model.graph.node:
-        if n.op_type == "ConvolutionInputGenerator" and not convinpgen_rtl:
-            convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", simd)
-            # to test cppsim, set preferred_impl_style for swg to hls
-            convinputgen_node.set_nodeattr("preferred_impl_style", "hls")
-        elif n.op_type == "FMPadding":
-            pad_node = getCustomOp(n)
-            pad_node.set_nodeattr("preferred_impl_style", "hls")
-        elif n.op_type == "MVAU":
-            mvau_node = getCustomOp(n)
-            mvau_node.set_nodeattr("PE", pe)
-            mvau_node.set_nodeattr("SIMD", simd)
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
 
     model = model.transform(SpecializeLayers())
+    model = model.transform(MinimizeAccumulatorWidth())
+
+    for n in model.graph.node:
+        if n.op_type.startswith("ConvolutionInputGenerator"):
+            convinputgen_node = getCustomOp(n)
+            convinputgen_node.set_nodeattr("SIMD", simd)
+        elif n.op_type.startswith("MVAU"):
+            mvau_node = getCustomOp(n)
+            mvau_node.set_nodeattr("PE", pe)
+            mvau_node.set_nodeattr("SIMD", simd)
+
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
 
     # cppsim

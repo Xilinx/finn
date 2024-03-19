@@ -88,9 +88,6 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
     pad_h = pad[0] + pad[2]
     pad_w = pad[1] + pad[3]
 
-    if use_rtl_swg and exec_mode == "cppsim":
-        pytest.skip("Skip cppsim if SWG is in rtl")
-
     if depthwise is True:
         group = out_chn = in_chn
         conv_param_shape = [out_chn, 1, k_h, k_w]
@@ -150,7 +147,11 @@ def test_convert_to_hw_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_m
     else:
         new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
         new_model = new_model.transform(SpecializeLayers())
-        fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]
+        # set folding parameters for MVAU
+        if new_model.get_nodes_by_op_type("MVAU_hls"):
+            fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]
+        else:
+            fc_node = new_model.get_nodes_by_op_type("MVAU_rtl")[0]
         fc_inst = getCustomOp(fc_node)
         mw = fc_inst.get_nodeattr("MW")
         mh = fc_inst.get_nodeattr("MH")

@@ -84,22 +84,22 @@ def test_convert_to_hw_layers_tfc_w1a1():
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     model = model.transform(SpecializeLayers())
     fc0 = model.graph.node[2]
-    assert fc0.op_type == "MVAU_hls"
+    assert fc0.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
     assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
     fc1 = model.graph.node[3]
-    assert fc1.op_type == "MVAU_hls"
+    assert fc1.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
     fc2 = model.graph.node[4]
-    assert fc2.op_type == "MVAU_hls"
+    assert fc2.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
     fc3 = model.graph.node[5]
-    assert fc3.op_type == "MVAU_hls"
+    assert fc3.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
 
@@ -157,22 +157,22 @@ def test_convert_to_hw_layers_tfc_w1a2():
     model = model.transform(SpecializeLayers())
 
     fc0 = model.graph.node[2]
-    assert fc0.op_type == "MVAU_hls"
+    assert fc0.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
     assert model.get_tensor_shape(fc0.input[2]) == [64, 2]
     fc1 = model.graph.node[3]
-    assert fc1.op_type == "MVAU_hls"
+    assert fc1.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc1.input[2]) == [64, 2]
     fc2 = model.graph.node[4]
-    assert fc2.op_type == "MVAU_hls"
+    assert fc2.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc2.input[2]) == [64, 2]
     fc3 = model.graph.node[5]
-    assert fc3.op_type == "MVAU_hls"
+    assert fc3.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     fc0w = getCustomOp(fc0)
