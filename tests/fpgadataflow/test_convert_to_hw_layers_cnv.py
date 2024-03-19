@@ -58,6 +58,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.test import get_test_model_trained
 
 export_onnx_path_cnv = "test_convert_to_hw_layers_cnv.onnx"
@@ -101,18 +102,15 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     # subsequently, the FC inference will generate passthrough MVAUs
     if not fused_activation:
         model = model.transform(to_hw.InferThresholdingLayer())
-        tr_nodes = model.get_nodes_by_op_type("Thresholding")
-        for tr in tr_nodes:
-            tr_inst = getCustomOp(tr)
-            tr_inst.set_nodeattr("preferred_impl_style", "hls")
+
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferConvInpGen())
-    conv_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
-    for cnv in conv_nodes:
-        cnv_inst = getCustomOp(cnv)
-        cnv_inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(to_hw.InferStreamingMaxPool())
+    for node in model.graph.node:
+        if is_fpgadataflow_node(node):
+            inst = getCustomOp(node)
+            inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers())
     for node in model.graph.node:
         if node.op_type == "MVAU_hls":
