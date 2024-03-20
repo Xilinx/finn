@@ -283,19 +283,3 @@ class VVAU_rtl(VVAU, RTLBackend):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
 
         return sim
-
-    def get_all_verilog_paths(self):
-        "Return list of all folders containing Verilog code for this node."
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
-        return verilog_paths
-
-    def get_verilog_top_filename(self):
-        "Return the Verilog top module filename for this node."
-
-        verilog_file = "{}/{}_wrapper.v".format(
-            self.get_nodeattr("code_gen_dir_ipgen"), self.get_nodeattr("gen_top_module")
-        )
-        return verilog_file
