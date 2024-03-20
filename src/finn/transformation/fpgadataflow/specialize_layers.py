@@ -64,7 +64,13 @@ def _determine_impl_style(node, fpgapart):
                 else:
                     return "hls"
             elif optype == "VVAU":
-                if _vvu_rtl_possible(node, fpgapart):
+                inp_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("inputDataType")].bitwidth() >= 4
+                )
+                weight_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
+                )
+                if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
                     return "rtl"
                 else:
                     return "hls"
