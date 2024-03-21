@@ -77,7 +77,6 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import alveo_default_platform, alveo_part_map, get_finn_root
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import (
     crop_center,
@@ -224,6 +223,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hw.InferPool())
     model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferChannelwiseLinearLayer())
@@ -237,10 +237,6 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
-    for node in model.graph.node:
-        if is_fpgadataflow_node(node):
-            inst = getCustomOp(node)
-            inst.set_nodeattr("preferred_impl_style", "hls")
     model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -253,9 +249,10 @@ def test_end2end_mobilenet_folding():
     # optional extra folding to use fewer resources
     # applied while setting the attributes on each node
     assert extra_fold in [1, 2, 4]
-    # set up folding for the depthwise conv layers impl'd by VVAUs
+    # set up folding for the conv layers impl'd by MVAUs
     # each value is PE for a layer
     fc_layers = model.get_nodes_by_op_type("MVAU_hls")
+    fc_layers += model.get_nodes_by_op_type("MVAU_rtl")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
         (32, 3, "block"),
@@ -285,6 +282,7 @@ def test_end2end_mobilenet_folding():
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
     vvau_layers = model.get_nodes_by_op_type("VVAU_hls")
+    vvau_layers += model.get_nodes_by_op_type("VVAU_rtl")
     folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
     for vvau, pe in zip(vvau_layers, folding):
         vvau_inst = getCustomOp(vvau)
