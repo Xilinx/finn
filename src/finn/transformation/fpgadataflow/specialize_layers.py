@@ -59,7 +59,13 @@ def _determine_impl_style(node, fpgapart):
             return "hls"
         if rtl_variant:
             if optype == "MVAU":
-                if _mvu_rtl_possible(node):
+                inp_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("inputDataType")].bitwidth() >= 4
+                )
+                weight_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
+                )
+                if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node):
                     return "rtl"
                 else:
                     return "hls"
@@ -233,7 +239,8 @@ def _swg_hls_possible(node):
 def _mvu_rtl_possible(n):
     # Checks whether RTL-based MVU is supported
     # Currently, for DSP48 we only support computations up to
-    # 8sx8s and for DSP58 we support up to 8sx9s. Next to that,
+    # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
+    # and for DSP58 we support up to 8sx9s. Next to that,
     # embedded thresholding functionality is not supported and
     # neither binaryxnormode computation
     inp_width_in_range = (
@@ -243,10 +250,17 @@ def _mvu_rtl_possible(n):
         and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
     )
     weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    signed_weights = DataType[getCustomOp(n).get_nodeattr("weightDataType")].min() < 0
     no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
     not_binaryxnor_mode = getCustomOp(n).get_nodeattr("binaryXnorMode") == 0
 
-    return inp_width_in_range and weight_width_in_range and no_activation and not_binaryxnor_mode
+    return (
+        inp_width_in_range
+        and weight_width_in_range
+        and signed_weights
+        and no_activation
+        and not_binaryxnor_mode
+    )
 
 
 def _vvu_rtl_possible(n, fpgapart):
