@@ -297,7 +297,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # when generating template files, handle a special case:
         # if the filename contains the word "template", replace that
         # with the node name to distinguish between instances
-        filename = filename.replace("template", self.onnx_node.name)
+        if "template" in filename:
+            filename = self.get_nodeattr("gen_top_module") + ".v"
         with open(os.path.join(dest_dir, filename), "w") as f:
             f.write(data)
         return
@@ -309,6 +310,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         # Retrieve the destination directory for the final RTL files
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        # Set the 'gen_top_module' attribute for use later
+        # by PyVerilator and IPI generation
+        self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
 
         weights = model.get_initializer(self.onnx_node.input[1])
         weights_fname = f"{code_gen_dir}/memblock.dat"
@@ -322,10 +327,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # dump filled-in template to destination directory for compilation
             file_only_path = rtl_file_path.split("/")[-1]
             self.dump_rtl_data(code_gen_dir, file_only_path, data)
-
-        # Before we return - set the 'gen_top_module' attribute for use later
-        # by PyVerilator and IPI generation
-        self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -465,7 +466,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
         rtl_file_list = [
-            x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()
+            x.replace("thresholding_template_wrapper", self.get_nodeattr("gen_top_module"))
+            for x in self.get_rtl_file_list()
         ]
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
