@@ -95,7 +95,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -132,7 +131,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
-    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_hls")[0]
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     inp_qnt.set_nodeattr("mem_mode", "internal_decoupled")
@@ -157,7 +156,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
-    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_hls")[0]
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     return model
@@ -600,36 +599,32 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         # set preferred impl style to hls for all layers
-        for node in model.graph.node:
-            if is_fpgadataflow_node(node):
-                inst = getCustomOp(node)
-                inst.set_nodeattr("preferred_impl_style", "hls")
         model = model.transform(SpecializeLayers())
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
         exp_layer_counts = {
             "tfc": [
                 ("Reshape", 1),
-                ("Thresholding_hls", 1),
+                ("Thresholding_rtl", 1),
                 ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
-                ("Thresholding_hls", 4),
+                ("Thresholding_rtl", 4),
                 ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
-                ("Thresholding_hls", 1),
+                ("Thresholding_rtl", 1),
                 ("MVAU_hls", 4),
                 ("LabelSelect_hls", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
-                ("Thresholding_hls", 1),
-                ("ConvolutionInputGenerator_hls", 6),
+                ("Thresholding_rtl", 1),
+                ("ConvolutionInputGenerator_rtl", 6),
                 ("MVAU_hls", 9),
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
