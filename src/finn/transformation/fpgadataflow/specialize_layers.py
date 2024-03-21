@@ -242,7 +242,7 @@ def _mvu_rtl_possible(n):
     # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
     # and for DSP58 we support up to 8sx9s. Next to that,
     # embedded thresholding functionality is not supported and
-    # neither binaryxnormode computation
+    # neither binaryxnormode computation.
     inp_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
@@ -265,8 +265,9 @@ def _mvu_rtl_possible(n):
 
 def _vvu_rtl_possible(n, fpgapart):
     # Checks whether RTL-based VVU is supported
-    # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs.
-    # Next to that, embedded thresholding functionality is not supported
+    # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs
+    # (8-bit signed weights x (9-bit signed OR 8-bit (un)signed) activations).
+    # Next to that, embedded thresholding functionality is not supported.
     in_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
@@ -274,10 +275,17 @@ def _vvu_rtl_possible(n, fpgapart):
         and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
     )
     weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    signed_weights = DataType[getCustomOp(n).get_nodeattr("weightDataType")].min() < 0
     is_versal_family = is_versal(fpgapart)
     no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
 
-    return in_width_in_range and weight_width_in_range and is_versal_family and no_activation
+    return (
+        in_width_in_range
+        and weight_width_in_range
+        and signed_weights
+        and is_versal_family
+        and no_activation
+    )
 
 
 class SpecializeLayers(Transformation):
