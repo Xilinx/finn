@@ -35,8 +35,8 @@ from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl import StreamingFIFO_rtl
-from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.thresholding_rtl import Thresholding_rtl
+from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VVAU_rtl
 
 custom_op = dict()
 
