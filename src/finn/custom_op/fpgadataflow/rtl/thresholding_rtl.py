@@ -168,9 +168,21 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict = {}
 
         # TODO check for sortedness and size here?
-        # RTL component currently always expects 2^N-1 thresholds, but
-        # sometimes we have fewer due to e.g. narrow range quantization
         thresholds = model.get_initializer(self.onnx_node.input[1])
+        bias = self.get_nodeattr("ActVal")  # activation bias value
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+
+        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
+        # one less threshold, prepending a dummy threshold and reducing bias by 1 to compensate.
+        expected_thresholds = 2**o_bitwidth - 1
+        n_thres_steps = self.get_nodeattr("numSteps")
+        if expected_thresholds != n_thres_steps and DataType[input_data_type].signed() is not True:
+            min_val = np.amin(thresholds, axis=1)
+            thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            bias = bias - 1
+
         # add dummy dimension as final dimension (that's what gets packed with next call)
         thresholds = np.expand_dims(thresholds, axis=-1)
         wdt = self.get_weight_datatype()
@@ -184,12 +196,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         t_path = self.get_nodeattr("code_gen_dir_ipgen")
         pe = self.get_nodeattr("PE")
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
 
         # If a single threshold value is found, broadcast the value
-        n_thres_steps = self.get_nodeattr("numSteps")
         expected_shape = (num_channels, n_thres_steps)
         if t_packed.shape == (1, 1):
             t_packed = np.broadcast_to(t_packed, expected_shape)
@@ -223,8 +232,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
 
         # Identify the module variables
-        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        bias = self.get_nodeattr("ActVal")  # activation bias value
         i_bitwidth = DataType[input_data_type].bitwidth()
 
         code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
