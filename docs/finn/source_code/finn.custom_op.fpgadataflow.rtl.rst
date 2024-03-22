@@ -21,6 +21,14 @@ finn.custom\_op.fpgadataflow.fmpadding\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.matrixvectoractivation\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
 ---------------------------------------------------------------
 
@@ -41,6 +49,14 @@ finn.custom\_op.fpgadataflow.thresholding\_rtl
 -------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.rtl.thresholding_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.vectorvectoractivation\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl
    :members:
    :undoc-members:
    :show-inheritance:

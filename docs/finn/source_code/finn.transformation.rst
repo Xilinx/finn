@@ -15,7 +15,7 @@ Submodules
    finn.transformation.streamline
 
 Transformation Passes
-=====================
+======================
 
 Base Class
 ----------
@@ -116,7 +116,7 @@ qonnx.transformation.extract\_conv\_bias
    :show-inheritance:
 
 qonnx.transformation.extract\_quant\_scale\_zeropt
-------------------------------------------------
+----------------------------------------------------
 
 .. automodule:: qonnx.transformation.extract_quant_scale_zeropt
    :members:
