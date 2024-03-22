@@ -37,7 +37,7 @@ from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 from finn.util.fpgadataflow import is_versal
 
 
-def _determine_impl_style(node):
+def _determine_impl_style(node, fpgapart):
     optype = node.op_type
 
     # check if there is an HLS or RTL variant or both
@@ -62,6 +62,17 @@ def _determine_impl_style(node):
                     DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
                 )
                 if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node):
+                    return "rtl"
+                else:
+                    return "hls"
+            elif optype == "VVAU":
+                inp_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("inputDataType")].bitwidth() >= 4
+                )
+                weight_width_fit = (
+                    DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
+                )
+                if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
                     return "rtl"
                 else:
                     return "hls"
@@ -131,6 +142,18 @@ def _determine_impl_style(node):
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
                         thresholds are implemented as standalone layer""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+        elif optype == "VVAU":
+            if _vvu_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
+                        thresholds are implemented as standalone layer. Note that the RTL-variant
+                        of this layer is only supported on Versal boards""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -215,7 +238,7 @@ def _mvu_rtl_possible(n):
     # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
     # and for DSP58 we support up to 8sx9s. Next to that,
     # embedded thresholding functionality is not supported and
-    # neither binaryxnormode computation
+    # neither binaryxnormode computation.
     inp_width_in_range = (
         DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
     ) or (
@@ -236,6 +259,31 @@ def _mvu_rtl_possible(n):
     )
 
 
+def _vvu_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based VVU is supported
+    # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs
+    # (8-bit signed weights x (9-bit signed OR 8-bit (un)signed) activations).
+    # Next to that, embedded thresholding functionality is not supported.
+    in_width_in_range = (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
+    ) or (
+        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
+        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
+    )
+    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+    signed_weights = DataType[getCustomOp(n).get_nodeattr("weightDataType")].min() < 0
+    is_versal_family = is_versal(fpgapart)
+    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
+
+    return (
+        in_width_in_range
+        and weight_width_in_range
+        and signed_weights
+        and is_versal_family
+        and no_activation
+    )
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
@@ -252,7 +300,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node)
+            impl_style = _determine_impl_style(node, self.fpgapart)
             optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
