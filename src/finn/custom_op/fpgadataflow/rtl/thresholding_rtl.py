@@ -346,7 +346,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
         verilog_files = [
-            x.replace("template", self.onnx_node.name) for x in self.get_rtl_file_list()
+            x.replace("thresholding_template_wrapper", self.get_nodeattr("gen_top_module"))
+            for x in self.get_rtl_file_list()
         ]
         dat_files = self.get_all_meminit_filenames(abspath=True)
         single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
