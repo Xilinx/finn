@@ -73,7 +73,9 @@ Please use the *Signed-off-by* line at the end of your patch which indicates tha
       this project or the open source license(s) involved.
 ```
 
-Here is an example Signed-off-by line which indicates that the contributor accepts DCO::
+You can enable Signed-off-by automatically by adding the `-s` flag to the `git commit` command.
+
+Here is an example Signed-off-by line which indicates that the contributor accepts DCO:
 
 ```
   This is my commit message
