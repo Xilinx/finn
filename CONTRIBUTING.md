@@ -29,7 +29,7 @@ Please follow the steps below and be sure that your contribution complies with o
 		1. The <a href="https://github.com/Xilinx/finn" target="_blank">main branch</a> should always be treated as stable and clean. Only hot fixes are allowed to be pull-requested. The hot fix is supposed to be very important such that without this fix, a lot of things will break.
         2. For new features, smaller bug fixes, doc updates, and many other fixes, users should pull request against the <a href="https://github.com/Xilinx/finn/tree/dev" target="_blank">development branch</a>.
 
-3. ### 3. Sign Your Work
+3. Sign Your Work
 
 Please use the *Signed-off-by* line at the end of your patch which indicates that you accept the Developer Certificate of Origin (DCO) defined by https://developercertificate.org/ reproduced below::
 
