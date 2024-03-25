@@ -190,7 +190,7 @@ def test_depthwise_conv_hw_cppsim(act, pe, k, stride, padding):
         if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("VectorVectorActivation"):
+        elif n.op_type.startswith("VVAU"):
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
     new_model = new_model.transform(SetExecMode("cppsim"))
@@ -235,7 +235,7 @@ def test_depthwise_conv_hw_rtlsim(act, pe, k, stride, padding):
         if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type.startswith("VectorVectorActivation"):
+        elif n.op_type.startswith("VVAU"):
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
 
