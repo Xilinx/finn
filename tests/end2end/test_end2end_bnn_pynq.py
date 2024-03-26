@@ -104,6 +104,7 @@ from finn.util.test import (
     get_trained_network_and_ishape,
     load_test_checkpoint_or_skip,
 )
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 20
@@ -598,6 +599,12 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         # set preferred impl style to hls for all layers
+        force_hls_boards = ["Pynq-Z1", "U250"]
+        if topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
+            for node in model.graph.node:
+                if is_fpgadataflow_node(node):
+                    inst = getCustomOp(node)
+                    inst.set_nodeattr("preferred_impl_style", "hls")
         model = model.transform(SpecializeLayers())
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
@@ -628,9 +635,19 @@ class TestEnd2End:
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],
+            "cnv-2-2": [
+                ("Transpose", 1),
+                ("Thresholding_hls", 1),
+                ("ConvolutionInputGenerator_hls", 6),
+                ("MVAU_hls", 9),
+                ("StreamingMaxPool_hls", 2),
+                ("LabelSelect_hls", 1),
+            ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
             exp_key = "tfc-1-1"
+        elif topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
+            exp_key = "cnv-2-2"
         else:
             exp_key = topology
         exp_layer_counts = exp_layer_counts[exp_key]
