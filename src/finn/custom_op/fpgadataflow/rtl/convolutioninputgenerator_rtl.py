@@ -291,19 +291,21 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
         if mode == "cppsim":
             ConvolutionInputGenerator.execute_node(self, context, graph)
-            # Interleave channels such that cppsim of ConvolutionInputGenerator_rtl
+            # if depthwise = 1
+            # interleave channels such that cppsim of ConvolutionInputGenerator_rtl
             # has a notion of SIMD parallelism. Subsequent VVAU_{hls/rtl} expects
             # the channels to be interleaved (i.e. to match their PE parallelism).
-            node = self.onnx_node
-            im2col_out = context[node.output[0]]
-            simd = getCustomOp(node).get_nodeattr("SIMD")
-            ofm_h, ofm_w = getCustomOp(node).get_nodeattr("OFMDim")
-            k_h, k_w = getCustomOp(node).get_nodeattr("ConvKernelDim")
-            ifm_ch = getCustomOp(node).get_nodeattr("IFMChannels")
-            im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, k_h * k_w, ifm_ch // simd, simd)
-            im2col_out = im2col_out.transpose(0, 1, 2, 4, 3, 5)
-            im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, ifm_ch * k_h * k_w)
-            context[node.output[0]] = im2col_out
+            if self.get_nodeattr("depthwise"):
+                node = self.onnx_node
+                im2col_out = context[node.output[0]]
+                simd = getCustomOp(node).get_nodeattr("SIMD")
+                ofm_h, ofm_w = getCustomOp(node).get_nodeattr("OFMDim")
+                k_h, k_w = getCustomOp(node).get_nodeattr("ConvKernelDim")
+                ifm_ch = getCustomOp(node).get_nodeattr("IFMChannels")
+                im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, k_h * k_w, ifm_ch // simd, simd)
+                im2col_out = im2col_out.transpose(0, 1, 2, 4, 3, 5)
+                im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, ifm_ch * k_h * k_w)
+                context[node.output[0]] = im2col_out
         elif mode == "rtlsim":
             node = self.onnx_node
             exp_ishape = self.get_normal_input_shape()
