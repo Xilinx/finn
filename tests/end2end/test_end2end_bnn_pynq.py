@@ -95,6 +95,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
+from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -104,7 +105,6 @@ from finn.util.test import (
     get_trained_network_and_ishape,
     load_test_checkpoint_or_skip,
 )
-from finn.util.fpgadataflow import is_fpgadataflow_node
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 20
