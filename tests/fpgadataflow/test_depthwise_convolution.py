@@ -182,16 +182,9 @@ def test_depthwise_conv_hw_cppsim(act, pe, k, stride, padding):
     new_model = model.transform(InferConvInpGen())
     new_model = new_model.transform(InferVectorVectorActivation())
 
-    # CPPsim of RTL SWG defaults to Im2Col emulation which has no concept
-    # of parallelism. So, we're using the HLS-SWG for cppsim testing for now.
-    # Set preferred_impl_style to hls to instantiate HLS-SWG
-    swg_nodes = new_model.get_nodes_by_op_type("ConvolutionInputGenerator")[0]
-    getCustomOp(swg_nodes).set_nodeattr("preferred_impl_style", "hls")
-
     new_model = new_model.transform(SpecializeLayers())
 
     # set SIMD in ConvInputGen node and PE in VVAU node
-
     for n in new_model.graph.node:
         if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
@@ -236,7 +229,6 @@ def test_depthwise_conv_hw_rtlsim(act, pe, k, stride, padding):
     new_model = new_model.transform(SpecializeLayers())
 
     # set SIMD in ConvInputGen node and PE in VVAU node
-
     for n in new_model.graph.node:
         if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
