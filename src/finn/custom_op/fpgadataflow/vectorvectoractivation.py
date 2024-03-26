@@ -122,15 +122,12 @@ class VVAU(HWCustomOp):
         (k_h, k_w) = self.get_nodeattr("Kernel")
         channels = self.get_nodeattr("Channels")
         producer = [x for x in graph.node if x.output[0] == node.input[0]]
-        exec_mode = self.get_nodeattr("exec_mode")
-        if (
-            not bool(producer)
-            or producer[0].op_type == "ConvolutionInputGenerator_hls"
-            or (producer[0].op_type == "ConvolutionInputGenerator_rtl" and exec_mode == "rtlsim")
+        if bool(producer) and (
+            producer[0].op_type == "Im2Col" or producer[0].op_type == "ConvolutionInputGenerator"
         ):
-            pe = self.get_nodeattr("PE")
-        else:
             pe = channels
+        else:
+            pe = self.get_nodeattr("PE")
 
         # Reorder the input activations. Note that PE gets interleaved by the SWG,
         # so we have to untangle and for simplicity of computation assume pe=1.
