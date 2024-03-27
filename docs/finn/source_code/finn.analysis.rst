@@ -31,6 +31,14 @@ qonnx.analysis.inference\_cost
    :undoc-members:
    :show-inheritance:
 
+qonnx.analysis.tensor\_stats
+-----------------------------
+
+.. automodule:: qonnx.analysis.tensor_stats
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 qonnx.analysis.topology
 -----------------------------
 

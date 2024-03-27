@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -60,7 +61,7 @@ from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from shutil import copy
 
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
@@ -85,6 +86,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
@@ -93,6 +95,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
+from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -105,7 +108,7 @@ from finn.util.test import (
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 20
-mem_mode = "decoupled"
+mem_mode = "internal_decoupled"
 rtlsim_trace = False
 
 
@@ -119,7 +122,7 @@ def get_checkpoint_name(topology, wbits, abits, step):
 
 
 def fold_tfc(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
@@ -127,17 +130,17 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
-    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
-    inp_qnt.set_nodeattr("mem_mode", "decoupled")
     inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
 
 
 def fold_lfc(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # (PE, SIMD, ramstyle) for each layer
     config = [
         (32, 49, "block"),
@@ -151,15 +154,16 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
     # set parallelism for input quantizer to be same as first layer's SIMD
-    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     return model
 
 
 def fold_cnv_large(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (16, 3),
@@ -176,8 +180,9 @@ def fold_cnv_large(model):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
@@ -186,7 +191,7 @@ def fold_cnv_large(model):
 
 
 def fold_cnv_small(model):
-    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
+    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (8, 3, "distributed"),
@@ -204,8 +209,9 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
@@ -529,56 +535,56 @@ class TestEnd2End:
         model = model.transform(RemoveUnusedTensors())
         model.save(get_checkpoint_name(topology, wbits, abits, "streamline"))
 
-    def test_convert_to_hls_layers(self, topology, wbits, abits, board):
+    def test_convert_to_hw_layers(self, topology, wbits, abits, board):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "streamline")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         if topology == "tfc" and wbits == 1 and abits == 1:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
-            model = model.transform(to_hls.InferThresholdingLayer())
+            model = model.transform(to_hw.InferThresholdingLayer())
         # needed for bipolar MatMul layers
-        model = model.transform(to_hls.InferBinaryMatrixVectorActivation(mem_mode))
+        model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
         # needed for non-bipolar MatMul layers
-        model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
+        model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
         # TopK to LabelSelect
-        model = model.transform(to_hls.InferLabelSelectLayer())
+        model = model.transform(to_hw.InferLabelSelectLayer())
         # input quantization (if any) to standalone thresholding
-        model = model.transform(to_hls.InferThresholdingLayer())
+        model = model.transform(to_hw.InferThresholdingLayer())
         # needed for convolutions
         if "fc" not in topology:
-            model = model.transform(to_hls.InferConvInpGen())
-            model = model.transform(to_hls.InferStreamingMaxPool())
+            model = model.transform(to_hw.InferConvInpGen())
+            model = model.transform(to_hw.InferStreamingMaxPool())
             model = model.transform(RemoveCNVtoFCFlatten())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(InferDataLayouts())
-        model.save(get_checkpoint_name(topology, wbits, abits, "convert_to_hls_layers"))
+        model.save(get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers"))
         exp_layer_counts = {
             "tfc": [
                 ("Reshape", 1),
-                ("Thresholding_Batch", 1),
-                ("MatrixVectorActivation", 4),
-                ("LabelSelect_Batch", 1),
+                ("Thresholding", 1),
+                ("MVAU", 4),
+                ("LabelSelect", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
-                ("Thresholding_Batch", 4),
-                ("MatrixVectorActivation", 4),
-                ("LabelSelect_Batch", 1),
+                ("Thresholding", 4),
+                ("MVAU", 4),
+                ("LabelSelect", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
-                ("Thresholding_Batch", 1),
-                ("MatrixVectorActivation", 4),
-                ("LabelSelect_Batch", 1),
+                ("Thresholding", 1),
+                ("MVAU", 4),
+                ("LabelSelect", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
-                ("Thresholding_Batch", 1),
+                ("Thresholding", 1),
                 ("ConvolutionInputGenerator", 6),
-                ("MatrixVectorActivation", 9),
-                ("StreamingMaxPool_Batch", 2),
-                ("LabelSelect_Batch", 1),
+                ("MVAU", 9),
+                ("StreamingMaxPool", 2),
+                ("LabelSelect", 1),
             ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
@@ -589,8 +595,67 @@ class TestEnd2End:
         for op_type, exp_count in exp_layer_counts:
             assert len(model.get_nodes_by_op_type(op_type)) == exp_count
 
+    def test_specialize_layers(self, topology, wbits, abits, board):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # set preferred impl style to hls for all layers
+        force_hls_boards = ["Pynq-Z1", "U250"]
+        if topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
+            for node in model.graph.node:
+                if is_fpgadataflow_node(node):
+                    inst = getCustomOp(node)
+                    inst.set_nodeattr("preferred_impl_style", "hls")
+        model = model.transform(SpecializeLayers())
+        model = model.transform(GiveUniqueNodeNames())
+        model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
+        exp_layer_counts = {
+            "tfc": [
+                ("Reshape", 1),
+                ("Thresholding_rtl", 1),
+                ("MVAU_hls", 4),
+                ("LabelSelect_hls", 1),
+            ],
+            "tfc-1-1": [
+                ("Reshape", 1),
+                ("Thresholding_rtl", 4),
+                ("MVAU_hls", 4),
+                ("LabelSelect_hls", 1),
+            ],
+            "lfc": [
+                ("Reshape", 1),
+                ("Thresholding_rtl", 1),
+                ("MVAU_hls", 4),
+                ("LabelSelect_hls", 1),
+            ],
+            "cnv": [
+                ("Transpose", 1),
+                ("Thresholding_rtl", 1),
+                ("ConvolutionInputGenerator_rtl", 6),
+                ("MVAU_hls", 9),
+                ("StreamingMaxPool_hls", 2),
+                ("LabelSelect_hls", 1),
+            ],
+            "cnv-2-2": [
+                ("Transpose", 1),
+                ("Thresholding_hls", 1),
+                ("ConvolutionInputGenerator_hls", 6),
+                ("MVAU_hls", 9),
+                ("StreamingMaxPool_hls", 2),
+                ("LabelSelect_hls", 1),
+            ],
+        }
+        if topology == "tfc" and wbits == 1 and abits == 1:
+            exp_key = "tfc-1-1"
+        elif topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
+            exp_key = "cnv-2-2"
+        else:
+            exp_key = topology
+        exp_layer_counts = exp_layer_counts[exp_key]
+        for op_type, exp_count in exp_layer_counts:
+            assert len(model.get_nodes_by_op_type(op_type)) == exp_count
+
     def test_create_dataflow_partition(self, topology, wbits, abits, board):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hls_layers")
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "specialize_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         parent_model = model.transform(CreateDataflowPartition())
         parent_model_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
@@ -662,7 +727,8 @@ class TestEnd2End:
             )
         else:
             model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
-        fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
+
+        fifo_layers = model.get_nodes_by_op_type("StreamingFIFO_rtl")
         assert len(fifo_layers) > 0
         model.save(get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board))
 
@@ -673,12 +739,13 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
         model = model.transform(InsertDWC())
+        model = model.transform(SpecializeLayers())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO"):
+        for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
             getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())

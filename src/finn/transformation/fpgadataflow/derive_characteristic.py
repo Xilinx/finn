@@ -1,4 +1,5 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,7 +33,7 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 class DeriveCharacteristic(NodeLocalTransformation):
@@ -58,7 +59,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
@@ -74,7 +75,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
             return (model, run_again)
         # apply manual fix for DuplicateStreams and AddStreams for
         # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_Batch")
+        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
         for addstrm_node in addstrm_nodes:
             # we currently only support the case where one branch is
             # a bypass
@@ -83,8 +84,8 @@ class DeriveCharacteristic(NodeLocalTransformation):
             if (b0 is None) or (b1 is None):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)
-            b0_is_bypass = b0.op_type == "DuplicateStreams_Batch"
-            b1_is_bypass = b1.op_type == "DuplicateStreams_Batch"
+            b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
+            b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
             if (not b0_is_bypass) and (not b1_is_bypass):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)
@@ -130,11 +131,11 @@ class DeriveFIFOSizes(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 prod = registry.getCustomOp(node)
-                assert op_type != "StreamingFIFO", "Found existing FIFOs"
+                assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
                 prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
                 assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"

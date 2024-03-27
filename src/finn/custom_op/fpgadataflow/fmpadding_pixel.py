@@ -1,4 +1,4 @@
-# Copyright (c) 2023, Advanced Micro Devices, Inc.
+# Copyright (c) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,15 +28,13 @@
 
 
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class FMPadding_Pixel(HLSCustomOp):
+class FMPadding_Pixel(HWCustomOp):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
@@ -153,183 +151,25 @@ class FMPadding_Pixel(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
-
-    def defines(self, var):
-        odim_h, odim_w = self.get_padded_odim()
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        self.code_gen_dict["$DEFINES$"] = [
-            """
-            #define OutputDim_x {}\n
-            #define OutputDim_y {}\n
-            #define Stride_x {}\n
-            #define Stride_y {}\n
-            #define NumChannels {}\n
-            #define SIMD {}\n
-            """.format(
-                odim_w,
-                odim_h,
-                stride_w,
-                stride_h,
-                self.get_nodeattr("NumChannels"),
-                self.get_nodeattr("SIMD"),
-            )
-        ]
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
-        )
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
-        )
-
-    def docompute(self):
-        in_t = self.get_input_datatype().get_hls_datatype_str()
-        odim_h, odim_w = self.get_padded_odim()
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        hls_call = "FMPadding_Pixel_Nonsquare"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
-            SIMD, {}> (in0, out);""".format(
-                hls_call, in_t
-            )
-        ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                oshape_cpp_str,
-                npy_out,
-            )
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
-        ]
-
-    def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
+        # simulate behavior with Python functionality
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
-
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
+        s_h, s_w = self.get_nodeattr("Stride")
+        inp_values = context[node.input[0]]
+        ishape = inp_values.shape
+        result = np.zeros(
+            (
+                ishape[0],
+                ishape[1] + (ishape[1] - 1) * (s_h - 1),
+                ishape[2] + (ishape[2] - 1) * (s_w - 1),
+                ishape[3],
             )
-
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (1, ImgDim_h, ImgDim_w, NumChannels)."""
-        export_idt = self.get_input_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == exp_oshape
-            ), "cppsim did not produce expected output shape"
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape
-            (1, OutputDim_H, OutputDim_W, NumChannels)."""
+        )
+        for b in range(ishape[0]):
+            for h in range(ishape[1]):
+                for w in range(ishape[2]):
+                    oh = h * s_h
+                    ow = w * s_w
+                    result[b, oh, ow, :] = inp_values[b, h, w, :]
+        oshape = context[node.output[0]].shape
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

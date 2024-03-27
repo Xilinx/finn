@@ -36,8 +36,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Optional, Union
 
-from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
-from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -52,7 +52,7 @@ def make_unit_test_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] =
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 32, 32, 288])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 32, 32, 64])
     layer1 = helper.make_node(
-        "VectorVectorActivation",
+        "VVAU",
         ["inp", "params0", "thresh0"] if tdt is not None else ["inp", "params0"],
         ["hid"],
         domain="finn.custom_op.fpgadataflow",
@@ -68,7 +68,7 @@ def make_unit_test_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] =
         noActivation=0 if tdt is not None else 1,
     )
     layer2 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         ["hid", "params1", "thresh1"] if tdt is not None else ["hid", "params1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -170,7 +170,7 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MatrixVectorActivation, VectorVectorActivation)):
+        if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
 
     # Apply the optimization
@@ -179,14 +179,14 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MatrixVectorActivation, VectorVectorActivation)):
+        if isinstance(inst, (MVAU, VVAU)):
             cur_wdt = DataType[inst.get_nodeattr("weightDataType")]
             exp_wdt = def_wdt if rww else wdt
             assert cur_wdt.bitwidth() == exp_wdt.bitwidth(), "Mismatched data types"
 
 
 def calculate_accumulator_bit_width(
-    inst: Union[MatrixVectorActivation, VectorVectorActivation], model: ModelWrapper
+    inst: Union[MVAU, VVAU], model: ModelWrapper
 ) -> Union[DataType, IntType]:
     """Calculate the accumulator bit width using the closed-form expressions
     derived in `Quantized Neural Networks for Low-Precision Accumulation
@@ -206,9 +206,9 @@ def calculate_accumulator_bit_width(
     if inst.get_nodeattr("binaryXnorMode"):
         weights = 2 * weights - 1
     # modify the weights based on if the node is a VVAU or MVAU
-    if isinstance(inst, MatrixVectorActivation):
+    if isinstance(inst, MVAU):
         K = inst.get_nodeattr("MW")  # matrix_width = num_inputs
-    elif isinstance(inst, VectorVectorActivation):
+    elif isinstance(inst, VVAU):
         k_h, k_w = inst.get_nodeattr("Kernel")
         K = k_h * k_w  # size of kernels = num_inputs
         fm = inst.get_nodeattr("Channels")
@@ -275,7 +275,7 @@ def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType,
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MatrixVectorActivation, VectorVectorActivation)):
+        if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
             assert cur_adt.bitwidth() == def_adt.bitwidth(), "Default data type is incorrect"
@@ -286,7 +286,7 @@ def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType,
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
         inst = getCustomOp(node)
-        if isinstance(inst, (MatrixVectorActivation, VectorVectorActivation)):
+        if isinstance(inst, (MVAU, VVAU)):
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
             cur_odt = DataType[inst.get_nodeattr("outputDataType")]
             # Calculating expected accumulator bit width using a closed-form expression

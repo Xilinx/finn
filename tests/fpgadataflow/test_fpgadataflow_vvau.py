@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,21 +32,40 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -90,7 +109,7 @@ def _make_single_vvau_modelwrapper(
     odt,
     T=None,
     tdt=None,
-    mem_mode="const",
+    mem_mode="internal_embedded",
 ):
     in_shape = [1, dim_h, dim_w, k_h * k_w * channels]  # [N, H, W, K*K*CH]
     out_shape = [
@@ -116,7 +135,7 @@ def _make_single_vvau_modelwrapper(
         actval = 0
 
     VVAU_node = helper.make_node(
-        "VectorVectorActivation",
+        "VVAU",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -157,10 +176,6 @@ def _make_single_vvau_modelwrapper(
     return model
 
 
-def prepare_inputs(input_tensor):
-    return {"inp": input_tensor}
-
-
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["UINT4"]])
 # weight datatype
@@ -180,7 +195,7 @@ def prepare_inputs(input_tensor):
 # Number of input and output channels
 @pytest.mark.parametrize("channels", [3, 6])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
@@ -232,6 +247,12 @@ def test_fpgadataflow_vvau(
     model = _make_single_vvau_modelwrapper(
         W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
     )
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    input_dict = prepare_inputs(x_vvau)
+    y_hwop = oxe.execute_onnx(model, input_dict)["global_out"]
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
@@ -245,8 +266,6 @@ def test_fpgadataflow_vvau(
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode in test_fpgadataflow_vvau")
-
-    input_dict = prepare_inputs(x_vvau)
 
     # Calculate output
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -269,15 +288,183 @@ def test_fpgadataflow_vvau(
             # signed offset
             y_expected += act.min()
 
-    y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)["outp"]
+    y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)["global_out"]
 
-    assert (y_produced == y_expected).all(), "incorrect result"
+    assert (y_hwop == y_expected).all(), "VVAU HW-op mismatches with golden output!"
+    assert (y_produced == y_expected).all(), "VVAU specialized-op mismatches with golden output!"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
+        node = model.get_nodes_by_op_type("VVAU_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+def make_single_dw_conv_modelwrapper(conv_config, idt, wdt):
+    kernel_size, in_feature_dim, in_chn = conv_config
+    stride = 1
+    pad = 0
+
+    out_feature_dim = compute_conv_output_dim(in_feature_dim, kernel_size, stride, pad)
+    group = out_chn = in_chn
+
+    conv_param_shape = [out_chn, 1, kernel_size, kernel_size]
+    input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
+    output_shape = [1, out_chn, out_feature_dim, out_feature_dim]
+
+    conv_config = {}
+    conv_config["dilations"] = [1, 1]
+    conv_config["group"] = group
+    conv_config["kernel_shape"] = [kernel_size, kernel_size]
+    conv_config["pads"] = [pad, pad, pad, pad]
+    conv_config["strides"] = [stride, stride]
+
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, input_shape)
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, output_shape)
+    weights = [helper.make_tensor_value_info("weights", TensorProto.FLOAT, conv_param_shape)]
+
+    modelproto = qonnx_make_model(
+        helper.make_graph(
+            name="conv_test",
+            inputs=[ifm],
+            outputs=[ofm],
+            value_info=weights,
+            nodes=[helper.make_node("Conv", ["ifm", "weights"], ["ofm"], **conv_config)],
+        )
+    )
+
+    model = ModelWrapper(modelproto)
+    model.set_tensor_datatype("ifm", idt)
+    model.set_tensor_datatype("weights", wdt)
+    model.set_initializer("weights", gen_finn_dt_tensor(wdt, conv_param_shape))
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    return model
+
+
+def prepare_inputs(input_tensor):
+    return {"global_in": input_tensor}
+
+
+# kernel size (square)
+@pytest.mark.parametrize("kernel_size", [3])
+# IFM size (square)
+@pytest.mark.parametrize("in_feature_dim", [5])
+# input channels
+@pytest.mark.parametrize("in_chn", [4])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT8"]])
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType["INT6"]])
+# targeted board
+@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
+# pe
+@pytest.mark.parametrize("pe", [1, 2, 4])
+# simd
+@pytest.mark.parametrize("simd", [1, 3, 9])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, part, pe, simd):
+    # Create depthwise-separable convolution
+    conv_config = (kernel_size, in_feature_dim, in_chn)
+    model = make_single_dw_conv_modelwrapper(conv_config, idt, wdt)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    # Obtain golden reference output
+    golden_in = gen_finn_dt_tensor(
+        model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in")
+    )
+    input_dict = prepare_inputs(golden_in)
+    golden_out = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)["global_out"]
+
+    # Convert to HLS custom-op first
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferVectorVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    output_vvau_hw = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)[
+        "global_out"
+    ]
+    assert (
+        golden_out == output_vvau_hw
+    ).all(), "Output of ONNX model not matching output of HW-ops!"
+
+    # Obtain second reference from HLS-based VVAU layer
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Apply folding (i.e. specify to use DSPs)
+    folding_config = {
+        "Defaults": {},
+        "ConvolutionInputGenerator_rtl_0": {
+            "SIMD": pe,
+            "parallel_window": 1,
+        },
+        "VVAU_rtl_0": {
+            "PE": pe,
+            "SIMD": simd,
+            "resType": "dsp",
+        },
+    }
+    model = model.transform(ApplyConfig(folding_config))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    # make sure the changed datatypes are propagated through the network
+    model = model.transform(InferDataTypes())
+
+    # Run CPPsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    output_vvau_cppsim = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        golden_out == output_vvau_cppsim
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+
+    # Run node-by-node RTLsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_vvau_rtlsim = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)[
+        "global_out"
+    ]
+
+    assert (
+        golden_out == output_vvau_rtlsim
+    ).all(), "Output of ONNX model not matching output of specialized HW-ops!"
+
+    # Stitched-IP RTLsim
+    model = model.transform(CreateDataflowPartition())
+    partition_model_path = getCustomOp(
+        model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    ).get_nodeattr("model")
+    partitioned_model = ModelWrapper(partition_model_path)
+    # FIFOs needed for stitched-ip RTLsim, DWC needed for VVU operating on SIMD parallelism
+    partitioned_model = partitioned_model.transform(InsertAndSetFIFODepths(part, 5))
+    partitioned_model = partitioned_model.transform(PrepareIP(part, 5))
+    partitioned_model = partitioned_model.transform(HLSSynthIP())
+    partitioned_model = partitioned_model.transform(CreateStitchedIP(part, 5))
+    # set top-level prop for stitched-ip rtlsim and launch
+    partitioned_model.set_metadata_prop("exec_mode", "rtlsim")
+    # transpose input since we're now simulating HW layers (NCHW --> NHWC)
+    input_dict["global_in"] = np.transpose(input_dict["global_in"], (0, 2, 3, 1))
+    output_vvau_stitched = oxe.execute_onnx(
+        partitioned_model, input_dict, return_full_exec_context=True
+    )["global_out"]
+    # tranpose hardware-generated outputs NHWC -> NCHW to be comparable
+    output_vvau_stitched = output_vvau_stitched.transpose(0, 3, 1, 2)
+
+    assert (
+        golden_out == output_vvau_stitched
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"

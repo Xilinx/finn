@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +29,7 @@
 
 import qonnx.custom_op.registry as registry
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def exp_cycles_per_layer(model):
@@ -41,7 +42,7 @@ def exp_cycles_per_layer(model):
 
     cycle_dict = {}
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
             cycle_dict[node.name] = int(inst.get_exp_cycles())
 

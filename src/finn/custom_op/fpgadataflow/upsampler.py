@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,19 +27,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import onnxruntime as rt
 import warnings
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import qonnx_make_model
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class UpsampleNearestNeighbour_Batch(HLSCustomOp):
-    """
-    Corresponds to finn-hlslib UpsampleNearestNeighbour_Batch function.
-    Upsampling is done with the Nearest Neighbour algorithm.
-    The layer expects square feature maps for the in and output.
-    """
+class UpsampleNearestNeighbour(HWCustomOp):
+    """Abstraction layer for HW implementation of UpsampleNearestNeighbour."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -150,202 +148,44 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "upsample.hpp"']
-
-    def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
-
-        ifm_ch = self.get_nodeattr("NumChannels")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMChannels {}".format(ifm_ch)]
-
-        ibits = self.get_input_datatype().bitwidth()
-        self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
-
-        idim = self.get_nodeattr("IFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
-
-        odim = self.get_nodeattr("OFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
-
-        batch_size = self.get_nodeattr("numInputVectors")
-        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
-    def docompute(self):
-        is_2d = self.get_nodeattr("DimMode") == 0
-        batch = self.get_nodeattr("numInputVectors")
-        if is_2d:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
-        else:
-            assert batch == 1, "1D upsampler currently needs numReps=1"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
-            )
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
-            % (
-                self.onnx_node.name,
-                packed_hls_type,
-                self.hls_sname(),
-                packed_hls_type,
-                self.hls_sname(),
-            )
-        ]
-
-    def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
+        # create a standard resize node to help calculate the result
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_oshape = self.get_folded_output_shape()
-
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        inp_values = context[node.input[0]]
+        ishape = inp_values.shape
+        odim = self.get_nodeattr("OFMDim")
+        idim = self.get_nodeattr("IFMDim")
+        if ishape[1] == ishape[2]:
+            scales_val = [1, int(round(odim / idim)), int(round(odim / idim)), 1]
+        elif ishape[1] > 1 and ishape[2] == 1:
+            scales_val = [1, int(round(odim / idim)), 1, 1]
         else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
+            warnings.warn(
+                """HW abstraction layer for Upsample cannot be executed.
+            Upsampling only supported for 1D H, or 2D square scaling"""
             )
+        oshape = context[node.output[0]].shape
+        inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, ishape)
+        scales = helper.make_tensor_value_info("scales", TensorProto.FLOAT, [4])
+        outp = helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, oshape)
+        node_resize = helper.make_node(
+            "Resize",
+            inputs=[node.input[0], "", "scales"],
+            outputs=[node.output[0]],
+            mode="nearest",
+        )
+        graph_resize = helper.make_graph(
+            nodes=[node_resize],
+            name="single-resize-exec",
+            inputs=[inp, scales],
+            outputs=[outp],
+        )
 
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (numInputVectors, ImgDim, ImgDim, NumChannels)."""
-        export_idt = self.get_input_datatype()
-        self.dynamic_input_to_npy(context, 1, target_dir=code_gen_dir)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape
-            (1, OutputDim, OutputDim, NumChannels)."""
+        opset_version = 13
+        opset_imports = [helper.make_opsetid("", opset_version)]
+        onnx_kwargs = {"opset_imports": opset_imports}
+        model_resize = qonnx_make_model(graph_resize, **onnx_kwargs)
+        idict = {node.input[0]: inp_values, "scales": scales_val}
+        sess = rt.InferenceSession(model_resize.SerializeToString())
+        result = sess.run(None, idict)
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)

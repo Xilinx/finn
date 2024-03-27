@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Advanced Micro Devices, Inc.
+# Copyright (c) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,7 +48,7 @@ from qonnx.transformation.lower_convs_to_matmul import (
 from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -60,6 +60,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
@@ -248,10 +249,11 @@ def test_fpgadataflow_conv_dynamic(cfg):
 
     # convert to hardware and prepare simulation
     model = largest_model.transform(LowerConvsToMatMul())
-    model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
-    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
-    model = model.transform(to_hls.InferVectorVectorActivation())
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
+    model = model.transform(SpecializeLayers())
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
@@ -267,8 +269,10 @@ def test_fpgadataflow_conv_dynamic(cfg):
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
-    comp_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
-    comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation")
+    comp_nodes = model.get_nodes_by_op_type("MVAU_hls")
+    comp_nodes += model.get_nodes_by_op_type("MVAU_rtl")
+    comp_nodes += model.get_nodes_by_op_type("VVAU_hls")
+    comp_nodes += model.get_nodes_by_op_type("VVAU_rtl")
     for comp_node in comp_nodes:
         if depthwise:
             getCustomOp(comp_node).set_nodeattr("PE", 4)
@@ -277,6 +281,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -404,7 +409,7 @@ def make_single_slidingwindow_modelwrapper(
     )
 
     SlidingWindow_node = helper.make_node(
-        "ConvolutionInputGenerator_rtl",
+        "ConvolutionInputGenerator",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -518,9 +523,11 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
         dw=dw,
     )
 
+    model = model.transform(SpecializeLayers())
     # Simulate using stitched-ip-rtlsim so we can use existing infrastructure
     # that supports hook functions to re-program configuration before rtlsim
     model = model.transform(InsertFIFO(True))  # required for proper simulation
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -547,7 +554,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             configs = [("s_axilite_0_", config)]
 
             # Also update FIFO nodes and corresponding tensors
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[0]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ifm_dim_h
@@ -555,7 +562,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             fifo_inst.set_nodeattr("folded_shape", shape)
             update_tensor_dim(model, fifo_node.input[0], ifm_dim)
 
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[1]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[1]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ofm_dim_h

@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,6 +46,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
@@ -56,7 +58,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     node_inp_list = ["inp", "const"]
 
     node = helper.make_node(
-        "ChannelwiseOp_Batch",
+        "ChannelwiseOp",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -68,6 +70,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
         outputDataType=odt.name,
         paramDataType=pdt.name,
         numInputVectors=vecs,
+        preferred_impl_style="hls",
     )
     graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp])
 
@@ -109,12 +112,34 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
 
     # generate input and param data
     x = gen_finn_dt_tensor(idt, tuple(vecs + [ich]))
-    # C = np.random.randint(idt.min(), idt.max() + 1, ich).astype(np.float32)
     C = gen_finn_dt_tensor(pdt, (ich))
 
     odt = act
 
+    # create model
     model = make_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
+
+    # package input data as dictionary
+    input_dict = {"inp": x}
+
+    oshape = model.get_tensor_shape("outp")
+
+    C_reshaped = np.broadcast_to(C.flatten(), x.shape)
+    if func == "add":
+        y = x + C_reshaped
+    elif func == "mul":
+        y = x * C_reshaped
+
+    y_expected = y.reshape(oshape)
+
+    # verify hw abstraction layer
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all(), "HW layer execution failed"
+
+    model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -129,30 +154,18 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
     else:
         raise Exception("Unknown exec_mode")
 
-    # package input data as dictionary
-    input_dict = {"inp": x}
-
-    oshape = model.get_tensor_shape("outp")
-
-    C_reshaped = np.broadcast_to(C.flatten(), x.shape)
-    if func == "add":
-        y = x + C_reshaped
-    elif func == "mul":
-        y = x * C_reshaped
-
-    y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "cppsim failed"
+    assert (y_produced == y_expected).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-        assert "ChannelwiseOp_Batch_0" in hls_synt_res_est
+        assert "ChannelwiseOp_hls_0" in hls_synt_res_est
 
-        node = model.get_nodes_by_op_type("ChannelwiseOp_Batch")[0]
+        node = model.get_nodes_by_op_type("ChannelwiseOp_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

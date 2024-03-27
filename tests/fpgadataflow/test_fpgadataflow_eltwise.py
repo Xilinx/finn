@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -38,7 +39,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
 
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -47,6 +48,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def build_model(shp, dt0, dt1, do_abs):
@@ -105,9 +107,17 @@ def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
     in1 = gen_finn_dt_tensor(dt1, shp)
     idict = {"in0": in0, "in1": in1}
     y_expected = execute_onnx(model, idict)["out0"]
-    model = model.transform(to_hls.InferStreamingEltwise())
+    model = model.transform(to_hw.InferStreamingEltwise())
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "StreamingEltwise"
+
+    y_produced = execute_onnx(model, idict)["out0"]
+    assert (y_produced == y_expected).all(), exec_mode + " failed"
+
+    model = model.transform(SpecializeLayers())
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == "StreamingEltwise_hls"
     getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -124,7 +134,7 @@ def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all(), exec_mode + " failed"
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("StreamingEltwise")[0]
+        node = model.get_nodes_by_op_type("StreamingEltwise_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

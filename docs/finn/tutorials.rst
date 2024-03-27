@@ -16,7 +16,7 @@ The notebooks in this folder should give a basic insight into FINN, how to get s
 
   * This notebook can help you to learn how to create and manipulate a simple ONNX model, also by using FINN
 
-* 1_brevitas_network_import
+* 1_brevitas_network_import_via_QONNX
 
   * This notebook shows how to import a Brevitas network and prepare it for the FINN flow.
 
@@ -46,6 +46,15 @@ The notebooks in this folder are more developer oriented. They should help you t
 * 2_custom_op
 
   * Explains the basics of FINN custom ops and how to define a new one.
+
+* 3_folding
+
+  * Describes the use of FINN parallelization parameters (PE & SIMD), also called folding factors, to efficiently optimize models so as to extract the maximum performance out of them.
+
+* 4_advanced_builder_settings
+
+  * Provides a more detailed look into the FINN builder tool and explores different options to customize your FINN design.
+
 
 FINN Example FPGA Flow Using MNIST Numerals
 ============================================
