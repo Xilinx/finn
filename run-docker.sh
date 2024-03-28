@@ -47,7 +47,7 @@ if [ -z "$FINN_XILINX_PATH" ];then
 fi
 
 if [ -z "$FINN_XILINX_VERSION" ];then
-  recho "Please set the FINN_XILINX_VERSION to the version of the Xilinx tools to use (e.g. 2020.1)"
+  recho "Please set the FINN_XILINX_VERSION to the version of the Xilinx tools to use (e.g. 2022.2)"
   recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
 fi
 

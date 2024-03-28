@@ -112,7 +112,7 @@ if [ -f "$HLS_PATH/settings64.sh" ];then
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis HLS will not be available."
-  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support. Our recommendation is to use version 2022.2"
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
 fi
 
