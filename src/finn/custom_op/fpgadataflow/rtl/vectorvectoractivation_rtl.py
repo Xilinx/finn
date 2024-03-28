@@ -144,8 +144,9 @@ class VVAU_rtl(VVAU, RTLBackend):
         return 0
 
     def dsp_estimation(self):
+        P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        return int(np.ceil(Q / 3))
+        return int(P * np.ceil(Q / 3))
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
