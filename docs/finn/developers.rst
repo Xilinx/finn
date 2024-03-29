@@ -2,8 +2,6 @@
 Developer documentation
 ***********************
 
-.. note:: **This page is under construction.**
-
 This page is intended to serve as a starting point for new FINN developers.
 Power users may also find this information useful.
 
