@@ -88,6 +88,7 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 )
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -102,7 +103,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root
+from finn.util.basic import get_finn_root, pyverilate_get_liveness_threshold_cycles
 from finn.util.pytorch import NormalizePreProc
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import (
@@ -379,6 +380,44 @@ def test_end2end_mobilenet_minimize_bit_width():
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.end2end
+def test_end2end_mobilenet_cppsim():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
+    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
+    x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+    start = time.time()
+    # cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_compile_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
+    model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
+    np.save(build_dir + "/end2end_mobilenet_result_cppsim.npy", res_cppsim)
+    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
+    res_cppsim_prob = ret_cppsim[model.graph.node[-2].output[0]] * a0
+    np.save(build_dir + "/end2end_mobilenet_result_cppsim_prob.npy", res_cppsim_prob)
+
+    # check result with golden values
+    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
+    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
+
+    assert (golden == res_cppsim).all()
+    assert np.isclose(golden_prob, res_cppsim_prob[0, 0, 0, :5]).all()
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_estimate_reports():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
@@ -412,6 +451,8 @@ def test_end2end_mobilenet_estimate_reports():
     model.save(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_hw_codegen():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
@@ -419,6 +460,8 @@ def test_end2end_mobilenet_hw_codegen():
     model.save(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_hw_ipgen():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
@@ -432,6 +475,39 @@ def test_end2end_mobilenet_hw_ipgen():
     model.save(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.end2end
+def test_end2end_mobilenet_rtlsim():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
+    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
+    x = x.transpose(0, 3, 1, 2)  # Convert NCHW to NHWC
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+    # rtlsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(fpga_part, 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    model.save(build_dir + "/end2end_mobilenet_rtlsim.onnx")
+    ret_rtlsim = execute_onnx(model, inp_dict, True)
+    res_rtlsim = ret_rtlsim[out_name]
+    np.save(build_dir + "/end2end_mobilenet_result_rtlsim.npy", res_rtlsim)
+    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
+    res_rtlsim_prob = ret_rtlsim[model.graph.node[-2].output[0]] * a0
+    np.save(build_dir + "/end2end_mobilenet_result_rtlsim_prob.npy", res_rtlsim_prob)
+
+    # check result with golden values
+    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
+    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
+
+    assert (golden == res_rtlsim).all()
+    assert np.isclose(golden_prob, res_rtlsim_prob[0, 0, 0, :5]).all()
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_set_fifo_depths():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
@@ -472,6 +548,8 @@ def test_end2end_mobilenet_set_fifo_depths():
     model.save(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_stitched_ip():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
@@ -490,6 +568,47 @@ def test_end2end_mobilenet_stitched_ip():
     model.save(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.end2end
+def test_end2end_mobilenet_stitched_ip_rtlsim():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
+    # use critical path estimate to set rtlsim liveness threshold
+    # (very conservative)
+    model = model.transform(AnnotateCycles())
+    estimate_network_performance = model.analysis(dataflow_performance)
+    prev_liveness = pyverilate_get_liveness_threshold_cycles()
+    os.environ["LIVENESS_THRESHOLD"] = str(
+        int(estimate_network_performance["critical_path_cycles"])
+    )
+    os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+
+    # Prepare input
+    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
+    x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+
+    # set top-level prop for stitched-ip rtlsim and launch
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    ret_rtlsim_ip = execute_onnx(model, inp_dict, True)
+    res_rtlsim_ip = ret_rtlsim_ip[out_name]
+    np.save(build_dir + "/end2end_mobilenet_result_rtlsim_ip.npy", res_rtlsim_ip)
+    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
+    res_rtlsim_ip_prob = ret_rtlsim_ip[model.graph.node[-2].output[0]] * a0
+    np.save(build_dir + "/end2end_mobilenet_result_cppsim_prob.npy", res_rtlsim_ip_prob)
+
+    # check result with golden values
+    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
+    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
+
+    assert (golden == res_rtlsim_ip).all()
+    assert np.isclose(golden_prob, res_rtlsim_ip_prob[0, 0, 0, :5]).all()
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_rtlsim_performance():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
@@ -517,39 +636,3 @@ def test_end2end_mobilenet_rtlsim_performance():
         json.dump(rtlsim_perf_dict, f, indent=2)
 
     model.save(build_dir + "/end2end_mobilenet_rtlsim_performance.onnx")
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.end2end
-@pytest.mark.xfail
-def test_end2end_mobilenet_cppsim():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
-    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
-    inp_dict = {inp_name: x}
-    start = time.time()
-    # cppsim
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("cppsim"))
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_compile_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-    model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
-    ret_cppsim = execute_onnx(model, inp_dict, True)
-    res_cppsim = ret_cppsim[out_name]
-    np.save(build_dir + "/end2end_mobilenet_result_cppsim.npy", res_cppsim)
-    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
-    res_cppsim_prob = ret_cppsim[model.graph.node[-2].output[0]] * a0
-    np.save(build_dir + "/end2end_mobilenet_result_cppsim_prob.npy", res_cppsim_prob)
-
-    # check result with golden values
-    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
-    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
-
-    assert (golden == res_cppsim).all()
-    assert np.isclose(golden_prob, res_cppsim_prob).all()
