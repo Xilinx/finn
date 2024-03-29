@@ -1,25 +1,16 @@
 {
   "Defaults": {},
   "Thresholding_0": {
-    "preferred_impl_style": "hls"
+    "preferred_impl_style": "rtl"
   },
   "MVAU_0": {
     "preferred_impl_style": "hls"
   },
-  "Thresholding_1": {
-    "preferred_impl_style": ""
-  },
   "MVAU_1": {
-    "preferred_impl_style": ""
-  },
-  "Thresholding_2": {
     "preferred_impl_style": ""
   },
   "MVAU_2": {
     "preferred_impl_style": ""
-  },
-  "Thresholding_3": {
-    "preferred_impl_style": "rtl"
   },
   "MVAU_3": {
     "preferred_impl_style": ""

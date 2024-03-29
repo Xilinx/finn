@@ -1,8 +1,7 @@
 {
   "Defaults": {},
-  "Thresholding_hls_0": {
-    "PE": 49,
-    "ram_style": "distributed"
+  "Thresholding_rtl_0": {
+    "PE": 49
   },
   "MVAU_hls_0": {
     "PE": 16,
