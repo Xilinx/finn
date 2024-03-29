@@ -87,8 +87,4 @@ transformation for Zynq, and the `VitisLink` transformation for Alveo.
 Deployment
 ==========
 
-
-Deployment
------------
-
 The bitfile and the driver file(s) can be copied to the PYNQ board and be executed there. For more information see the description in the `end2end_example <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example>`_ Jupyter notebooks.
