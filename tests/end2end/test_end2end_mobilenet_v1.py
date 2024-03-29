@@ -28,11 +28,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
 
+import json
 import numpy as np
 import os
 import time
 import torch
 from brevitas.export import export_qonnx
+from distutils.dir_util import copy_tree
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -54,15 +56,30 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
+from qonnx.util.config import extract_model_config_to_json
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.reorder as reorder
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.analysis.fpgadataflow.op_and_param_counts import (
+    aggregate_dict_keys,
+    op_and_param_counts,
+)
+from finn.analysis.fpgadataflow.res_estimation import (
+    res_estimation,
+    res_estimation_complete,
+)
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -70,14 +87,24 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    RemoveShallowFIFOs,
+    SplitLargeFIFOs,
+)
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import alveo_default_platform, alveo_part_map, get_finn_root
+from finn.util.basic import get_finn_root
 from finn.util.pytorch import NormalizePreProc
+from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import (
     crop_center,
     get_test_model_trained,
@@ -87,11 +114,9 @@ from finn.util.test import (
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
-test_board = "U250"
-test_platform = alveo_default_platform[test_board]
-test_fpga_part = alveo_part_map[test_board]
+# Select Versal device such that RTL VVU (i.e. DSP58) can be enabled
+fpga_part = "xcvm1802-vsvd1760-2MP-e-S"
 target_clk_ns = 3
-large_fifo_ram_style = "ultra"
 extra_fold = 1
 first_layer_res_type = "dsp"
 
@@ -218,7 +243,6 @@ def test_end2end_mobilenet_lowering():
 
 
 @pytest.mark.end2end
-@pytest.mark.xfail
 def test_end2end_mobilenet_convert_to_hw_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hw.InferPool())
@@ -237,38 +261,58 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(fpgapart=fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model.save(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
 
 
 @pytest.mark.end2end
-def test_end2end_mobilenet_folding():
+def test_end2end_mobilenet_create_dataflow_partition():
+    # model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
+    parent_model = model.transform(CreateDataflowPartition())
+    parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
+    dataflow_model = dataflow_model.transform(RemoveUnusedTensors())
+    # create a configuration json file that can be used to set the specialize layer config
+    attrs = [
+        "preferred_impl_style",
+    ]
+    extract_model_config_to_json(
+        dataflow_model, build_dir + "/template_specialize_layers_config.json", attrs
+    )
+    dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_folding():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
     # optional extra folding to use fewer resources
     # applied while setting the attributes on each node
     assert extra_fold in [1, 2, 4]
     # set up folding for the conv layers impl'd by MVAUs
     # each value is PE for a layer
-    fc_layers = model.get_nodes_by_op_type("MVAU_hls")
-    fc_layers += model.get_nodes_by_op_type("MVAU_rtl")
+    fc_layers = model.get_nodes_by_op_type("MVAU_rtl")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
-        (32, 3, "block"),
+        (16, 3, "block"),
+        (8, 16, "distributed"),
+        (8, 16, "distributed"),
+        (16, 16, "distributed"),
+        (8, 16, "distributed"),
+        (16, 16, "distributed"),
+        (8, 16, "block"),
         (16, 16, "block"),
         (16, 16, "block"),
-        (32, 16, "block"),
         (16, 16, "block"),
-        (32, 16, "block"),
         (16, 16, "block"),
-        (32, 16, "block"),
-        (32, 16, "block"),
-        (32, 16, "block"),
-        (32, 16, "block"),
-        (32, 16, "block"),
         (16, 16, "block"),
-        (32, 16, "block"),
+        (8, 16, "block"),
+        (16, 16, "block"),
         (4, 4, "block"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
@@ -276,26 +320,46 @@ def test_end2end_mobilenet_folding():
         fcl_inst.set_nodeattr("PE", pe // extra_fold)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
-    # first layer uses 8-bit weights & activations
-    # control its compute resource type explicitly
-    getCustomOp(fc_layers[0]).set_nodeattr("resType", first_layer_res_type)
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    vvau_layers = model.get_nodes_by_op_type("VVAU_hls")
-    vvau_layers += model.get_nodes_by_op_type("VVAU_rtl")
-    folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
-    for vvau, pe in zip(vvau_layers, folding):
+    vvau_layers = model.get_nodes_by_op_type("VVAU_rtl")
+    pe_simd_fold = [
+        [16, 3],
+        [8, 3],
+        [16, 3],
+        [4, 3],
+        [8, 3],
+        [2, 3],
+        [4, 3],
+        [4, 3],
+        [4, 3],
+        [4, 3],
+        [4, 3],
+        [1, 3],
+        [2, 3],
+    ]
+    for vvau, pe_simd in zip(vvau_layers, pe_simd_fold):
+        pe, simd = pe_simd
         vvau_inst = getCustomOp(vvau)
         vvau_inst.set_nodeattr("PE", pe // extra_fold)
+        vvau_inst.set_nodeattr("SIMD", simd)
         # set SIMD in preceeding ConvInputGen to same value
         convinputgen = model.find_direct_predecessors(vvau)[0]
         convinputgen_inst = getCustomOp(convinputgen)
         convinputgen_inst.set_nodeattr("SIMD", pe // extra_fold)
+        # Enable parallel_window mode for SIMD parallelism VVU
+        convinputgen_inst.set_nodeattr("parallel_window", 1)
         # set SIMD in preceeding FMPadding to same value
         padding = model.find_direct_predecessors(convinputgen)[0]
-        if padding.op_type == "FMPadding_hls":
+        if padding.op_type == "FMPadding_rtl":
             padding_inst = getCustomOp(padding)
             padding_inst.set_nodeattr("SIMD", pe // extra_fold)
+    # Set folding Thresholding layers
+    thresholding_layers = model.get_nodes_by_op_type("Thresholding_rtl")
+    folding = [2, 2, 4, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    for thresholding, pe in zip(thresholding_layers, folding):
+        thresholding_inst = getCustomOp(thresholding)
+        thresholding_inst.set_nodeattr("PE", pe)
     # adjust final pooling layer + its inpgen
     pool_node = model.get_nodes_by_op_type("Pool_hls")[0]
     pool_inst = getCustomOp(pool_node)
@@ -312,20 +376,147 @@ def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(MinimizeWeightBitWidth())
-    model = model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
+    model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
 
 @pytest.mark.end2end
-def test_end2end_mobilenet_create_dataflow_partition():
+def test_end2end_mobilenet_estimate_reports():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
-    parent_model = model.transform(CreateDataflowPartition())
-    parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
-    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
-    dataflow_model_filename = sdp_node.get_nodeattr("model")
-    dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
-    dataflow_model = dataflow_model.transform(RemoveUnusedTensors())
-    dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
+    report_dir = build_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    ops_and_params = model.analysis(op_and_param_counts)
+    with open(report_dir + "/op_and_param_counts.json", "w") as f:
+        json.dump(ops_and_params, f, indent=2)
+    estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
+    with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
+        json.dump(estimate_layer_cycles, f, indent=2)
+    estimate_layer_resources = model.analysis(res_estimation)
+    estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
+    with open(report_dir + "/estimate_layer_resources.json", "w") as f:
+        json.dump(estimate_layer_resources, f, indent=2)
+    estimate_layer_resources_complete = model.analysis(res_estimation_complete)
+    with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
+        json.dump(estimate_layer_resources_complete, f, indent=2)
+    # need to call AnnotateCycles before dataflow_performance
+    model = model.transform(AnnotateCycles())
+    estimate_network_performance = model.analysis(dataflow_performance)
+    # add some more metrics to estimated performance
+    n_clock_cycles_per_sec = (10**9) / target_clk_ns
+    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+    estimate_network_performance["estimated_throughput_fps"] = est_fps
+    est_latency_ns = estimate_network_performance["critical_path_cycles"] * target_clk_ns
+    estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+    with open(report_dir + "/estimate_network_performance.json", "w") as f:
+        json.dump(estimate_network_performance, f, indent=2)
+
+    model.save(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_hw_codegen():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
+    model = model.transform(PrepareIP(fpga_part, target_clk_ns))
+    model.save(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_hw_ipgen():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
+    model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
+    report_dir = build_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
+    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+        json.dump(estimate_layer_resources_hls, f, indent=2)
+    model.save(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_set_fifo_depths():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
+    model = model.transform(
+        InsertAndSetFIFODepths(
+            fpga_part,
+            target_clk_ns,
+            swg_exception=False,
+            vivado_ram_style="auto",
+            force_python_sim=False,
+        )
+    )
+    # extract the final configuration and save it as json
+    hw_attrs = [
+        "PE",
+        "SIMD",
+        "parallel_window",
+        "ram_style",
+        "depth",
+        "impl_style",
+        "resType",
+        "mem_mode",
+        "runtime_writeable_weights",
+        "inFIFODepths",
+        "outFIFODepths",
+    ]
+    extract_model_config_to_json(model, build_dir + "/final_hw_config.json", hw_attrs)
+
+    # perform FIFO splitting and shallow FIFO removal only after the final config
+    # json file has been written. otherwise, since these transforms may add/remove
+    # FIFOs, we get name mismatch problems when trying to reuse the final config.
+    model = model.transform(SplitLargeFIFOs())
+    model = model.transform(RemoveShallowFIFOs())
+    # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
+    # this will only run for the new nodes (e.g. FIFOs and DWCs)
+    model = model.transform(PrepareIP(fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model.save(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_stitched_ip():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
+    stitched_ip_dir = build_dir + "/stitched_ip"
+    model = model.transform(
+        CreateStitchedIP(
+            fpga_part,
+            target_clk_ns,
+            vitis=False,
+            signature=None,
+        )
+    )
+    # TODO copy all ip sources into output dir? as zip?
+    copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+
+    model.save(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
+
+
+@pytest.mark.end2end
+def test_end2end_mobilenet_rtlsim_performance():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
+    report_dir = build_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    # multi-in/out streams currently not supported in our C++ verilator driver
+    rtlsim_bs = 1
+
+    rtlsim_perf_dict = verilator_fifosim(model, rtlsim_bs)
+    # keep keys consistent between the Python and C++-styles
+    cycles = rtlsim_perf_dict["cycles"]
+    clk_ns = float(model.get_metadata_prop("clk_ns"))
+    fclk_mhz = 1 / (clk_ns * 0.001)
+    runtime_s = (cycles * clk_ns) * (10**-9)
+    rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
+    rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
+    rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
+    for key, val in rtlsim_perf_dict.items():
+        if "max_count" in key:
+            del rtlsim_perf_dict[key]
+    # estimate stable-state throughput based on latency+throughput
+    rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict["throughput[images/s]"]
+
+    with open(report_dir + "/rtlsim_performance.json", "w") as f:
+        json.dump(rtlsim_perf_dict, f, indent=2)
+
+    model.save(build_dir + "/end2end_mobilenet_rtlsim_performance.onnx")
 
 
 @pytest.mark.slow
