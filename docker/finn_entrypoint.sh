@@ -54,8 +54,11 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-# qonnx
+# qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
+# to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
+mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
 pip install --user -e ${FINN_ROOT}/deps/qonnx
+mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
 # finn-experimental
 pip install --user -e ${FINN_ROOT}/deps/finn-experimental
 # brevitas
@@ -109,8 +112,29 @@ if [ -f "$HLS_PATH/settings64.sh" ];then
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis HLS will not be available."
-  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support. Our recommendation is to use version 2022.2"
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
+fi
+
+if [ -d "$FINN_ROOT/.Xilinx" ]; then
+  mkdir "$HOME/.Xilinx"
+  if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
+    cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
+    gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/HLS_init.tcl"
+  fi
+
+  if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
+    mkdir "$HOME/.Xilinx/Vivado/"
+    cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
+    gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
+  fi
+else
+  echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
+  echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
 export PATH=$PATH:$HOME/.local/bin

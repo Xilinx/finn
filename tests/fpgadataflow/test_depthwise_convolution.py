@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,7 +46,7 @@ from qonnx.util.basic import (
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import (
+from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferConvInpGen,
     InferVectorVectorActivation,
 )
@@ -54,10 +55,10 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
-
     # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
     ofm_ch = ifm_ch
     total_pad = 2 * padding
@@ -84,16 +85,10 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         )
 
     # set up onnx model
-    inp = oh.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
-    )
-    outp = oh.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch]
-    )
+    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch])
+    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch])
 
-    W_sparse = oh.make_tensor_value_info(
-        "W_sparse", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch]
-    )
+    W_sparse = oh.make_tensor_value_info("W_sparse", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
 
     im2col_node = oh.make_node(
         "Im2Col",
@@ -107,9 +102,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         depthwise=1,
     )
 
-    matmul_node = oh.make_node(
-        "MatMul", inputs=["im2col_out", "W_sparse"], outputs=["outp"]
-    )
+    matmul_node = oh.make_node("MatMul", inputs=["im2col_out", "W_sparse"], outputs=["outp"])
 
     if act is None:
         node_list = [im2col_node, matmul_node]
@@ -175,7 +168,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
+def test_depthwise_conv_hw_cppsim(act, pe, k, stride, padding):
     idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
@@ -189,13 +182,14 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
     new_model = model.transform(InferConvInpGen())
     new_model = new_model.transform(InferVectorVectorActivation())
 
-    # set SIMD in ConvInputGen node and PE in VVAU node
+    new_model = new_model.transform(SpecializeLayers())
 
+    # set SIMD in ConvInputGen node and PE in VVAU node
     for n in new_model.graph.node:
-        if n.op_type == "ConvolutionInputGenerator":
+        if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type == "VectorVectorActivation":
+        elif n.op_type.startswith("VVAU"):
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
     new_model = new_model.transform(SetExecMode("cppsim"))
@@ -218,7 +212,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
+def test_depthwise_conv_hw_rtlsim(act, pe, k, stride, padding):
     idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
@@ -232,13 +226,14 @@ def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
     new_model = model.transform(InferConvInpGen())
     new_model = new_model.transform(InferVectorVectorActivation())
 
-    # set SIMD in ConvInputGen node and PE in VVAU node
+    new_model = new_model.transform(SpecializeLayers())
 
+    # set SIMD in ConvInputGen node and PE in VVAU node
     for n in new_model.graph.node:
-        if n.op_type == "ConvolutionInputGenerator":
+        if n.op_type.startswith("ConvolutionInputGenerator"):
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type == "VectorVectorActivation":
+        elif n.op_type.startswith("VVAU"):
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
 

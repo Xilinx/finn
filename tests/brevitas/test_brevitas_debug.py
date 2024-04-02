@@ -34,12 +34,9 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 import torch
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import RemoveStaticGraphInputs
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
@@ -48,41 +45,23 @@ from finn.util.test import get_test_model_trained
 
 
 @pytest.mark.brevitas_export
-@pytest.mark.parametrize("QONNX_export", [False, True])
 @pytest.mark.parametrize("QONNX_FINN_conversion", [False, True])
-def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
-    if (not QONNX_export) and QONNX_FINN_conversion:
-        pytest.skip("This test configuration is not valid and is thus skipped.")
+def test_brevitas_debug(QONNX_FINN_conversion):
     finn_onnx = "test_brevitas_debug.onnx"
     fc = get_test_model_trained("TFC", 2, 2)
     ishape = (1, 1, 28, 28)
-    if QONNX_export:
-        dbg_hook = bo.enable_debug(fc, proxy_level=True)
-        BrevitasONNXManager.export(fc, ishape, finn_onnx)
-        # DebugMarkers have the brevitas.onnx domain, so that needs adjusting
+    dbg_hook = bo.enable_debug(fc, proxy_level=True)
+    export_qonnx(fc, torch.randn(ishape), finn_onnx)
+    # DebugMarkers have the brevitas.onnx domain, so that needs adjusting
+    model = ModelWrapper(finn_onnx)
+    dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
+    for dbg_node in dbg_nodes:
+        dbg_node.domain = "qonnx.custom_op.general"
+    model.save(finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
+    if QONNX_FINN_conversion:
         model = ModelWrapper(finn_onnx)
-        dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
-        for dbg_node in dbg_nodes:
-            dbg_node.domain = "qonnx.custom_op.general"
-        model.save(finn_onnx)
-        qonnx_cleanup(finn_onnx, out_file=finn_onnx)
-        if QONNX_FINN_conversion:
-            model = ModelWrapper(finn_onnx)
-            model = model.transform(ConvertQONNXtoFINN())
-            model.save(finn_onnx)
-    else:
-        dbg_hook = bo.enable_debug(fc)
-        bo.export_finn_onnx(fc, ishape, finn_onnx)
-        model = ModelWrapper(finn_onnx)
-        # DebugMarkers have the brevitas.onnx domain, so that needs adjusting
-        # ToDo: We should probably have transformation pass, which does this
-        #  domain conversion for us?
-        dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
-        for dbg_node in dbg_nodes:
-            dbg_node.domain = "qonnx.custom_op.general"
-        model = model.transform(InferShapes())
-        model = model.transform(FoldConstants())
-        model = model.transform(RemoveStaticGraphInputs())
+        model = model.transform(ConvertQONNXtoFINN())
         model.save(finn_onnx)
     model = ModelWrapper(finn_onnx)
     assert len(model.graph.input) == 1
@@ -106,17 +85,12 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
     names_common = names_brevitas.intersection(names_finn)
     # The different exports return debug markers in different numbers and places
     print(len(names_common))
-    if QONNX_export and not QONNX_FINN_conversion:
+    if not QONNX_FINN_conversion:
         assert len(names_common) == 12
-    elif QONNX_export and QONNX_FINN_conversion:
-        assert len(names_common) == 8
     else:
-        assert len(names_common) == 16
+        assert len(names_common) == 8
     for dbg_name in names_common:
-        if QONNX_export:
-            tensor_pytorch = dbg_hook.values[dbg_name].value.detach().numpy()
-        else:
-            tensor_pytorch = dbg_hook.values[dbg_name].detach().numpy()
+        tensor_pytorch = dbg_hook.values[dbg_name].value.detach().numpy()
         tensor_finn = output_dict[dbg_name]
         assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
     os.remove(finn_onnx)

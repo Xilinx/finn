@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,6 +47,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -53,7 +55,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt):
+def make_single_fmpadding_modelwrapper(impl_style, idim, padding, num_ch, simd, idt):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
@@ -62,15 +64,11 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch])
 
     FMPadding = helper.make_node(
-        optype,
+        "FMPadding",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -81,6 +79,7 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
         inputDataType=str(idt.name),
         numInputVectors=1,
         SIMD=simd,
+        preferred_impl_style=impl_style,
     )
 
     graph = helper.make_graph(
@@ -99,9 +98,7 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
 # input image dimension
 @pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize(
-    "pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]]
-)
+@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]])
 # number of channels
 @pytest.mark.parametrize("num_ch", [2, 4])
 # Input parallelism
@@ -116,8 +113,6 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
-    if impl_style == "rtl" and mode == "cppsim":
-        pytest.skip("rtl implstyle has no cppsim, skipping")
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
 
@@ -131,9 +126,17 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    optype = {"hls": "FMPadding_Batch", "rtl": "FMPadding_rtl"}[impl_style]
+    y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
+    expected_oshape = (1, odim_h, odim_w, num_ch)
 
-    model = make_single_fmpadding_modelwrapper(optype, idim, pad, num_ch, simd, idt)
+    model = make_single_fmpadding_modelwrapper(impl_style, idim, pad, num_ch, simd, idt)
+
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert y_produced.shape == expected_oshape
+    assert (y_produced == y_expected).all(), "HW layer execution failed"
+
+    model = model.transform(SpecializeLayers())
+
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -146,17 +149,13 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
         model = model.transform(PrepareRTLSim())
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_oshape = (1, odim_h, odim_w, num_ch)
+
     assert y_produced.shape == expected_oshape
-
-    y_expected = np.pad(
-        x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
-    )
-
     assert (y_produced == y_expected).all()
 
     if mode == "rtlsim":
-        node = model.get_nodes_by_op_type(optype)[0]
+        op_type = "FMPadding_" + impl_style
+        node = model.get_nodes_by_op_type(op_type)[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

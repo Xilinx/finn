@@ -15,7 +15,7 @@ Submodules
    finn.transformation.streamline
 
 Transformation Passes
-=====================
+======================
 
 Base Class
 ----------
@@ -45,6 +45,14 @@ qonnx.transformation.change\_3d\_tensors\_to\_4d
 -------------------------------------------------
 
 .. automodule:: qonnx.transformation.change_3d_tensors_to_4d
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.transformation.change\_batchsize
+----------------------------------------
+
+.. automodule:: qonnx.transformation.change_batchsize
   :members:
   :undoc-members:
   :show-inheritance:
@@ -83,6 +91,14 @@ qonnx.transformation.double\_to\_single\_float
    :undoc-members:
    :show-inheritance:
 
+qonnx.transformation.expose\_intermediate
+------------------------------------------
+
+.. automodule:: qonnx.transformation.expose_intermediate
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 qonnx.transformation.extend\_partition
 ------------------------------------------
 
@@ -99,9 +115,16 @@ qonnx.transformation.extract\_conv\_bias
    :undoc-members:
    :show-inheritance:
 
+qonnx.transformation.extract\_quant\_scale\_zeropt
+----------------------------------------------------
+
+.. automodule:: qonnx.transformation.extract_quant_scale_zeropt
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 qonnx.transformation.fold\_constants
-------------------------------------------
+--------------------------------------
 
 .. automodule:: qonnx.transformation.fold_constants
    :members:
@@ -117,7 +140,7 @@ qonnx.transformation.gemm\_to\_matmul
    :show-inheritance:
 
 qonnx.transformation.general
-----------------------------------
+------------------------------
 
 .. automodule:: qonnx.transformation.general
    :members:
@@ -165,7 +188,7 @@ qonnx.transformation.lower\_convs\_to\_matmul
    :show-inheritance:
 
 qonnx.transformation.make\_input\_chanlast
-------------------------------------------
+---------------------------------------------
 
 .. automodule:: qonnx.transformation.make_input_chanlast
   :members:
@@ -180,6 +203,29 @@ qonnx.transformation.merge\_onnx\_models
   :undoc-members:
   :show-inheritance:
 
+qonnx.transformation.pruning
+------------------------------
+
+.. automodule:: qonnx.transformation.pruning
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.transformation.qcdq\_to\_qonnx
+----------------------------------------
+
+.. automodule:: qonnx.transformation.qcdq_to_qonnx
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.transformation.qonnx\_to\_qcdq
+-------------------------------------
+
+.. automodule:: qonnx.transformation.qonnx_to_qcdq
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 qonnx.transformation.quant\_constant\_folding
 ----------------------------------------------
@@ -189,6 +235,13 @@ qonnx.transformation.quant\_constant\_folding
   :undoc-members:
   :show-inheritance:
 
+qonnx.transformation.quantize\_graph
+-------------------------------------
+
+.. automodule:: qonnx.transformation.quantize_graph
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 qonnx.transformation.rebalance\_conv
 ----------------------------------------
@@ -199,13 +252,28 @@ qonnx.transformation.rebalance\_conv
   :show-inheritance:
 
 qonnx.transformation.remove
--------------------------------------
+----------------------------
 
 .. automodule:: qonnx.transformation.remove
   :members:
   :undoc-members:
   :show-inheritance:
 
+qonnx.transformation.resize\_conv\_to\_deconv
+-----------------------------------------------
+
+.. automodule:: qonnx.transformation.resize_conv_to_deconv
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.transformation.subpixel\_to\_deconv
+-----------------------------------------------
+
+.. automodule:: qonnx.transformation.subpixel_to_deconv
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.transformation.move\_reshape
 ----------------------------------------

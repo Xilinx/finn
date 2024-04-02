@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,12 +41,13 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import InferStreamingMaxPool
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferStreamingMaxPool
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode):
@@ -53,9 +55,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
     ifm_dim_h, ifm_dim_w = ifm_dim
     ofm_dim_h, ofm_dim_w = ofm_dim
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch]
     )
@@ -70,9 +70,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
         ceil_mode=ceil_mode,
         pads=[0, 0, 0, 0],
     )
-    graph = helper.make_graph(
-        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
@@ -96,7 +94,7 @@ def prepare_inputs(input_tensor):
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 10])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 3])  # 1,3
+@pytest.mark.parametrize("ifm_ch", [1, 3])
 # pe
 @pytest.mark.parametrize("pe", [1, 3])
 # ceil mode
@@ -106,9 +104,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_streamingmaxpool(
-    idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, exec_mode
-):
+def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, exec_mode):
     ifm_dim_h = ifm_dim
     k_h = k
     if dim_1d:
@@ -138,18 +134,22 @@ def test_fpgadataflow_streamingmaxpool(
     # prepare input data
     input_dict = prepare_inputs(x)
 
-    golden = make_single_maxpoolnhwc_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode
-    )
+    golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode)
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
 
     model = golden.transform(InferStreamingMaxPool())
     model = model.transform(InferShapes())
 
-    assert model.graph.node[0].op_type == "StreamingMaxPool_Batch"
+    assert model.graph.node[0].op_type == "StreamingMaxPool"
+
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all()
+
+    model = model.transform(SpecializeLayers())
 
     # Ensure PE value is set
-    streamingmaxpool_node = model.get_nodes_by_op_type("StreamingMaxPool_Batch")[0]
+    streamingmaxpool_node = model.get_nodes_by_op_type("StreamingMaxPool_hls")[0]
     getCustomOp(streamingmaxpool_node).set_nodeattr("PE", pe)
 
     if exec_mode == "cppsim":
@@ -170,7 +170,7 @@ def test_fpgadataflow_streamingmaxpool(
     assert (y_produced == y_expected).all()
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("StreamingMaxPool_Batch")[0]
+        node = model.get_nodes_by_op_type("StreamingMaxPool_hls")[0]
         # inst = getCustomOp(node)
         # cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

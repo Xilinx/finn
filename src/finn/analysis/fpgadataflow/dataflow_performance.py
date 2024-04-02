@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,7 +29,7 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def dataflow_performance(model):
@@ -38,7 +39,7 @@ def dataflow_performance(model):
     for each node along the critical path.
 
     Preconditions:
-    - model consists of fpgadataflow nodes
+    - model consists of HLS/RTL nodes
     - model has cycle estimates annotated (see AnnotateCycles transformation)
     - nodes have unique names (see GiveUniqueNodeNames)
 
@@ -52,7 +53,7 @@ def dataflow_performance(model):
     max_node_name = ""
 
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             inst = getCustomOp(node)
             node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:
@@ -66,9 +67,7 @@ def dataflow_performance(model):
                     max_pred_latency = 0
                 else:
                     # find max of any of predecessors
-                    pred_latencies = map(
-                        lambda x: latency_at_node_output[x.name], predecessors
-                    )
+                    pred_latencies = map(lambda x: latency_at_node_output[x.name], predecessors)
                     max_pred_latency = max(pred_latencies)
                 latency_at_node_output[node.name] = node_cycles + max_pred_latency
     critical_path_cycles = max(latency_at_node_output.values())

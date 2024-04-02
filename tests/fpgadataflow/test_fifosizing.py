@@ -31,7 +31,8 @@ import pytest
 
 import json
 import shutil
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+import torch
+from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
@@ -45,7 +46,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
     tmp_output_dir = make_build_dir("build_fifosizing_%s_" % topology)
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     chkpt_name = tmp_output_dir + "/model.onnx"
-    BrevitasONNXManager.export(model, ishape, chkpt_name)
+    export_qonnx(model, torch.randn(ishape), chkpt_name)
     return tmp_output_dir
 
 
@@ -55,7 +56,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.parametrize(
     "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
 )
-@pytest.mark.parametrize("topology", ["tfc"])
+@pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
     method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
@@ -68,14 +69,13 @@ def test_fifosizing_linear(method, topology):
         force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
-        rtlsim_batch_size=100,
+        rtlsim_batch_size=100 if topology == "tfc" else 2,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
-        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
     with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:
@@ -83,8 +83,7 @@ def test_fifosizing_linear(method, topology):
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
     assert (
-        float(sim_data["throughput[images/s]"])
-        / float(est_data["estimated_throughput_fps"])
+        float(sim_data["stable_throughput[images/s]"]) / float(est_data["estimated_throughput_fps"])
         > 0.9
     )
     # now run the same build using the generated folding and FIFO config
@@ -97,12 +96,8 @@ def test_fifosizing_linear(method, topology):
     cfg_cmp.folding_config_file = tmp_output_dir + "/final_hw_config.json"
     build.build_dataflow_cfg(tmp_output_dir_cmp + "/model.onnx", cfg_cmp)
 
-    model0 = ModelWrapper(
-        tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx"
-    )
-    model1 = ModelWrapper(
-        tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx"
-    )
+    model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx")
 
     assert len(model0.graph.node) == len(model1.graph.node)
     for i in range(len(model0.graph.node)):

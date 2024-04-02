@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +35,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 def _codegen_single_node(node, model):
@@ -49,9 +50,7 @@ def _codegen_single_node(node, model):
         code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = make_build_dir(
-                prefix="code_gen_cppsim_" + str(node.name) + "_"
-            )
+            code_gen_dir = make_build_dir(prefix="code_gen_cppsim_" + str(node.name) + "_")
             inst.set_nodeattr("code_gen_dir_cppsim", code_gen_dir)
         # ensure that there is generated code inside the dir
         inst.code_generation_cppsim(model)
@@ -80,7 +79,7 @@ class PrepareCppSim(Transformation):
             self._num_workers = mp.cpu_count()
 
     def prepareCppSim_node(self, node):
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node):
             _codegen_single_node(node, self.model)
         return (node, False)
 

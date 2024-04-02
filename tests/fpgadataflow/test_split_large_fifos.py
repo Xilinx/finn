@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,8 @@ import pytest
 
 import json
 import shutil
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+import torch
+from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
@@ -46,15 +47,15 @@ def fetch_test_model(topology, wbits=2, abits=2):
     tmp_output_dir = make_build_dir("build_fifosizing_%s_" % topology)
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     chkpt_name = tmp_output_dir + "/model.onnx"
-    BrevitasONNXManager.export(model, ishape, chkpt_name)
+    export_qonnx(model, torch.randn(ishape), chkpt_name)
     return tmp_output_dir
 
 
 def get_folding_cfg(depth=65536):
     cfg = dict()
     cfg["Defaults"] = dict()
-    for i in range(3):
-        key = "StreamingFIFO_" + str(i)
+    for i in range(4):
+        key = "StreamingFIFO_rtl_" + str(i)
         cfg[key] = {"depth": depth, "ram_style": "auto", "impl_style": "vivado"}
     return cfg
 
@@ -85,7 +86,6 @@ def test_split_large_fifos(depth, force_python_rtlsim):
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
-        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
     with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:
@@ -93,15 +93,11 @@ def test_split_large_fifos(depth, force_python_rtlsim):
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
     assert (
-        float(sim_data["throughput[images/s]"])
-        / float(est_data["estimated_throughput_fps"])
-        > 0.9
+        float(sim_data["throughput[images/s]"]) / float(est_data["estimated_throughput_fps"]) > 0.9
     )
-    model = ModelWrapper(
-        tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx"
-    )
+    model = ModelWrapper(tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx")
     # exclude final FIFO node (output FIFO, not part of test)
-    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")[:-1]
+    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")[:-1]
     golden_cfg = get_fifo_split_configs(depth, 256, 32768)
     for i, fifo_node in enumerate(fifo_nodes):
         inst = getCustomOp(fifo_node)

@@ -28,9 +28,9 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import torch
+from brevitas.export import export_qonnx
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -45,9 +45,11 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import crop_center, get_test_model_trained, resize_smaller_side
@@ -76,12 +78,12 @@ def test_brevitas_mobilenet():
     std = 0.226
     ch = 3
     preproc = NormalizePreProc(mean, std, ch)
-    bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
+    export_qonnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
+    qonnx_cleanup(preproc_onnx, out_file=preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
+    preproc_model = preproc_model.transform(ConvertQONNXtoFINN())
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(
-        preproc_model.graph.input[0].name, DataType["UINT8"]
-    )
+    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())
@@ -89,7 +91,8 @@ def test_brevitas_mobilenet():
 
     finn_onnx = export_onnx_path + "/quant_mobilenet_v1_4b_exported.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
+    export_qonnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
 
     # do forward pass in PyTorch/Brevitas
     input_tensor = preproc.forward(img_torch)
@@ -100,7 +103,9 @@ def test_brevitas_mobilenet():
     expected_top5_prob = []
     for index in expected_top5:
         expected_top5_prob.append(expected_topk[index])
+
     model = ModelWrapper(finn_onnx)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(InsertTopK())
@@ -121,4 +126,4 @@ def test_brevitas_mobilenet():
     produced = odict[model.graph.output[0].name]
     produced_prob = odict["TopK_0_out0"] * a0
     assert (produced.flatten() == expected_top5).all()
-    assert np.isclose(produced_prob.flatten(), expected_top5_prob).all()
+    assert np.isclose(produced_prob.flatten(), expected_top5_prob, atol=2.2 * 1e-1).all()

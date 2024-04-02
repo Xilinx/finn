@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,7 +38,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_fifo_node(node):
-    if node.op_type == "StreamingFIFO":
+    if node.op_type.startswith("StreamingFIFO"):
         return True
     else:
         return False
@@ -45,8 +46,8 @@ def _is_fifo_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
-            if _is_fifo_node(node) is False:
+        if is_fpgadataflow_node(node):
+            if not _is_fifo_node(node):
                 return True
             else:
                 return False
@@ -85,9 +86,7 @@ class InsertFIFO(Transformation):
     The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(
-        self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"
-    ):
+    def __init__(self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
         self.max_qsrl_depth = max_qsrl_depth
@@ -129,6 +128,7 @@ class InsertFIFO(Transformation):
                         folded output shape of the first node is not the same as the
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
+                        n_shape = n0.get_normal_output_shape()
 
                         # check if outFIFOdepths attribute of first node
                         # and inFIFOdepths attribute of consumer node is equal
@@ -151,10 +151,7 @@ class InsertFIFO(Transformation):
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                            if (
-                                self.max_qsrl_depth is None
-                                or fifo_depth <= self.max_qsrl_depth
-                            ):
+                            if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
                                 impl_style = "rtl"
                             else:
                                 impl_style = "vivado"
@@ -167,6 +164,7 @@ class InsertFIFO(Transformation):
                                 backend="fpgadataflow",
                                 depth=fifo_depth,
                                 folded_shape=fld_shape,
+                                normal_shape=n_shape,
                                 dataType=str(dtype.name),
                                 impl_style=impl_style,
                                 ram_style=self.vivado_ram_style,
@@ -188,14 +186,15 @@ class InsertFIFO(Transformation):
                 first_node = model.find_consumer(graph_in_name)
                 # insert FIFO as first node, except when first node is DMA
                 if (
-                    first_node.op_type != "StreamingFIFO"
-                    and first_node.op_type != "IODMA"
+                    not first_node.op_type.startswith("StreamingFIFO")
+                    and first_node.op_type != "IODMA_hls"
                 ):
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_input_shape(inp_ind)
+                    n_shape = n0.get_normal_input_shape(inp_ind)
                     dtype = n0.get_input_datatype(inp_ind)
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
@@ -204,7 +203,7 @@ class InsertFIFO(Transformation):
                         fifo_output_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
-                            n0.get_normal_input_shape(),
+                            n0.get_normal_input_shape(inp_ind),
                         )
                         graph.value_info.append(fifo_output_tensor)
                         model.set_tensor_datatype(fifo_output_tensor.name, dtype)
@@ -221,6 +220,7 @@ class InsertFIFO(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=str(dtype.name),
                             impl_style=impl_style,
                             ram_style=self.vivado_ram_style,
@@ -243,17 +243,18 @@ class InsertFIFO(Transformation):
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
                 if (
-                    final_node.op_type != "StreamingFIFO"
-                    and final_node.op_type != "IODMA"
+                    not final_node.op_type.startswith("StreamingFIFO")
+                    and final_node.op_type != "IODMA_hls"
                 ):
                     assert (
-                        final_node.op_type != "TLastMarker"
+                        final_node.op_type != "TLastMarker_hls"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
                     out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_output_shape(out_ind)
+                    n_shape = n0.get_normal_output_shape(out_ind)
                     dtype = n0.get_output_datatype(out_ind)
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
@@ -279,6 +280,7 @@ class InsertFIFO(Transformation):
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
+                            normal_shape=n_shape,
                             dataType=str(dtype.name),
                             impl_style=impl_style,
                             ram_style=self.vivado_ram_style,

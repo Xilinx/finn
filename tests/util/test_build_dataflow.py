@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import numpy as np
@@ -44,7 +42,7 @@ from finn.util.basic import make_build_dir
 def test_end2end_build_dataflow_directory():
     test_dir = make_build_dir("test_build_dataflow_directory_")
     target_dir = test_dir + "/build_dataflow"
-    example_data_dir = pk.resource_filename("finn.qnn-data", "build_dataflow/")
+    example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/build_dataflow"
     copytree(example_data_dir, target_dir)
     build_dataflow_directory(target_dir)
     # check the generated files
@@ -52,14 +50,13 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
+    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
     assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
-    assert os.path.isfile(
-        output_dir + "/report/estimate_layer_config_alternatives.json"
-    )
+    assert os.path.isfile(output_dir + "/report/estimate_layer_config_alternatives.json")
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
@@ -71,16 +68,8 @@ def test_end2end_build_dataflow_directory():
     verif_batchsize = np.load(target_dir + "/input.npy").shape[0]
     for i in range(verif_batchsize):
         verify_out_dir = output_dir + "/verification_output"
-        assert os.path.isfile(
-            verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy"
-        )
-        assert os.path.isfile(
-            verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy"
-        )
-        assert os.path.isfile(
-            verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy"
-        )
-        assert os.path.isfile(
-            verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy"
-        )
+        assert os.path.isfile(verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy")
+        assert os.path.isfile(verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy")
+        assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
+        assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(output_dir + f"/report/verify_rtlsim_{i}.vcd")

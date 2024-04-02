@@ -1,4 +1,5 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,7 +33,7 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 class DeriveCharacteristic(NodeLocalTransformation):
@@ -58,16 +59,14 @@ class DeriveCharacteristic(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
                 inst.derive_characteristic_fxns(period=self.period)
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)
 
     def apply(self, model: ModelWrapper):
@@ -76,7 +75,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
             return (model, run_again)
         # apply manual fix for DuplicateStreams and AddStreams for
         # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_Batch")
+        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
         for addstrm_node in addstrm_nodes:
             # we currently only support the case where one branch is
             # a bypass
@@ -85,8 +84,8 @@ class DeriveCharacteristic(NodeLocalTransformation):
             if (b0 is None) or (b1 is None):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)
-            b0_is_bypass = b0.op_type == "DuplicateStreams_Batch"
-            b1_is_bypass = b1.op_type == "DuplicateStreams_Batch"
+            b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
+            b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
             if (not b0_is_bypass) and (not b1_is_bypass):
                 warnings.warn("Found unsupported AddStreams, skipping")
                 return (model, run_again)
@@ -103,24 +102,16 @@ class DeriveCharacteristic(NodeLocalTransformation):
             # for DuplicateStreams, use comp_branch_first's input characterization
             # for AddStreams, use comp_branch_last's output characterization
             period = comp_branch_first.get_nodeattr("io_chrc_period")
-            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[
-                : 2 * period
-            ]
-            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[
-                2 * period :
-            ]
+            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[: 2 * period]
+            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[2 * period :]
             ds_node_inst = registry.getCustomOp(ds_node)
             addstrm_node_inst = registry.getCustomOp(addstrm_node)
             ds_node_inst.set_nodeattr("io_chrc_period", period)
             ds_node_inst.set_nodeattr("io_characteristic", comp_branch_first_f * 2)
             addstrm_node_inst.set_nodeattr("io_chrc_period", period)
             addstrm_node_inst.set_nodeattr("io_characteristic", comp_branch_last_f * 2)
-            warnings.warn(
-                f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}"
-            )
-            warnings.warn(
-                f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}"
-            )
+            warnings.warn(f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}")
+            warnings.warn(f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}")
         return (model, run_again)
 
 
@@ -140,16 +131,14 @@ class DeriveFIFOSizes(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 prod = registry.getCustomOp(node)
-                assert op_type != "StreamingFIFO", "Found existing FIFOs"
+                assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
                 prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
-                assert (
-                    len(prod_chrc) == 2 * period
-                ), "Found unexpected characterization attribute"
+                assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
                 if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
                     return (node, False)
@@ -186,14 +175,12 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 # finally, check node inputs to ensure FIFOs are added to
                 # any top-level inputs (at least self.io_fifo_depth deep)
                 in_fifo_depths = prod.get_nodeattr("inFIFODepths")
-                for (i, input_name) in enumerate(node.input):
+                for i, input_name in enumerate(node.input):
                     if input_name in [x.name for x in model.graph.input]:
                         in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
                 prod.set_nodeattr("inFIFODepths", in_fifo_depths)
 
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)

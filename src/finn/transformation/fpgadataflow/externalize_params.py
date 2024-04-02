@@ -42,7 +42,7 @@ class ExternalizeParams(Transformation):
         graph_modified = False
 
         def filter_fc_extw(x):
-            if x.op_type == "IODMA":
+            if x.op_type == "IODMA_hls":
                 burst_mode = get_by_name(x.attribute, "burstMode")
                 if burst_mode is not None:
                     burst_mode = burst_mode.s.decode("UTF-8")
@@ -64,11 +64,7 @@ class ExternalizeParams(Transformation):
                 assert iodma_init is not None
                 # remove output-side initializer to get correct dataflow partitioning
                 model.graph.initializer.remove(
-                    [
-                        x
-                        for x in model.graph.initializer
-                        if x.name == extw_tensor_name_out
-                    ][0]
+                    [x for x in model.graph.initializer if x.name == extw_tensor_name_out][0]
                 )
                 graph_modified = True
 

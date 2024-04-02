@@ -48,9 +48,7 @@ with open(file_name, "w") as tb_data:
                 tb_data.write("{:02X}".format(test_x[i][j][k]))
             tb_data.write("\n")
         tb_data.write(
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffff{:02X}\n".format(
-                test_y[i]
-            )
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffff{:02X}\n".format(test_y[i])
         )
 
 print("Testbench data generated at " + file_name)

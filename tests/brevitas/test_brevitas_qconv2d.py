@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
 import torch
@@ -36,7 +35,7 @@ from brevitas.core.quant import QuantType
 from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
 from brevitas.core.stats import StatsOp
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_qonnx
 from brevitas.nn import QuantConv2d
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -54,8 +53,7 @@ export_onnx_path = "test_brevitas_conv.onnx"
 @pytest.mark.parametrize("dw", [False, True])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("in_channels", [32])
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_QConv2d(dw, bias, in_channels, QONNX_export):
+def test_brevitas_QConv2d(dw, bias, in_channels):
     ishape = (1, 32, 111, 111)
     if dw is True:
         groups = in_channels
@@ -94,16 +92,11 @@ def test_brevitas_QConv2d(dw, bias, in_channels, QONNX_export):
     weight_tensor = gen_finn_dt_tensor(DataType["INT4"], w_shape)
     b_conv.weight = torch.nn.Parameter(torch.from_numpy(weight_tensor).float())
     b_conv.eval()
-    if QONNX_export:
-        m_path = export_onnx_path
-        BrevitasONNXManager.export(b_conv, ishape, m_path)
-        qonnx_cleanup(m_path, out_file=m_path)
-        model = ModelWrapper(m_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(m_path)
-    else:
-        bo.export_finn_onnx(b_conv, ishape, export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    m_path = export_onnx_path
+    export_qonnx(b_conv, torch.randn(ishape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+    model = ModelWrapper(m_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=1.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}

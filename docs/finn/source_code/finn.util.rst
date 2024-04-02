@@ -31,8 +31,16 @@ qonnx.util.config
   :undoc-members:
   :show-inheritance:
 
+qonnx.util.convert
+--------------------
+
+.. automodule:: qonnx.util.convert
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 qonnx.util.exec\_qonnx
-----------------------
+------------------------
 
 .. automodule:: qonnx.util.exec_qonnx
    :members:
@@ -55,6 +63,37 @@ qonnx.util.onnx
    :undoc-members:
    :show-inheritance:
 
+qonnx.util.prune\_channels
+---------------------------
+
+.. automodule:: qonnx.util.prune_channels
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.util.random\_reseed
+--------------------------
+
+.. automodule:: qonnx.util.random_reseed
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.util.range\_analysis
+---------------------------
+
+.. automodule:: qonnx.util.range_analysis
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+qonnx.util.test
+--------------------
+
+.. automodule:: qonnx.util.test
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 qonnx.util.to\_channels\_last
 ------------------------------
@@ -81,8 +120,6 @@ finn.util.create
   :undoc-members:
   :show-inheritance:
 
-
-
 finn.util.data\_packing
 ------------------------------
 
@@ -98,14 +135,6 @@ finn.util.fpgadataflow
    :members:
    :undoc-members:
    :show-inheritance:
-
-finn.util.gdrive
------------------------------
-
-.. automodule:: finn.util.gdrive
-  :members:
-  :undoc-members:
-  :show-inheritance:
 
 finn.util.hls
 ---------------

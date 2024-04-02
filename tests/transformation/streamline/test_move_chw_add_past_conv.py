@@ -85,13 +85,9 @@ def test_move_chw_add_past_conv(idim, k, s, ich, och):
 
     model = ModelWrapper(model)
     # initialize model
-    a0_values = np.random.uniform(low=0, high=1, size=tuple(add_param_shape)).astype(
-        np.float32
-    )
+    a0_values = np.random.uniform(low=0, high=1, size=tuple(add_param_shape)).astype(np.float32)
     model.set_initializer("a0", a0_values)
-    a1_values = np.random.uniform(low=0, high=1, size=tuple(conv_param_shape)).astype(
-        np.float32
-    )
+    a1_values = np.random.uniform(low=0, high=1, size=tuple(conv_param_shape)).astype(np.float32)
     model.set_initializer("a1", a1_values)
 
     model = model.transform(InferShapes())

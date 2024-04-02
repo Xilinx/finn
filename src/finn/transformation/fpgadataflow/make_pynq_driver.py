@@ -26,9 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
-import pkg_resources as pk
-
 import numpy as np
 import os
 import qonnx
@@ -56,14 +53,10 @@ def to_external_tensor(init, w_dtype):
 
     weight_width = init.shape[1] * w_dtype.bitwidth()
     weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-    hex_init = pack_innermost_dim_as_hex_string(
-        init, w_dtype, weight_width_padded, prefix="0x"
-    )
+    hex_init = pack_innermost_dim_as_hex_string(init, w_dtype, weight_width_padded, prefix="0x")
     ext_weight = np.array([], dtype=np.uint8)
     for line in hex_init:
-        array_line = [
-            x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))
-        ]
+        array_line = [x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))]
         ext_weight = np.append(ext_weight, array_line)
 
     return ext_weight
@@ -88,14 +81,13 @@ class MakePYNQDriver(Transformation):
         self.platform = platform
 
     def apply(self, model):
-
         # create a temporary folder for the generated driver
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
 
         # create the base FINN driver -- same for all accels
-        driver_base_template = pk.resource_filename(
-            "finn.qnn-data", "templates/driver/driver_base.py"
+        driver_base_template = (
+            os.environ["FINN_ROOT"] + "/src/finn/qnn-data/templates/driver/driver_base.py"
         )
         driver_base_py = pynq_driver_dir + "/driver_base.py"
         shutil.copy(driver_base_template, driver_base_py)
@@ -115,9 +107,7 @@ class MakePYNQDriver(Transformation):
         files_to_copy.append(
             (qonnx_path + "/core/__init__.py", qonnx_target_path + "/core/__init__.py")
         )
-        files_to_copy.append(
-            (qonnx_path + "/util/basic.py", qonnx_target_path + "/util/basic.py")
-        )
+        files_to_copy.append((qonnx_path + "/util/basic.py", qonnx_target_path + "/util/basic.py"))
         files_to_copy.append(
             (qonnx_path + "/util/__init__.py", qonnx_target_path + "/util/__init__.py")
         )
@@ -133,7 +123,7 @@ class MakePYNQDriver(Transformation):
                 finn_target_path + "/util/__init__.py",
             )
         )
-        for (src_file, target_file) in files_to_copy:
+        for src_file, target_file in files_to_copy:
             shutil.copy(src_file, target_file)
         # extract input-output shapes from the graph
         # TODO convert this to an analysis pass?
@@ -156,7 +146,7 @@ class MakePYNQDriver(Transformation):
                 Ensure CreateDataflowPartition called before driver creation."""
             first_df_model = ModelWrapper(getCustomOp(i_consumer).get_nodeattr("model"))
             assert (
-                first_df_model.graph.node[0].op_type == "IODMA"
+                first_df_model.graph.node[0].op_type == "IODMA_hls"
             ), "First partition must hold input IODMA"
             successors = model.find_direct_successors(i_consumer)
             successor_input_num = list(successors[0].input).index(i_consumer.output[0])
@@ -165,13 +155,9 @@ class MakePYNQDriver(Transformation):
             first_node = successor_df_model.find_consumer(
                 successor_df_model.graph.input[successor_input_num].name
             )
-            i_tensor_shape_folded = tuple(
-                getCustomOp(first_node).get_folded_input_shape()
-            )
+            i_tensor_shape_folded = tuple(getCustomOp(first_node).get_folded_input_shape())
             # generate dummy folded i/o tensors and their packed versions
-            i_tensor_dummy_folded = gen_finn_dt_tensor(
-                i_tensor_dt, i_tensor_shape_folded
-            )
+            i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
             i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
                 i_tensor_dummy_folded, i_tensor_dt
             )
@@ -202,23 +188,17 @@ class MakePYNQDriver(Transformation):
                 Ensure CreateDataflowPartition called before driver creation."""
             df_model = ModelWrapper(getCustomOp(o_producer).get_nodeattr("model"))
             assert (
-                df_model.graph.node[-1].op_type == "IODMA"
+                df_model.graph.node[-1].op_type == "IODMA_hls"
             ), "Partition must hold output IODMA"
             predecessors = model.find_direct_predecessors(o_producer)
-            predecessor_output_num = list(predecessors[0].output).index(
-                o_producer.input[0]
-            )
+            predecessor_output_num = list(predecessors[0].output).index(o_producer.input[0])
             predecessor_sdp = getCustomOp(predecessors[0])
             predecessor_df_model = ModelWrapper(predecessor_sdp.get_nodeattr("model"))
             last_node = predecessor_df_model.find_producer(
                 predecessor_df_model.graph.output[predecessor_output_num].name
             )
-            o_tensor_shape_folded = tuple(
-                getCustomOp(last_node).get_folded_output_shape()
-            )
-            o_tensor_dummy_folded = gen_finn_dt_tensor(
-                o_tensor_dt, o_tensor_shape_folded
-            )
+            o_tensor_shape_folded = tuple(getCustomOp(last_node).get_folded_output_shape())
+            o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
             o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
                 o_tensor_dummy_folded, o_tensor_dt
             )
@@ -253,20 +233,14 @@ class MakePYNQDriver(Transformation):
                 sdp_inst = getCustomOp(node)
                 idma_name = sdp_inst.get_nodeattr("instance_name")
                 df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
-                assert df_model.graph.node[0].op_type == "IODMA"
+                assert df_model.graph.node[0].op_type == "IODMA_hls"
                 iodma_node = getCustomOp(df_model.graph.node[0])
                 if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
-                    init_tensor = df_model.get_initializer(
-                        iodma_node.onnx_node.input[0]
-                    )
+                    init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
                     ext_weight_dma_cnt += 1
-                    w_dtype = df_model.get_tensor_datatype(
-                        iodma_node.onnx_node.input[0]
-                    )
+                    w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
                     init_external_tensor = to_external_tensor(init_tensor, w_dtype)
-                    np.save(
-                        weights_dir + "/" + idma_name + ".npy", init_external_tensor
-                    )
+                    np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
                 idma_idx += 1
 
         # fill in the driver template
@@ -293,8 +267,8 @@ class MakePYNQDriver(Transformation):
 
         # add validate.py to run full top-1 test (only for suitable networks)
         validate_py = pynq_driver_dir + "/validate.py"
-        validate_template = pk.resource_filename(
-            "finn.qnn-data", "templates/driver/validate.py"
+        validate_template = (
+            os.environ["FINN_ROOT"] + "/src/finn/qnn-data/templates/driver/validate.py"
         )
         shutil.copy(validate_template, validate_py)
 
@@ -308,7 +282,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
+                if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:
@@ -318,9 +292,7 @@ class MakePYNQDriver(Transformation):
                             rt_layer_ind,
                             node.name,
                         )
-                        node_inst.make_weight_file(
-                            fcl_w, "decoupled_runtime", w_filename
-                        )
+                        node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
                         rt_layer_ind += 1
                 elif node.op_type == "StreamingDataflowPartition":
                     warnings.warn(

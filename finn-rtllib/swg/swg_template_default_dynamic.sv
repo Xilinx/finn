@@ -1,3 +1,34 @@
+/******************************************************************************
+ * Copyright (C) 2022-2023, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ *  3. Neither the name of the copyright holder nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
 module $TOP_MODULE_NAME$_controller #(
     int unsigned  CNTR_BITWIDTH,
     int unsigned  INCR_BITWIDTH,
@@ -26,6 +57,8 @@ module $TOP_MODULE_NAME$_controller #(
     input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_h,
     input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_last
 );
+
+    import  swg::*;
 
     // (dynamic) configuration registers
     logic [CNTR_BITWIDTH-1:0] Cfg_cntr_simd      = $LOOP_SIMD_ITERATIONS$;
@@ -62,14 +95,6 @@ module $TOP_MODULE_NAME$_controller #(
     end
 
     // state and counters
-    typedef enum logic [2:0] {
-        STATE_START,
-        STATE_LOOP_SIMD,
-        STATE_LOOP_KW,
-        STATE_LOOP_KH,
-        STATE_LOOP_W,
-        STATE_LOOP_H
-    }  state_e;
     state_e  State = $INNERMOST_STATE$;
     state_e  state_next;
 
@@ -152,31 +177,6 @@ module $TOP_MODULE_NAME$_controller #(
 
 endmodule :  $TOP_MODULE_NAME$_controller
 
-module $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
-    int unsigned  WIDTH,
-    int unsigned  DEPTH
-)(
-    input   logic  clk,
-
-    input   logic  write_enable,
-    input   logic [$clog2(DEPTH)-1:0] write_addr,
-    input   logic [WIDTH-1:0]  data_in,
-
-    input   logic  read_enable,
-    input   logic [$clog2(DEPTH)-1:0]  read_addr, // absolute (!) read address of cyclic buffer
-    output  logic [WIDTH-1:0]  data_out
-);
-
-    $RAM_STYLE$ logic [WIDTH-1:0] Ram[DEPTH];
-    logic [WIDTH-1:0]  Out = 'x;
-    always_ff @(posedge clk) begin
-        if (read_enable)  Out <= Ram[read_addr];
-        if (write_enable) Ram[write_addr] <= data_in;
-    end
-    assign  data_out = Out;
-
-endmodule : $TOP_MODULE_NAME$_cyclic_buffer_addressable
-
 module $TOP_MODULE_NAME$_impl #(
     int  BIT_WIDTH,
     int  SIMD,
@@ -242,9 +242,10 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  window_buffer_read_enable;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_write_addr;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_read_addr;
-    $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
+    swg_cyclic_buffer_addressable #(
         .WIDTH(BUF_IN_WIDTH),
-        .DEPTH(BUF_ELEM_TOTAL)
+        .DEPTH(BUF_ELEM_TOTAL),
+        .RAM_STYLE($RAM_STYLE$)
     ) window_buffer_inst (
         .clk(ap_clk),
 
