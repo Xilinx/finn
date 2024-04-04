@@ -103,7 +103,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root, pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import get_finn_root
 from finn.util.pytorch import NormalizePreProc
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import (
@@ -480,6 +480,13 @@ def test_end2end_mobilenet_hw_ipgen():
 @pytest.mark.end2end
 def test_end2end_mobilenet_rtlsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
+    # use critical path estimate to set rtlsim liveness threshold
+    # (very conservative)
+    model = model.transform(AnnotateCycles())
+    estimate_network_performance = model.analysis(dataflow_performance)
+    os.environ["LIVENESS_THRESHOLD"] = str(
+        int(estimate_network_performance["critical_path_cycles"])
+    )
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
     inp_name = model.graph.input[0].name
@@ -577,12 +584,9 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
     # (very conservative)
     model = model.transform(AnnotateCycles())
     estimate_network_performance = model.analysis(dataflow_performance)
-    prev_liveness = pyverilate_get_liveness_threshold_cycles()
     os.environ["LIVENESS_THRESHOLD"] = str(
         int(estimate_network_performance["critical_path_cycles"])
     )
-    os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
-
     # Prepare input
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
