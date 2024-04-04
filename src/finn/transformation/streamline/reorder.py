@@ -138,7 +138,7 @@ class MoveScalarMulPastMatMul(Transformation):
             if node.op_type == "MatMul":
                 # Note: When touching the following code, remember to treat both
                 # branches equivalently!
-                # TODO: Can this be enforeced or at least be made easier by
+                # TODO: Can this be enforced or at least be made easier by
                 #  extracting common code patterns to a function?
 
                 # Get the left hand side and right hand side inputs
@@ -151,11 +151,11 @@ class MoveScalarMulPastMatMul(Transformation):
                 # Give precedence to the left hand side input testing for the
                 # presence of a scalar multiplication
                 if is_const_scalar_mul(lhs, model):
-                    # Cannto handle fork nodes: We would have to distribute the
+                    # Cannot handle fork nodes: We would have to distribute the
                     # Mul into all branches
                     # TODO: Maybe reconsider this at some point, there is
-                    #  probabably nothing preventing this in general, it is just
-                    #  more difficult and apparanetly not necessary right now.
+                    #  probably nothing preventing this in general, it is just
+                    #  more difficult and apparently not necessary right now.
                     if model.is_fork_node(lhs):
                         # Softly skip this node
                         continue
@@ -190,11 +190,11 @@ class MoveScalarMulPastMatMul(Transformation):
                 # Next try whether the right hand side matches the pattern of a
                 # scalar multiplication
                 if is_const_scalar_mul(rhs, model):
-                    # Cannto handle fork nodes: We would have to distribute the
+                    # Cannot handle fork nodes: We would have to distribute the
                     # Mul into all branches
                     # TODO: Maybe reconsider this at some point, there is
-                    #  probabably nothing preventing this in general, it is just
-                    #  more difficult and apparanetly not necessary right now.
+                    #  probably nothing preventing this in general, it is just
+                    #  more difficult and apparently not necessary right now.
                     if model.is_fork_node(rhs):
                         # Softly skip this node
                         continue
