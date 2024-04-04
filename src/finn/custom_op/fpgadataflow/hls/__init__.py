@@ -79,3 +79,19 @@ custom_op["TLastMarker_hls"] = TLastMarker_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
 custom_op["MVAU_hls"] = MVAU_hls
 custom_op["VVAU_hls"] = VVAU_hls
+
+from finn.custom_op.fpgadataflow.attention import (
+    ScaledDotProductAttention as ScaledDotProductAttention_hls
+)
+from finn.custom_op.fpgadataflow.attention_heads import (
+    SplitMultiHeads as SplitMultiHeads_hls,
+    MergeMultiHeads as MergeMultiHeads_hls
+)
+from finn.custom_op.fpgadataflow.replicate_stream import (
+    ReplicateStream as ReplicateStream_hls
+)
+
+custom_op["ScaledDotProductAttention_hls"]  = ScaledDotProductAttention_hls
+custom_op["SplitMultiHeads_hls"] = SplitMultiHeads_hls
+custom_op["MergeMultiHeads_hls"] = MergeMultiHeads_hls
+custom_op["ReplicateStream_hls"] = ReplicateStream_hls

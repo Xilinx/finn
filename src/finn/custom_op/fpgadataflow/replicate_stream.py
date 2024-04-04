@@ -17,12 +17,14 @@ from qonnx.core.modelwrapper import ModelWrapper  # noqa qonnx
 # Converts inputs/outputs to/from RTL simulation format
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 # Derive custom operators form the FINN base custom op
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+# Specialize the custom op as HLS backend implementation
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 
 
 # Replicates an input stream to arbitrary many output streams
 #   See DuplicateStreams_Batch for feeding exactly two streams
-class ReplicateStream(HLSCustomOp):
+class ReplicateStream(HWCustomOp, HLSBackend):
     # Initializes the operator given an onnx graph node
     def __init__(self, onnx_node, **kwargs):
         # Just forward all arguments to the init method of the CustomOp base
@@ -37,9 +39,13 @@ class ReplicateStream(HLSCustomOp):
     # Defines attributes which must be present on this node
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
-        attrs = super().get_nodeattr_types()
+        attrs = HWCustomOp.get_nodeattr_types(self)
+        attrs.update(HLSBackend.get_nodeattr_types(self))
         # Update attributes dictionary for new custom operator
         attrs.update({
+            # Force implementation style to HLS backend
+            "preferred_impl_style": ("s", False, "hls", {"", "hls"}),
+
             # Number of replicas to produce
             "num": ("i", True, 1),
             # Data type of input and output elements
