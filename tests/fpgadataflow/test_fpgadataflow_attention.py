@@ -1,43 +1,47 @@
+# fmt: off
+# Disable formatter. This is deliberately formatted to stay within 80 characters
+# per line. Black, however, formats some lines going beyond this.
+
 # Testing framework
-import pytest  # noqa pytest dependecy is listed in setup.cfg
+import pytest
+# Use numpy for python execution / computing the ground truth expected values
+import numpy as np
+
 # Automatically generate init, repr, ... for classes containing a lot of
 # attributes
 from dataclasses import dataclass
 
-# Use numpy for python execution / computing the ground truth expected values
-import numpy as np
-
 # Utility types and function for creating onnx nodes and graphs
 from onnx import TensorProto, helper
 
+# QONNX datatypes
+from qonnx.core.datatype import BaseDataType, DataType, FloatType, IntType
+# Wrapper around ONNX model with some graph manipulation utility
+from qonnx.core.modelwrapper import ModelWrapper
+# Execute onnx model graphs
+from qonnx.core.onnx_exec import execute_onnx
+# Multithreshold activations
+from qonnx.custom_op.general.multithreshold import multithreshold
+# Registry of all QONNX CustomOps
+from qonnx.custom_op.registry import getCustomOp
+# Graph transformation giving unique names to each node in a QONNX model graph
+from qonnx.transformation.general import GiveUniqueNodeNames
 # QONNX utility for generating random input data for testing and for creating
 # models
-from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model  # noqa qonnx
-# dependency is specified in setup.cfg as well as in fetch-repos.sh
-# QONNX datatypes
-from qonnx.core.datatype import (  # noqa
-    DataType, IntType, FloatType, BaseDataType
-)
-# Wrapper around ONNX model with some graph manipulation utility
-from qonnx.core.modelwrapper import ModelWrapper  # noqa
-# Execute onnx model graphs
-from qonnx.core.onnx_exec import execute_onnx  # noqa
-# Graph transformation giving unique names to each node in a QONNX model graph
-from qonnx.transformation.general import GiveUniqueNodeNames  # noqa
-# Multithreshold activations
-from qonnx.custom_op.general.multithreshold import multithreshold  # noqa
-
-# FINN graph transformations for preparing simulation (cppsim or rtlsim)
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 # Softmax function on numpy arrays with overflow handling matching the HLS
 # operator
 from finn.custom_op.fpgadataflow.attention import softmax
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+
+# FINN graph transformations for preparing simulation (cppsim or rtlsim)
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 # Python/Numpy model of the scaled dot-product attention operator as it is (will
@@ -222,8 +226,8 @@ class MockScaledDotProductAttention:
         #   Note: Order matters...
         thresholds = [
             "thresholds_qk_matmul",
+            "thresholds_a_softmax",
             "thresholds_av_matmul",
-            "thresholds_a_softmax"
         ]
         # Build up the node attribute dictionary
         kwargs = {
@@ -368,9 +372,9 @@ def test_attention_cppsim(
         AType=AType,
         OType=OType,
         # Accumulator type configuration
-        AccQKMatMul=DataType["UINT22"],
+        AccQKMatMul=DataType["UINT32"],
         OutQKMatMul=DataType["UINT8"],
-        AccAVMatMul=DataType["UINT22"],
+        AccAVMatMul=DataType["UINT32"],
         OutAVMatMul=OType,
         # Dequantizer scale, factor to convert the whole UINT8 range to floats
         # in range 0.0 to 1.0
@@ -385,6 +389,17 @@ def test_attention_cppsim(
     context = {
         "Q": q, "K": k, "V": v, "mask": mask
     }
+
+    # Mark all nodes to be specialized as HLS backend implementations
+    for node in model.graph.node:
+        # Get the CustomOp instance of the node to get access to the node
+        # attributes
+        inst = getCustomOp(node)
+        # Note: only HLS-based layers execute C++ Simulation
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    # Turn all HWCustomOp layers into HLS specializations
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
     # Set model execution mode to C++ simulation
     model = model.transform(SetExecMode("cppsim"))
     # Generates the C++ source and compiles the C++ simulation
@@ -405,13 +420,6 @@ def test_attention_cppsim(
 
     # Test whether the expectation and the onnx model output match
     assert np.allclose(o_produced, o_expected), "cppsim exec failed"
-
-
-# This is a fpgadataflow type of test
-@pytest.mark.fpgadataflow
-# Tests rtl simulation of single scaled dot-product attention head
-def test_fpgadataflow_attention_rtlsim():
-    pass
 
 
 # Size of query and key embedding dimension
@@ -478,9 +486,9 @@ def test_attention_rtlsim(
         AType=AType,
         OType=OType,
         # Accumulator type configuration
-        AccQKMatMul=DataType["UINT22"],
+        AccQKMatMul=DataType["UINT32"],
         OutQKMatMul=DataType["UINT8"],
-        AccAVMatMul=DataType["UINT22"],
+        AccAVMatMul=DataType["UINT32"],
         OutAVMatMul=OType,
         # Dequantizer scale, factor to convert the whole UINT8 range to floats
         # in range 0.0 to 1.0
@@ -495,6 +503,17 @@ def test_attention_rtlsim(
     context = {
         "Q": q, "K": k, "V": v, "mask": mask
     }
+
+    # Mark all nodes to be specialized as HLS backend implementations
+    for node in model.graph.node:
+        # Get the CustomOp instance of the node to get access to the node
+        # attributes
+        inst = getCustomOp(node)
+        # Note: only HLS-based layers execute C++ Simulation
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    # Turn all HWCustomOp layers into HLS specializations
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
     # Set model execution mode to RTL simulation
     model = model.transform(SetExecMode("rtlsim"))
     # Generates the C++ source and compiles the RTL simulation
