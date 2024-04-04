@@ -1,29 +1,24 @@
-# Operating system stuff, e.g. paths
-import os
-# Python warning subsystem
-import warnings
+# fmt: off
+# Disable formatter. This is deliberately formatted to stay within 80 characters
+# per line. Black, however, formats some lines going beyond this.
+
 # Python builtin math functions: math.ceil returns int, while np.ceil returns
 # float
 import math
 # Numpy math and arrays
 import numpy as np
+# Python warning subsystem
+import warnings
+
+# QONNX/FINN datatypes
+from qonnx.core.datatype import DataType
+# Multithreshold activations
+from qonnx.custom_op.general.multithreshold import multithreshold
+# Some utils for working with tensors in qonnx
+from qonnx.util.basic import calculate_matvec_accumulator_range
 
 # Derive custom operators form the FINN base custom op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-# Specialize the custom op as HLS backend implementation
-from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-# Convert and pack (numpy) data for C++ code generation
-from finn.util.data_packing import numpy_to_hls_code
-# QONNX/FINN datatypes
-from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
-# in setup.cfg as well as in fetch-repos.sh
-# QONNX wrapper to ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper  # noqa
-# Some utils for working with tensors in qonnx
-from qonnx.util.basic import (  # noqa
-    interleave_matrix_outer_dim_from_partitions,
-    calculate_matvec_accumulator_range
-)
 
 
 # Softmax function on numpy arrays with overflow handling matching the HLS
@@ -47,23 +42,18 @@ def softmax(x, axis):
 
 # Scaled Dot-Product Attention Custom Operator
 #   Note: Single head attention
-class ScaledDotProductAttention(HWCustomOp, HLSBackend):
+class ScaledDotProductAttention(HWCustomOp):
     # Initializes the operator given an onnx graph node
     def __init__(self, onnx_node, **kwargs):
         # Just forward all arguments to the init method of the CustomOp base
         super().__init__(onnx_node, **kwargs)
 
-    # WIP: Refactor the node attributes matching the HLS operator which is WIP
-    # in another repository right now.
+    # Node attributes matching the HLS operator
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
         attrs = HWCustomOp.get_nodeattr_types(self)
-        attrs.update(HLSBackend.get_nodeattr_types(self))
         # Update attributes dictionary for new custom operator
         attrs.update({
-            # Force implementation style to HLS backend
-            "preferred_impl_style": ("s", False, "hls", {"", "hls"}),
-
             # Embedding dimension of queries and keys
             "QKDim": ("i", True, 0),
             # Length of the query sequence
@@ -259,10 +249,6 @@ class ScaledDotProductAttention(HWCustomOp, HLSBackend):
 
     # Executes the attention operator in python mode simulation
     def _execute_node_python(self, context, graph):  # noqa: graph unused
-        # Multithreshold activations
-        from qonnx.custom_op.general.multithreshold import \
-            multithreshold  # noqa
-
         # Get the node wrapped by this custom op
         node = self.onnx_node
 
@@ -386,57 +372,16 @@ class ScaledDotProductAttention(HWCustomOp, HLSBackend):
 
     # Executes the attention operator in C++ mode simulation
     def _execute_node_cppsim(self, context, graph):  # noqa: graph unused
-        # Get the node wrapped by this custom op
-        node = self.onnx_node
-        # Input data is stored in numpy files in the code generation dictionary
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-
-        # By convention, inputs 0, 1 and 2 correspond to named inputs q, k and v
-
-        # Read the input from the execution context and reshape to match the
-        # expected folding
-        q = context[node.input[0]].reshape(self.get_folded_input_shape(ind=0))
-        # Save the folded inputs to file to be used by simulation
-        np.save(os.path.join(code_gen_dir, f"q.npy"), q)
-
-        # Read the input from the execution context and reshape to match the
-        # expected folding
-        k = context[node.input[1]].reshape(self.get_folded_input_shape(ind=1))
-        # Save the folded inputs to file to be used by simulation
-        np.save(os.path.join(code_gen_dir, f"k.npy"), k)
-
-        # Read the input from the execution context and reshape to match the
-        # expected folding
-        v = context[node.input[2]].reshape(self.get_folded_input_shape(ind=2))
-        # Save the folded inputs to file to be used by simulation
-        np.save(os.path.join(code_gen_dir, f"v.npy"), v)
-
-        # Optionally, the mask may be provided as an input as well
-        if self.get_nodeattr("mask_mode") == "input":
-            # Read the input from the execution context and reshape to match the
-            # expected folding
-            m = context[node.input[3]].reshape(
-                self.get_folded_input_shape(ind=3)
-            )
-            # Save the folded inputs to file to be used by simulation
-            np.save(os.path.join(code_gen_dir, f"m.npy"), m)
-
-        # Execute the precompiled model
-        super().exec_precompiled_singlenode_model()
-
-        # Load the output numpy file generated by the C++ simulation
-        out = np.load(os.path.join(code_gen_dir, f"out.npy"))
-        # Reshape the folded output and insert into the execution context
-        context[self.onnx_node.output[0]] = out.reshape(
-            self.get_normal_output_shape(ind=0)
+        # C++ Simulation needs to be implemented in HLS backend specialization
+        raise NotImplementedError(
+            f"exec_mode cppsim of {self.__class__.__name__} is not implemented!"
         )
 
     # Executes the attention operator in RTL mode simulation
     def _execute_node_rtlsim(self, context, graph):  # noqa: graph unused
-        # TODO: Implement rtlsim mode
-        # Note: Cannot even compile this right now due to missing float ips
+        # RTL Simulation needs to be implemented in backend specialization
         raise NotImplementedError(
-            "exec_mode rtlsim is not implemented yet!"
+            f"exec_mode rtlsim of {self.__class__.__name__} is not implemented!"
         )
 
     # Executes the attention operator in simulation (either python, c++ or rtl)
@@ -632,61 +577,6 @@ class ScaledDotProductAttention(HWCustomOp, HLSBackend):
         # Width of a stream producing output elements in parallel
         return elems * o_bits
 
-    # Maximum width of any ap_int used in this operator
-    def get_ap_int_max_w(self):
-        # Find the widths of the widest input
-        i_bits_max = max((self.get_instream_width(ind) for ind in range(3)))
-        # Find the widths of the widest output
-        o_bits_max = max((self.get_outstream_width(ind) for ind in range(1)))
-        # Assume no bits to represent the mask, if there is no mask
-        m_bits = 0
-        # A mask received as input has a bit-width as well
-        if self.get_nodeattr("mask_mode") in {"input", "const"}:
-            # Parallelism is the number of elements in the last dimension of the
-            # folded mask input
-            _, _, elems = self.get_folded_input_shape(ind=3)
-            # Get width of the mask datatype
-            m_bits = elems * DataType[self.get_nodeattr("MType")].bitwidth()
-
-        # Elements per folded key input (second input)
-        _, _, i_elems = self.get_folded_input_shape(ind=1)
-        # Elements per folded value input (third input), same as the number of
-        # output elements
-        _, _, o_elems = self.get_folded_input_shape(ind=2)
-
-        # Parallelism is the number of elements in the last dimension of the
-        # folded attention weights
-        _, _, s_elems = self.get_folded_attention_shape()
-        # Number of bits used for the attention weights stream
-        a_bits = s_elems * DataType[self.get_nodeattr("AType")].bitwidth()
-
-        # Maximum bits per tile of the key and value matrix streams
-        tile_bits_max = max([
-            i_elems * s_elems * DataType[self.get_nodeattr("KType")].bitwidth(),
-            o_elems * s_elems * DataType[self.get_nodeattr("VType")].bitwidth(),
-        ])
-        # Maximum bits per matmul accumulators
-        acc_bits_max = max([
-            # These are not streamed, thus single element width is counted
-            DataType[self.get_nodeattr("AccQKMatMul")].bitwidth(),
-            DataType[self.get_nodeattr("AccAVMatMul")].bitwidth(),
-        ])
-        # Maximum bits per matmul outputs
-        out_bits_max = max([
-            # These are the stream widths, which are always >= than individual
-            # elements
-            s_elems * DataType[self.get_nodeattr("OutQKMatMul")].bitwidth(),
-            o_elems * DataType[self.get_nodeattr("OutAVMatMul")].bitwidth(),
-        ])
-        # Aggregate the maximum bit width in both matmul operators over all
-        # inputs, intermediates and outputs
-        matmul_bits_max = max([
-            tile_bits_max, acc_bits_max, out_bits_max
-        ])
-
-        # Find maximum of all (maximal) bit-widths
-        return max([i_bits_max, o_bits_max, m_bits, a_bits, matmul_bits_max])
-
     # Minimize the accumulator bit width
     def minimize_accumulator_width(self, model):  # noqa: model is unused
         # Get the query, key, value and attention weights type
@@ -778,14 +668,6 @@ class ScaledDotProductAttention(HWCustomOp, HLSBackend):
         # the embedding dimension
         return np.prod(self.get_folded_output_shape()[:-1])
 
-    # Generates list of C++ includes to be placed at the top of the generated
-    # code
-    def global_includes(self):
-        # FINN HLSLIB activation functions: e.g. PassThroughActivation
-        self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
-        # Attention operator HLS code
-        self.code_gen_dict["$GLOBALS$"] += ['#include "attention.hpp"']
-
     # Converts names of optional inputs to the node input index and from there
     # to the ONNX node input name if the input is present.
     #   Note: This mapping is required as the ONNX graph/node may provide
@@ -827,516 +709,3 @@ class ScaledDotProductAttention(HWCustomOp, HLSBackend):
         # Find the position of the requested input name and look up the
         # corresponding input name of the ONNX node
         return self.onnx_node.input[inputs.index(name)]
-
-    # Generates C++ parameters file, i.e. activation function thresholds
-    def generate_params(self, model: ModelWrapper, path):
-        # The code generation directory is specified as an argument, so this
-        # will work for both RTL and C++ simulation
-        code_gen_dir = path
-
-        # Note: The attention operator itself has no weights to be generated as
-        # a parameter file
-
-        # Start all three activations defaulting to pass-through of the
-        # accumulator type.
-        #   Note: This might allow type-casts to the output types if they are
-        #   not the same as the accumulators.
-        act_qk_matmul = "PassThroughActivation<AccQKMatMul>"
-        act_av_matmul = "PassThroughActivation<AccAVMatMul>"
-        act_a_softmax = "PassThroughActivation<float>"
-
-        # Start all thresholds defaulting to empty default initializer braces
-        thresholds_qk_matmul = "{}"
-        thresholds_av_matmul = "{}"
-        thresholds_a_softmax = "{}"
-
-        # Prepares a threshold tensor as C++ string for code generation
-        def prepare_thresholds(ts, length, fold, dtype):
-            # Number of thresholds is given as the last dimension of the
-            # threshold tensor, first dimension is covering all output elements
-            num = ts.shape[-1]  # noqa
-            # Partition the thresholds along the length into folds of parallel
-            # elements
-            ts = interleave_matrix_outer_dim_from_partitions(ts, length // fold)
-            # Reshape folded thresholds adding an outer dimension
-            # TODO: Why? MVAU does this, just copied the behavior. This is
-            #  probably to generate the outer C++ initializer braces {} for
-            #  object construction. Isn't it weird to rely on an artificial
-            #  dimension just to have the code generator produce the correct
-            #  string?
-            ts = ts.reshape(1, length // fold, fold, num)
-            # Format the thresholds as C++ array code
-            # Note: no packing, no variable name/type declaration
-            return numpy_to_hls_code(ts, dtype, "_", False, True), num
-
-        # Get shape and folding configuration. None of the activations fold
-        # along the query-key embedding dimension or the query sequence length
-        (_, _, vdim, kvlen), (embfold, seqfold) = self.shapes, self.folds
-
-        # Query-key matmul can have an optional activation function set to
-        # thresholding activations via node attribute
-        if self.get_nodeattr("ActQKMatMul") == "thresholds":
-            # In this case there will be a thresholds parameter initializer
-            thresholds = model.get_initializer(
-                self.get_input_name_by_name("thresholds_qk_matmul")
-            )
-            # Get the datatype of the thresholds
-            thresholds_dtype = DataType[self.get_nodeattr("AccQKMatMul")]
-            # Activation value, i.e., bias applied after thresholding activation
-            bias = self.get_nodeattr("BiasActQKMatMul")
-            # No support for floating-point bias
-            assert int(bias) == bias, "BiasActQKMatMul must be integer"
-            # Convert the bias to integer representation, so it can be used as a
-            # template argument
-            bias = int(bias)
-            # Format the thresholds as C++ array code: QK matmul outputs fold
-            # along the key-value sequence length dimension
-            thresholds_qk_matmul, num = prepare_thresholds(
-                thresholds, kvlen, seqfold, thresholds_dtype
-            )
-            # Get the HLS datatype string corresponding to the thresholds
-            # datatype for C++ code generation
-            dtype_str = thresholds_dtype.get_hls_datatype_str()
-            # Replace default pass-through activation by thresholding activation
-            #   Note: Relies on type and shape definitions generated by the
-            #   "defines" method
-            act_qk_matmul = "\n".join([
-                f"ThresholdsActivation<",
-                f" SeqFold,"
-                f" KVLen/SeqFold,"
-                f" {num},"
-                f" AccQKMatMul,"
-                f" OutQKMatMul,"
-                f" {bias},"
-                # Note: Not sure why the default comp::less does not work...
-                f" comp::less_equal<{dtype_str}, {dtype_str}>",
-                f">"
-            ])
-
-        # Softmax can have an optional activation function set to thresholding
-        # activations via node attribute
-        if self.get_nodeattr("ActASoftmax") == "thresholds":
-            # In this case there will be a thresholds parameter initializer
-            thresholds = model.get_initializer(
-                self.get_input_name_by_name("thresholds_a_softmax")
-            )
-            # Get the datatype of the thresholds
-            thresholds_dtype = DataType[self.get_nodeattr("AccASoftmax")]
-            # Activation value, i.e., bias applied after thresholding activation
-            bias = self.get_nodeattr("BiasActASoftmax")
-            # No support for floating-point bias
-            assert int(bias) == bias, "BiasActASoftmax must be integer"
-            # Convert the bias to integer representation, so it can be used as a
-            # template argument
-            bias = int(bias)
-            # Format the thresholds as C++ array code: Softmax outputs fold
-            # along the key-value sequence length dimension
-            thresholds_a_softmax, num = prepare_thresholds(
-                thresholds, kvlen, seqfold, thresholds_dtype
-            )
-            # Get the HLS datatype string corresponding to the thresholds
-            # datatype for C++ code generation
-            dtype_str = thresholds_dtype.get_hls_datatype_str()
-            # Replace default pass-through activation by thresholding activation
-            #   Note: Relies on type and shape definitions generated by the
-            #   "defines" method
-            act_a_softmax = "\n".join([
-                f"ThresholdsActivation<",
-                f" SeqFold,"
-                f" KVLen/SeqFold,"
-                f" {num},"
-                f" AccASoftmax,"
-                f" AType,"
-                f" {bias},"
-                # Note: Not sure why the default comp::less does not work...
-                f" comp::less_equal<{dtype_str}, {dtype_str}>",
-                f">"
-            ])
-
-        # Attention-value matmul can have an optional activation function set to
-        # thresholding activations via node attribute
-        if self.get_nodeattr("ActAVMatMul") == "thresholds":
-            # In this case there will be a thresholds parameter initializer
-            thresholds = model.get_initializer(
-                self.get_input_name_by_name("thresholds_av_matmul")
-            )
-            # Get the datatype of the thresholds
-            thresholds_dtype = DataType[self.get_nodeattr("AccAVMatMul")]
-            # Activation value, i.e., bias applied after thresholding activation
-            bias = self.get_nodeattr("BiasActAVMatMul")
-            # No support for floating-point bias
-            assert int(bias) == bias, "BiasActAVMatMul must be integer"
-            # Convert the bias to integer representation, so it can be used as a
-            # template argument
-            bias = int(bias)
-            # Format the thresholds as C++ array code: AV matmul outputs fold
-            # along the value embedding dimension
-            thresholds_av_matmul, num = prepare_thresholds(
-                thresholds, vdim, embfold, thresholds_dtype
-            )
-            # Get the HLS datatype string corresponding to the thresholds
-            # datatype for C++ code generation
-            dtype_str = thresholds_dtype.get_hls_datatype_str()
-            # Replace default pass-through activation by thresholding activation
-            #   Note: Relies on type and shape definitions generated by the
-            #   "defines" method
-            act_av_matmul = "\n".join([
-                f"ThresholdsActivation<",
-                f" EmbFold,"
-                f" VDim/EmbFold,"
-                f" {num},"
-                f" AccAVMatMul,"
-                f" OutAVMatMul,"
-                f" {bias},"
-                # Note: Not sure why the default comp::less does not work...
-                f" comp::less_equal<{dtype_str}, {dtype_str}>",
-                f">"
-            ])
-
-        # Assume no attention mask as a default: Generate C++ code of tag
-        # instance of "none" mask type
-        attention_mask = \
-            "static const auto attention_mask = attention::mask::NONE"
-
-        # If a causal mask is specified, set the appropriate tag dispatching
-        # instance
-        if self.get_nodeattr("mask_mode") == "causal":
-            # Generate C++ code of tag instance of causal mask type
-            attention_mask = \
-                "static const auto attention_mask = attention::mask::CAUSAL"
-
-        # If a constant mask is specified, array code needs to be generated
-        if self.get_nodeattr("mask_mode") == "const":
-            # Attention mask type of folded constant mask array
-            mask_type = "attention::mask::Const<SeqFold, KVLen/SeqFold, QLen>"
-            # Get the constant mask values
-            mask = model.get_initializer(self.get_input_name_by_name("M"))
-            # Num should always be equal to QLen
-            num = mask.shape[-1]
-            # Partition the mask along the length into folds of parallel
-            # elements
-            mask = interleave_matrix_outer_dim_from_partitions(
-                mask, kvlen // seqfold
-            )
-            # Reshape folded mask adding an outer dimension
-            mask = mask.reshape(num, kvlen // seqfold, seqfold).squeeze()
-            # Format the mask as C++ array code
-            # Note: no packing, no variable name/type declaration
-            mask = numpy_to_hls_code(mask, DataType["BINARY"], "_", False, True)
-            # Generate C++ code initializing the constant mask array
-            attention_mask = f"static const {mask_type} attention_mask = {mask}"
-
-        # Of a mask is provided as input, no object parameters need to be
-        # generated here
-        if self.get_nodeattr("mask_mode") == "input":
-            # Attention mask type of input stream
-            mask_type = "attention::mask::Input<SeqFold, KVLen/SeqFold, QLen>"
-            # Generate C++ code creating an input stream instance for the mask
-            # Note: This is just a dummy, the real input stream will be part
-            # of the operator interface
-            attention_mask = f"static const {mask_type} attention_mask;"
-
-        # Open a file to store the thresholds parameters as C++ code
-        with open(f"{code_gen_dir}/params.hpp", "w") as file:
-            # Write lines of C++ code separated by newlines to the file
-            file.write("\n".join([
-                # Scale factor preceding the softmax activation function to
-                # dequantize the input to floating-point representation
-                f"static const float dequant_softmax ="
-                f" {self.get_nodeattr('DequantSoftmax')};",
-                # Attention mask parameters if "none", "causal" or "const"
-                f"{attention_mask};",
-                # Type alias to the generated attention mask for convenience
-                f"using AttentionMask = decltype(attention_mask);",
-                # Add type definition and threshold initialization of the
-                # query-key matmul activation
-                f"using ActQKMatMul = {act_qk_matmul};",
-                f"ActQKMatMul act_qk_matmul = {thresholds_qk_matmul};",
-                # Add type definition and threshold initialization of the
-                # attention-value matmul activation
-                f"using ActAVMatMul = {act_av_matmul};",
-                f"ActAVMatMul act_av_matmul = {thresholds_av_matmul};",
-                # Add type definition and threshold initialization of the
-                # softmax activation
-                f"using ActASoftmax = {act_a_softmax};",
-                f"ActASoftmax act_a_softmax = {thresholds_a_softmax};",
-                # Append a newline at the end of the file (to avoid problems
-                # when including, required by C standard?)
-                "\n"
-            ]))
-
-    # Generates C++ code of type alias, global constant and macro definitions
-    def defines(self, var):
-        # Generate shape definitions from attributes to C++ constant definitions
-        def shapedefs(*names):
-            # C++ qualified type to be used for shape constants
-            shape = "static constexpr std::size_t"
-            # Generate a C++ constant definition for each of the attributes
-            # given by argument list names
-            return (
-                f"{shape} {name} = {self.get_nodeattr(name)};" for name in names
-            )
-
-        # Generate datatype definitions mapping from QONNX DataType to HLS type
-        def typedefs(*names):
-            # Gets the HLS type string for the datatype specified by the named
-            # attribute
-            def hls_type(name):
-                # Looks up the datatype specified for the attribute and
-                # translates from QONNX to HLS type
-                return DataType[self.get_nodeattr(name)].get_hls_datatype_str()
-
-            # Generate a C++ type alias definition for each of the attributes
-            # given by argument list names
-            return (f"using {name} = {hls_type(name)};" for name in names)
-
-        # Insert constants and type aliases into the dictionary
-        self.code_gen_dict["$DEFINES$"] = [
-            # Shape constant definitions of attention inputs (query, key and
-            # value) and folding configuration
-            *shapedefs(
-                "QKDim",
-                "QLen",
-                "VDim",
-                "KVLen",
-                "EmbFold",
-                "SeqFold"
-            ),
-            # Type alias definitions for all input, output and intermediate
-            # datatypes
-            *typedefs(
-                "QType",
-                "KType",
-                "VType",
-                "MType",
-                "AType",
-                "OType"
-            ),
-            # Type alias definitions for the matmul accumulators and output
-            # datatypes
-            *typedefs(
-                "AccQKMatMul",
-                "OutQKMatMul",
-                "AccAVMatMul",
-                "OutAVMatMul",
-                "AccASoftmax"
-            ),
-            # Include the activation function type definitions and parameters
-            #   Note: The typedefs in this header require the typedefs above,
-            #   thus adding this to the global includes is not possible.
-            f'#include "params.hpp"',
-            # Type alias of the properly configured attention operator class
-            f"using Attention = ScaledDotProductAttention<",
-            f"    QKDim,",
-            f"    QLen,",
-            f"    VDim,",
-            f"    KVLen,",
-            f"    EmbFold,",
-            f"    SeqFold,",
-            f"    QType,",
-            f"    KType,",
-            f"    VType,",
-            f"    MType,",
-            f"    AType,",
-            f"    OType,",  # Note: OType and last MatMul out must match
-            f"    AccQKMatMul,",
-            f"    OutQKMatMul,",
-            f"    ActQKMatMul,",
-            f"    AccAVMatMul,",
-            f"    OType,",  # Note: OType and last MatMul out must match
-            f"    ActAVMatMul,",
-            f"    ActASoftmax",
-            f">;",
-            # Short type aliases of attention input and output streams
-            f"using QStream = Attention::QStream;",
-            f"using KStream = Attention::KStream;",
-            f"using VStream = Attention::VStream;",
-            f"using OStream = Attention::OStream;",
-            f"using MStream = Attention::MStream;",
-        ]
-
-    # Generates C++ code for reading data from .npy (numpy format) for testing
-    # in C++ simulation
-    def read_npy_data(self):
-        # Input data is stored in numpy files in the code generation dictionary
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-
-        # Generate function calls for reading the input files into the input
-        # streams
-        self.code_gen_dict["$READNPYDATA$"] = [
-            # Deduce the datatype of elements packed into the query input stream
-            #   TODO: Maybe these type-deductions can be removed by changing the
-            #    order of the template arguments of the npy2apintstream, such
-            #    that type-deduction is handled there?
-            f'using QPacked = decltype(QStream{{}}.read());',
-            # Generate function call reading from file into the input stream
-            #   Note: Inputs are always represented as numpy floats
-            f'npy2apintstream<QPacked, QType, QType::width, float>(',
-            f'  "{code_gen_dir}/q.npy", q_{self.hls_sname()}, false',
-            ');',
-
-            # Deduce the datatype of elements packed into the key input stream
-            f'using KPacked = decltype(KStream{{}}.read());',
-            # Generate function call reading from file into the input stream
-            #   Note: Inputs are always represented as numpy floats
-            f'npy2apintstream<KPacked, KType, KType::width, float>(',
-            f'  "{code_gen_dir}/k.npy", k_{self.hls_sname()}, false',
-            ');',
-
-            # Deduce the datatype of elements packed into the value input stream
-            f'using VPacked = decltype(VStream{{}}.read());',
-            # Generate function call reading from file into the input stream
-            #   Note: Inputs are always represented as numpy floats
-            f'npy2apintstream<VPacked, VType, VType::width, float>(',
-            f'  "{code_gen_dir}/v.npy", v_{self.hls_sname()}, false',
-            ');',
-        ]
-
-        # If the mask is provided as an input, it needs to be read as well
-        if self.get_nodeattr("mask_mode") == "input":
-            # Generate function call for reading the mask file into the input
-            # stream
-            self.code_gen_dict["$READNPYDATA$"] += [
-                # Deduce the datatype of elements packed into the mask input
-                # stream
-                f'using MPacked = decltype(MStream{{}}.read());',
-                # Generate function call reading from file into the input stream
-                #   Note: Inputs are always represented as numpy floats
-                f'npy2apintstream<MPacked, MType, MType::width, float>(',
-                f'  "{code_gen_dir}/m.npy", m_{self.hls_sname()}, false',
-                ');',
-            ]
-
-    # Generates C++ code for declaring all streams involved in C++ simulation
-    # for testing
-    def strm_decl(self):
-        # Declare input (query, key, value) and output streams
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            # Note: Assumes stream type aliases to be set in defines
-            f"QStream q_{self.hls_sname()};",
-            f"KStream k_{self.hls_sname()};",
-            f"VStream v_{self.hls_sname()};",
-            f"OStream out_{self.hls_sname()};"
-        ]
-        # If the mask is provided as an input, it needs a stream declaration as
-        # well
-        if self.get_nodeattr("mask_mode") == "input":
-            # Append the mask stream to the declaration list
-            self.code_gen_dict["$STREAMDECLARATIONS$"] += [
-                # Note: Assumes stream type aliases to be set in defines
-                f"MStream m_{self.hls_sname()};",
-            ]
-
-    # Generates C++ code for calling the computation part of the operator
-    def docompute(self):
-        # Write the body of the attention top-level function
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            # Instantiate the attention operator and connect to the generated
-            # threshold parameters
-            # Note: Assumes "Attention" to be aliased appropriate configuration
-            #   in defines with.
-            # Note: Assumes parameters to be generated in 'generate_params' and
-            #   made available via include/defines before.
-            f"Attention attention {{",
-            f"    act_qk_matmul, act_av_matmul, act_a_softmax, dequant_softmax",
-            f"}};",
-            # Connect the attention operator to the input and output streams
-            f"attention("
-            f"q_{self.hls_sname()}, "
-            f"k_{self.hls_sname()}, "
-            f"v_{self.hls_sname()}, "
-            f"out_{self.hls_sname()}, "
-            # TODO: Does not work for "input" mode mask
-            f"attention_mask"
-            f");",
-        ]
-
-    # Generates C++ code for reading the output stream and converting back to
-    # numpy format for testing in C** simulation
-    def dataoutstrm(self):
-        # Output data will be stored in numpy files in the code generation
-        # dictionary
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        # Get the expected shape of the folded output array formatted as a C++
-        # vector initializer
-        # Note: Valid formatting relies on correct placement of curly braces
-        # and line breaks: Open/close all three braces on the same line of code
-        # to avoid '\n' to be inserted into the string
-        shape = f"""{{{
-        ','.join((str(i) for i in self.get_folded_output_shape()))
-        }}}"""
-        # Generate function call for reading from the output stream into the
-        # output file
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            # Deduce the datatype of elements packed into the output stream
-            f'using OPacked = decltype(OStream{{}}.read());',
-            # Generate function call reading from stream into the output file
-            #   Note: Outputs are always represented as numpy floats
-            f'apintstream2npy<OPacked, OType, OType::width, float>(',
-            f'out_{self.hls_sname()}, {shape}, "{code_gen_dir}/out.npy", false',
-            ');',
-        ]
-
-    # Generates C++ code for saving the output of C++ simulation to a file in
-    # numpy format
-    def save_as_npy(self):
-        # Note: This seems to be empty in ALL HLSCustomOps. Probably it was used
-        # for something before, which is now integrated into dataoutstrm()?
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    # Generates essentially the head of the C++ function from which the IP block
-    # will be generated during ipgen, i.e. actual synthesis
-    def blackboxfunction(self):
-        # Insert function head describing the top level interface of the
-        # attention operator
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            # Note: Assumes stream type aliases to be set in defines
-            f"void {self.onnx_node.name} (",
-            f"  QStream &q_{self.hls_sname()},"
-            f"  KStream &k_{self.hls_sname()},"
-            f"  VStream &v_{self.hls_sname()},"
-            f"  OStream &out_{self.hls_sname()}",
-            f")",
-        ]
-
-    # Generates C++ pragmas to be inserted into the main function of the C++
-    # simulation and the ipgen-blackboxfunction as well
-    def pragmas(self):
-        # Add HLS interface directives specifying how to create RTL ports for
-        # the top-level function arguments
-        self.code_gen_dict["$PRAGMAS$"] = [
-            # Connect the query input stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=q_{self.hls_sname()}",
-            # Connect the key input stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=k_{self.hls_sname()}",
-            # Connect the value input stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=v_{self.hls_sname()}",
-            # Connect the output stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=out_{self.hls_sname()}",
-        ]
-        # No block-level I/O protocol for the function return value
-        self.code_gen_dict["$PRAGMAS$"].append(
-            f"#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
-
-    # Returns the names of input and output interfaces grouped by protocol
-    def get_verilog_top_module_intf_names(self):
-        # Start collecting interface names in a dictionary starting with clock
-        # and reset
-        intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}  # noqa
-        # AXI stream input interfaces
-        intf_names["s_axis"] = [
-            (f"q_{self.hls_sname()}", self.get_instream_width_padded(ind=0)),
-            (f"k_{self.hls_sname()}", self.get_instream_width_padded(ind=1)),
-            (f"v_{self.hls_sname()}", self.get_instream_width_padded(ind=2))
-        ]
-        # AXI stream output interfaces
-        intf_names["m_axis"] = [
-            (f"out_{self.hls_sname()}", self.get_outstream_width_padded(ind=0))
-        ]
-        # No AXI-MM, AXI-Lite or protocol-less interfaces
-        intf_names["aximm"] = []
-        intf_names["axilite"] = []
-        intf_names["ap_none"] = []
-        # Return the interface name dictionary
-        return intf_names
