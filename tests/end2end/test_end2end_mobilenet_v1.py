@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
 
-import json
 import numpy as np
 import os
 import time
@@ -56,22 +55,11 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
-from qonnx.util.config import extract_model_config_to_json
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.reorder as reorder
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.analysis.fpgadataflow.op_and_param_counts import (
-    aggregate_dict_keys,
-    op_and_param_counts,
-)
-from finn.analysis.fpgadataflow.res_estimation import (
-    res_estimation,
-    res_estimation_complete,
-)
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -89,9 +77,6 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
@@ -279,13 +264,6 @@ def test_end2end_mobilenet_create_dataflow_partition():
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
     dataflow_model = dataflow_model.transform(RemoveUnusedTensors())
-    # create a configuration json file that can be used to set the specialize layer config
-    attrs = [
-        "preferred_impl_style",
-    ]
-    extract_model_config_to_json(
-        dataflow_model, build_dir + "/template_specialize_layers_config.json", attrs
-    )
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
 
 
@@ -419,60 +397,10 @@ def test_end2end_mobilenet_cppsim():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_mobilenet_estimate_reports():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
-    report_dir = build_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    ops_and_params = model.analysis(op_and_param_counts)
-    with open(report_dir + "/op_and_param_counts.json", "w") as f:
-        json.dump(ops_and_params, f, indent=2)
-    estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
-    with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
-        json.dump(estimate_layer_cycles, f, indent=2)
-    estimate_layer_resources = model.analysis(res_estimation)
-    estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
-    with open(report_dir + "/estimate_layer_resources.json", "w") as f:
-        json.dump(estimate_layer_resources, f, indent=2)
-    estimate_layer_resources_complete = model.analysis(res_estimation_complete)
-    with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
-        json.dump(estimate_layer_resources_complete, f, indent=2)
-    # need to call AnnotateCycles before dataflow_performance
-    model = model.transform(AnnotateCycles())
-    estimate_network_performance = model.analysis(dataflow_performance)
-    # add some more metrics to estimated performance
-    n_clock_cycles_per_sec = (10**9) / target_clk_ns
-    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-    estimate_network_performance["estimated_throughput_fps"] = est_fps
-    est_latency_ns = estimate_network_performance["critical_path_cycles"] * target_clk_ns
-    estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-    with open(report_dir + "/estimate_network_performance.json", "w") as f:
-        json.dump(estimate_network_performance, f, indent=2)
-
-    model.save(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.end2end
-def test_end2end_mobilenet_hw_codegen():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_estimate_reports.onnx")
+def test_end2end_mobilenet_ipgen():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bit_width.onnx")
     model = model.transform(PrepareIP(fpga_part, target_clk_ns))
-    model.save(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.end2end
-def test_end2end_mobilenet_hw_ipgen():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_codegen.onnx")
     model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    report_dir = build_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-        json.dump(estimate_layer_resources_hls, f, indent=2)
-    model.save(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
 
 
 @pytest.mark.slow
@@ -527,22 +455,6 @@ def test_end2end_mobilenet_set_fifo_depths():
             force_python_sim=False,
         )
     )
-    # extract the final configuration and save it as json
-    hw_attrs = [
-        "PE",
-        "SIMD",
-        "parallel_window",
-        "ram_style",
-        "depth",
-        "impl_style",
-        "resType",
-        "mem_mode",
-        "runtime_writeable_weights",
-        "inFIFODepths",
-        "outFIFODepths",
-    ]
-    extract_model_config_to_json(model, build_dir + "/final_hw_config.json", hw_attrs)
-
     # perform FIFO splitting and shallow FIFO removal only after the final config
     # json file has been written. otherwise, since these transforms may add/remove
     # FIFOs, we get name mismatch problems when trying to reuse the final config.
@@ -635,8 +547,5 @@ def test_end2end_mobilenet_rtlsim_performance():
             del rtlsim_perf_dict[key]
     # estimate stable-state throughput based on latency+throughput
     rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict["throughput[images/s]"]
-
-    with open(report_dir + "/rtlsim_performance.json", "w") as f:
-        json.dump(rtlsim_perf_dict, f, indent=2)
 
     model.save(build_dir + "/end2end_mobilenet_rtlsim_performance.onnx")
