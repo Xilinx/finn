@@ -1,5 +1,5 @@
 # Testing framework
-import pytest  # noqa pytest dependecy is listed in setup.cfg
+import pytest
 
 # Use numpy for python execution / computing the ground truth expected values
 import numpy as np
@@ -10,17 +10,18 @@ from onnx import TensorProto
 from onnx import helper as oh
 
 # QONNX/FINN datatypes
-from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
-# in setup.cfg as well as in fetch-repos.sh
+from qonnx.core.datatype import DataType
 # QONNX wrapper to ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper  # noqa: qonnx
+from qonnx.core.modelwrapper import ModelWrapper
 # Execute onnx model graphs
-from qonnx.core.onnx_exec import execute_onnx  # noqa: qonnx
+from qonnx.core.onnx_exec import execute_onnx
+# Registry of all QONNX CustomOps
+from qonnx.custom_op.registry import getCustomOp
 # Utility for wrapping onnx graphs and generating tensor of FINN datatypes
-from qonnx.util.basic import qonnx_make_model, gen_finn_dt_tensor  # noqa: qonnx
+from qonnx.util.basic import qonnx_make_model, gen_finn_dt_tensor
 
 # Graph transformation giving unique names to each node in a QONNX model graph
-from qonnx.transformation.general import GiveUniqueNodeNames  # noqa: qonnx
+from qonnx.transformation.general import GiveUniqueNodeNames
 
 # FINN graph transformations for preparing simulation (cppsim or rtlsim)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -29,6 +30,20 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+
+
+# Specializes all nodes to be implemented as HLS backend
+def specialize_hls(model: ModelWrapper):
+    # Mark all nodes to be specialized as HLS backend implementations
+    for node in model.graph.node:  # noqa: Duplicate test setup code
+        # Get the CustomOp instance of the node to get access to the node
+        # attributes
+        inst = getCustomOp(node)
+        # Note: only HLS-based layers execute C++ Simulation
+        inst.set_nodeattr("preferred_impl_style", "hls")
+    # Turn all HWCustomOp layers into HLS specializations
+    return model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
 
 # Creates a model executing mult-head splitting
@@ -184,6 +199,8 @@ def test_attention_heads_split_cppsim(seq, dim, heads, dtype):
     # Prepare the execution context
     context = {"inp": gen_finn_dt_tensor(DataType[dtype], (seq, dim))}
 
+    # Specializes all nodes to be implemented as HLS backend
+    model = specialize_hls(model)
     # Set model execution mode to Python simulation
     model = model.transform(SetExecMode("cppsim"))
     # Generates the C++ source and compiles the C++ simulation
@@ -224,6 +241,8 @@ def test_attention_heads_split_rtlsim(seq, dim, heads, dtype):
     # Prepare the execution context
     context = {"inp": gen_finn_dt_tensor(DataType[dtype], (seq, dim))}
 
+    # Specializes all nodes to be implemented as HLS backend
+    model = specialize_hls(model)
     # Set model execution mode to Python simulation
     model = model.transform(SetExecMode("rtlsim"))
     # Generates the C++ source and compiles the RTL simulation
@@ -320,6 +339,8 @@ def test_attention_heads_merge_cppsim(seq, dim, heads, dtype):
         f"inp{i}": make_inp_tensor() for i in range(heads)
     }
 
+    # Specializes all nodes to be implemented as HLS backend
+    model = specialize_hls(model)
     # Set model execution mode to C++ simulation
     model = model.transform(SetExecMode("cppsim"))
     # Generates the C++ source and compiles the C++ simulation
@@ -370,6 +391,8 @@ def test_attention_heads_merge_rtlsim(seq, dim, heads, dtype):
         f"inp{i}": make_inp_tensor() for i in range(heads)
     }
 
+    # Specializes all nodes to be implemented as HLS backend
+    model = specialize_hls(model)
     # Set model execution mode to RTL simulation
     model = model.transform(SetExecMode("rtlsim"))
     # Generates the C++ source and compiles the RTL simulation

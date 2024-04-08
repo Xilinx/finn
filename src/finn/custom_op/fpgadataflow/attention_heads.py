@@ -497,7 +497,7 @@ class MergeMultiHeads(HWCustomOp):
             "inputs": {}, "outputs": {"out": []}
         }
 
-        # Enumerate the node outputs
+        # Enumerate the node inputs
         for i, name in enumerate(node.input):
             # Get the input out of the execution context
             #   Note: Shape must be either 1 x seq x dim or seq x dim
