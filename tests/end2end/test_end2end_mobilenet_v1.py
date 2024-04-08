@@ -255,7 +255,6 @@ def test_end2end_mobilenet_specialize_layers():
 
 @pytest.mark.end2end
 def test_end2end_mobilenet_create_dataflow_partition():
-    # model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
@@ -398,9 +397,10 @@ def test_end2end_mobilenet_cppsim():
 @pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_mobilenet_ipgen():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bit_width.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
     model = model.transform(PrepareIP(fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
+    model.save(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
 
 
 @pytest.mark.slow
