@@ -131,11 +131,15 @@ class ReplicateStream_hls(  # noqa: Class name does not follow
         def out(i):
             return f"out{i}_{self.hls_sname()}"
 
+        # Number of iterations required to process the whole folded input stream
+        #   Note: This is all but the PE (last) dimension
+        num_iter = np.prod(self.get_folded_output_shape()[:-1])
+
         # Write the body of the stream replicating top-level function
         self.code_gen_dict["$DOCOMPUTE$"] = [
             # Repeat for the number of inputs
             # Note: Repeat for all num_inputs dimensions
-            f"for(std::size_t i = 0; i < {np.prod(self.num_inputs)}; ++i) {{",
+            f"for(std::size_t i = 0; i < {num_iter}; ++i) {{",
             # Pipeline the steps of this loop
             "#pragma HLS pipeline II=1 style=flp",
             # Read the next input element from the stream

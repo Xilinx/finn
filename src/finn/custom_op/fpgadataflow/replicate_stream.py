@@ -46,8 +46,10 @@ class ReplicateStream(HWCustomOp):
             "num": ("i", True, 1),
             # Data type of input and output elements
             "dtype": ("s", True, ""),
-            # Number of input elements received in parallel
+            # Number of input elements in the last dimension
             "num_elems": ("i", True, 1),
+            # Number of elements in the last dimensions processed in parallel
+            "PE": ("i", True, 1),
             # Number of inputs to be processed sequentially
             "num_inputs": ("ints", True, [1]),
             # Possible execution modes for simulating this node
@@ -78,6 +80,11 @@ class ReplicateStream(HWCustomOp):
     @property
     def num_elems(self):
         return self.get_nodeattr("num_elems")
+
+    # Number of parallel processed elements as property for convenience
+    @property
+    def pe(self):
+        return self.get_nodeattr("PE")
 
     # Number of inputs attribute as property for convenience
     @property
@@ -232,19 +239,23 @@ class ReplicateStream(HWCustomOp):
 
     # Gets the shape of the output at index ind without folding
     def get_normal_output_shape(self, ind=0):
-        # All output have the same shape, which is the same as the input
+        # All outputs have the same shape, which is the same as the input
         #   Unpack multi-axis inputs list to yield a flat tuple as shape
         return *self.num_inputs, self.num_elems
 
     # Gets the shape of the input at index ind with folding
     def get_folded_input_shape(self, ind=0):
-        # No folding for now, normal and folded shape are the same
-        return self.get_normal_input_shape(ind=ind)
+        # Valid folding requires the PE to divides the number of elements
+        assert self.num_elems % self.pe == 0, "PE must divide num_elems"
+        # Folding along the last dimension
+        return *self.num_inputs, self.num_elems // self.pe, self.pe
 
     # Gets the shape of the output at index ind with folding
     def get_folded_output_shape(self, ind=0):
-        # No folding for now, normal and folded shape are the same
-        return self.get_normal_output_shape(ind=ind)
+        # Valid folding requires the PE to divides the number of elements
+        assert self.num_elems % self.pe == 0, "PE must divide num_elems"
+        # Folding along the last dimension
+        return *self.num_inputs, self.num_elems // self.pe, self.pe
 
     # Widths of the input data stream of the input at index ind
     def get_instream_width(self, ind=0):

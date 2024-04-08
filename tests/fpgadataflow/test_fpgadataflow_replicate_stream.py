@@ -44,7 +44,7 @@ def specialize_hls(model: ModelWrapper):
 
 
 # Creates a model executing stream replication
-def mock_replicate_streams(num_inputs, num_elems, num, dtype):
+def mock_replicate_streams(num_inputs, num_elems, pe, num, dtype):
     # Create a node representing the stream replication operation
     node = oh.make_node(
         # Operator type from the name of the fpgadataflow hlscustomop
@@ -62,8 +62,10 @@ def mock_replicate_streams(num_inputs, num_elems, num, dtype):
         num=num,
         # Datatype of inputs and outputs
         dtype=dtype,
-        # Number of input elements received in parallel
+        # Number of input elements in the last dimension
         num_elems=num_elems,
+        # Number of elements to process in parallel
+        PE=pe,
         # Number of inputs to be processed sequentially
         num_inputs=num_inputs
     )
@@ -92,10 +94,12 @@ def mock_replicate_streams(num_inputs, num_elems, num, dtype):
 
 # Number of inputs to be processed sequentially
 @pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[64], [1, 64], [2, 64], [2, 2, 64]]
+    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
 )
-# Number of input elements received in parallel
+# Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4, 8])
 # Number of replicas to produce
 @pytest.mark.parametrize("num", [1, 2, 4, 8])
 # Datatypes to simulate
@@ -104,9 +108,9 @@ def mock_replicate_streams(num_inputs, num_elems, num, dtype):
 @pytest.mark.fpgadataflow
 # Tests replicating of tensors/streams to multiple outputs using python mode
 # execution
-def test_replicate_stream_python(num_inputs, num_elems, num, dtype):
+def test_replicate_stream_python(num_inputs, num_elems, pe, num, dtype):
     # Make dummy model for testing
-    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
     context = {
@@ -130,10 +134,12 @@ def test_replicate_stream_python(num_inputs, num_elems, num, dtype):
 
 # Number of inputs to be processed sequentially
 @pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[64], [1, 64], [2, 64], [2, 2, 64]]
+    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
 )
-# Number of input elements received in parallel
+# Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4, 8])
 # Number of replicas to produce
 @pytest.mark.parametrize("num", [1, 2, 4, 8])
 # Datatypes to simulate
@@ -144,9 +150,9 @@ def test_replicate_stream_python(num_inputs, num_elems, num, dtype):
 @pytest.mark.vivado
 # Tests replicating of tensors/streams to multiple outputs using C++ mode
 # execution
-def test_replicate_stream_cppsim(num_inputs, num_elems, num, dtype):
+def test_replicate_stream_cppsim(num_inputs, num_elems, pe, num, dtype):
     # Make dummy model for testing
-    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
     context = {
@@ -175,10 +181,12 @@ def test_replicate_stream_cppsim(num_inputs, num_elems, num, dtype):
 
 # Number of inputs to be processed sequentially
 @pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[64], [1, 64], [2, 64], [2, 2, 64]]
+    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
 )
-# Number of input elements received in parallel
+# Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4, 8])
 # Number of replicas to produce
 @pytest.mark.parametrize("num", [1, 2, 4, 8])
 # Datatypes to simulate
@@ -189,9 +197,9 @@ def test_replicate_stream_cppsim(num_inputs, num_elems, num, dtype):
 @pytest.mark.vivado
 # Tests replicating of tensors/streams to multiple outputs using RTL mode
 # execution
-def test_replicate_stream_rtlsim(num_inputs, num_elems, num, dtype):
+def test_replicate_stream_rtlsim(num_inputs, num_elems, pe, num, dtype):
     # Make dummy model for testing
-    model = mock_replicate_streams(num_inputs, num_elems, num, dtype)
+    model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
     context = {
