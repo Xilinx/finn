@@ -421,8 +421,6 @@ def test_end2end_mobilenet_rtlsim():
     inp_dict = {inp_name: x}
     # rtlsim
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(fpga_part, 5))
-    model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     model.save(build_dir + "/end2end_mobilenet_rtlsim.onnx")
     ret_rtlsim = execute_onnx(model, inp_dict, True)
