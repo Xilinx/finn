@@ -33,7 +33,6 @@ import os
 import time
 import torch
 from brevitas.export import export_qonnx
-from distutils.dir_util import copy_tree
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -472,7 +471,6 @@ def test_end2end_mobilenet_set_fifo_depths():
 @pytest.mark.end2end
 def test_end2end_mobilenet_stitched_ip():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
-    stitched_ip_dir = build_dir + "/stitched_ip"
     model = model.transform(
         CreateStitchedIP(
             fpga_part,
@@ -481,9 +479,6 @@ def test_end2end_mobilenet_stitched_ip():
             signature=None,
         )
     )
-    # TODO copy all ip sources into output dir? as zip?
-    copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
-
     model.save(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
 
 
