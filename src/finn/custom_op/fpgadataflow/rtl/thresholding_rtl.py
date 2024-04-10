@@ -529,7 +529,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if weights.shape == (1, 1):
             weights = np.broadcast_to(weights, expected_shape)
 
-        width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
+        odt = self.get_output_datatype().bitwidth()
+        width_padded = roundup_to_integer_multiple(weights.shape[1], 2**odt)
         weight_padded = np.zeros((weights.shape[0], width_padded))
         weight_padded[: weights.shape[0], :n_thres_steps] = weights
         weight_stream = []
