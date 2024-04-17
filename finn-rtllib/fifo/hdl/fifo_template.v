@@ -53,7 +53,7 @@ output  $OUT_RANGE$ out_V_TDATA
 
 Q_srl #(
 .depth($DEPTH$),
-.width($WIDTH$),
+.width($WIDTH$)
 )
 impl
 (
