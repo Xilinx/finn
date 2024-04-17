@@ -151,16 +151,39 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
                     actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
                     is_1d = actual_ndims == 1
+
+                    def can_broadcast_shapes(lhs, rhs):
+                        # Broadcasting might raise an exception
+                        try:
+                            # Try broadcasting the shapes
+                            if len(np.broadcast_shapes(lhs, rhs)) == 2:
+                                # These tensors can be broadcast, preserving the
+                                # left-hand-side shape
+                                return True
+                            # These tensors cannot be broadcast
+                            return False
+                        # Failing to broadcast the tensors raises ValueError
+                        except ValueError:
+                            # These tensors cannot be broadcast
+                            return False
+
                     if is_scalar or is_1d:
-                        Tnew = T - A.reshape(-1, 1)
-                        # Tnew = T - A.reshape(-1, T.shape[1])
-                        # compute new thresholds and set initializer
-                        model.set_initializer(threshold, Tnew)
-                        # wire add input directly to MultiThreshold
-                        consumer.input[0] = start
-                        # remove the add node
-                        graph.node.remove(n)
-                        graph_modified = True
+                        # Reshape addition parameters to have the elements/PE
+                        # dimension first, aligned with the thresholds.
+                        A = A.reshape(-1, 1)  # noqa: Not lowercase
+                        # Check that we can actually broadcast the addition
+                        # weights to the thresholds tensors, i.e., it is adding
+                        # along the right axis
+                        if can_broadcast_shapes(T.shape, A.shape):
+                            Tnew = T - A  # noqa: Not lowercase
+                            # Tnew = T - A.reshape(-1, T.shape[1])
+                            # compute new thresholds and set initializer
+                            model.set_initializer(threshold, Tnew)
+                            # wire add input directly to MultiThreshold
+                            consumer.input[0] = start
+                            # remove the add node
+                            graph.node.remove(n)
+                            graph_modified = True
         return model, graph_modified
 
 
