@@ -73,8 +73,8 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
 
    parameter depth = 16;   // - greatest #items in queue  (2 <= depth <= 256)
    parameter width = 16;   // - width of data (i_d, o_d)
-   parameter countwidth = $clog2(depth + 1);
 
+   localparam countwidth = $clog2(depth + 1);
    localparam addrwidth = $clog2(depth);
 
    input     clock;
