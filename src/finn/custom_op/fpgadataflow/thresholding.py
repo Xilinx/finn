@@ -259,7 +259,7 @@ class Thresholding(HWCustomOp):
         else:
             # signed offset
             y += act.min()
-        context[node.output[0]] = y
+        context[node.output[0]] = y.astype(np.float32)
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
