@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <hls_vector.h>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #define DEBUG_NPY2VECTORSTREAM(x) std::cout << "[npy2vectorstream] " << x << std::endl;
 #define DEBUG_VECTORSTREAM2NPY(x) std::cout << "[vectorstream2npy] " << x << std::endl;
