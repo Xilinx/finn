@@ -95,7 +95,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$TOP_MODULE_NAME$"] = topname
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
-        count_width = int(self.get_nodeattr("depth") - 1).bit_length()
+        count_width = int(self.get_nodeattr("depth")).bit_length()
         code_gen_dict["$COUNT_RANGE$"] = "[{}:0]".format(count_width - 1)
         code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
