@@ -8,6 +8,19 @@ import pytest
 # Numpy math and arrays
 import numpy as np
 
+# Create temporary files automatically deleted after integration test
+import tempfile
+
+# PyTorch required for integration test
+import torch
+
+# Export brevitas models to QONNX representation in integration test
+from brevitas.export import export_qonnx
+
+# Test the quantized elementwise addition operation from brevitas in integration
+# test: this one should be representative enough for the operator pattern
+from brevitas.nn import QuantEltwiseAdd
+
 # ONNX graph and tensor utility
 from onnx import TensorProto
 from onnx import helper as oh
@@ -24,8 +37,18 @@ from qonnx.core.onnx_exec import execute_onnx
 # Registry of all QONNX CustomOps
 from qonnx.custom_op.registry import getCustomOp
 
-# Graph transformation giving unique names to each node in a QONNX model graph
-from qonnx.transformation.general import GiveUniqueNodeNames
+# Cleanup transformations required after QONNX model import
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
+    RemoveUnusedTensors,
+)
+
+# Adds data layout annotations to the model graph to correctly convert
+# quantizers to multi-thresholds
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 
 # QONNX graph transformations for inferring datatypes and shapes
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -36,6 +59,15 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 # FINN graph transformations for preparing simulation (cppsim or rtlsim)
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+
+# Mapping to hardware operators of the two operations relevant for the
+# integration test
+# Note: The integration test serves as the test-case for
+# InferElementwiseBinaryOperation
+from finn.transformation.fpgadataflow.convert_to_hw_layers import (
+    InferElementwiseBinaryOperation,
+    InferThresholdingLayer,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -43,16 +75,32 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+# Converts between QONNX and FINN dialect of ONNX representation
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+
+# Standard set of streamlining transformations delivered with FINN
+from finn.transformation.streamline import Streamline
+
+# Specific streamlining transformations which needs to be applied manually in
+# integration test
+from finn.transformation.streamline.absorb import AbsorbMulIntoMultiThreshold
+
+# Checks whether a node is a fpgadataflow backend node handled by FINN
+from finn.util.fpgadataflow import is_fpgadataflow_node
+
 
 # Specializes all nodes to be implemented as HLS backend
 def specialize_hls(model: ModelWrapper):
     # Mark all nodes to be specialized as HLS backend implementations
     for node in model.graph.node:  # noqa: Duplicate test setup code
-        # Get the CustomOp instance of the node to get access to the node
-        # attributes
-        inst = getCustomOp(node)
-        # Note: only HLS-based layers execute C++ Simulation
-        inst.set_nodeattr("preferred_impl_style", "hls")
+        # Skip non-fpgadataflow backend operators as these do not have the
+        # preferred_impl_style attribute
+        if is_fpgadataflow_node(node):
+            # Get the CustomOp instance of the node to get access to the node
+            # attributes
+            inst = getCustomOp(node)
+            # Note: only HLS-based layers execute C++ Simulation
+            inst.set_nodeattr("preferred_impl_style", "hls")
     # Turn all HWCustomOp layers into HLS specializations
     return model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
@@ -361,3 +409,167 @@ def test_elementwise_binary_operation_rtlsim(
 
     # Compare the expected to the produced for exact equality
     assert np.all(o_produced == o_expected)
+
+
+# Test-case setting up a complete dummy model containing various elementwise
+# binary operations in PyTorch, converting to QONNX and verifying in Python, C++
+# and RTL simulation
+# Shape of the left-hand-side input
+# Note: Stripped down test of broadcasting semantics due to rather poor support
+# for arbitrary data layouts inf QONNX and FINN: Only 2d and 4d layouts (with
+# certain assumptions/restrictions) are really supported.
+# Note: Cannot test scalar shapes (or effectively scalar shapes like [1,1]), due
+# to streamlining integrating those into MultiThresholds (removing the operator
+# to be tested), leading to consecutive quantizers. Consecutive quantizers
+# should be avoided as  this sometimes can cause range and precision errors.
+@pytest.mark.parametrize("lhs_shape", [[32, 1]])
+# Shape of the right-hand-side input
+@pytest.mark.parametrize("rhs_shape", [[32, 16]])
+# Which inputs to set as initializers
+@pytest.mark.parametrize("initializers", [[], ["lhs"], ["rhs"]])
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4])
+# This is a slow running fpgadataflow type of test which requires vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+def test_elementwise_binary_operation_integration_elementwise_add(
+        lhs_shape, rhs_shape, pe, initializers
+):
+    # PyTorch model wrapping the component(s) to be tested
+    class Dummy(torch.nn.Module):
+        # Sets up the test model and initializes parameters
+        def __init__(self):
+            # Initialize the PyTorch Module superclass
+            super().__init__()
+            # Elementwise addition component to be tested
+            self.add = QuantEltwiseAdd()
+            # Left- and right-hand-side input tensors in case these are set to
+            # be initializers
+            self.lhs = torch.randn(*lhs_shape)
+            self.rhs = torch.randn(*rhs_shape)
+
+        # Model forward pass taking multiple inputs as arguments
+        def forward(self, *xs):
+            # Depending on the test configuration, extract inputs to the add
+            # operation from model inputs of from model parameters
+            _lhs = self.lhs if "lhs" in initializers else xs[0]
+            _rhs = self.rhs if "rhs" in initializers else xs[1]
+            # Quantized elementwise addition of the two inputs
+            return self.add(_lhs, _rhs)
+
+    # Create the test instance of the dummy model
+    model = Dummy()
+    # Create dummy test inputs
+    lhs = torch.randn(*lhs_shape)
+    rhs = torch.randn(*rhs_shape)
+    # Do a forward pass with model in training mode to calibrate the quantizers
+    _ = model(lhs, rhs)
+    # Switch model to evaluation mode to keep parameters fixed for export
+    model = model.eval()
+    # Do not accumulate gradients while generating test output
+    with torch.no_grad():
+        # Model forward pass generating the expected output for verification
+        out_expected = model(lhs, rhs).numpy().astype(np.float32)
+    # Generate a temporary directory for running this test
+    with tempfile.TemporaryDirectory() as tmp:
+        # Export the model to ONNX format to be consumed by FINN
+        export_qonnx(model, (lhs, rhs), tmp + "/model.onnx")
+        # Wrap the model with QONNX wrapper for transformations
+        model = ModelWrapper(tmp + "/model.onnx")
+        # Cleanup transformations preparing the model to be consumed by FINN
+        model = model.transform(InferDataTypes())
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataLayouts())
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueParameterTensors())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(RemoveUnusedTensors())
+        # Need to absorb scalar multiplication into the thresholding layer
+        # first, to prevent large rounding error due to moving these in front of
+        # add operations later.
+        model = model.transform(AbsorbMulIntoMultiThreshold())
+        # Do a single round of standard streamlining of the model graph
+        model = model.transform(Streamline())
+        # Convert layers to hardware custom operations
+        model = model.transform(InferThresholdingLayer())
+        model = model.transform(InferElementwiseBinaryOperation(
+            # We want to keep the output de-quantization off-chip
+            _filter=InferElementwiseBinaryOperation.reject_floats
+        ))
+
+        # Apply folding config to set the PE parallelism for hardware layers
+        model = model.transform(ApplyConfig({
+            "Defaults": {"PE": [pe, ["ElementwiseAdd", "Thresholding"]]}
+        }))
+
+        # Prepare the execution context with dummy data from above and input
+        # node names extracted from transformed modelo graph
+        context = {}
+
+        # Convert verification inputs to numpy format used by ONNX execution
+        lhs = lhs.numpy().astype(np.float32)
+        rhs = rhs.numpy().astype(np.float32)
+
+        # If the left-hand-side is not an initializer, it must be an input
+        # inserted into the execution context
+        if "lhs" not in initializers:
+            # Left-hand-side is always the first input
+            context[model.graph.input[0].name] = lhs
+
+        # If the right-hand-side is not an initializer, it must be an input
+        # inserted into the execution context
+        if "rhs" not in initializers:
+            # Index of the right-hand-side input depends on whether there is a
+            # left-hand-side input
+            rhs_index = int("lhs" not in initializers)
+            context[model.graph.input[rhs_index].name] = rhs
+
+        # Set model execution mode to python simulation
+        model = model.transform(SetExecMode("python"))
+        model = model.transform(GiveUniqueNodeNames())
+        # Execute the onnx model to collect the result
+        out_produced = execute_onnx(model, context)[model.graph.output[0].name]
+        # Compare the expected to the produced
+        # Note: Only test for close up to some tolerance as the modelo has
+        # streamlined, which may involve rounding
+        assert np.allclose(out_produced, out_expected, atol=1e-3), \
+            "Python simulation verification failed"
+
+        # Apply folding config to implement Thresholding layers in RTL mode
+        # Note: Must be done in RTL for now to avoid test failing due to
+        # PE-parallel stream being too wide for Vitis HLS.
+        model = model.transform(ApplyConfig({
+            "Defaults": {"preferred_impl_style": ["rtl", ["Thresholding"]]}
+        }))
+        # # Specializes all nodes to their backend implementation
+        model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
+        # Set model execution mode to C++ simulation
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(GiveUniqueNodeNames())
+        # Generates the C++ source and compiles the C++ simulation
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        # Execute the onnx model to collect the result
+        out_produced = execute_onnx(model, context)[model.graph.output[0].name]
+        # Compare the expected to the produced
+        # Note: Only test for close up to some tolerance as the modelo has
+        # streamlined, which may involve rounding
+        assert np.allclose(out_produced, out_expected, atol=1e-3), \
+            "C++ simulation verification failed"
+
+        # Set model execution mode to RTL simulation
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(GiveUniqueNodeNames())
+        # Generates the C++ source and compiles the RTL simulation
+        model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 10))  # noqa
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+        # Execute the onnx model to collect the result
+        out_produced = execute_onnx(model, context)[model.graph.output[0].name]
+        # Compare the expected to the produced
+        # Note: Only test for close up to some tolerance as the modelo has
+        # streamlined, which may involve rounding
+        assert np.allclose(out_produced, out_expected, atol=1e-3), \
+            "RTL simulation verification failed"
