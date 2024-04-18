@@ -123,6 +123,71 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
     return model
 
 
+def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
+    idim_h, idim_w = idim
+    stride_h, stride_w = stride
+    odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
+    odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
+
+    inp = helper.make_tensor_value_info(
+        "inp",
+        TensorProto.FLOAT,
+        [
+            1,
+            idim_h,
+            idim_w,
+            ifm_ch,
+        ],
+    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, ofm_ch])
+
+    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
+
+    Deconv = helper.make_node(
+        "Deconvolution_hls",
+        ["inp", "W"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+        KernelDim=[k, k],
+        IFMChannels=ifm_ch,
+        OFMChannels=ofm_ch,
+        IFMDim=idim,
+        Stride=[stride_h, stride_w],
+        PE=1,
+        SIMD=1,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+    )
+
+    node_list = [Deconv]
+    value_info = [W]
+
+    graph = helper.make_graph(
+        nodes=node_list,
+        name="convtranspose_graph",
+        inputs=[inp],
+        outputs=[outp],
+        value_info=value_info,
+    )
+
+    model = qonnx_make_model(graph, producer_name="convtranspose-model")
+    model = ModelWrapper(model)
+
+    # initialize model
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype(model.graph.output[0].name, odt)
+    model.set_tensor_datatype("W", wdt)
+
+    w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch * k * k, ofm_ch])
+    model.set_initializer("W", w_tensor)
+
+    model = model.transform(InferShapes())
+
+    return model
+
+
 # input image dimension
 @pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
 # number of rows and number of cols to add

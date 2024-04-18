@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2022-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,7 +33,7 @@ FINN_EXP_COMMIT="de99347e936d51715f5356a1b6c64e37b91c23c2"
 BREVITAS_COMMIT="84f42259ec869eb151af4cb8a8b23ad925f493db"
 PYVERILATOR_COMMIT="ce0a08c20cb8c1d1e84181d6f392390f846adbd1"
 CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
-HLSLIB_COMMIT="16e5847a5e3ef76cffe84c8fad2f010d593457d3"
+HLSLIB_COMMIT="e80d94ca1f28b80476b0289d154d239976c25fef"
 OMX_COMMIT="0b59762f9e4c4f7e5aa535ee9bc29f292434ca7a"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
