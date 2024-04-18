@@ -82,7 +82,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
             #   Note: Might be inferred from the context
             "rhs_style": ("s", False, "input", {"input", "const"}),
             # Number of elements in the last dimensions processed in parallel
-            "PE": ("i", True, 1),
+            "PE": ("i", False, 1),
             # Possible execution modes for simulating this node
             #   Note: Override to support python mode
             "exec_mode": (
