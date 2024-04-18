@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,22 +27,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
+import onnxruntime as rt
 import warnings
-from math import ceil, log2
+from math import ceil
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import qonnx_make_model
 
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class Lookup(HLSCustomOp):
-    "Streaming elementwise HLS lookup, mapping indices to values."
+class Lookup(HWCustomOp):
+    """Abstraction layer for HW implementation of streaming elementwise lookup,
+    mapping indices to values."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -60,9 +57,9 @@ class Lookup(HLSCustomOp):
             # Input shape
             "InputShape": ("ints", False, [1]),
             # Memory mode
-            # const : parameters baked into bitfile (BRAM)
+            # internal_embedded : parameters baked into bitfile (BRAM)
             # external : lookup performed in external memory over AXI MM
-            "mem_mode": ("s", False, "const", ["const", "external"]),
+            "mem_mode": ("s", False, "internal_embedded", ["internal_embedded", "external"]),
             # Width for AXI-MM interface
             # only relevant when mem_mode="external"
             "ext_mem_width": ("i", False, 32),
@@ -93,7 +90,7 @@ class Lookup(HLSCustomOp):
         ishape = self.get_normal_input_shape()
         mem_mode = self.get_nodeattr("mem_mode")
         emb_dim = self.get_nodeattr("EmbeddingDim")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             oshape = list(ishape) + [emb_dim]
         elif mem_mode == "external":
             ext_mem_width = self.get_nodeattr("ext_mem_width")
@@ -156,301 +153,43 @@ class Lookup(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def global_includes(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        global_incls = []
-        global_incls.append('#include "lookup.hpp"')
-        if mem_mode == "const":
-            global_incls.append('#include "embeddings.hpp"')
-        self.code_gen_dict["$GLOBALS$"] = global_incls
-
-    def defines(self, var):
-        n_inputs = np.prod(self.get_folded_input_shape()[:-1])
-        dtype = self.get_input_datatype()
-        elem_hls_type = dtype.get_hls_datatype_str()
-        emb_type = DataType[self.get_nodeattr("EmbeddingType")]
-        emb_hls_type = emb_type.get_hls_datatype_str()
-        emb_dim = self.get_nodeattr("EmbeddingDim")
-        mem_mode = self.get_nodeattr("mem_mode")
-        my_defines = []
-        my_defines.append("#define NumInputs %d" % n_inputs)
-        if mem_mode == "external":
-            ext_mem_width = self.get_nodeattr("ext_mem_width")
-            ext_mem_emb_size = self.get_folded_output_shape()[-2]
-            ext_mem_emb_align = ceil(log2(ext_mem_emb_size))
-            my_defines.append("#define MemBits %d" % ext_mem_width)
-            my_defines.append("#define EmbeddingSize %d" % ext_mem_emb_size)
-            my_defines.append("#define EmbeddingAlign %d" % ext_mem_emb_align)
-            my_defines.append("#define T_SRC %s" % elem_hls_type)
-            my_defines.append("#define T_DST ap_uint<MemBits>")
-        elif mem_mode == "const":
-            my_defines.append("#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings"))
-            my_defines.append("#define EmbeddingDim %d" % emb_dim)
-            my_defines.append("#define InputType %s" % elem_hls_type)
-            my_defines.append("#define EmbeddingType %s" % emb_hls_type)
-        self.code_gen_dict["$DEFINES$"] = my_defines
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "int64_t"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", %s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
-                "false",
-            )
-        ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
-        )
-
-    def docompute(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0_%s, out_%s, embeddings);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
-        elif mem_mode == "external":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>(in0_%s, out_%s, mem, size, oob_count,
-                oob_irq);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
-
-    def blackboxfunction(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        ibits = self.get_instream_width()
-        packed_input_hls_type = "ap_uint<%d>" % ibits
-        obits = self.get_outstream_width()
-        packed_output_hls_type = "ap_uint<%d>" % obits
-        if mem_mode == "const":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
-                % (
-                    self.onnx_node.name,
-                    packed_input_hls_type,
-                    self.hls_sname(),
-                    packed_output_hls_type,
-                    self.hls_sname(),
-                )
-            ]
-        elif mem_mode == "external":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void "
-                + self.onnx_node.name
-                + "(hls::stream<T_SRC> &in0_%s, hls::stream<T_DST> &out_%s, "
-                % (self.hls_sname(), self.hls_sname())
-                + "T_DST const *const  mem, unsigned const size, "
-                + "unsigned &oob_count, bool &oob_irq)"
-            ]
-
-    def pragmas(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        my_pragmas = ["#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()]
-        my_pragmas.append("#pragma HLS INTERFACE axis port=out_" + self.hls_sname())
-        my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-        if mem_mode == "const":
-            my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")
-        elif mem_mode == "external":
-            my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
-            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")
-            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=size bundle=control")
-            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=oob_count bundle=control")
-            my_pragmas.append("#pragma HLS INTERFACE ap_none port=oob_irq")
-        else:
-            raise Exception("Unrecognized mem_mode: " + mem_mode)
-        self.code_gen_dict["$PRAGMAS$"] = my_pragmas
-
-    def generate_params(self, model, path):
-        mem_mode = self.get_nodeattr("mem_mode")
-        embeddings = model.get_initializer(self.onnx_node.input[1])
-        if mem_mode == "const":
-            code_gen_dir = path
-            weight_filename = "{}/embeddings.hpp".format(code_gen_dir)
-            edt = DataType[self.get_nodeattr("EmbeddingType")]
-            # obits = self.get_outstream_width()
-            # packed_output_hls_type = "ap_uint<%d>" % obits
-            assert np.vectorize(edt.allowed)(
-                embeddings
-            ).all(), "Embeddings can't be expressed with type %s" % str(edt)
-            # reverse innertmost dim in embeddings to remain compatible with
-            # how we normally encode the data in FINN
-            embeddings_rev = np.flip(embeddings, -1)
-            embeddings_hls_code = numpy_to_hls_code(embeddings_rev, edt, "embeddings", True, False)
-            f_thresh = open(weight_filename, "w")
-            f_thresh.write(embeddings_hls_code)
-            f_thresh.close()
-        elif mem_mode == "external":
-            edt = DataType[self.get_nodeattr("EmbeddingType")]
-            ext_mem_width = self.get_nodeattr("ext_mem_width")
-            assert edt.bitwidth() == 8, (
-                "Lookup with mem_mode=external "
-                + "only works with 8-bit embeddings but found "
-                + str(edt)
-            )
-            emb_dim = self.get_nodeattr("EmbeddingDim")
-            # need to zero-pad embeddings in external mode for burst alignment
-            # compute how much padding we need
-            emb_elems_per_ext_mem_width = self.get_folded_output_shape()[-1]
-            ext_mem_emb_size = self.get_folded_output_shape()[-2]
-            ext_mem_emb_align = ceil(log2(ext_mem_emb_size))
-            align_factor = int((ext_mem_width / 8) * 2**ext_mem_emb_align)
-            pad_amount = align_factor - emb_dim
-            embeddings_padded = np.pad(embeddings, [(0, 0), (0, pad_amount)])
-            # reshape for packing the innermost dim
-            embeddings_padded = embeddings_padded.reshape(-1, emb_elems_per_ext_mem_width)
-            weight_filename = "%s/%s.dat" % (path, self.onnx_node.name)
-            ret = pack_innermost_dim_as_hex_string(
-                embeddings_padded, edt, ext_mem_width, True, prefix=""
-            )
-            with open(weight_filename, "w") as f:
-                for current_line in ret:
-                    f.write(current_line + "\n")
-        else:
-            raise Exception("Unrecognized mem_mode: " + mem_mode)
-
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
+        # create a standard add node to help calculate the result
         node = self.onnx_node
-        exp_ishape = tuple(self.get_normal_input_shape())
-        exp_oshape = tuple(self.get_normal_output_shape())
-        folded_ishape = tuple(self.get_folded_input_shape())
-        folded_oshape = tuple(self.get_folded_output_shape())
-        mem_mode = self.get_nodeattr("mem_mode")
-        assert (
-            mem_mode == "const"
-        ), "Only mem_mode=const is supported for simulation of Lookup layer"
+        inp_values = context[node.input[0]]
+        ishape = inp_values.shape
+        data_values = context[node.input[1]]
+        dshape = data_values.shape
+        oshape = context[node.output[0]].shape
+        inp = helper.make_tensor_value_info(node.input[0], TensorProto.INT64, ishape)
+        data = helper.make_tensor_value_info(node.input[1], TensorProto.FLOAT, dshape)
+        outp = helper.make_tensor_value_info(node.output[0], TensorProto.FLOAT, oshape)
+        node_gather = helper.make_node(
+            "Gather",
+            inputs=[node.input[1], node.input[0]],
+            outputs=[node.output[0]],
+        )
+        graph_gather = helper.make_graph(
+            nodes=[node_gather],
+            name="single-gather-exec",
+            inputs=[data, inp],
+            outputs=[outp],
+        )
 
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        inp = context[node.input[0]]
-        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
-        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
-        export_idt = self.get_input_datatype()
-        odt = self.get_output_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output,
-                out_npy_path,
-                odt,
-                out_shape,
-                packed_bits,
-                target_bits,
-                reverse_inner=True,
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape."""
+        opset_version = 13
+        opset_imports = [helper.make_opsetid("", opset_version)]
+        onnx_kwargs = {"opset_imports": opset_imports}
+        model_gather = qonnx_make_model(graph_gather, **onnx_kwargs)
+        idict = {node.input[0]: inp_values, node.input[1]: data_values}
+        sess = rt.InferenceSession(model_gather.SerializeToString())
+        result = sess.run(None, idict)
+        context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
     def bram_estimation(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
+        if mem_mode == "internal_embedded":
             # current calculation assumes embeddings always stored in BRAM_18Ks
-            # when mem_mode is const
+            # when mem_mode is internal_embedded
             width_factor = ceil(self.get_outstream_width() / 16)
             depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
             return width_factor * depth_factor
@@ -465,15 +204,6 @@ class Lookup(HLSCustomOp):
         ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
         bram16_est_capacity = bram16_est * 18 * 1024
         return ebits / bram16_est_capacity
-
-    def get_ap_int_max_w(self):
-        parent_max = super().get_ap_int_max_w()
-        mem_mode = self.get_nodeattr("mem_mode")
-        ext_mem_width = self.get_nodeattr("ext_mem_width")
-        if mem_mode == "external":
-            return max(ext_mem_width, parent_max)
-        else:
-            return parent_max
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -41,6 +42,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.create import hls_random_mlp_maker
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
@@ -68,9 +70,10 @@ def test_runtime_weights_single_layer():
     }
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
-    fcl = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    model = model.transform(SpecializeLayers())
+    fcl = model.get_nodes_by_op_type("MVAU_hls")[0]
     op_inst = getCustomOp(fcl)
-    op_inst.set_nodeattr("mem_mode", "decoupled")
+    op_inst.set_nodeattr("mem_mode", "internal_decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     old_weights = model.get_initializer(fcl.input[1])
     op_inst.make_weight_file(old_weights, "decoupled_runtime", "old_weights.dat")
@@ -80,6 +83,7 @@ def test_runtime_weights_single_layer():
     old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
     old_weight_stream = list(old_weight_stream)
     model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())

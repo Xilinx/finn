@@ -39,7 +39,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor
 
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -48,6 +48,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False):
@@ -126,8 +127,11 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     inp = gen_finn_dt_tensor(dt_in, model.get_tensor_shape("in0"))
     idict = {"in0": inp}
     y_expected = execute_onnx(model, idict)["out0"]
-    model = model.transform(to_hls.InferConvInpGen())
+    model = model.transform(to_hw.InferConvInpGen())
     assert len(model.get_nodes_by_op_type("DownSampler")) == 1
+    y_produced = execute_onnx(model, idict)["out0"]
+    assert (y_produced == y_expected).all()
+    model = model.transform(SpecializeLayers())
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
@@ -143,7 +147,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("DownSampler")[0]
+        node = model.get_nodes_by_op_type("DownSampler_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

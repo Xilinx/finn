@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,6 +41,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 test_fpga_part = "xc7z020clg400-1"
@@ -58,6 +60,7 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
         backend="fpgadataflow",
         depth=Depth,
         folded_shape=fld_shape,
+        normal_shape=Shape,
         dataType=str(finn_dtype.name),
     )
 
@@ -83,7 +86,7 @@ def prepare_inputs(input_tensor, dt):
 # outWidth
 @pytest.mark.parametrize("depth", [16])
 # finn_dtype
-@pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"]])  # , DataType["INT2"]])
+@pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -93,6 +96,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_fifo_modelwrapper(Shape, depth, folded_shape, finn_dtype)
+    model = model.transform(SpecializeLayers())
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())

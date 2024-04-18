@@ -38,6 +38,7 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
 )
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def check_two_dict_for_equality(dict1, dict2):
@@ -68,7 +69,7 @@ def test_res_estimate():
     node_inp_list = ["inp", "weights", "thresh"]
 
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -95,10 +96,11 @@ def test_res_estimate():
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
 
+    model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "MatrixVectorActivation_0": {
+        "MVAU_hls_0": {
             "BRAM_18K": 0,
             "BRAM_efficiency": 1,
             "LUT": 317,
@@ -115,7 +117,7 @@ def test_res_estimate():
 
     prod_resource_estimation = model.analysis(res_estimation_complete)
     expect_resource_estimation = {
-        "MatrixVectorActivation_0": [
+        "MVAU_hls_0": [
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,

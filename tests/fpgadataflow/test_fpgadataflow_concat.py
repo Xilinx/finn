@@ -1,4 +1,5 @@
 # Copyright (c) 2021, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,7 +41,7 @@ from torch import nn
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import InferConcatLayer
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferConcatLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -48,6 +49,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 def make_concat_model(i_shapes, idt):
@@ -90,10 +92,15 @@ def test_fpgadataflow_concat(exec_mode, idt):
         inp_dict[model.graph.input[i].name] = i_data[i]
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
-    # call transformation to convert to HLS and verify conversion
+    # call transformation to convert to HW and verify conversion
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
+    ret = execute_onnx(model, inp_dict)
+    assert (ret[oname] == exp_out).all()
+    model = model.transform(SpecializeLayers())
+    assert model.graph.node[0].op_type == "StreamingConcat_hls"
+    assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     if exec_mode == "cppsim":
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
@@ -130,11 +137,15 @@ def test_fpgadataflow_concat_stitchedip():
         inp_dict[model.graph.input[i].name] = i_data[i]
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
-    # call transformation to convert to HLS and verify conversion
+    # call transformation to convert to HW and verify conversion
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
+    model = model.transform(SpecializeLayers())
+    assert model.graph.node[0].op_type == "StreamingConcat_hls"
+    assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(fpga_part, clk_ns))
     model = model.transform(HLSSynthIP())

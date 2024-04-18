@@ -4,18 +4,18 @@
 Functional Verification
 ***********************
 
-.. image:: ../../notebooks/end2end_example/bnn-pynq/verification.png
-   :scale: 70%
+.. image:: ../../notebooks/end2end_example/bnn-pynq/verification.svg
+   :scale: 40%
    :align: center
 
 This part of the flow is covered by the Jupyter notebook about the verification of a simple fully-connected network, which you can find in the `end2end notebook folder <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/bnn-pynq/tfc_end2end_verification.ipynb>`_.
 
-When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. A single node can be executed using one or more of the following methods:
+When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS/RTL custom nodes. A single node can be executed using one or more of the following methods:
 
 Simulation using Python
 =======================
 
-This simulation can be used right after the :ref:`brevitas_export` or when the network does not contain any HLS custom nodes, so right after the streamlining transformations and before the nodes are converted into HLS layers.
+This simulation can be used right after the :ref:`brevitas_export` or when the network does not contain any HLS/RTL custom nodes yet, so right after the streamlining transformations and before the nodes are specialized into HLS/RTL layers.
 
 Simulation using C++
 ====================
@@ -26,7 +26,7 @@ This simulation can be used for a model containing several HLS custom operations
 Emulation using PyVerilator
 ===========================
 
-The emulation using PyVerilator can be used when IP blocks were generated, either node by node or of a whole (IP-stitched) design. For that purpose PyVerilator gets the generated verilog files.
+The emulation using PyVerilator can be used when IP blocks/RTL modules were generated, either node by node or of a whole (IP-stitched) design. For that purpose PyVerilator gets the generated verilog files.
 
 For debugging purposes, it's possible to generate .vcd trace files that show the value of external & internal signals as the emuation is running. To enable this:
  - for node-by-node rtlsim, set the `rtlsim_trace` attribute of each node of interest to either a file name for the vcd or `default` to use the node name as the filename.

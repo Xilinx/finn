@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -44,14 +45,15 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_accpool_modelwrapper(ch, pe, idim, idt):
+def make_accpool_modelwrapper(ch, pe, idim, idt, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, ch])
 
     accpool_node = helper.make_node(
-        "GlobalAccPool_Batch",
+        "GlobalAccPool",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -60,6 +62,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt):
         PE=pe,
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
+        preferred_impl_style=impl_style,
     )
     graph = helper.make_graph(nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp])
 
@@ -85,9 +88,11 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("imdim", [7])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# impl_style
+@pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
+def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style):
     if fold == -1:
         pe = 1
     else:
@@ -97,7 +102,17 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
 
-    model = make_accpool_modelwrapper(ch, pe, imdim, idt)
+    # prepare input data and execute
+    input_dict = prepare_inputs(x, idt)
+    expected_y = np.sum(x, axis=(1, 2)).flatten()
+
+    model = make_accpool_modelwrapper(ch, pe, imdim, idt, impl_style)
+
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert (y == expected_y).all(), "HW layer verification failed"
+
+    model = model.transform(SpecializeLayers())
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -112,15 +127,12 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
     y = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_y = np.sum(x, axis=(1, 2)).flatten()
 
     assert (y == expected_y).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("GlobalAccPool_Batch")[0]
+        node = model.get_nodes_by_op_type("GlobalAccPool_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

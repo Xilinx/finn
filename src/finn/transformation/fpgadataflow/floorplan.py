@@ -81,7 +81,7 @@ class Floorplan(Transformation):
             if node_slr == -1:
                 unassigned_nodes += 1
                 node_inst.set_nodeattr("slr", default_slr)
-            if node.op_type == "StreamingDataWidthConverter_Batch":
+            if node.op_type.startswith("StreamingDataWidthConverter"):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
@@ -95,7 +95,7 @@ class Floorplan(Transformation):
                     narrow_neighbour = model.find_producer(node.input[0])
                 node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
-            if node.op_type == "StreamingFIFO":
+            if node.op_type.startswith("StreamingFIFO"):
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
@@ -119,11 +119,11 @@ class Floorplan(Transformation):
         df_nodes = list(
             filter(lambda x: get_by_name(x.attribute, "backend") is not None, all_nodes)
         )
-        dma_nodes = list(filter(lambda x: x.op_type == "IODMA", df_nodes))
+        dma_nodes = list(filter(lambda x: x.op_type == "IODMA_hls", df_nodes))
         non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
         dyn_tlastmarker_nodes = list(
             filter(
-                lambda x: x.op_type == "TLastMarker"
+                lambda x: x.op_type == "TLastMarker_hls"
                 and getCustomOp(x).get_nodeattr("DynIters") == "true",
                 non_dma_nodes,
             )
@@ -150,7 +150,7 @@ class Floorplan(Transformation):
                 continue
 
             elif not (
-                node.op_type == "MatrixVectorActivation"
+                node.op_type.startswith("MVAU")
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):

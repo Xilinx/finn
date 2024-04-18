@@ -1,4 +1,5 @@
 # Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -48,6 +49,7 @@ from finn.transformation.fpgadataflow.insert_hook import InsertHook
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -70,10 +72,10 @@ def create_two_fc_model():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU_hls",
         ["inp", "w0"],
         ["mid"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -85,14 +87,14 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
-        mem_mode="decoupled",
+        mem_mode="internal_decoupled",
     )
 
     fc1 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU_hls",
         ["mid", "w1"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -104,7 +106,7 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
-        mem_mode="decoupled",
+        mem_mode="internal_decoupled",
     )
 
     graph = helper.make_graph(
@@ -151,7 +153,7 @@ def test_fpgadataflow_checksum():
     model = model.transform(InferShapes())
 
     assert (
-        len(model.get_nodes_by_op_type("CheckSum")) == 2
+        len(model.get_nodes_by_op_type("CheckSum_hls")) == 2
     ), """Insertion of
         checksum layers was unsuccessful"""
 
@@ -166,14 +168,15 @@ def test_fpgadataflow_checksum():
     model = model.transform(CompileCppSim())
     inp = {"global_in": x}
     y_cppsim = oxe.execute_onnx(model, inp, return_full_exec_context=True)
-    checksum0_cppsim = y_cppsim["CheckSum_0_out1"]
-    checksum1_cppsim = y_cppsim["CheckSum_1_out1"]
+    checksum0_cppsim = y_cppsim["CheckSum_hls_0_out1"]
+    checksum1_cppsim = y_cppsim["CheckSum_hls_1_out1"]
 
     # in this test case scenario the checksums are equal
     assert checksum0_cppsim == checksum1_cppsim, "CheckSums are not equal"
 
     # rtlsim
     model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -187,7 +190,7 @@ def test_fpgadataflow_checksum():
     def read_checksum_and_drain(sim):
         chk_addr = 16
         drain_addr = 32
-        for i in range(len(model.get_nodes_by_op_type("CheckSum"))):
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
             checksums.append(axilite_read(sim, chk_addr, basename=axi_name))
             drain.append(axilite_read(sim, drain_addr, basename=axi_name))
@@ -196,7 +199,7 @@ def test_fpgadataflow_checksum():
 
     def write_drain(sim):
         addr = 32
-        for i in range(len(model.get_nodes_by_op_type("CheckSum"))):
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
             axilite_write(sim, addr, drain_value, basename=axi_name)
 

@@ -1,0 +1,21 @@
+{
+  "Defaults": {},
+  "Thresholding_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_0": {
+    "preferred_impl_style": "hls"
+  },
+  "MVAU_1": {
+    "preferred_impl_style": ""
+  },
+  "MVAU_2": {
+    "preferred_impl_style": ""
+  },
+  "MVAU_3": {
+    "preferred_impl_style": ""
+  },
+  "LabelSelect_0": {
+    "preferred_impl_style": "hls"
+  }
+}

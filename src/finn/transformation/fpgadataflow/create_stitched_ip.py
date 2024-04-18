@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -40,7 +41,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def is_external_input(model, node, i):
@@ -48,12 +49,13 @@ def is_external_input(model, node, i):
     # True only if input is unconnected and has no initializer
     # Only esception is second input of FC layers when mem_mode is external
     node_inst = getCustomOp(node)
+    op_type = node.op_type
     producer = model.find_producer(node.input[i])
     if producer is None:
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if node.op_type == "MatrixVectorActivation":
+            if op_type.startswith("MVAU"):
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
@@ -284,14 +286,14 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO_rtl", "IODMA_hls"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
-        if model.graph.node[0].op_type == "StreamingFIFO":
+        if model.graph.node[0].op_type == "StreamingFIFO_rtl":
             firstfifo = getCustomOp(model.graph.node[0])
             if firstfifo.get_nodeattr("impl_style") == "vivado":
                 warnings.warn(
@@ -301,7 +303,9 @@ class CreateStitchedIP(Transformation):
                 )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
-            assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
+            assert is_hls_node(node) or is_rtl_node(
+                node
+            ), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
@@ -348,7 +352,7 @@ class CreateStitchedIP(Transformation):
 
         if self.signature:
             # extract number of checksum layer from graph
-            checksum_layers = model.get_nodes_by_op_type("checksum")
+            checksum_layers = model.get_nodes_by_op_type("CheckSum_hls")
             self.insert_signature(len(checksum_layers))
 
         # create a temporary folder for the project
