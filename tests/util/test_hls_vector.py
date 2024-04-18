@@ -55,7 +55,7 @@ def test_npy2vectorstream(test_shape, dtype):
     test_dir = make_build_dir(prefix="test_npy2vectorstream_")
     shape = ndarray.shape
     elem_hls_type = dtype.get_hls_datatype_str()
-    vLen = shape[(len(shape)) - 1]
+    vLen = shape[-1]
     npy_in = test_dir + "/in.npy"
     npy_out = test_dir + "/out.npy"
     # restrict the np datatypes we can handle
