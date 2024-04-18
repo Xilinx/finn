@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <hls_vector.h>
 
-//#define DEBUG
 #ifdef DEBUG
 #define DEBUG_NPY2VECTORSTREAM(x) std::cout << "[npy2vectorstream] " << x << std::endl;
 #define DEBUG_VECTORSTREAM2NPY(x) std::cout << "[vectorstream2npy] " << x << std::endl;
@@ -23,7 +22,7 @@ void npy2vectorstream(const char * npy_path, hls::stream<hls::vector<ElemT,N>> &
     if (arr.word_size != sizeof(NpyT)) {
       throw "Npy array word size and specified NpyT size do not match";
     }
-    NpyT *loaded_data = arr.data<NpyT>();
+    NpyT* loaded_data = arr.data<NpyT>();
     size_t outer_dim_elems = 1;
     for (size_t dim = 0; dim < arr.shape.size() - 1; dim++) {
       outer_dim_elems *= arr.shape[dim];
