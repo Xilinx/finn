@@ -204,15 +204,9 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             #   thus adding this to the global includes is not possible.
             '#include "params.hpp"',
             # Input and output HLS stream datatypes
-            "using LhsStream = hls::stream<"
-            f"  ap_uint<{self.get_instream_width(ind=0)}>"
-            ">;",
-            "using RhsStream = hls::stream<"
-            f"  ap_uint<{self.get_instream_width(ind=1)}>"
-            ">;",
-            "using OutStream = hls::stream<"
-            f"  ap_uint<{self.get_outstream_width(ind=0)}>"
-            ">;",
+            "using LhsStream = hls::stream<LhsPacked>;",
+            "using RhsStream = hls::stream<RhsPacked>;",
+            "using OutStream = hls::stream<OutPacked>;",
         ]
 
     # Generates C++ code for reading data from .npy (numpy format) for testing

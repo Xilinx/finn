@@ -6,7 +6,7 @@
 
 // Flattens an array of N elements of Type into a single bitvector
 template<long unsigned N, class Type>
-    ap_uint<N * Type::width> flatten(const Type *buffer) {
+    ap_uint<N * Type::width> flatten(const Type buffer[N]) {
 // Inline this small piece of bit merging logic
 #pragma HLS INLINE
         // Fill a flat word of N times the bit-width of the element type
