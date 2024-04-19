@@ -208,18 +208,13 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # Apply elementwise operation with broadcasting in numpy and insert
         # result into the execution context
         # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume out_type to be always of the same kind as the inputs but
-        # with bit-width >= the bit-width of either of the inputs. Then,
-        # representing the inputs as out_type for numpy simulation is safe.
-        out = self.npy_op(
-            lhs.astype(self.out_dtype.to_numpy_dt()),
-            rhs.astype(self.out_dtype.to_numpy_dt())
-        )
+        # Note: Always simulate in int64, numpy casting is weird....
+        out = self.npy_op(lhs.astype(np.int64), rhs.astype(np.int64))
         # Make sure the output has the right type, e.g. turn all booleans into
-        # integers if configured by the attribute
+        # integers (actually floats as the container type)
         # Note: This is relevant for logical ops, ==, <=, >=, etc.
         # Note: Somehow QONNX does not like boolean tensors
-        context[node.output[0]] = out.astype(self.out_dtype.to_numpy_dt())
+        context[node.output[0]] = out.astype(np.float32)
 
     # Executes elementwise operation in C++ simulation
     def _execute_node_cppsim(self, context, graph):  # noqa: graph unused
@@ -399,19 +394,91 @@ class ElementwiseBinaryOperation(HWCustomOp):
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
     def minimize_accumulator_width(self, model: ModelWrapper):
+        # If any of the inputs is not an integer, the bit-width cannot be
+        # minimized
+        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
+            # Check the annotated tensor data type corresponds to the stored
+            # attribute
+            assert (model.get_tensor_datatype(self.onnx_node.output[0])
+                    == self.out_dtype), \
+                f"Output type mismatch for {self.onnx_node.name}"
+            # Exit here, returning the not-minimized data type
+            return self.out_dtype
+        # Call the output type derivation specialized by the concrete operator
+        # implementation
+        out_dtype = self._derive_out_dtype(model)
+        # Set the new output data type as attribute
+        self.set_nodeattr("out_dtype", out_dtype.name)
+        # Annotate the output tensor with the new data type
+        model.set_tensor_datatype(self.onnx_node.output[0], out_dtype)
+        # Return the minimized output data type
+        # Note: Probably not required by MinimizeAccumulatorWidth transformation
+        return out_dtype
+
+    # Derives the optimal width of the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
         # Depends on the actual operation performed and must be specialized by
         # the concrete implementations
         raise NotImplementedError(
-            f"minimize_accumulator_width of {self.__class__.__name__}"
+            f"_derive_out_dtype of {self.__class__.__name__}"
             f" is not implemented!"
         )
 
     # Minimizes the width of the weight data type, 'weight' here due to
     # convention, it actually applies to any constant initializer input
     def minimize_weight_bit_width(self, model: ModelWrapper):
-        # TODO: Can actually be implemented in the base class. Without this
-        #  might just be inefficient for now.
-        pass
+        # Check for an initializer providing the left hand side input
+        lhs = model.get_initializer(self.onnx_node.input[0])
+        # If the left hand side input is provided as initializer, minimize the
+        # bits used for storing this
+        if lhs is not None:
+            # Remember the "style" of receiving the input for further code
+            # generation
+            self.set_nodeattr("lhs_style", "const")
+            # Minimum and maximum "weight" on the left hand side, determining
+            # the range of values which needs to be represented
+            _min = lhs.min()
+            _max = lhs.max()
+            # Determine whether signed or unsigned type is required for
+            # representing the weights and select the largest "signed magnitude"
+            _mag = _max if _min > 0 else \
+                _min if (abs(_min) > _max) else (-_max - 1)
+            # Smallest data type large enough to represent this range of values
+            dtype = DataType.get_smallest_possible(_mag)
+            # Update the corresponding data type attribute of the node
+            self.set_nodeattr("lhs_dtype", dtype.name)
+            # Annotate the tensor with the new data type
+            model.set_tensor_datatype(self.onnx_node.input[0], dtype)
+
+        # Check for an initializer providing the right hand side input
+        rhs = model.get_initializer(self.onnx_node.input[1])
+        # If the right hand side input is provided as initializer, minimize the
+        # bits used for storing this
+        if rhs is not None:
+            # Remember the "style" of receiving the input for further code
+            # generation
+            self.set_nodeattr("rhs_style", "const")
+            # Minimum and maximum "weight" on the right hand side, determining
+            # the range of values which needs to be represented
+            _min = rhs.min()
+            _max = rhs.max()
+            assert _min != 0
+            assert _max != 0
+            # Determine whether signed or unsigned type is required for
+            # representing the weights and select the largest "signed magnitude"
+            _mag = _max if _min > 0 else \
+                _min if (abs(_min) > _max) else (-_max - 1)
+            # Smallest data type large enough to represent this range of values
+            dtype = DataType.get_smallest_possible(_mag)
+            # Update the corresponding data type attribute of the node
+            self.set_nodeattr("rhs_dtype", dtype.name)
+            # Annotate the tensor with the new data type
+            model.set_tensor_datatype(self.onnx_node.input[1], dtype)
+
+        # TODO: MVAU returns the data type here, which does not make sense for
+        #  potentially two data types changing and apparently, the
+        #  MinimizeWeightBitWidth transformations does not even use the returned
+        #  value.
 
 
 # Derive a specialization to implement elementwise addition of two inputs
@@ -421,6 +488,38 @@ class ElementwiseAdd(ElementwiseBinaryOperation):
     # hand side input
     _operation = "Add", np.add, "({0} + {1})", None
 
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs and the larger of the
+        # two widths
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        max_width = max(lhs_width, rhs_width)
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # By default, the output is one bit more than the widest of the inputs
+        out_width = max_width + 1
+        # If the addition is signed, the output might be wider depending on
+        # which of the inputs is signed
+        if signed:
+            # Find the wider and narrower of the two inputs by assuming left to
+            # right order first
+            wider, narrower = self.lhs_dtype, self.rhs_dtype
+            # Swap if the order is not correct
+            if narrower.bitwidth() > wider.bitwidth():
+                wider, narrower = narrower, wider
+            # If and only if the wider is unsigned and the narrower is signed,
+            # add two bits to the output width
+            if not wider.signed() and narrower.signed():
+                # Out has two bits more than the widest input
+                out_width = max_width + 2
+            # The new output type is a signed integer of the calculated
+            # bit-width
+            return DataType[f"INT{out_width}"]
+        # By default, if both inputs are unsigned, the output is unsigned as
+        # well
+        return DataType[f"UINT{out_width}"]
+
 
 # Derive a specialization to implement elementwise subtraction of two inputs
 @register_custom_op
@@ -428,6 +527,34 @@ class ElementwiseSub(ElementwiseBinaryOperation):
     # Specialize to implement the subtraction operation of left hand side and
     # right hand side input
     _operation = "Sub", np.subtract, "({0} - {1})", None
+
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs and the larger of the
+        # two widths
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        max_width = max(lhs_width, rhs_width)
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # By default, the output is one bit more than the widest of the inputs
+        out_width = max_width + 1
+        # If the operation is signed, the output might be wider depending on
+        # which of the inputs is signed
+        if signed:
+            # Find the wider and narrower of the two inputs by assuming left to
+            # right order first
+            wider, narrower = self.lhs_dtype, self.rhs_dtype
+            # Swap if the order is not correct
+            if narrower.bitwidth() > wider.bitwidth():
+                wider, narrower = narrower, wider
+            # If and only if the wider is unsigned and the narrower is signed,
+            # add two bits to the output width
+            if not wider.signed() and narrower.signed():
+                # Out has two bits more than the widest input
+                out_width = max_width + 2
+        # For subtraction, the output data type is always signed
+        return DataType[f"INT{out_width}"]
 
 
 # Derive a specialization to implement elementwise multiplication of two inputs
@@ -437,6 +564,19 @@ class ElementwiseMul(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "Mul", np.multiply, "({0} * {1})", None
 
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # The width of the product is the sum of the widths of the operands.
+        out_width = lhs_width + rhs_width
+        # The product is treated as a signed type if either of the operands is
+        # of a signed type.
+        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+
 
 # Derive a specialization to implement elementwise division of two inputs
 @register_custom_op
@@ -445,6 +585,20 @@ class ElementwiseDiv(ElementwiseBinaryOperation):
     # Specialize to implement the division operation of left hand side and
     # right hand side input
     _operation = "Div", np.divide, "({0} / {1})", None
+
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs
+        lhs_width = self.lhs_dtype.bitwidth()
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # The width of the quotient is the width of the dividend if the divisor
+        # is an unsigned type. Otherwise, it is the width of the dividend plus
+        # one.
+        out_width = lhs_width if not self.rhs_dtype.signed() else lhs_width + 1
+        # The quotient is treated as a signed type if either of the operands is
+        # of a signed type.
+        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
 
 
 # TODO: ElementwiseMod - Requires extra attribute selecting the function
@@ -457,6 +611,12 @@ class ElementwiseAnd(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "And", np.logical_and, "({0} && {1})", None
 
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
+
 
 # Derive a specialization to implement elementwise logical or of two inputs
 @register_custom_op
@@ -464,6 +624,12 @@ class ElementwiseOr(ElementwiseBinaryOperation):
     # Specialize to implement the logical or operation of left hand side and
     # right hand side input
     _operation = "Or", np.logical_or, "({0} || {1})", None
+
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
 
 
 # Derive a specialization to implement elementwise logical xor of two inputs
@@ -473,6 +639,12 @@ class ElementwiseXor(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "Xor", np.logical_xor, "(bool({0}) != bool({1}))", None
 
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
+
 
 # Derive a specialization to implement elementwise equality of two inputs
 @register_custom_op
@@ -480,6 +652,12 @@ class ElementwiseEqual(ElementwiseBinaryOperation):
     # Specialize to implement the logical equal operation of left hand side and
     # right hand side input
     _operation = "Equal", np.equal, "({0} == {1})", None
+
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
 
 
 # Derive a specialization to implement elementwise less of two inputs
@@ -489,6 +667,12 @@ class ElementwiseLess(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "Less", np.less, "({0} < {1})", None
 
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
+
 
 # Derive a specialization to implement elementwise less or equal of two inputs
 @register_custom_op
@@ -497,6 +681,12 @@ class ElementwiseLessOrEqual(ElementwiseBinaryOperation):
     # side and right hand side input
     _operation = "LessOrEqual", np.less_equal, "({0} <= {1})", None
 
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
+
 
 # Derive a specialization to implement elementwise greater of two inputs
 @register_custom_op
@@ -504,6 +694,12 @@ class ElementwiseGreater(ElementwiseBinaryOperation):
     # Specialize to implement the logical greater operation of left hand side
     # and right hand side input
     _operation = "Greater", np.greater, "({0} > {1})", None
+
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
 
 
 # Derive a specialization to implement elementwise greater or equal of two
@@ -514,6 +710,12 @@ class ElementwiseGreaterOrEqual(ElementwiseBinaryOperation):
     # hand side and right hand side input
     _operation = "GreaterOrEqual", np.greater_equal, "({0} >= {1})", None
 
+    # Derives the output data type
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Treat the boolean output of a logical operation as unsigned integer of
+        # width 1, i.e., a single bit True/False
+        return DataType["BINARY"]
+
 
 # Derive a specialization to implement elementwise bitwise and of two inputs
 @register_custom_op
@@ -521,6 +723,20 @@ class ElementwiseBitwiseAnd(ElementwiseBinaryOperation):
     # Specialize to implement the bitwise and operation of left hand side and
     # right hand side input
     _operation = "BitwiseAnd", np.bitwise_and, "({0} & {1})", None
+
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs  # noqa: Duplicate
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # The bitwise logical operators all return a value with a width that is
+        # the maximum of the widths of the two operands.
+        out_width = max(lhs_width, rhs_width)
+        # The product is treated as a signed type if either of the operands is
+        # of a signed type.
+        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
 
 
 # Derive a specialization to implement elementwise bitwise or of two inputs
@@ -530,6 +746,20 @@ class ElementwiseBitwiseOr(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "BitwiseOr", np.bitwise_or, "({0} | {1})", None
 
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs  # noqa: Duplicate
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # The bitwise logical operators all return a value with a width that is
+        # the maximum of the widths of the two operands.
+        out_width = max(lhs_width, rhs_width)
+        # The product is treated as a signed type if either of the operands is
+        # of a signed type.
+        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+
 
 # Derive a specialization to implement elementwise bitwise xor of two inputs
 @register_custom_op
@@ -538,6 +768,19 @@ class ElementwiseBitwiseXor(ElementwiseBinaryOperation):
     # right hand side input
     _operation = "BitwiseXor", np.bitwise_xor, "({0} ^ {1})", None
 
+    # Derives the output data type according to UG1399
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Get the width of the data types of the inputs  # noqa: Duplicate
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        # Check whether the addition operation is a signed addition
+        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+        # The bitwise logical operators all return a value with a width that is
+        # the maximum of the widths of the two operands.
+        out_width = max(lhs_width, rhs_width)
+        # The product is treated as a signed type if either of the operands is
+        # of a signed type.
+        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
 
 # TODO: ElementwiseBitShift - Requires extra attribute selecting the direction
 

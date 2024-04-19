@@ -68,7 +68,16 @@ from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
     InferThresholdingLayer,
 )
+# Synthesizes HLS code generated from an operator to IP block
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+# Bit-width optimization transformations
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
+# Transformations preparing the operators for C++ and RTL simulation
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -240,6 +249,11 @@ def test_elementwise_binary_operation_python(
     # Test running shape and data type inference on the model graph
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
+
+    # Try to minimize the bit-widths of all data types involved
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+
     # Set model execution mode to python simulation
     model = model.transform(SetExecMode("python"))
     model = model.transform(GiveUniqueNodeNames())
@@ -247,11 +261,9 @@ def test_elementwise_binary_operation_python(
     # Compute ground-truth output in software
     o_expected = numpy_reference(
         # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume out_type to be always of the same kind as the inputs but
-        # with bit-width >= the bit-width of either of the inputs. Then,
-        # representing the inputs as out_type for numpy simulation is safe.
-        context["lhs"].astype(DataType[out_dtype].to_numpy_dt()),
-        context["rhs"].astype(DataType[out_dtype].to_numpy_dt()),
+        # Note: Assume all test cases fit into int64 without loss of precision
+        context["lhs"].astype(np.int64),
+        context["rhs"].astype(np.int64)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
@@ -314,6 +326,11 @@ def test_elementwise_binary_operation_cppsim(
     model = model.transform(InferShapes())
     # Specializes all nodes to be implemented as HLS backend
     model = specialize_hls(model)
+
+    # Try to minimize the bit-widths of all data types involved
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+
     # Set model execution mode to C++ simulation
     model = model.transform(SetExecMode("cppsim"))
     # Generates the C++ source and compiles the C++ simulation
@@ -324,11 +341,9 @@ def test_elementwise_binary_operation_cppsim(
     # Compute ground-truth output in software
     o_expected = numpy_reference(
         # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume out_type to be always of the same kind as the inputs but
-        # with bit-width >= the bit-width of either of the inputs. Then,
-        # representing the inputs as out_type for numpy simulation is safe.
-        context["lhs"].astype(DataType[out_dtype].to_numpy_dt()),
-        context["rhs"].astype(DataType[out_dtype].to_numpy_dt()),
+        # Note: Assume all test cases fit into int64 without loss of precision
+        context["lhs"].astype(np.int64),
+        context["rhs"].astype(np.int64)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
@@ -391,6 +406,11 @@ def test_elementwise_binary_operation_rtlsim(
     model = model.transform(InferShapes())
     # Specializes all nodes to be implemented as HLS backend
     model = specialize_hls(model)
+
+    # Try to minimize the bit-widths of all data types involved
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+
     # Set model execution mode to RTL simulation
     model = model.transform(SetExecMode("rtlsim"))
     # Generates the C++ source and compiles the RTL simulation
@@ -402,11 +422,9 @@ def test_elementwise_binary_operation_rtlsim(
     # Compute ground-truth output in software
     o_expected = numpy_reference(
         # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume out_type to be always of the same kind as the inputs but
-        # with bit-width >= the bit-width of either of the inputs. Then,
-        # representing the inputs as out_type for numpy simulation is safe.
-        context["lhs"].astype(DataType[out_dtype].to_numpy_dt()),
-        context["rhs"].astype(DataType[out_dtype].to_numpy_dt()),
+        # Note: Assume all test cases fit into int64 without loss of precision
+        context["lhs"].astype(np.int64),
+        context["rhs"].astype(np.int64)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
@@ -513,6 +531,10 @@ def test_elementwise_binary_operation_integration_elementwise_add(
         model = model.transform(ApplyConfig({
             "Defaults": {"PE": [pe, ["ElementwiseAdd", "Thresholding"]]}
         }))
+
+        # Try to minimize the bit-widths of all data types involved
+        model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(MinimizeAccumulatorWidth())
 
         # Prepare the execution context with dummy data from above and input
         # node names extracted from transformed modelo graph
