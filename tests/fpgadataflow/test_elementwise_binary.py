@@ -83,7 +83,11 @@ from finn.transformation.streamline import Streamline
 
 # Specific streamlining transformations which needs to be applied manually in
 # integration test
-from finn.transformation.streamline.absorb import AbsorbMulIntoMultiThreshold
+from finn.transformation.streamline.absorb import (
+    AbsorbMulIntoMultiThreshold,
+    AbsorbSignBiasIntoMultiThreshold,
+)
+from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 
 # Checks whether a node is a fpgadataflow backend node handled by FINN
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -433,7 +437,7 @@ def test_elementwise_binary_operation_rtlsim(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 def test_elementwise_binary_operation_integration_elementwise_add(
-        lhs_shape, rhs_shape, pe, initializers
+        lhs_shape, rhs_shape, initializers, pe
 ):
     # PyTorch model wrapping the component(s) to be tested
     class Dummy(torch.nn.Module):
@@ -488,6 +492,13 @@ def test_elementwise_binary_operation_integration_elementwise_add(
         # Need to absorb scalar multiplication into the thresholding layer
         # first, to prevent large rounding error due to moving these in front of
         # add operations later.
+        model = model.transform(AbsorbMulIntoMultiThreshold())
+        # Need to absorb the sign bias of the quantizer back into the
+        # corresponding thresholds first instead of moving them past the next
+        # operator to avoid sign and range issues.
+        model = model.transform(AbsorbSignBiasIntoMultiThreshold())
+        # There might be identical Mul in front of the joining Add node
+        model = model.transform(MoveLinearPastEltwiseAdd())
         model = model.transform(AbsorbMulIntoMultiThreshold())
         # Do a single round of standard streamlining of the model graph
         model = model.transform(Streamline())
