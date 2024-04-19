@@ -205,11 +205,14 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # Get the inputs out of the execution context
         lhs = context[node.input[0]]
         rhs = context[node.input[1]]
+        # Note: Need to make sure these have the right type for the Numpy API
+        # Note: Always simulate integer inputs in int64, numpy casting is
+        # weird....
+        lhs = lhs.astype(np.int64) if self.lhs_dtype.is_integer() else lhs
+        rhs = rhs.astype(np.int64) if self.rhs_dtype.is_integer() else rhs
         # Apply elementwise operation with broadcasting in numpy and insert
         # result into the execution context
-        # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Always simulate in int64, numpy casting is weird....
-        out = self.npy_op(lhs.astype(np.int64), rhs.astype(np.int64))
+        out = self.npy_op(lhs, rhs)
         # Make sure the output has the right type, e.g. turn all booleans into
         # integers (actually floats as the container type)
         # Note: This is relevant for logical ops, ==, <=, >=, etc.
