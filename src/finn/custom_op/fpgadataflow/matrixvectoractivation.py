@@ -159,8 +159,8 @@ class MVAU(HWCustomOp):
             if result.ndim == 4:
                 # NCHW to NHWC
                 result = result.transpose((0, 2, 3, 1))
-
-        context[node.output[0]] = result
+        oshape = context[node.output[0]].shape
+        context[node.output[0]] = result.reshape(oshape)
 
     def verify_node(self):
         info_messages = []
