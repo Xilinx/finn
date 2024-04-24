@@ -64,6 +64,7 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
     assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
+    assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
     # verification outputs
     verif_batchsize = np.load(target_dir + "/input.npy").shape[0]
     for i in range(verif_batchsize):
