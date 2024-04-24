@@ -62,6 +62,7 @@ from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
 )
+from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
@@ -801,6 +802,11 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
+
             vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
             timing_rpt = (
                 "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
@@ -825,6 +831,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
