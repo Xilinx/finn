@@ -1,0 +1,56 @@
+# /*
+# Copyright (C) 2023, Advanced Micro Devices, Inc. All rights reserved.
+# SPDX-License-Identifier: X11
+# */
+
+log
+*.log
+*.vcd
+*.wdb
+*.bin
+*.o
+*.elf
+*.xpe
+*.pdi
+*.mmi
+*.str
+*.xo
+*.xsa
+*.xclbin
+*.pb
+*.jou
+.Xil
+ultra96_x
+zcu10?_x
+build*/
+sd_card*/
+.vscode
+*.ltx
+*.str
+*.xclbin
+*.info
+*_summary
+*.cdo
+packaged_kernel*
+tmp_kernel_pack*
+release_build
+linux/vck190-versal
+linux/vck190-versal-meta
+linux/sysroot
+linux/dtg/dts
+linux/dtg/device-tree-xlnx
+vitis/xpfm_export/vck190_thin_wrapper*
+vitis/ip/*/.ipcache
+vitis/ip/*/_x
+vitis/ip/*/*.xml
+vitis/ip/aie/vck190_thin_wrapper*
+vitis/ip/aie/Work
+vitis/ip/aie/*.a
+vitis/ip/aie/*.soln
+vitis/ip/aie/*.csv
+vitis/ip/aie/*.db
+vitis/ip/xo_*
+ps_apps/linux/exe
+vitis/build_*
+package_*_*
+
