@@ -93,11 +93,11 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
             # write weights into C++ header file as dictated by finn-hlslib
             f_weights = open(weight_file_name, "w")
             f_weights.write(
-                "static hls::vector<hls::vector<{}, {}>, {}> const weights[{}] = ".format(
+                "static {} const weights[{}][{}][{}] = ".format(
                     export_wdt.get_hls_datatype_str(),
-                    self.get_nodeattr("SIMD"),
-                    self.get_nodeattr("PE"),
                     self.calc_wmem(),
+                    self.get_nodeattr("PE"),
+                    self.get_nodeattr("SIMD"),
                 )
             )
             f_weights.write(weight_hls_code)
@@ -117,19 +117,15 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
         assert orig_weight_matrix.shape == (
-            k_h * k_w * ifm_ch,
             ofm_ch,
+            k_h * k_w * ifm_ch,
         ), """Weights matrix doesn't
-        have expected shape (k_h*k_w*ifm_ch, ofm_ch)"""
+        #have expected shape (k_h*k_w*ifm_ch, ofm_ch)"""
         assert ofm_ch % pe == 0, "Requirement output channels divisable by PE is violated."
         assert ifm_ch % simd == 0, "Requirement input channels divisable by SIMD is violated."
-        # start by transposing the original weight matrix, since ONNX and
-        # finn-hlslib use different assumptions
-        # ONNX uses (in_features, out_features) and matmul(x, W)
-        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
-        ret = orig_weight_matrix.T
         # interleave rows between PEs and reshape
         # distribute rows between PEs
+        ret = orig_weight_matrix
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         # create SIMD as innermost dimension and add a dummy outer dim
         ret = ret.reshape(1, pe, wmem, simd)
@@ -138,19 +134,19 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         return ret
 
     def global_includes(self):
-        # self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
-        # self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-
         self.code_gen_dict["$GLOBALS$"] = ['#include "deconv.hpp"']
 
     def defines(self, var):
         ifm_dim = self.get_nodeattr("IFMDim")
         self.code_gen_dict["$DEFINES$"] = [
-            """#define Kernel {}\n #define Stride {}\n
-            #define IFMH {}\n #define IFMW {}\n #define ICH {}\n
-            #define OCH {}\n #define SIMD1 {}\n #define PE1 {}""".format(
+            """constexpr unsigned Kernel = {};\n constexpr unsigned Stride = {};\n
+            constexpr unsigned Padding = {};\n constexpr unsigned IFMH = {};\n
+            constexpr unsigned IFMW = {};\n constexpr unsigned ICH = {};\n
+            constexpr unsigned OCH = {};\n constexpr unsigned SIMD1 = {};\n
+            constexpr unsigned PE1 = {};""".format(
                 self.get_nodeattr("KernelDim")[0],
                 self.get_nodeattr("Stride")[0],
+                self.get_nodeattr("Padding")[0],
                 ifm_dim[0],
                 ifm_dim[1],
                 self.get_nodeattr("IFMChannels"),
@@ -170,7 +166,7 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintvectorstream<%s, %s, %d>("%s", in0_%s, false);'
+            'npy2vectorstream<%s, %s, %d>("%s", in0_%s, false);'
             % (
                 elem_hls_type,
                 npy_type,
@@ -198,13 +194,27 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         )
 
     def docompute(self):
+        odtype = self.get_output_datatype()
+        pe = self.get_nodeattr("PE")
+        ishape = self.get_normal_input_shape()
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """deconv<Kernel, Stride, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
+            "hls::stream<hls::vector<{},{}>> strm;".format(odtype.get_hls_datatype_str(), pe)
+        ]
+        self.code_gen_dict["$DOCOMPUTE$"].append("unsigned  timeout = 0;")
+        self.code_gen_dict["$DOCOMPUTE$"].append("while(timeout < %s) {" % np.prod(ishape))
+        self.code_gen_dict["$DOCOMPUTE$"].append(
+            """deconv<Kernel, Stride, Padding, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
             (weights, in0_{}, out_{});""".format(
                 self.hls_sname(),
                 self.hls_sname(),
             )
-        ]
+        )
+        self.code_gen_dict["$DOCOMPUTE$"].append("if(out_V.empty())  timeout++;")
+        self.code_gen_dict["$DOCOMPUTE$"].append("else {")
+        self.code_gen_dict["$DOCOMPUTE$"].append("strm << out_V.read();")
+        self.code_gen_dict["$DOCOMPUTE$"].append("timeout = 0;")
+        self.code_gen_dict["$DOCOMPUTE$"].append("}")
+        self.code_gen_dict["$DOCOMPUTE$"].append("}")
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -218,19 +228,15 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintvectorstream2npy<%s, %s, %d>(out_%s, %s, "%s", false);'
+            'vectorstream2npy<%s, %s, %d>(strm, %s, "%s", false);'
             % (
                 elem_hls_type,
                 npy_type,
                 pe,
-                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
         ]
-
-    def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [

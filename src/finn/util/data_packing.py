@@ -322,9 +322,9 @@ def numpy_to_hls_code1(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no
         else:
             raise Exception("Unsupported type for numpy_to_hls_code")
 
-    strarr = np.array2string(ndarray, separator=", ", formatter={"all": elem2str})
+    strarr = np.array2string(ndarray.flatten(), separator=", ", formatter={"all": elem2str})
     np.set_printoptions(**orig_printops)
-    strarr = strarr.replace("[", "{").replace("]", "}")
+    strarr = strarr.replace("[", "{").replace("]", ",}")
     if no_decl:
         ret = strarr + ";"
     else:

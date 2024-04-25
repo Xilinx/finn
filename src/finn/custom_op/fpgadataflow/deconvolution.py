@@ -48,6 +48,7 @@ class Deconvolution(HWCustomOp):
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "Stride": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
+            "Padding": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -76,8 +77,7 @@ class Deconvolution(HWCustomOp):
         stride_h, stride_w = self.get_nodeattr("Stride")
         k_h, k_w = self.get_nodeattr("KernelDim")
         ofm_ch = self.get_nodeattr("OFMChannels")
-        pad_h = int(k_h / stride_h) - 1
-        pad_w = int(k_w / stride_w) - 1
+        pad_h, pad_w = self.get_nodeattr("Padding")
         odim_h = (idim_h - 1) * stride_h - 2 * pad_h + (k_h - 1) + 1
         odim_w = (idim_w - 1) * stride_w - 2 * pad_w + (k_w - 1) + 1
         oshape = (1, odim_h, odim_w, ofm_ch)
