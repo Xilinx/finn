@@ -536,7 +536,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             weights = np.insert(weights, 0, min_val, axis=1)
             n_thres_steps += 1
 
-
         # If a single threshold value is found, broadcast the value
         expected_shape = (ch, expected_thresholds)
         if weights.shape != expected_shape:
