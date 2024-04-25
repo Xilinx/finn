@@ -1244,3 +1244,86 @@ class MoveIdenticalOpPastJoinOp(Transformation):
 class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Add"])
+
+
+# Moves a transpose operator past elementwise addition or multiplication
+class MoveTransposePastEltwise(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Transpose operation types
+            if node.op_type == "Transpose":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)[0]
+                # If Transpose is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Applies to elementwise add and mul operations
+                if successor.op_type in {"Add", "Mul"}:
+                    # Get names of all tensors involved in connecting the nodes
+                    inp = node.input[0]
+                    mid = node.output[0]
+                    out = successor.output[0]
+
+                    # y = x^T + a <=> y = (x + a^T)^T
+
+                    # Assume left-to-right order of input to the Add operator
+                    xt, a = successor.input
+                    # Check whether the assumption holds true
+                    if xt != mid:
+                        # Leaves only the option of a and xt commuting
+                        xt, a = a, xt
+                    # If this assumption still does not hold true, something is
+                    # wrong with the graph
+                    assert xt == mid, f"Messed up graph pattern at {node.name}"
+
+                    # Get the (optional) permutation indices of the transpose in
+                    # case it is a multi-axis transpose
+                    perm = get_by_name(node.attribute, "perm")
+                    # Convert permutation indices to list of integers
+                    perm = perm.ints if perm is not None else None
+
+                    # This transformation does only apply to Add nodes where the
+                    # second input is a constant initializer
+                    if (value := model.get_initializer(a)) is not None:
+                        # Transpose the initializer and re-insert into the model
+                        model.set_initializer(a, value.transpose(perm))
+                        # Rewire the graph to feed original input and the
+                        # transposed initializer into the Add node first
+                        successor.input[:] = [inp, a]
+                        # Repurpose the middle tensor for the output of the
+                        # addition
+                        successor.output[0] = mid
+                        # The Transpose operator now gets the middle tensor as
+                        # its input
+                        node.input[0] = mid
+                        # Transpose now produces the original output tensor
+                        node.output[0] = out
+                        # Delete the shape annotation of the connecting tensors
+                        # to be re-done later
+                        model.set_tensor_shape(inp, None)
+                        model.set_tensor_shape(mid, None)
+                        model.set_tensor_shape(out, None)
+                        # Track whether the graph has been modified, never
+                        # resets to False
+                        graph_modified = True
+                        # Break the loop after deleting shape annotations to
+                        # immediately re-do these before changing the next
+                        # operator
+                        break
+        # Need to redo the shape inference after potentially removing nodes
+        model = model.transform(InferShapes())  # noqa: Shadows model
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
