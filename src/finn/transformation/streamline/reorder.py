@@ -32,6 +32,7 @@ import warnings
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_node
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
