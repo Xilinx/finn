@@ -199,8 +199,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
 
         # If a single threshold value is found, broadcast the value
-        expected_shape = (num_channels, n_thres_steps)
-        if t_packed.shape == (1, 1):
+        expected_shape = (num_channels, expected_thresholds)
+        if t_packed.shape != expected_shape:
             t_packed = np.broadcast_to(t_packed, expected_shape)
 
         channel_fold = int(num_channels / pe)
@@ -523,10 +523,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ch = self.get_nodeattr("NumChannels")
         n_thres_steps = self.get_nodeattr("numSteps")
 
-        # If a single threshold value is found, broadcast the value
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+
+        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
+        # one less threshold, prepending a dummy threshold.
+        expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
-        expected_shape = (ch, n_thres_steps)
-        if weights.shape == (1, 1):
+        if expected_thresholds != n_thres_steps and DataType[input_data_type].signed() is not True:
+            min_val = np.amin(weights, axis=1)
+            weights = np.insert(weights, 0, min_val, axis=1)
+            n_thres_steps += 1
+
+
+        # If a single threshold value is found, broadcast the value
+        expected_shape = (ch, expected_thresholds)
+        if weights.shape != expected_shape:
             weights = np.broadcast_to(weights, expected_shape)
 
         odt = self.get_output_datatype().bitwidth()
