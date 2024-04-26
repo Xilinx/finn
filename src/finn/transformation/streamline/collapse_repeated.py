@@ -139,13 +139,19 @@ class CollapseRepeatedTranspose(Transformation):
                     # Softly skip this node
                     continue
                 # As this is not a fork-node, there can be at most one successor
-                successor = model.find_direct_successors(node)[0]
+                successor = model.find_direct_successors(node)
                 # If Transpose is the final operation in the graph, there might
                 # be no successor
-                if successor is None or successor.op_type != "Transpose":
+                if successor is None:
                     # Softly skip this node
                     continue
-
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Successor must be a Transpose to be collapsed
+                if successor.op_type != "Transpose":
+                    # Softly skip this node
+                    continue
                 # Get the (optional) permutation indices of the first transpose
                 # in case it is a multi-axis transpose
                 perm1 = get_by_name(node.attribute, "perm")

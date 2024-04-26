@@ -1264,12 +1264,15 @@ class MoveTransposePastEltwise(Transformation):
                     # Softly skip this node
                     continue
                 # As this is not a fork-node, there can be at most one successor
-                successor = model.find_direct_successors(node)[0]
+                successor = model.find_direct_successors(node)
                 # If Transpose is the final operation in the graph, there might
                 # be no successor
                 if successor is None:
                     # Softly skip this node
                     continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
                 # Applies to elementwise add and mul operations
                 if successor.op_type in {"Add", "Mul"}:
                     # Get names of all tensors involved in connecting the nodes
