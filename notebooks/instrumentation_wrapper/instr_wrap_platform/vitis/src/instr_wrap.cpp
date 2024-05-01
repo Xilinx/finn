@@ -30,7 +30,6 @@ int main() {
 
         xil_printf("\033[2J\033[H");
         xil_printf("\r\nRunning Instrumentation Wrapper\r\n\r\n");
-
         xil_printf("**************************************\r\n");
         xil_printf("Sample %d\r\n", j+1);
         xil_printf("**************************************\r\n\r\n");
@@ -48,7 +47,6 @@ int main() {
 
     xil_printf("\033[2J\033[H");
     xil_printf("\r\nInstrumentation Wrapper has finished running\r\n\r\n");
-
     xil_printf("*****************************************\r\n");
     xil_printf("Average metrics after 10 seconds:\r\n");
     xil_printf("*****************************************\r\n\r\n");
