@@ -17,8 +17,6 @@ XSA                   := ${PLATFORM_CUSTOM}.xsa
 
 BUILD_DIR             := build_${TARGET}
 
-ILA_LTX               := ${BUILD_DIR}/_x/link/vivado/vpl/prj/probe_0.ltx
-
 
 ifeq (${ILA_EN}, 1)  
     ifeq (${DOUBLE_PUMPED}, 1)

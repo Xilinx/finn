@@ -22,7 +22,7 @@ VITIS_VERSION                     := $(shell vitis -version 2>/dev/null | grep "
 export ILA_EN                     := 0
 
 # BOARD_NAME = vmk180, vck190
-export BOARD_NAME                 := vck190
+export BOARD_NAME                 := vmk180
 
 # For remote hardware server, set the hostname and port to connect to
 export HW_SERVER_HOST             := <HW_SERVER_HOST>

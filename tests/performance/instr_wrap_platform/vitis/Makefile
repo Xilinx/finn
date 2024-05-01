@@ -79,12 +79,24 @@ ${BUILD_DIR}/${XSA}: ${XO} ${SYSTEM_CFG}
 
 
 instr_wrap:
+ifeq (${ILA_EN}, 1)
+	cd ${BUILD_DIR} && \
+	cp _x/link/vivado/vpl/prj/prj.runs/impl_1/$(addsuffix _wrapper.pdi, ${PLATFORM_CUSTOM}) . && \
+	cp _x/link/vivado/vpl/prj/prj.runs/impl_1/$(addsuffix _wrapper.ltx, ${PLATFORM_CUSTOM}) . && \
+	vivado _x/link/vivado/vpl/prj/prj.xpr -mode batch -source ../src/export_xsa_program_device.tcl \
+		-tclargs $(PLATFORM_CUSTOM) $(HW_SERVER_HOST) $(HW_SERVER_PORT) $(ILA_EN) && \
+	xsct ../src/xsct_run_instr_wrap.tcl \
+		${PLATFORM_CUSTOM} $(AP_CLK_MHZ) ${HW_SERVER_HOST} ${HW_SERVER_PORT} && \
+	vivado _x/link/vivado/vpl/prj/prj.xpr -mode batch -source ../src/open_ila.tcl \
+		-tclargs ${PLATFORM_CUSTOM} ${HW_SERVER_HOST} ${HW_SERVER_PORT}
+else
 	cd ${BUILD_DIR} && \
 	cp _x/link/vivado/vpl/prj/prj.runs/impl_1/$(addsuffix _wrapper.pdi, ${PLATFORM_CUSTOM}) . && \
 	vivado _x/link/vivado/vpl/prj/prj.xpr -mode batch -source ../src/export_xsa_program_device.tcl \
-		-tclargs $(PLATFORM_CUSTOM) $(HW_SERVER_HOST) $(HW_SERVER_PORT) && \
+		-tclargs $(PLATFORM_CUSTOM) $(HW_SERVER_HOST) $(HW_SERVER_PORT) $(ILA_EN) && \
 	xsct ../src/xsct_run_instr_wrap.tcl \
 		${PLATFORM_CUSTOM} $(AP_CLK_MHZ) ${HW_SERVER_HOST} ${HW_SERVER_PORT}
+endif
 
 
 clean:

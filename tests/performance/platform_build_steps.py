@@ -98,6 +98,47 @@ def test_step_gen_instrumentation_wrapper(model, cfg):
     return model
 
 
+def test_step_gen_instrwrap_sim(model, cfg):
+    sim_output_dir = cfg.output_dir + "/instrwrap_sim"
+    os.makedirs(sim_output_dir, exist_ok=True)
+    # fill in testbench template
+    with open("templates/instrwrap_testbench.template.sv", "r") as f:
+        testbench_sv = f.read()
+    with open(sim_output_dir + "/instrwrap_testbench.sv", "w") as f:
+        f.write(testbench_sv)
+    # fill in testbench project creator template
+    with open("templates/make_instrwrap_sim_proj.template.tcl", "r") as f:
+        testbench_tcl = f.read()
+    testbench_tcl = testbench_tcl.replace("@FPGA_PART@", cfg.fpga_part)
+    with open(sim_output_dir + "/make_instrwrap_sim_proj.tcl", "w") as f:
+        f.write(testbench_tcl)
+
+    return model
+
+
+def test_step_insert_tlastmarker(model, cfg):
+    # custom step to introduce the TLastMarker op, thus generating TLAST for the final
+    # AXI stream output. TLAST will be high during the last stream transaction of the output
+    # to indicate that the output for one sample is completed, and a new one starts after.
+    # this step should be called before stitched IP gen but after the folding config
+    # has been applied, e.g. right before stitched IP step is suitable for instance.
+    model = model.transform(InsertTLastMarker(
+        # only insert marker on output (input TLAST is ignored for these use-cases anyway)
+        both=False,
+        # use ap_axiu instead of qdma_axis
+        external=False,
+        # static number of iterations (based on what the compiler/folding sets up)
+        dynamic=False
+    ))
+    # give a proper name to the inserted node, important for codegen
+    model.graph.node[-1].name = "TLastMarker_0"
+    # re-run codegen and HLS IP gen, will affect only the new TLastMarker layer assuming
+    # all other IPs have been generated already
+    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    model = model.transform(HLSSynthIP())
+    return model
+
+
 def test_step_export_xo(model, cfg):
     # Copy the generated .xo files to their respective Vitis IP directory
     result = subprocess.call(['cp', cfg.output_dir+"/xo/finn_design.xo", 'instr_wrap_platform/vitis/ip/finn_design/src'])
@@ -109,3 +150,4 @@ def test_step_build_platform(model, cfg):
     # Clean any previous/partial builds and then build full platform
     result = subprocess.call("cd instr_wrap_platform && make clean && make all", shell=True)
     return model
+

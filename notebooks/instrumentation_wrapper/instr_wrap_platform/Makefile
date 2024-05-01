@@ -25,8 +25,7 @@ export ILA_EN                     := 0
 export BOARD_NAME                 := vmk180
 
 # For remote hardware server, set the network protocol, hostname and port to connect to
-export HW_SERVER_PROTOCOL         := TCP
-export HW_SERVER_HOST             := xirdcglab52
+export HW_SERVER_HOST             := <HW_SERVER_HOST>
 export HW_SERVER_PORT             := 3121
 
 # Set if design is single- or double-pumped (1 if double-pumped, 0 if single-pumped)

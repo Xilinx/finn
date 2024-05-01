@@ -14,9 +14,8 @@ file mkdir ./test_workspace
 # Set the workspace
 setws ./test_workspace
 
-file delete -force ../src/instr_wrap.cpp
-
 # Set the clock frequency in the instrumentation wrapper source file
+file delete -force ../src/instr_wrap.cpp
 set instr_wrap_temp [open "../src/instr_wrap_template.cpp" r]
 set instr_wrap_file [open "../src/instr_wrap.cpp" w]
 while {[gets $instr_wrap_temp line] >= 0} {
@@ -51,6 +50,9 @@ dow ./test_workspace/instr_wrap/Debug/instr_wrap.elf
 
 # Run the instrumentation wrapper
 con
+puts "The instrumentation wrapper is currently running..."
+after 10000
+puts "The instrumentation wrapper has finished running"
 
 # Disconnect from the server
 disconnect

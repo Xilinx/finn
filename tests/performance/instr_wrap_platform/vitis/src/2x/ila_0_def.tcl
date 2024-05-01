@@ -11,4 +11,4 @@ set_property -dict [list \
   CONFIG.C_EN_STRG_QUAL 1 \
   CONFIG.C_PROBE0_MU_CNT 2 \
   CONFIG.ALL_PROBE_SAME_MU_CNT 2 \
-] [get_bd_cells axis_ila_0]
+] [get_bd_cells axis_ila_0] [get_bd_cells axis_ila_1] [get_bd_cells axis_ila_2]
