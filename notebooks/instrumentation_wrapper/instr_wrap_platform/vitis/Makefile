@@ -17,6 +17,8 @@ XSA                   := ${PLATFORM_CUSTOM}.xsa
 
 BUILD_DIR             := build_${TARGET}
 
+ILA_LTX               := ${BUILD_DIR}/_x/link/vivado/vpl/prj/probe_0.ltx
+
 
 ifeq (${ILA_EN}, 1)  
     ifeq (${DOUBLE_PUMPED}, 1)
@@ -80,9 +82,11 @@ ${BUILD_DIR}/${XSA}: ${XO} ${SYSTEM_CFG}
 
 instr_wrap:
 	cd ${BUILD_DIR} && \
-	xsct -nodisp ../src/xsct_run_instr_wrap.tcl \
+	cp _x/link/vivado/vpl/prj/prj.runs/impl_1/$(addsuffix _wrapper.pdi, ${PLATFORM_CUSTOM}) . && \
+	vivado _x/link/vivado/vpl/prj/prj.xpr -mode batch -source ../src/export_xsa_program_device.tcl \
+		-tclargs $(PLATFORM_CUSTOM) $(HW_SERVER_HOST) $(HW_SERVER_PORT) && \
+	xsct ../src/xsct_run_instr_wrap.tcl \
 		$(PLATFORM_CUSTOM) $(HW_SERVER_HOST) $(HW_SERVER_PORT)
 
 clean:
 	rm -rf ${BUILD_DIR}
-
