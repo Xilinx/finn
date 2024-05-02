@@ -32,7 +32,7 @@ export AP_CLK_2X_MHZ              := 400
 ```
 \
 \
-**NOTE: It is assumed that the targeted device is set up remotely with a `hw_server` active for it. Therefore, please make sure to change the `HW_SERVER` parameters within the top-level `Makefile` so that the device can be connected to in order to run the instrumentation wrapper.**
+**NOTE: It is assumed that the targeted device is set up on a remote machine with a `hw_server` active for it. Therefore, please make sure to change the `HW_SERVER` parameters within the top-level `Makefile` so that the device can be connected to in order to run the instrumentation wrapper. If there are multiple boards connected to the remote machine, the `jtag-port-filter <DEVICE_ID>` option should be used when starting the `hw_server` so that only the targeted device can be seen.**
 
 ### Building the FINN model
 The FINN model should first be built, with the custom steps defined in `platform_build_steps.py` appended to the build flow. These steps will produce a `.xo` kernel object file for the FINN design and the instrumentation wrapper, which will be used by Vitis in order to build the instrumentation wrapper platform. These two files can be found the `<BUILD_OUTPUT_FOLDER>/xo` folder, as `finn_design.xo` and `instrumentation_wrapper.xo` respectively.

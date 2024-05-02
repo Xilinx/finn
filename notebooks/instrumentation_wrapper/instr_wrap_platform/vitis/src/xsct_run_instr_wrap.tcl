@@ -13,7 +13,7 @@ file mkdir ./test_workspace
 setws ./test_workspace
 
 # Create and build the platform using the exported .xsa
-platform create -name "test_platform" -hw $PLATFORM_XSA -proc psv_cortexa72_0 -os standalone
+platform create -name "test_platform" -hw $PLATFORM_XSA -proc CIPS_0_pspmc_0_psv_cortexa72_0 -os standalone
 platform active test_platform
 platform generate
 
@@ -27,7 +27,7 @@ connect -host $HW_SERVER_HOST -port $HW_SERVER_PORT
 
 # Select the processor used to build the platform
 # (Cortex-A72)
-targets 6
+targets -set -nocase -filter {name =~ "*A72*#0"}
 
 # Reset the processor
 rst -processor -clear-registers -skip-activate-subsystem
@@ -37,6 +37,9 @@ dow ./test_workspace/instr_wrap/Debug/instr_wrap.elf
 
 # Run the instrumentation wrapper
 con
+puts "The instrumentation wrapper is currently running..."
+after 10000
+puts "The instrumentation wrapper has finished running"
 
 # Disconnect from the server
 disconnect

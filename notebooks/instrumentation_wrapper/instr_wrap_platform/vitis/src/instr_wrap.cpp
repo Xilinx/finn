@@ -11,6 +11,7 @@
 #define OFST_CHECKSUM (0x48)
 
 #define CLK_FREQ_MHZ 200
+
 int main() {
 
     // Start the instrumentation wrapper
@@ -30,16 +31,17 @@ int main() {
 
         xil_printf("\033[2J\033[H");
         xil_printf("\r\nRunning Instrumentation Wrapper\r\n\r\n");
-        xil_printf("**************************************\r\n");
+
+        xil_printf("********************************************\r\n");
         xil_printf("Sample %d\r\n", j+1);
-        xil_printf("**************************************\r\n\r\n");
-        xil_printf("Status                 :    %08X\r\n", *(uint32_t *)(INSTR_BASE+OFST_STATUS));
-        xil_printf("Latency        (cycles): %11d\r\n", *(uint32_t *)(INSTR_BASE+OFST_LATENCY));
+        xil_printf("********************************************\r\n");
+        xil_printf("Status           :                   %02X\r\n", *(uint32_t *)(INSTR_BASE+OFST_STATUS));
+        xil_printf("Latency  (cycles): %20d\r\n", *(uint32_t *)(INSTR_BASE+OFST_LATENCY));
         total_latency_cycles += *(uint32_t *)(INSTR_BASE+OFST_LATENCY);
-        xil_printf("Interval       (cycles): %11d\r\n", *(uint32_t *)(INSTR_BASE+OFST_INTERVAL));
+        xil_printf("Interval (cycles): %20d\r\n", *(uint32_t *)(INSTR_BASE+OFST_INTERVAL));
         total_interval_cycles += *(uint32_t *)(INSTR_BASE+OFST_INTERVAL);
-        xil_printf("Checksum          (hex):    %08X\r\n", *(uint32_t *)(INSTR_BASE+OFST_CHECKSUM));
-        xil_printf("--------------------------------------\r\n\r\n");
+        xil_printf("Checksum    (hex):             %08X\r\n", *(uint32_t *)(INSTR_BASE+OFST_CHECKSUM));
+        xil_printf("--------------------------------------------\r\n\r\n");
 
     }
 
@@ -47,16 +49,20 @@ int main() {
 
     xil_printf("\033[2J\033[H");
     xil_printf("\r\nInstrumentation Wrapper has finished running\r\n\r\n");
-    xil_printf("*****************************************\r\n");
-    xil_printf("Average metrics after 10 seconds:\r\n");
-    xil_printf("*****************************************\r\n\r\n");
-    xil_printf("Status                 :        %08X\r\n\r\n", *(uint32_t *)(INSTR_BASE+OFST_STATUS));
-    xil_printf("Latency        (cycles): %15d\r\n", int(total_latency_cycles/num_samples));
-    xil_printf("Interval       (cycles): %15d\r\n", int(total_interval_cycles/num_samples));
-    xil_printf("Latency  (microseconds): %15d\r\n", int((total_latency_cycles/num_samples)*(1.0/CLK_FREQ_MHZ)));
-    xil_printf("Interval (microseconds): %15d\r\n\r\n", int((total_interval_cycles/num_samples)*(1.0/CLK_FREQ_MHZ)));
-    xil_printf("Checksum          (hex):        %08X\r\n", *(uint32_t *)(INSTR_BASE+OFST_CHECKSUM));
-    xil_printf("-----------------------------------------\r\n\r\n");
+
+    xil_printf("********************************************\r\n");
+    xil_printf("Average model performance after %d seconds:\r\n", num_samples);
+    xil_printf("********************************************\r\n");
+    xil_printf("Latency  (cycles): %20d\r\n", int(total_latency_cycles/num_samples));
+    xil_printf("Interval (cycles): %20d\r\n", int(total_interval_cycles/num_samples));
+    xil_printf("Latency      (us): %20d\r\n", int((total_latency_cycles/num_samples)*(1.0/CLK_FREQ_MHZ)));
+    xil_printf("Interval     (us): %20d\r\n\r\n", int((total_interval_cycles/num_samples)*(1.0/CLK_FREQ_MHZ)));
+    xil_printf("********************************************\r\n");
+    xil_printf("Instrumentation wrapper stats:\r\n");
+    xil_printf("********************************************\r\n");
+    xil_printf("Status           :                   %02X\r\n", *(uint32_t *)(INSTR_BASE+OFST_STATUS));
+    xil_printf("Checksum    (hex):               %06X\r\n", *(uint32_t *)(INSTR_BASE+OFST_CHECKSUM) & 0xffffff);
+    xil_printf("--------------------------------------------\r\n\r\n");
 
     return 0;
 }
