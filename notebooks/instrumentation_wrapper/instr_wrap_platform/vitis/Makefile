@@ -69,7 +69,7 @@ list_steps: ${XO} ${SYSTEM_CFG}
 
 ${BUILD_DIR}/${XSA}: ${XO} ${SYSTEM_CFG}
 	cd ${BUILD_DIR} && \
-		v++ --link --debug --save-temps --from_step vpl.impl.opt_design \
+		v++ --link --debug --save-temps \
 			--target ${TARGET} \
 			--optimize 3 \
 			--linkhook.do_first vpl.impl.opt_design,$(addprefix ../, ${DSP_FANOUT_HOOK}) \
