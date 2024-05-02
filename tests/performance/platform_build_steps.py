@@ -16,7 +16,8 @@ from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarke
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 
-
+# Steps for generating instrumentation wrapper XO kernel file
+# and testbench simulation
 def test_step_gen_vitis_xo(model, cfg):
     xo_dir = cfg.output_dir + "/xo"
     xo_dir = str(os.path.abspath(xo_dir))
@@ -25,7 +26,6 @@ def test_step_gen_vitis_xo(model, cfg):
     xo_path = model.get_metadata_prop("vitis_xo")
     shutil.copy(xo_path, xo_dir)
     return model
-
 
 def test_step_gen_instrumentation_wrapper(model, cfg):
     xo_dir = cfg.output_dir + "/xo"
@@ -97,7 +97,6 @@ def test_step_gen_instrumentation_wrapper(model, cfg):
     shutil.copy(xo_path, xo_instr_path)
     return model
 
-
 def test_step_gen_instrwrap_sim(model, cfg):
     sim_output_dir = cfg.output_dir + "/instrwrap_sim"
     os.makedirs(sim_output_dir, exist_ok=True)
@@ -112,9 +111,7 @@ def test_step_gen_instrwrap_sim(model, cfg):
     testbench_tcl = testbench_tcl.replace("@FPGA_PART@", cfg.fpga_part)
     with open(sim_output_dir + "/make_instrwrap_sim_proj.tcl", "w") as f:
         f.write(testbench_tcl)
-
     return model
-
 
 def test_step_insert_tlastmarker(model, cfg):
     # custom step to introduce the TLastMarker op, thus generating TLAST for the final
@@ -139,6 +136,8 @@ def test_step_insert_tlastmarker(model, cfg):
     return model
 
 
+# Steps for integrating instrumentation wrapper platform build
+# into FINN compiler build
 def test_step_export_xo(model, cfg):
     # Copy the generated .xo files to their respective Vitis IP directory
     result = subprocess.call(['cp', cfg.output_dir+"/xo/finn_design.xo", 'instr_wrap_platform/vitis/ip/finn_design/src'])
