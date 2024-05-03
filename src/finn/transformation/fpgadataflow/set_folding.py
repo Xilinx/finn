@@ -106,6 +106,7 @@ class SetFolding(Transformation):
             "GlobalAccPool_hls",
             "Thresholding_hls",
             "Thresholding_rtl",
+            "ReplicateStream_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
@@ -151,7 +152,16 @@ class SetFolding(Transformation):
                 # increase PE until target met or reached max_pe
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in pe_ops:
-                max_pe = node_inst.get_nodeattr("NumChannels")
+                # Note: Keep original behavior for all custom-ops defining the
+                # NumChannels attribute as it is
+                try:
+                    max_pe = node_inst.get_nodeattr("NumChannels")
+                # Note: Some of the recent additions do not define the
+                # NumChannels attribute
+                except AttributeError:
+                    # We can extract the channels from the normal, i.e., not
+                    # folded, shape of the input in these cases
+                    max_pe = node_inst.get_normal_input_shape()[-1]
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type == "LabelSelect_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
