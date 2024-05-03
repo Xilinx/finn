@@ -234,7 +234,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         # Get the inputs out of the execution context
         lhs = context[node.input[0]]  # noqa: Duplicate code prepare simulation
-        rhs = context[node.input[1]]
+        rhs = context[node.input[1]]  # noqa: Duplicate code prepare simulation
         # Validate the shape of the inputs
         assert list(lhs.shape) == self.get_normal_input_shape(ind=0), \
             f"Input shape mismatch for {node.input[0]}"
@@ -278,7 +278,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
             )
 
         # Setup PyVerilator simulation of the node
-        sim = self.get_rtlsim()
+        sim = self.get_rtlsim()  # noqa: Duplicate code prepare simulation
         # Reset the RTL simulation
         super().reset_rtlsim(sim)
         super().toggle_clk(sim)
@@ -482,6 +482,13 @@ class ElementwiseBinaryOperation(HWCustomOp):
         #  potentially two data types changing and apparently, the
         #  MinimizeWeightBitWidth transformations does not even use the returned
         #  value.
+
+    # Derives the expected cycles for the elementwise binary operation given the
+    # folding configuration
+    def get_exp_cycles(self):
+        # Number of iterations required to process the whole folded input stream
+        #   Note: This is all but the PE (last, parallelized) dimension
+        return np.prod(self.get_folded_output_shape()[:-1])
 
 
 # Derive a specialization to implement elementwise addition of two inputs
