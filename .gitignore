@@ -96,3 +96,7 @@ MANIFEST
 
 # downloaded dep repos
 /deps/
+
+# instrumentation wrapper configuration files
+!system.cfg
+!ila_0_bd.cfg
