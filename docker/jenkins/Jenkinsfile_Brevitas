@@ -1,0 +1,70 @@
+pipeline {
+  agent none
+  stages {
+    stage('Run Brevitas tests') {
+      agent {
+        label 'finn-build'
+      }
+      environment {
+        TEST_NAME = "brevitas_suite"
+        FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+      }
+      steps {
+        catchError(stageResult: 'FAILURE') {
+          script {
+            cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+            // Ensure the desired version of brevitas gets pulled
+            updateFetchRepos()
+
+            // Multiple markers with pytest needs its own script
+            createMultiMarkerScript("brevitas_export", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_${env.TEST_NAME}")
+            sh './run-docker.sh ./run-tests.sh'
+
+            // Stash the test results file(s)
+            stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
+
+            // Use an env variable to help collect test results later in pipeline
+            env.BREVITAS = "SUCCESS"
+
+            // Archive coverage report if successful
+            archiveSuccessfulStage(env.BREVITAS, "coverage_${env.TEST_NAME}")
+          }
+        }
+      }
+    }
+  }
+}
+
+void cleanPreviousBuildFiles(String buildDir) {
+  // Delete any build files from a previous build
+  // Previous build folders affect findCopyZip() and can cause the stage to fail
+  if (!buildDir.empty) {
+    if (env.USER_CREDENTIALS) {
+      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${buildDir}*"
+    } else {
+      sh "rm -rf ${buildDir}"
+    }
+  }
+}
+
+void createMultiMarkerScript(String markers, String testResultsFilename, String additionalOptions) {
+  // Passing multiple markers when running ./run-docker.sh does not work with bash.
+  // Therefore, create a script to maintain the single quotes that surround the markers
+  sh """echo "#!/bin/bash
+python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
+    """
+
+  // Give permissions to script
+  sh 'chmod 777 run-tests.sh'
+}
+
+void archiveSuccessfulStage(String stageEnvVariableSet, String folder) {
+  if (stageEnvVariableSet) {
+    archiveArtifacts artifacts: "${folder}/**/*"
+  }
+}
+
+void updateFetchRepos() {
+  sh "sed -i -e 's/BREVITAS_COMMIT=\".*\"/BREVITAS_COMMIT=\"${env.BREVITAS_COMMIT}\"/g' fetch-repos.sh"
+}
