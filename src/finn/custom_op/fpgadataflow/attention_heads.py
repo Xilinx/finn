@@ -325,6 +325,13 @@ class SplitMultiHeads(HWCustomOp):
         # N outputs per cycle...
         return np.prod(self.get_folded_output_shape()[:-1]) * self.heads
 
+    # Derives the expected cycles for the attention head splitting operation
+    # given the folding configuration
+    def get_exp_cycles(self):
+        # Currently, this implicitly assumes fully parallelized processing
+        # along the embedding dimension, i.e., always max PE
+        return np.prod(self.num_inputs)
+
 
 # Merging of attention heads (before output projections) custom operator
 class MergeMultiHeads(HWCustomOp):
@@ -627,3 +634,10 @@ class MergeMultiHeads(HWCustomOp):
         # Elements over all but the last dimension of the output folded along
         # the embedding dimension
         return np.prod(self.get_folded_output_shape()[:-1])
+
+    # Derives the expected cycles for the attention head merging operation given
+    # the folding configuration
+    def get_exp_cycles(self):
+        # Currently, this implicitly assumes fully parallelized processing
+        # along the embedding dimension, i.e., always max PE
+        return np.prod(self.num_inputs)

@@ -709,3 +709,36 @@ class ScaledDotProductAttention(HWCustomOp):
         # Find the position of the requested input name and look up the
         # corresponding input name of the ONNX node
         return self.onnx_node.input[inputs.index(name)]
+
+    # Derives the expected cycles for the attention operation given the folding
+    # configuration
+    def get_exp_cycles(self):
+        # Verify the folding configuration
+        assert self.is_valid_folding, \
+            f"Invalid folding configuration for {self.onnx_node.name}"
+        # Get the input/output dimensions
+        qk_dim, q_len, v_dim, kv_len = self.shapes
+        # Get folding configuration describing how to parallelize along the
+        # dimensions
+        emb_fold, seq_fold = self.folds
+        # Assume perfect overlap of the constituents of the operator, i.e., of
+        # the buffering, both matmul and the softmax, then the expected cycles
+        # is the maximum over these operators
+        #   Overall worst case cycles without any parallelization: ~ T x T x d
+        return max(
+            # Transposed keys buffer cycles
+            #   Worst case: kv_len * qk_dim, ~ T x d
+            kv_len * emb_fold,
+            # Queries - keys matmul cycles
+            #   Worst case: q_len * qk_dim * kv_len, ~ T x T x d
+            q_len * emb_fold * seq_fold,
+            # Softmax normalization cycles
+            #   Worst case: q_len * kv_len, ~ T x T
+            q_len * seq_fold,
+            # Values buffer cycles
+            #   Worst case: kv_len * v_dim, ~ T x d
+            kv_len * emb_fold,
+            # Attention weights - values matmul
+            #   Worst case: q_len * v_dim * kv_len, ~ T x T x d
+            q_len * emb_fold * seq_fold
+        )

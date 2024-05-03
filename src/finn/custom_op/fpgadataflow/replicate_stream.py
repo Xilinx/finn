@@ -286,3 +286,10 @@ class ReplicateStream(HWCustomOp):
         # outputs, i.e., producing N replica outputs per cycle in parallel,
         # count N outputs per cycle...
         return np.prod(self.get_folded_output_shape()[:-1]) * self.num
+
+    # Derives the expected cycles for the stream replication operation given the
+    # folding configuration
+    def get_exp_cycles(self):
+        # Number of iterations required to process the whole folded input stream
+        #   Note: This is all but the PE (last, parallelized) dimension
+        return np.prod(self.get_folded_output_shape()[:-1])
