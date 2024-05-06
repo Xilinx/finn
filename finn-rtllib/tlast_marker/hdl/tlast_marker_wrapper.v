@@ -71,6 +71,7 @@ module $TOP_MODULE_NAME$ #(
 	input	s_axilite_WVALID,
 	output	s_axilite_WREADY,
 	input	[PERIOD_BITS - 1:0]  s_axilite_WDATA,
+	input	[ 3:0]  s_axilite_WSTRB,
 	output	s_axilite_BVALID,
 	input	s_axilite_BREADY,
 	output	[1:0]  s_axilite_BRESP,

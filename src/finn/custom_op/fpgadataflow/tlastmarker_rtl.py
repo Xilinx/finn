@@ -70,6 +70,8 @@ class TLastMarker_rtl(HLSCustomOp):
             "shape": ("ints", True, []),
             # attribute to save top module name - not user configurable
             "gen_top_module": ("s", False, ""),
+            # dynamic reconfig over AXI lite always enabled
+            "dynamic_mode": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -191,10 +193,11 @@ void reconfigure_$LAYERNAME$(
 
         return reg_ccode
 
-    def get_dynamic_config(self, ifm_dims):
+    def get_dynamic_config(self, ifm_dims=None):
         """Returns a configuration dict to re-configure FM dimension
         during runtime."""
-
+        if ifm_dims is None:
+            ifm_dims = self.get_nodeattr("shape")[:3]
         spatial_dim = np.prod(ifm_dims)
         period = spatial_dim * self.get_nodeattr("SpatialSizeToIters")
         config = {
