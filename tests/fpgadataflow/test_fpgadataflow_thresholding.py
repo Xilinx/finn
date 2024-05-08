@@ -57,7 +57,14 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
+def generate_random_threshold_values(
+    input_data_type, num_input_channels, num_steps, per_tensor=False, narrow=False
+):
+    if per_tensor:
+        num_input_channels = 1
+    if narrow:
+        num_steps -= 1
+
     return np.random.randint(
         input_data_type.min(),
         input_data_type.max() + 1,
@@ -122,6 +129,8 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
     return model
 
 
+@pytest.mark.parametrize("per_tensor", [True, False])
+@pytest.mark.parametrize("narrow", [True, False])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [DataType["INT4"], DataType["BIPOLAR"]])
 # input datatype
@@ -138,7 +147,9 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem_mode):
+def test_fpgadataflow_thresholding(
+    impl_style, idt, act, nf, ich, exec_mode, mem_mode, narrow, per_tensor
+):
     # the mem_mode parameter can only be used for the hls thresholding
     # so the test will only be executed once for impl_style=rtl and once skipped
     # when the mem_mode is varied. Otherwise, the same test configuration would always
@@ -147,6 +158,8 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
         pytest.skip(
             "Skip, because test is identical to impl_style=rtl and mem_mode=internal_embedded"
         )
+    if (idt.signed() or act == DataType["BIPOLAR"]) and narrow is True:
+        pytest.skip("Skip, Can not narrow this combination.")
     if nf == -1:
         nf = ich
     pe = ich // nf
@@ -160,14 +173,17 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
     n_steps = act.get_num_possible_values() - 1
 
     # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(idt, ich, n_steps)
-
+    thresholds = generate_random_threshold_values(idt, ich, n_steps, per_tensor, narrow)
     thresholds = sort_thresholds_increasing(thresholds)
 
     if odt == DataType["BIPOLAR"]:
         actval = 0
     else:
         actval = odt.min()
+
+    min_val = np.amin(thresholds, axis=1)
+    thresholds = np.insert(thresholds, 0, min_val, axis=1)
+    actval = actval - 1
 
     # Build DUT
     model = make_single_thresholding_modelwrapper(
@@ -177,6 +193,7 @@ def test_fpgadataflow_thresholding(impl_style, idt, act, nf, ich, exec_mode, mem
     # Expected Reference output
     # multithreshold util fxn wants NCHW input, not NHWC
     x_nchw = layout_FINN2NCHW(x)
+
     y = multithreshold(x_nchw, thresholds)
 
     # convert back to NHWC for comparison to hw outputs

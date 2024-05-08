@@ -68,7 +68,14 @@ def layout_NCHW2FINN(data):
     return np.transpose(data, (0, 2, 3, 1))
 
 
-def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
+def generate_random_threshold_values(
+    input_data_type, num_input_channels, num_steps, per_tensor=False, narrow=False
+):
+    if per_tensor:
+        num_input_channels = 1
+    if narrow:
+        num_steps -= 1
+
     return np.random.randint(
         input_data_type.min(),
         input_data_type.max() + 1,
@@ -131,6 +138,8 @@ def make_single_multithresholding_modelwrapper(
 
 
 # N.B. Fold values where C % PE != 0 fail
+@pytest.mark.parametrize("per_tensor", [True, False])
+@pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
@@ -139,12 +148,10 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_multithreshold_to_hardware(
-    impl_style,
-    activation,
-    input_data_type,
-    fold,
-    num_input_channels,
+    impl_style, activation, input_data_type, fold, num_input_channels, per_tensor, narrow
 ):
+    if (input_data_type.signed() or activation == DataType["BIPOLAR"]) and narrow is True:
+        pytest.skip("Skip, Can not narrow BIPOLAR activation.")
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
@@ -158,7 +165,9 @@ def test_convert_multithreshold_to_hardware(
         activation_bias = output_data_type.min()
 
     # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps, per_tensor, narrow
+    )
 
     # provide non-decreasing/ascending thresholds
     thresholds = sort_thresholds_increasing(thresholds)
@@ -172,7 +181,6 @@ def test_convert_multithreshold_to_hardware(
         activation_bias,
         num_input_vecs,
     )
-
     model = model.transform(InferThresholdingLayer())
 
     # Perform functional validation of the InferThresholdingLayer transform
