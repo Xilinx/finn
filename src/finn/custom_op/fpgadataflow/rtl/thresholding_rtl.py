@@ -175,20 +175,26 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         o_bitwidth = DataType[output_data_type].bitwidth()
 
         # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold and reducing bias by 1 to compensate.
+        # one less threshold, prepending a dummy threshold and increasing the datatype.
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
-        if expected_thresholds != n_thres_steps and DataType[input_data_type].signed() is not True:
-            min_val = np.amin(thresholds, axis=1)
-            thresholds = np.insert(thresholds, 0, min_val, axis=1)
-            bias = bias - 1
+        if expected_thresholds != n_thres_steps:
+            max_val = DataType[input_data_type].max()
+            thresholds = np.insert(thresholds, len(thresholds[0]), max_val + 1, axis=1)
+            if not DataType[input_data_type].signed():
+                input_data_type = DataType.get_smallest_possible(max_val + 1).name
+            else:
+                input_data_type = "INT%d" % (DataType[input_data_type].bitwidth() + 1)
+            self.set_nodeattr("inputDataType", input_data_type)
+            self.set_nodeattr("weightDataType", input_data_type)
+            n_thres_steps += 1
 
         # add dummy dimension as final dimension (that's what gets packed with next call)
-        thresholds = np.expand_dims(thresholds, axis=-1)
+        t_expand = np.expand_dims(thresholds, axis=-1)
         wdt = self.get_weight_datatype()
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         t_packed = pack_innermost_dim_as_hex_string(
-            thresholds,
+            t_expand,
             wdt,
             bw_hexdigit,
             prefix="",
@@ -224,6 +230,36 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                         f.write(val + "\n")
         code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
 
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            thresh_file_name = f"{t_path}/memblock.dat"
+            width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
+            thresh_padded = np.zeros((thresholds.shape[0], width_padded))
+            thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds
+            thresh_stream = []
+            bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
+            padding = np.zeros(width_padded, dtype=np.int32)
+
+            chan_ind = 0
+            cf = ch // pe
+            for fold in range(cf):
+                for c in range(2 ** (pe - 1).bit_length()):
+                    if (c == 0 or c % pe != 0) and c < pe:
+                        for t in thresh_padded[chan_ind]:
+                            t_packed = pack_innermost_dim_as_hex_string(
+                                [t], wdt, bw_hexdigit, prefix=""
+                            ).item()
+                            thresh_stream.append(t_packed)
+                        chan_ind += 1
+                    else:
+                        for z in padding:
+                            t_packed = pack_innermost_dim_as_hex_string(
+                                [z], wdt, bw_hexdigit, prefix=""
+                            ).item()
+                            thresh_stream.append(t_packed)
+            with open(thresh_file_name, "w") as f:
+                for val in thresh_stream:
+                    f.write(val + "\n")
+
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
             self.get_verilog_top_module_name() + "_axi_wrapper"
@@ -255,7 +291,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             o_bits = 1 + math.ceil(
                 math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
             )
-
         code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
@@ -321,10 +356,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Set the 'gen_top_module' attribute for use later
         # by PyVerilator and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-
-        weights = model.get_initializer(self.onnx_node.input[1])
-        weights_fname = f"{code_gen_dir}/memblock.dat"
-        self.make_weight_file(weights, "decoupled", weights_fname)
 
         for rtl_file_path in self.get_rtl_file_paths():
             # read in original RTL template file
@@ -501,72 +532,3 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             intf_names["axilite"] = ["s_axilite"]
 
         return intf_names
-
-    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
-        """Produce a file containing given weights (thresholds) in appropriate
-        format for this layer. This file can be used for either synthesis or
-        run-time reconfig of weights.
-
-        Arguments:
-
-        * weights : numpy array with weights to be put into the file
-        * weight_file_name : filename for the weight file to be generated
-
-        """
-        threshold_tensor = self.get_hw_compatible_threshold_tensor(weights)
-        tdt = self.get_weight_datatype()
-        assert np.vectorize(tdt.allowed)(
-            threshold_tensor
-        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-
-        pe = self.get_nodeattr("PE")
-        ch = self.get_nodeattr("NumChannels")
-        n_thres_steps = self.get_nodeattr("numSteps")
-
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
-
-        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold.
-        expected_thresholds = 2**o_bitwidth - 1
-        n_thres_steps = self.get_nodeattr("numSteps")
-        if expected_thresholds != n_thres_steps and DataType[input_data_type].signed() is not True:
-            min_val = np.amin(weights, axis=1)
-            weights = np.insert(weights, 0, min_val, axis=1)
-            n_thres_steps += 1
-
-        # If a single threshold value is found, broadcast the value
-        expected_shape = (ch, expected_thresholds)
-        if weights.shape != expected_shape:
-            weights = np.broadcast_to(weights, expected_shape)
-
-        odt = self.get_output_datatype().bitwidth()
-        width_padded = roundup_to_integer_multiple(weights.shape[1], 2**odt)
-        weight_padded = np.zeros((weights.shape[0], width_padded))
-        weight_padded[: weights.shape[0], :n_thres_steps] = weights
-        weight_stream = []
-        wdt = self.get_weight_datatype()
-        bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
-        padding = np.zeros(width_padded, dtype=np.int32)
-
-        chan_ind = 0
-        cf = ch // pe
-        for fold in range(cf):
-            for c in range(2 ** (pe - 1).bit_length()):
-                if (c == 0 or c % pe != 0) and c < pe:
-                    for w in weight_padded[chan_ind]:
-                        w_packed = pack_innermost_dim_as_hex_string(
-                            [w], wdt, bw_hexdigit, prefix=""
-                        ).item()
-                        weight_stream.append(w_packed)
-                    chan_ind += 1
-                else:
-                    for z in padding:
-                        w_packed = pack_innermost_dim_as_hex_string(
-                            [z], wdt, bw_hexdigit, prefix=""
-                        ).item()
-                        weight_stream.append(w_packed)
-        with open(weight_file_name, "w") as f:
-            for val in weight_stream:
-                f.write(val + "\n")
