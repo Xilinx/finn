@@ -534,7 +534,8 @@ class ScaledDotProductAttention(HWCustomOp):
         #  differently and would require to actually keep track of mapping
         #  indices to optional inputs to correctly associate the folding
         #  dimensions.
-        raise Exception(f"Requested shape of invalid input index {ind}")
+        # TODO: This is just a dummy shape
+        return 0, 0, 0
 
     # Gets the shape of the output at index ind (there is just one) with folding
     def get_folded_output_shape(self, ind=0):  # noqa, there is just one output
@@ -660,6 +661,13 @@ class ScaledDotProductAttention(HWCustomOp):
             #  MinimizeAccumulatorWidth, which re-infers datatypes after
             #  each custom op instead of once after traversing the whole graph.
             # self.set_nodeattr("OType", AccQKMatMul.name)
+
+    # Gets the number of expected input values, i.e. how many times read()
+    # could/should be called on the input stream of this operator
+    def get_number_input_values(self, ind=0):
+        # Elements over all but the last dimension of the input folded along
+        # the embedding dimension
+        return np.prod(self.get_folded_input_shape(ind=ind)[:-1])
 
     # Gets the number of expected output values, i.e. how many times read()
     # could/should be called on the output stream of this operator
