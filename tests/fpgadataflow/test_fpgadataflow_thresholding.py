@@ -54,7 +54,11 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def generate_random_threshold_values(input_data_type, num_input_channels, num_steps, narrow=False):
+def generate_random_threshold_values(
+    input_data_type, num_input_channels, num_steps, narrow=False, per_tensor=False
+):
+    if per_tensor:
+        num_input_channels = 1
     if narrow:
         num_steps -= 1
 
@@ -75,12 +79,11 @@ def make_single_multithresholding_modelwrapper(
     output_data_type,
     activation_bias,
     num_input_vecs,
+    num_channels,
 ):
-    NumChannels = thresholds.shape[0]
-
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
     thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [NumChannels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
     node_inp_list = ["inp", "thresh"]
 
@@ -129,6 +132,7 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("input_data_type", [DataType["INT8"], DataType["UINT8"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("narrow", [True, False])
+@pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
@@ -142,6 +146,7 @@ def test_fpgadataflow_thresholding(
     input_data_type,
     fold,
     narrow,
+    per_tensor,
     impl_style,
     exec_mode,
     mem_mode,
@@ -172,7 +177,7 @@ def test_fpgadataflow_thresholding(
 
     # Generate random thresholds and sort in ascending order
     thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps, narrow
+        input_data_type, num_input_channels, num_steps, narrow, per_tensor
     )
 
     # provide non-decreasing/ascending thresholds
@@ -185,6 +190,7 @@ def test_fpgadataflow_thresholding(
         output_data_type,
         activation_bias,
         num_input_vecs,
+        num_input_channels,
     )
 
     # calculate reference output
