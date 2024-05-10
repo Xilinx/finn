@@ -174,6 +174,8 @@ def test_fpgadataflow_thresholding(
         activation_bias = 0
     else:
         activation_bias = activation.min()
+        if narrow:
+            activation_bias += 1
 
     # Generate random thresholds and sort in ascending order
     thresholds = generate_random_threshold_values(
