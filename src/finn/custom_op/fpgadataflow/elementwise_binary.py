@@ -87,11 +87,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
             #   Note: Override to support python mode
             "exec_mode": (
                 "s", False, "python", {"", "rtlsim", "cppsim", "python"}
-            ),
-            # Input and output FIFO depths for multi-I/O nodes
-            #   Note: Need to override here as there multiple outputs
-            "inFIFODepths": ("ints", False, [2, 2]),
-            "outFIFODepths": ("ints", False, []),  # Default will be override
+            )
         })
         # Return updated attribute dictionary
         return attrs
