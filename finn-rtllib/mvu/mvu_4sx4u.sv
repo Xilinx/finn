@@ -452,7 +452,7 @@ module mvu_4sx4u #(
 		uwire        [$clog2(SIMD)+7:0]  lo4[3];
 		for(genvar  i = 0; i < 4; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - LO_WIDTH;
+			localparam int unsigned  HI_WIDTH = (ACCU_WIDTH - LO_WIDTH) < ($clog2(1+SIMD) + 1) ? $clog2(1+SIMD) : (ACCU_WIDTH - LO_WIDTH);
 
 			// Conclusive high part accumulation
 			if(i >= PE_REM && i < 3) begin : genHi

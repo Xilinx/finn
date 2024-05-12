@@ -449,11 +449,11 @@ module mvu_8sx8u_dsp48 #(
 
 		uwire signed [ACCU_WIDTH  -1:0]  up4;
 		uwire signed [ACCU_WIDTH  -SINGLE_PROD_WIDTH:0]  hi4;
-		uwire        [$clog2(SIMD)+SINGLE_PROD_WIDTH-1:0]  lo4;
+		uwire        [$clog2(SIMD)+SINGLE_PROD_WIDTH:0]  lo4;
 
 		// Conclusive high part accumulation
 		if(PE_REM == 0) begin : genHi
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - D[1];
+			localparam int unsigned  HI_WIDTH = (ACCU_WIDTH - SINGLE_PROD_WIDTH) < ($clog2(1+SIMD)+1) ? $clog2(1+SIMD)+1 : ACCU_WIDTH - SINGLE_PROD_WIDTH;
 			// Adder Tree across all SIMD high contributions, each from [-1:1]
 			uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 			for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
