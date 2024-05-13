@@ -175,18 +175,15 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         o_bitwidth = DataType[output_data_type].bitwidth()
 
         # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold and increasing the datatype.
+        # one less threshold, prepending a dummy threshold (minimal possible value determined by
+        # input data type) and decrease the bias by 1.
+        # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
         if expected_thresholds != n_thres_steps:
-            max_val = DataType[input_data_type].max()
-            thresholds = np.insert(thresholds, len(thresholds[0]), max_val + 1, axis=1)
-            if not DataType[input_data_type].signed():
-                input_data_type = DataType.get_smallest_possible(max_val + 1).name
-            else:
-                input_data_type = "INT%d" % (DataType[input_data_type].bitwidth() + 1)
-            self.set_nodeattr("inputDataType", input_data_type)
-            self.set_nodeattr("weightDataType", input_data_type)
+            min_val = DataType[input_data_type].min()
+            thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            bias = bias - 1
             n_thres_steps += 1
 
         # add dummy dimension as final dimension (that's what gets packed with next call)
