@@ -453,7 +453,7 @@ module mvu_8sx8u_dsp48 #(
 
 		// Conclusive high part accumulation
 		if(PE_REM == 0) begin : genHi
-			localparam int unsigned  HI_WIDTH = (ACCU_WIDTH - SINGLE_PROD_WIDTH) < ($clog2(1+SIMD)+1) ? $clog2(1+SIMD)+1 : ACCU_WIDTH - SINGLE_PROD_WIDTH;
+			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - SINGLE_PROD_WIDTH;
 			// Adder Tree across all SIMD high contributions, each from [-1:1]
 			uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 			for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
@@ -510,7 +510,7 @@ module mvu_8sx8u_dsp48 #(
 		always_ff @(posedge clk) begin
 			if(rst)  Res5 <= '{ default: 0 };
 			else if(en) begin
-				Res5[1] <= up4 - hi4;
+				Res5[1] <= up4 - hi4; // -809 - 1 (_01) = -810. -809 - -3 (101) = -806
 				Res5[0] <= $signed({ hi4, {(D[1] - D[0]){1'b0}} }) + $signed({ 1'b0, lo4 });
 			end
 		end

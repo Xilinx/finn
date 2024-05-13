@@ -36,19 +36,19 @@ module mvu_axi_tb();
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
 	localparam bit IS_MVU = 1;
-	localparam string COMPUTE_CORE = "mvu_4sx4u";
-	localparam int unsigned MW = 120;
-	localparam int unsigned MH = 40;
-	localparam int unsigned SIMD = 20;
-	localparam int unsigned PE = 10;
+	localparam string COMPUTE_CORE = "mvu_8sx8u_dsp48";
+	localparam int unsigned MW = 6;
+	localparam int unsigned MH = 32;
+	localparam int unsigned SIMD = 6;
+	localparam int unsigned PE = 16;
 	localparam int unsigned SEGMENTLEN = 2.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
-	localparam int unsigned ACTIVATION_WIDTH = 4;
+	localparam int unsigned ACTIVATION_WIDTH = 8;
 	localparam int unsigned WEIGHT_WIDTH = 4;
-	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
-	localparam bit SIGNED_ACTIVATIONS = 0;
+	localparam int unsigned ACCU_WIDTH = 14; //ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
+	localparam bit SIGNED_ACTIVATIONS = 1;
 	// Simulation constants
 	localparam int unsigned NF = MH/PE;
 	localparam int unsigned SF = MW/SIMD;
@@ -132,6 +132,7 @@ module mvu_axi_tb();
 		for (int i=0; i<NF; i++) begin
 			for (int j=0; j<SF; j++) begin
 				weights.dat <= WEIGHTS[i][j];
+				//$fread("memblock.dat", weights.dat);
 				@(posedge clk iff weights.rdy);
 			end
 		end
