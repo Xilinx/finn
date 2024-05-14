@@ -109,9 +109,25 @@ module mvu_axi_tb();
 	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
 	typedef weight_t weight_matrix_t[NF][SF];
 
-	function weight_matrix_t init_WEIGHTS;
+	// function weight_matrix_t init_WEIGHTS;
+	// 	automatic weight_matrix_t res;
+	// 	std::randomize(res);
+	// 	return res;
+	// endfunction : init_WEIGHTS;
+	// weight_matrix_t WEIGHTS = init_WEIGHTS();
+
+	function weight_matrix_t init_WEIGHTS();
 		automatic weight_matrix_t res;
-		std::randomize(res);
+		logic [383:0] WEIGHT_MATRIX [2] = {384'h6e507f99bdcd011437f919f9f74f77ad9716aefe9661717f717f021797c77900976277550a09199c00744b797da29d49, 384'h75e37a070f09a290903159f9bb999cf9d91c7691951727009190909276ea097b491ae70d71707f1ced99794c3e0717e7};
+		for (int i=0; i<NF; i++) begin
+			for (int j=0; j<SF; j++) begin
+				for (int k=0; k<PE; k++) begin
+					for (int l=0; l<SIMD; l++) begin
+						res[i][j][k][l] = WEIGHT_MATRIX[i*SF+j][4*(l+k*SIMD) +: 4];
+					end
+				end
+			end
+		end
 		return res;
 	endfunction : init_WEIGHTS;
 
@@ -132,7 +148,6 @@ module mvu_axi_tb();
 		for (int i=0; i<NF; i++) begin
 			for (int j=0; j<SF; j++) begin
 				weights.dat <= WEIGHTS[i][j];
-				//$fread("memblock.dat", weights.dat);
 				@(posedge clk iff weights.rdy);
 			end
 		end
