@@ -91,7 +91,7 @@ module mvu_8sx8u_dsp48 #(
 		localparam int unsigned  PE_END = PE < 2*(c+1)? PE : 2*(c+1);
 		localparam int unsigned  PE_REM = 2*(c+1) - PE_END;
 
-		uwire        [57:0]  p3[SIMD];
+		uwire        [47:0]  p3[SIMD];
 		uwire signed [ 1:0]  h3[SIMD];
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
@@ -447,13 +447,13 @@ module mvu_8sx8u_dsp48 #(
 		// Count leaves reachable from each node
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 0}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
-		uwire signed [ACCU_WIDTH  -1:0]  up4;
-		uwire signed [ACCU_WIDTH  -SINGLE_PROD_WIDTH:0]  hi4;
-		uwire        [$clog2(SIMD)+SINGLE_PROD_WIDTH:0]  lo4;
+		uwire signed [ACCU_WIDTH       -1:0]  up4;
+		uwire signed [ACCU_WIDTH  -D[1]  :0]  hi4;	// secure true sign bit for optimized accumulators
+		uwire        [$clog2(SIMD)+D[1]-1:0]  lo4;
 
 		// Conclusive high part accumulation
 		if(PE_REM == 0) begin : genHi
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - SINGLE_PROD_WIDTH;
+			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - D[1];
 			// Adder Tree across all SIMD high contributions, each from [-1:1]
 			uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 			for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
@@ -464,10 +464,10 @@ module mvu_8sx8u_dsp48 #(
 			end
 
 			// High Sideband Accumulation
-			logic signed [HI_WIDTH-1:0]  Hi4 = 0;
+			logic signed [HI_WIDTH:0]  Hi4 = 0;	// secure true sign bit for optimized accumulators
 			always_ff @(posedge clk) begin
 				if(rst)      Hi4 <= 0;
-				else if(en)  Hi4 <= (L[4]? 0 : Hi4) + $signed(tree[0]);
+				else if(en)  Hi4 <= $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
 			end
 			assign	hi4 = Hi4;
 		end : genHi
@@ -479,14 +479,14 @@ module mvu_8sx8u_dsp48 #(
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
 			// Conclusive low part accumulation
 			if(i >= PE_REM) begin : blkLo
-				// Adder Tree across all SIMD low contributions
+				// Adder Tree across all SIMD low contributions (all unsigned arithmetic)
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][D[i]+:LO_WIDTH];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
 					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
-					uwire [NODE_WIDTH-1:0]  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
+					uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
 					assign  tree[n] = s;
 				end
 
@@ -510,7 +510,7 @@ module mvu_8sx8u_dsp48 #(
 		always_ff @(posedge clk) begin
 			if(rst)  Res5 <= '{ default: 0 };
 			else if(en) begin
-				Res5[1] <= up4 - hi4; // -809 - 1 (_01) = -810. -809 - -3 (101) = -806
+				Res5[1] <= up4 - hi4;
 				Res5[0] <= $signed({ hi4, {(D[1] - D[0]){1'b0}} }) + $signed({ 1'b0, lo4 });
 			end
 		end
