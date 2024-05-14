@@ -82,7 +82,7 @@ module mvu_8sx8u_dsp48 #(
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
 	localparam int unsigned  SINGLE_PROD_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH;
-	localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH, 0 }; // Lane offsets
+	localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH-1, 0 }; // Lane offsets
 
 	localparam int unsigned  PIPE_COUNT = (PE+1)/2;
 	for(genvar  c = 0; c < PIPE_COUNT; c++) begin : genPipes
