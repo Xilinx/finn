@@ -483,8 +483,15 @@ module mvu_8sx8u_dsp48 #(
 			// High Sideband Accumulation
 			logic signed [HI_WIDTH-1:0]  Hi4 = 0;
 			always_ff @(posedge clk) begin
-				if(rst)      Hi4 <= 0;
-				else if(en)  Hi4 <= $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+				if(rst)  Hi4 <= 0;
+				else if(en) begin
+					automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+					assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
+						$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
+						$stop;
+					end
+					Hi4 <= h;
+				end
 			end
 			assign	hi4 = Hi4;
 		end : genHi
