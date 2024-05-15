@@ -39,8 +39,9 @@
  *****************************************************************************/
 
 module thresholding_axi #(
-	int unsigned  N,		// output precision
-	int unsigned  K,		// input/threshold precision
+	int unsigned  N,	// output precision
+	int unsigned  WI,	// input precision
+	int unsigned  WT,	// threshold precision
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
@@ -96,7 +97,7 @@ module thresholding_axi #(
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
 	input	logic  s_axis_tvalid,
-	input	logic [((PE*K+7)/8)*8-1:0]  s_axis_tdata,
+	input	logic [((PE*WI+7)/8)*8-1:0]  s_axis_tdata,
 
 	//- AXI Stream - Output -------------
 	input	logic  m_axis_tready,
@@ -109,13 +110,13 @@ module thresholding_axi #(
 	uwire  cfg_en;
 	uwire  cfg_we;
 	uwire [ADDR_BITS-3:0]  cfg_a;
-	uwire [K        -1:0]  cfg_d;
+	uwire [WT       -1:0]  cfg_d;
 	uwire  cfg_rack;
-	uwire [K        -1:0]  cfg_q;
+	uwire [WT       -1:0]  cfg_q;
 
 	if(USE_AXILITE) begin
 		uwire [ADDR_BITS-1:0]  cfg_a0;
-		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
+		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(WT)) axi (
 			.aclk(ap_clk), .aresetn(ap_rst_n),
 
 			.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
@@ -144,9 +145,41 @@ module thresholding_axi #(
 	end
 
 	//-----------------------------------------------------------------------
+	// Cast Inputs into Threshold Data Type
+	uwire [PE-1:0][WT-1:0]  idat;
+	for(genvar  pe = 0; pe < PE; pe++) begin
+		if(WT == WI) begin : genCopy
+			assign	idat[pe] = s_axis_tdata[pe*WI+:WI];
+		end : genCopy
+		else begin
+			initial begin
+				if(FPARG) begin
+					$error("%m: Can't cast floating-point type.");
+					$finish;
+				end
+			end
+
+			if(WT > WI) begin : genWiden
+				assign	idat[pe] = { {(WT-WI){SIGNED? s_axis_tdata[(pe+1)*WI-1] : 1'b0}}, s_axis_tdata[pe*WI+:WI] };
+			end : genWiden
+			else begin : genNarrow
+				// Saturate for clipping inputs
+				if(!SIGNED) begin
+					assign	idat[pe] = |s_axis_tdata[pe*WI+WT+:WI-WT]? '1 : s_axis_tdata[pe*WI+:WT];
+				end
+				else begin
+					assign	idat[pe] =
+						(s_axis_tdata[pe*WI+WT+:WI-WT] == '1) || (s_axis_tdata[pe*WI+WT+:WI-WT] == '0)? s_axis_tdata[pe*WI+:WT] :
+						{s_axis_tdata[(pe+1)*WI-1], {(WT-1){!s_axis_tdata[(pe+1)*WI-1]}}};
+				end
+			end : genNarrow
+		end
+	end
+
+	//-----------------------------------------------------------------------
 	// Kernel Implementation
 	thresholding #(
-		.N(N), .K(K), .C(C), .PE(PE),
+		.N(N), .K(WT), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
@@ -157,7 +190,7 @@ module thresholding_axi #(
 		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
 		.cfg_rack, .cfg_q,
 
-		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat(s_axis_tdata),
+		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat,
 		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata)
 	);
 

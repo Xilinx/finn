@@ -33,8 +33,9 @@
  */
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter  N = $N$,	// output precision
-	parameter  K = $M$,	// input/threshold precision
+	parameter  N = $N$,		// output precision
+	parameter  WI = $WI$,	// input precision
+	parameter  WT = $WT$,	// threshold precision
 	parameter  C = $C$,	// Channels
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
@@ -96,7 +97,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 );
 
 	thresholding_axi #(
-		.N(N), .K(K), .C(C), .PE(PE),
+		.N(N), .WI(WI), .WT(WT), .C(C), .PE(PE),
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
 		.BIAS(BIAS),
