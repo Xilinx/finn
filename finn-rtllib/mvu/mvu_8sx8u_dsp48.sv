@@ -82,7 +82,7 @@ module mvu_8sx8u_dsp48 #(
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
 	localparam int unsigned  SINGLE_PROD_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH;
-	localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH-1, 0 }; // Lane offsets
+	localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH, 0 }; // Lane offsets
 
 	localparam int unsigned  PIPE_COUNT = (PE+1)/2;
 	for(genvar  c = 0; c < PIPE_COUNT; c++) begin : genPipes
@@ -447,13 +447,30 @@ module mvu_8sx8u_dsp48 #(
 		// Count leaves reachable from each node
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 0}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
+		// Range of Cross-lane Contribution Tracked in Hi4
+		/*
+		 * - Assumption: ACCU_WIDTH bounds right lane value at any point in time.
+		 * - The value x beyond the lane boundary is hence bounded by:
+		 *		-2^(w-1) <= x <= 2^(w-1)-1    with w = ACCU_WIDTH - D[1]
+		 * - This value decomposes into the tracked overflow h and the overflow l
+		 *   from the low SIMD lane reduction with:
+		 *		0 <= l <= SIMD
+		 * - From x = l + h follows:
+		 *		h = x - l
+		 *		-2^(w-1) - SIMD <= h <= 2^(w-1)-1
+		 * - This required bit width of the two's complement representation of this
+		 *   signed value is determined by its lower bound to be at least:
+		 *		1 + $clog2(2^(w-1)+SIMD)
+		 */
+		localparam int unsigned  HI_WIDTH = 1 + $clog2(2**(ACCU_WIDTH-D[1]-1)+SIMD);
+
 		uwire signed [ACCU_WIDTH       -1:0]  up4;
-		uwire signed [ACCU_WIDTH  -D[1]  :0]  hi4;	// secure true sign bit for optimized accumulators
+		uwire signed [HI_WIDTH         -1:0]  hi4;
 		uwire        [$clog2(SIMD)+D[1]-1:0]  lo4;
 
 		// Conclusive high part accumulation
 		if(PE_REM == 0) begin : genHi
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - D[1];
+
 			// Adder Tree across all SIMD high contributions, each from [-1:1]
 			uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
 			for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
@@ -464,7 +481,7 @@ module mvu_8sx8u_dsp48 #(
 			end
 
 			// High Sideband Accumulation
-			logic signed [HI_WIDTH:0]  Hi4 = 0;	// secure true sign bit for optimized accumulators
+			logic signed [HI_WIDTH-1:0]  Hi4 = 0;
 			always_ff @(posedge clk) begin
 				if(rst)      Hi4 <= 0;
 				else if(en)  Hi4 <= $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
