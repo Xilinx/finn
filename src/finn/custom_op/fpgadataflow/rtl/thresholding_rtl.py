@@ -180,15 +180,15 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
+        wdt = self.get_weight_datatype()
         if expected_thresholds != n_thres_steps:
-            min_val = DataType[input_data_type].min()
+            min_val = wdt.min()
             thresholds = np.insert(thresholds, 0, min_val, axis=1)
             bias = bias - 1
             n_thres_steps += 1
 
         # add dummy dimension as final dimension (that's what gets packed with next call)
         t_expand = np.expand_dims(thresholds, axis=-1)
-        wdt = self.get_weight_datatype()
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         t_packed = pack_innermost_dim_as_hex_string(
             t_expand,
@@ -242,9 +242,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         i_bitwidth = DataType[input_data_type].bitwidth()
 
         code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
-        code_gen_dict["$M$"] = [
-            str(i_bitwidth)
-        ]  # input/threshold precision - convert bitwidth to string
+        code_gen_dict["$WT$"] = [
+            str(wdt.bitwidth())
+        ]  # threshold precision - convert bitwidth to string
+        code_gen_dict["$WI$"] = [str(i_bitwidth)]  # input precision - convert bitwidth to string
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
         code_gen_dict["$PE$"] = [str(pe)]  # requires C = M*PE

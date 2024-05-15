@@ -88,7 +88,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	//- AXI Stream - Input --------------
 	output  in0_V_TREADY,
 	input   in0_V_TVALID,
-	input [((PE*K+7)/8)*8-1:0]  in0_V_TDATA,
+	input [((PE*WI+7)/8)*8-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
 	input   out_V_TREADY,
