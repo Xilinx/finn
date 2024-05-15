@@ -447,9 +447,9 @@ module mvu_4sx4u #(
 		// Count leaves reachable from each node
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
-		uwire signed [ACCU_WIDTH  -1:0]  up4;
-		uwire signed [$clog2(2**(ACCU_WIDTH-8)+SIMD) :0]  hi4[3];
-		uwire        [$clog2(SIMD)+7:0]  lo4[3];
+		uwire signed [ACCU_WIDTH-1:0]  up4;
+		uwire signed [$clog2(2**(ACCU_WIDTH-7)+SIMD):0]  hi4[3];	// min LO_WIDTH=7
+		uwire        [$clog2(SIMD)+7                :0]  lo4[3];	// max LO_WIDTH=8
 		for(genvar  i = 0; i < 4; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
 			localparam int unsigned  HI_WIDTH = 1 + $clog2(2**(ACCU_WIDTH-LO_WIDTH-1)+SIMD);
@@ -477,7 +477,7 @@ module mvu_4sx4u #(
 				assign hi4[i] = '0;
 			end : genHiZero
 
-			// Conclusive low part accumulation
+			// Conclusive low part accumulation (all unsigned arithmetic)
 			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
@@ -486,7 +486,7 @@ module mvu_4sx4u #(
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
 					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
-					uwire [NODE_WIDTH-1:0]  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
+					uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
 					assign  tree[n] = s;
 				end
 
