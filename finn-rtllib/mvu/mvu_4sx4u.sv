@@ -447,12 +447,12 @@ module mvu_4sx4u #(
 		// Count leaves reachable from each node
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
-		uwire signed [ACCU_WIDTH  -1:0]  up4;
-		uwire signed [ACCU_WIDTH  -8:0]  hi4[3];
-		uwire        [$clog2(SIMD)+7:0]  lo4[3];
+		uwire signed [ACCU_WIDTH-1:0]  up4;
+		uwire signed [$clog2(2**(ACCU_WIDTH-8)+SIMD):0]  hi4[3];	// min LO_WIDTH=7
+		uwire        [$clog2(SIMD)+7                :0]  lo4[3];	// max LO_WIDTH=8
 		for(genvar  i = 0; i < 4; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - LO_WIDTH;
+			localparam int unsigned  HI_WIDTH = 1 + $clog2(2**(ACCU_WIDTH-LO_WIDTH-1)+SIMD);
 
 			// Conclusive high part accumulation
 			if(i >= PE_REM && i < 3) begin : genHi
@@ -469,7 +469,14 @@ module mvu_4sx4u #(
 				logic signed [HI_WIDTH-1:0]  Hi4 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      Hi4 <= 0;
-					else if(en)  Hi4 <= (L[4]? 0 : Hi4) + $signed(tree[0]);
+					else if(en) begin
+						automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+						assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
+							$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
+							$stop;
+						end
+						Hi4 <= h;
+					end
 				end
 				assign	hi4[i] = Hi4;
 			end : genHi
@@ -477,7 +484,7 @@ module mvu_4sx4u #(
 				assign hi4[i] = '0;
 			end : genHiZero
 
-			// Conclusive low part accumulation
+			// Conclusive low part accumulation (all unsigned arithmetic)
 			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
@@ -486,7 +493,7 @@ module mvu_4sx4u #(
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
 					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
-					uwire [NODE_WIDTH-1:0]  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
+					uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
 					assign  tree[n] = s;
 				end
 

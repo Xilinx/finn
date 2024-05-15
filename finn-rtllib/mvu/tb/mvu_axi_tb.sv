@@ -37,10 +37,10 @@ module mvu_axi_tb();
 	// Matrix & parallelism config
 	localparam bit IS_MVU = 1;
 	localparam string COMPUTE_CORE = "mvu_4sx4u";
-	localparam int unsigned MW = 120;
-	localparam int unsigned MH = 40;
-	localparam int unsigned SIMD = 20;
-	localparam int unsigned PE = 10;
+	localparam int unsigned MW = 96;
+	localparam int unsigned MH = 32;
+	localparam int unsigned SIMD = 48;
+	localparam int unsigned PE = 16;
 	localparam int unsigned SEGMENTLEN = 2.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
@@ -48,7 +48,7 @@ module mvu_axi_tb();
 	localparam int unsigned ACTIVATION_WIDTH = 4;
 	localparam int unsigned WEIGHT_WIDTH = 4;
 	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
-	localparam bit SIGNED_ACTIVATIONS = 0;
+	localparam bit SIGNED_ACTIVATIONS = 1;
 	// Simulation constants
 	localparam int unsigned NF = MH/PE;
 	localparam int unsigned SF = MW/SIMD;
@@ -141,7 +141,6 @@ module mvu_axi_tb();
 	end
 
 	// Function to compute golden output
-	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
