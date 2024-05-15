@@ -36,18 +36,18 @@ module mvu_axi_tb();
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
 	localparam bit IS_MVU = 1;
-	localparam string COMPUTE_CORE = "mvu_8sx8u_dsp48";
-	localparam int unsigned MW = 6;
+	localparam string COMPUTE_CORE = "mvu_4sx4u";
+	localparam int unsigned MW = 96;
 	localparam int unsigned MH = 32;
-	localparam int unsigned SIMD = 6;
+	localparam int unsigned SIMD = 48;
 	localparam int unsigned PE = 16;
 	localparam int unsigned SEGMENTLEN = 2.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
-	localparam int unsigned ACTIVATION_WIDTH = 8;
+	localparam int unsigned ACTIVATION_WIDTH = 4;
 	localparam int unsigned WEIGHT_WIDTH = 4;
-	localparam int unsigned ACCU_WIDTH = 14; //ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
+	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
 	localparam bit SIGNED_ACTIVATIONS = 1;
 	// Simulation constants
 	localparam int unsigned NF = MH/PE;
@@ -109,25 +109,9 @@ module mvu_axi_tb();
 	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
 	typedef weight_t weight_matrix_t[NF][SF];
 
-	// function weight_matrix_t init_WEIGHTS;
-	// 	automatic weight_matrix_t res;
-	// 	std::randomize(res);
-	// 	return res;
-	// endfunction : init_WEIGHTS;
-	// weight_matrix_t WEIGHTS = init_WEIGHTS();
-
-	function weight_matrix_t init_WEIGHTS();
+	function weight_matrix_t init_WEIGHTS;
 		automatic weight_matrix_t res;
-		logic [383:0] WEIGHT_MATRIX [2] = {384'h6e507f99bdcd011437f919f9f74f77ad9716aefe9661717f717f021797c77900976277550a09199c00744b797da29d49, 384'h75e37a070f09a290903159f9bb999cf9d91c7691951727009190909276ea097b491ae70d71707f1ced99794c3e0717e7};
-		for (int i=0; i<NF; i++) begin
-			for (int j=0; j<SF; j++) begin
-				for (int k=0; k<PE; k++) begin
-					for (int l=0; l<SIMD; l++) begin
-						res[i][j][k][l] = WEIGHT_MATRIX[i*SF+j][4*(l+k*SIMD) +: 4];
-					end
-				end
-			end
-		end
+		std::randomize(res);
 		return res;
 	endfunction : init_WEIGHTS;
 
@@ -157,7 +141,6 @@ module mvu_axi_tb();
 	end
 
 	// Function to compute golden output
-	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
