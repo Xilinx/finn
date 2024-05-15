@@ -55,7 +55,7 @@ target_clk_ns = 5
 
 
 def generate_random_threshold_values(
-    input_data_type, num_input_channels, num_steps, narrow=False, per_tensor=False
+    data_type, num_input_channels, num_steps, narrow=False, per_tensor=False
 ):
     if per_tensor:
         num_input_channels = 1
@@ -63,8 +63,8 @@ def generate_random_threshold_values(
         num_steps -= 1
 
     return np.random.randint(
-        input_data_type.min(),
-        input_data_type.max() + 1,
+        data_type.min(),
+        data_type.max() + 1,
         (num_input_channels, num_steps),
     ).astype(np.float32)
 
@@ -76,6 +76,7 @@ def sort_thresholds_increasing(thresholds):
 def make_single_multithresholding_modelwrapper(
     thresholds,
     input_data_type,
+    threshold_data_type,
     output_data_type,
     activation_bias,
     num_input_vecs,
@@ -115,7 +116,7 @@ def make_single_multithresholding_modelwrapper(
     model.set_tensor_datatype("inp", input_data_type)
     model.set_tensor_datatype("outp", output_data_type)
 
-    model.set_tensor_datatype("thresh", input_data_type)
+    model.set_tensor_datatype("thresh", threshold_data_type)
     model.set_initializer("thresh", thresholds)
     return model
 
@@ -129,7 +130,15 @@ def make_single_multithresholding_modelwrapper(
     ],
 )
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
-@pytest.mark.parametrize("input_data_type", [DataType["INT8"], DataType["UINT8"]])
+@pytest.mark.parametrize(
+    "idt_tdt_cfg",
+    [
+        (DataType["INT8"], DataType["INT8"]),
+        (DataType["INT8"], DataType["INT9"]),
+        (DataType["UINT8"], DataType["UINT8"]),
+        (DataType["UINT8"], DataType["UINT9"]),
+    ],
+)
 @pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
@@ -143,7 +152,7 @@ def test_fpgadataflow_thresholding(
     num_input_channels,
     num_input_vecs,
     activation,
-    input_data_type,
+    idt_tdt_cfg,
     fold,
     narrow,
     per_tensor,
@@ -161,6 +170,7 @@ def test_fpgadataflow_thresholding(
         )
     if narrow and activation == DataType["BIPOLAR"]:
         pytest.skip("Narrow needs to be false with biploar activation.")
+    input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
 
     if fold == -1:
@@ -179,7 +189,7 @@ def test_fpgadataflow_thresholding(
 
     # Generate random thresholds and sort in ascending order
     thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps, narrow, per_tensor
+        threshold_data_type, num_input_channels, num_steps, narrow, per_tensor
     )
 
     # provide non-decreasing/ascending thresholds
@@ -189,6 +199,7 @@ def test_fpgadataflow_thresholding(
     model = make_single_multithresholding_modelwrapper(
         thresholds,
         input_data_type,
+        threshold_data_type,
         output_data_type,
         activation_bias,
         num_input_vecs,
