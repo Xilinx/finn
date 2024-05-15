@@ -448,11 +448,11 @@ module mvu_4sx4u #(
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		uwire signed [ACCU_WIDTH  -1:0]  up4;
-		uwire signed [ACCU_WIDTH  -8:0]  hi4[3];
+		uwire signed [$clog2(2**(ACCU_WIDTH-8)+SIMD) :0]  hi4[3];
 		uwire        [$clog2(SIMD)+7:0]  lo4[3];
 		for(genvar  i = 0; i < 4; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - LO_WIDTH;
+			localparam int unsigned  HI_WIDTH = 1 + $clog2(2**(ACCU_WIDTH-LO_WIDTH-1)+SIMD);
 
 			// Conclusive high part accumulation
 			if(i >= PE_REM && i < 3) begin : genHi
