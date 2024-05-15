@@ -448,7 +448,7 @@ module mvu_4sx4u #(
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		uwire signed [ACCU_WIDTH-1:0]  up4;
-		uwire signed [$clog2(2**(ACCU_WIDTH-7)+SIMD):0]  hi4[3];	// min LO_WIDTH=7
+		uwire signed [$clog2(2**(ACCU_WIDTH-8)+SIMD):0]  hi4[3];	// min LO_WIDTH=7
 		uwire        [$clog2(SIMD)+7                :0]  lo4[3];	// max LO_WIDTH=8
 		for(genvar  i = 0; i < 4; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
@@ -469,7 +469,14 @@ module mvu_4sx4u #(
 				logic signed [HI_WIDTH-1:0]  Hi4 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      Hi4 <= 0;
-					else if(en)  Hi4 <= (L[4]? 0 : Hi4) + $signed(tree[0]);
+					else if(en) begin
+						automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+						assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
+							$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
+							$stop;
+						end
+						Hi4 <= h;
+					end
 				end
 				assign	hi4[i] = Hi4;
 			end : genHi
