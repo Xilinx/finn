@@ -107,7 +107,7 @@ class ScaledDotProductAttention(HWCustomOp):
             # input
             "DequantSoftmax": ("f", False, 1.0),
             # Datatype of softmax normalization before applying activation or
-            # type cast. THis is called Acc to stick to the naming scheme of the
+            # type cast. This is called Acc to stick to the naming scheme of the
             # MatMul operators before.
             #   Note: Currently this is ALWAYS floats
             "AccASoftmax": ("s", False, "FLOAT32"),
@@ -140,7 +140,12 @@ class ScaledDotProductAttention(HWCustomOp):
             # FPGA resource type for memories of the thresholds parameters
             # Note: Not yet used...
             "ram_style_thresholds": (
-                "s", False, "auto", {"auto", "block", "distributed", "ultra"}
+                "s", False, "auto", {"auto", "block", "distributed"}
+            ),
+            # FPGA resource type for memories of the attention mask if the
+            # mask_mode is "const"
+            "ram_style_mask": (
+                "s", False, "auto", {"auto", "block", "distributed"}
             ),
             # FPGA resource type to implement the MAC operations of the two
             # internal matmul operations

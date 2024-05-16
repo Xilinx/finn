@@ -585,9 +585,15 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
     def docompute(self):
         # Mapping of memory resource attributes to the corresponding C++ HLS
         # pragma directives
-        ram_style_thresholds = {
+        ram_styles = {
             "auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM",
-        }[self.get_nodeattr("ram_style_thresholds")]
+        }
+        # Convert the thresholds RAM style attribute to HLS directive
+        ram_style_thresholds = ram_styles[
+            self.get_nodeattr("ram_style_thresholds")
+        ]
+        # Convert the attention mask RAM style attribute to HLS directive
+        ram_style_mask = ram_styles[self.get_nodeattr("ram_style_mask")]
 
         # Generates the "BIND_STORAGE" pragma for the threshold activations
         # threshold memory of "name"
@@ -665,6 +671,19 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
                 bind_threshold_storage(
                     "attention.softmax.activation.m_thresholds"
                 )
+            ])
+
+        # If a constant mask is specified, there needs to be storage and array
+        # partition pragmas to be inserted
+        if self.get_nodeattr("mask_mode") == "const":
+            # Note: Probably no need for partitioning this array, as the PE
+            # dimension is packed into the datatype (which is a bitvector with
+            # one bit per element, i.e., per PE)
+            # Implement the attention mask array as a dual-port ROM with the
+            # RAM-Style selected via attribute
+            pragmas.extend([
+                f"#pragma HLS BIND_STORAGE variable=attention_mask"
+                f" type=ROM_2P impl={ram_style_mask}"
             ])
 
         # Write the body of the attention top-level function
