@@ -132,6 +132,20 @@ class ScaledDotProductAttention(HWCustomOp):
                 "s", False, "python", {"", "rtlsim", "cppsim", "python"}
             ),
 
+            # FPGA resource type for memories/internal buffers of the operator
+            # Note: Currently only used for StreamTile buffers
+            "ram_style":  (
+                "s", False, "auto", {"auto", "block", "distributed", "ultra"}
+            ),
+            # FPGA resource type for memories of the thresholds parameters
+            # Note: Not yet used...
+            "ram_style_thresholds": (
+                "s", False, "auto", {"auto", "block", "distributed", "ultra"}
+            ),
+            # FPGA resource type to implement the MAC operations of the two
+            # internal matmul operations
+            "mac_resource": ("s", False, "auto", {"auto", "lut", "dsp"}),
+
             # Input and output FIFO depths for multi-I/O nodes
             #   Note: Need to override here as there are three inputs
             "inFIFODepths": ("ints", False, [2, 2, 2]),

@@ -353,7 +353,7 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
             # Generate C++ code initializing the constant mask array
             attention_mask = f"static const {mask_type} attention_mask = {mask}"
 
-        # Of a mask is provided as input, no object parameters need to be
+        # If a mask is provided as input, no object parameters need to be
         # generated here
         if self.get_nodeattr("mask_mode") == "input":
             # Attention mask type of input stream
@@ -417,6 +417,28 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
             # given by argument list names
             return (f"using {name} = {hls_type(name)};" for name in names)
 
+        # Attribute specifying the memory to use for internal buffers
+        ram_style = self.get_nodeattr("ram_style")
+        # Attribute specifying the resources to use for implementing MAC
+        # operations
+        mac_resource = self.get_nodeattr("mac_resource")
+
+        # Mapping of memory resource attributes to the corresponding C++ tag
+        # types
+        mem_resources = {
+            "auto": "Resource::AUTO",
+            "block": "Resource::BRAM",
+            "distributed": "Resource::LUTRAM",
+            "ultra": "Resources::URAM"
+        }
+        # Mapping of compute resource attributes to the corresponding C++ tag
+        # types
+        compute_resources = {
+            "auto": "ap_resource_dflt",
+            "lut": "ap_resource_lut",
+            "dsp": "ap_resource_dsp"
+        }
+
         # Insert constants and type aliases into the dictionary
         self.code_gen_dict["$DEFINES$"] = [
             # Shape constant definitions of attention inputs (query, key and
@@ -448,6 +470,9 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
                 "OutAVMatMul",
                 "AccASoftmax"
             ),
+            # Type alias definitions for the resource type selection tags
+            f"using MacResource = {compute_resources[mac_resource]};",
+            f"using MemResource = {mem_resources[ram_style]};",
             # Include the activation function type definitions and parameters
             #   Note: The typedefs in this header require the typedefs above,
             #   thus adding this to the global includes is not possible.
@@ -472,7 +497,9 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
             "    AccAVMatMul,",
             "    OType,",  # Note: OType and last MatMul out must match
             "    ActAVMatMul,",
-            "    ActASoftmax",
+            "    ActASoftmax,",
+            "    MacResource,",
+            "    MemResource"
             ">;",
             # Short type aliases of attention input and output streams
             "using QStream = Attention::QStream;",
