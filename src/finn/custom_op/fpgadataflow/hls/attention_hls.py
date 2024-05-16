@@ -583,17 +583,103 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
 
     # Generates C++ code for calling the computation part of the operator
     def docompute(self):
+        # Mapping of memory resource attributes to the corresponding C++ HLS
+        # pragma directives
+        ram_style_thresholds = {
+            "auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM",
+        }[self.get_nodeattr("ram_style_thresholds")]
+
+        # Generates the "BIND_STORAGE" pragma for the threshold activations
+        # threshold memory of "name"
+        def bind_threshold_storage(name: str):
+            return (f"#pragma HLS BIND_STORAGE variable={name}"
+                    f" type=ROM_2P impl={ram_style_thresholds}")
+
+        # Generates the ARRAY_PARTITION pragma for the threshold activations
+        # threshold memory of "name" and along dimension "dim"
+        def partition_thresholds_array(name: str, dim: int):
+            return (f"#pragma HLS ARRAY_PARTITION variable={name}"
+                    f" complete dim={dim}")
+
+        # Collect pragmas which need to be inserted into the DOCOMPUTE code
+        pragmas = []
+
+        # If there are thresholds activations following the query-key matmul,
+        # these need storage and array partition pragmas
+        if self.get_nodeattr("ActQKMatMul") == "thresholds":
+            # Add pragma compiler directives to the list of pragmas inserted
+            # into the DOCOMPUTE
+            pragmas.extend([
+                # Partition the thresholds array along the PE (dim=1) and number
+                # of thresholds (dim=3) axis for parallel access
+                partition_thresholds_array(
+                    "attention.qk_matmul.activation.m_thresholds", dim=1
+                ),
+                partition_thresholds_array(
+                    "attention.qk_matmul.activation.m_thresholds", dim=3
+                ),
+                # Implement the thresholds array as a dual-port ROM with the
+                # RAM-Style selected via attribute
+                bind_threshold_storage(
+                    "attention.qk_matmul.activation.m_thresholds"
+                )
+            ])
+
+        # If there are thresholds activations following the attention-value
+        # matmul, these need storage and array partition pragmas
+        if self.get_nodeattr("ActAVMatMul") == "thresholds":
+            # Add pragma compiler directives to the list of pragmas inserted
+            # into the DOCOMPUTE
+            pragmas.extend([
+                # Partition the thresholds array along the PE (dim=1) and number
+                # of thresholds (dim=3) axis for parallel access
+                partition_thresholds_array(
+                    "attention.av_matmul.activation.m_thresholds", dim=1
+                ),
+                partition_thresholds_array(
+                    "attention.av_matmul.activation.m_thresholds", dim=3
+                ),
+                # Implement the thresholds array as a dual-port ROM with the
+                # RAM-Style selected via attribute
+                bind_threshold_storage(
+                    "attention.av_matmul.activation.m_thresholds"
+                )
+            ])
+
+        # If there are thresholds activations following the softmax
+        # normalization, these need storage and array partition pragmas
+        if self.get_nodeattr("ActASoftmax") == "thresholds":
+            # Add pragma compiler directives to the list of pragmas inserted
+            # into the DOCOMPUTE
+            pragmas.extend([
+                # Partition the thresholds array along the PE (dim=1) and number
+                # of thresholds (dim=3) axis for parallel access
+                partition_thresholds_array(
+                    "attention.softmax.activation.m_thresholds", dim=1
+                ),
+                partition_thresholds_array(
+                    "attention.softmax.activation.m_thresholds", dim=3
+                ),
+                # Implement the thresholds array as a dual-port ROM with the
+                # RAM-Style selected via attribute
+                bind_threshold_storage(
+                    "attention.softmax.activation.m_thresholds"
+                )
+            ])
+
         # Write the body of the attention top-level function
         self.code_gen_dict["$DOCOMPUTE$"] = [
             # Instantiate the attention operator and connect to the generated
             # threshold parameters
-            # Note: Assumes "Attention" to be aliased appropriate configuration
-            #   in defines with.
+            # Note: Assumes "Attention" to be aliased and configured in defines
             # Note: Assumes parameters to be generated in 'generate_params' and
             #   made available via include/defines before.
             "Attention attention {",
             "    act_qk_matmul, act_av_matmul, act_a_softmax, dequant_softmax",
             "};",
+            # Insert some more pragmas here to be able to configure
+            # implementation details of components internal to "attention"
+            *pragmas,
             # Connect the attention operator to the input and output streams
             "attention("
             f"q_{self.hls_sname()}, "
