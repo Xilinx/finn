@@ -641,10 +641,11 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e"])
 @pytest.mark.parametrize("clk_ns", [1.66, 4])
+@pytest.mark.parametrize("pumped_compute", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
+def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns, pumped_compute):
     if part == "xcku3p-ffva676-1-e" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
@@ -675,7 +676,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(GiveUniqueNodeNames())
 
     # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
+    model = model.transform(SpecializeLayers(part, pumped_compute))
     model = model.transform(GiveUniqueNodeNames())
 
     # Apply folding (i.e. specify to use DSPs)
@@ -685,6 +686,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
             "PE": pe,
             "SIMD": simd,
             "resType": "dsp",
+            "rtlsim_trace": "mvu_trace_node.vcd"
         },
     }
     model = model.transform(ApplyConfig(folding_config))
@@ -720,6 +722,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
 
     model.set_metadata_prop("rtlsim_so", "")
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "mvu_stitch.vcd")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
 
     assert (
