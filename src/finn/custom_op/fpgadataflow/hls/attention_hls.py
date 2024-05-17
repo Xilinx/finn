@@ -21,6 +21,12 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 # Convert and pack (numpy) data for C++ code generation
 from finn.util.data_packing import numpy_to_hls_code
 
+# Mapping of memory resource attributes to the corresponding C++ HLS
+# pragma directives
+RAM_STYLES = {
+    "auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"
+}
+
 
 # HLS Backend specialization of the Scale Dot-product Attention Operator
 class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
@@ -583,17 +589,12 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
 
     # Generates C++ code for calling the computation part of the operator
     def docompute(self):
-        # Mapping of memory resource attributes to the corresponding C++ HLS
-        # pragma directives
-        ram_styles = {
-            "auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM",
-        }
         # Convert the thresholds RAM style attribute to HLS directive
-        ram_style_thresholds = ram_styles[
+        ram_style_thresholds = RAM_STYLES[
             self.get_nodeattr("ram_style_thresholds")
         ]
         # Convert the attention mask RAM style attribute to HLS directive
-        ram_style_mask = ram_styles[self.get_nodeattr("ram_style_mask")]
+        ram_style_mask = RAM_STYLES[self.get_nodeattr("ram_style_mask")]
 
         # Generates the "BIND_STORAGE" pragma for the threshold activations
         # threshold memory of "name"
