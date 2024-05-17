@@ -32,6 +32,12 @@ from finn.custom_op.fpgadataflow.elementwise_binary import (  # noqa
     ElementwiseBinaryOperation
 )
 
+# Mapping of memory resource attributes to the corresponding C++ HLS
+# pragma directives
+RAM_STYLES = {
+    "auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"
+}
+
 
 # HLS Backend specialization of the binary elementwise operation operator
 class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
@@ -111,6 +117,18 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         lhs = model.get_initializer(self.onnx_node.input[0])
         # Folded output shape for broadcasting/aligning the input shapes
         out_shape = self.get_folded_output_shape(ind=0)
+        # Type of memory to use for storing constant parameters
+        ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
+
+        # Check whether there are already pragmas in the code generation
+        # dictionary
+        if "$PRAGMAS$" not in self.code_gen_dict:
+            # If not, insert an empty list to collect more pragmas
+            # Note: Do this here as it is easier to add the array partition and
+            # bind storage pragmas for generated parameter here, where the shape
+            # is computed.
+            self.code_gen_dict["$PRAGMAS$"] = []
+
         # If the left hand side input is provided as initializer, generate
         # initializer parameters code
         if lhs is not None:
@@ -138,6 +156,18 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # Note: no packing, but with variable name/type declaration
             lhs_code = numpy_to_hls_code(
                 lhs, self.lhs_dtype, "lhs", False, False
+            )
+            # Add pragma configuring the storage type to use for the parameter
+            # tensors: This is a constant parameter implemented as dual-port ROM
+            self.code_gen_dict["$PRAGMAS$"].append(
+                f"#pragma HLS BIND_STORAGE"
+                f" variable=lhs type=ROM_2P impl={ram_style}"
+            )
+            # Add pragma to partition the parameter tensor along the last
+            # dimensions, i.e., the PE dimension for parallel access
+            self.code_gen_dict["$PRAGMAS$"].append(
+                f"#pragma HLS ARRAY_PARTITION"
+                f" variable=lhs complete dim={len(lhs_shape)}"
             )
 
         # Check for an initializer providing the right hand side input
@@ -169,6 +199,18 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # Note: no packing, but with variable name/type declaration
             rhs_code = numpy_to_hls_code(
                 rhs, self.rhs_dtype, "rhs", False, False
+            )
+            # Add pragma configuring the storage type to use for the parameter
+            # tensors: This is a constant parameter implemented as dual-port ROM
+            self.code_gen_dict["$PRAGMAS$"].append(
+                f"#pragma HLS BIND_STORAGE"
+                f" variable=rhs type=ROM_2P impl={ram_style}"
+            )
+            # Add pragma to partition the parameter tensor along the last
+            # dimensions, i.e., the PE dimension for parallel access
+            self.code_gen_dict["$PRAGMAS$"].append(
+                f"#pragma HLS ARRAY_PARTITION"
+                f" variable=rhs complete dim={len(rhs_shape)}"
             )
 
         # Open a file to store the thresholds parameters as C++ code
@@ -327,6 +369,11 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         lhs_buffer_shape = "".join([f'[{size}]' for size in lhs_buffer_shape])
         rhs_buffer_shape = "".join([f'[{size}]' for size in rhs_buffer_shape])
 
+        # Number of dimensions of the (broadcast) output. All shapes will be
+        # aligned to this number of dimensions.
+        # Note: +1 for the PE dimension
+        ndim = len(out_shape) + 1
+
         # For-Loop template for nested loops over arbitrary many levels
         def for_loop(level, size):
             return f"for(std::size_t i{level} = 0; i{level}<{size}; ++i{level})"
@@ -362,21 +409,37 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # elements to be unpacked
             return "buffer(pe, 0)"
 
+        # Type of memory to use for storing constant parameters
+        ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
+
         # Write the body of the top-level function
         self.code_gen_dict["$DOCOMPUTE$"] = [
             # @formatter:off  Disable formatter for mixed Python and C++
             # For streamed inputs, generate local buffer of non-broadcast size
             # but broadcasts dimensions un-squeezed to size 1. For constant
             # inputs, use the generated parameters of the same name.
+            # For streamed inputs, implement a simple dual-port RAM partitioned
+            # on the last, i.e., the PE, axis for parallel access.
             f"""
             LhsType lhs{lhs_buffer_shape}[{self.pe}];
+            #pragma HLS ARRAY_PARTITION variable=lhs complete dim={ndim}
+            #pragma HLS BIND_STORAGE variable=lhs type=RAM_S2P impl={ram_style}
             """ if self.lhs_style == "input" else """""",
             f"""
             RhsType rhs{rhs_buffer_shape}[{self.pe}];
+            #pragma HLS ARRAY_PARTITION variable=rhs complete dim={ndim}
+            #pragma HLS BIND_STORAGE variable=rhs type=RAM_S2P impl={ram_style}
             """ if self.rhs_style == "input" else """""",
-            # Buffer to hold the parallel output elements
+            # Buffer to hold the parallel output elements: Implement a simple
+            # dual-port RAM for the output buffer, partitioned on the last,
+            # i.e., the PE, axis for parallel access.
+            # Note: The PE output should be rather small, force this into
+            # distributed memory here.
+            # TODO: Maybe reconsider this later?
             f"""
             OutType out[{self.pe}];
+            #pragma HLS ARRAY_PARTITION variable=out complete dim=1
+            #pragma HLS BIND_STORAGE variable=out type=RAM_S2P impl=LUTRAM
             """,
             # Perfect loop nest over all folded output dimensions
             *[for_loop(dim, size) + " {" for dim, size in enumerate(out_shape)],
@@ -487,9 +550,15 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
     # Generates C++ pragmas to be inserted into the main function of the C++
     # simulation and the ipgen-blackboxfunction as well
     def pragmas(self):
+        # Check whether there are already pragmas in the code generation
+        # dictionary
+        if "$PRAGMAS$" not in self.code_gen_dict:
+            # If not, insert an empty list to collect more pragmas
+            self.code_gen_dict["$PRAGMAS$"] = []
+
         # Add HLS interface directives specifying how to create RTL ports for
         # the top-level function arguments
-        self.code_gen_dict["$PRAGMAS$"] = [
+        self.code_gen_dict["$PRAGMAS$"] += [
             # Connect the output stream with an axi stream interface
             f"#pragma HLS INTERFACE axis port=out_{self.hls_sname()}",
         ]

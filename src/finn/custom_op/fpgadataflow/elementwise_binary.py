@@ -87,7 +87,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             #   Note: Override to support python mode
             "exec_mode": (
                 "s", False, "python", {"", "rtlsim", "cppsim", "python"}
-            )
+            ),
+            # FPGA resource type for memories/internal buffers of the operator
+            "ram_style": (
+                "s", False, "auto", {"auto", "block", "distributed", "ultra"}
+            ),
         })
         # Return updated attribute dictionary
         return attrs
