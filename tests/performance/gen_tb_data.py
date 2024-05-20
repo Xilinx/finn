@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+#!/usr/bin/python3
+# Copyright (c) 2022 Xilinx, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -11,7 +12,7 @@
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
 #
-# * Neither the name of FINN nor the names of its
+# * Neither the name of Xilinx nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
 #
@@ -26,77 +27,28 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*.ipynb_checkpoints*
 
-# Project files
-.vscode
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
+import sys
+from keras.datasets import mnist
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
+(train_x, train_y), (test_x, test_y) = mnist.load_data()
+print("Loaded MNIST test data successfully")
+# print('X_test:  '  + str(test_x.shape))
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
+if len(sys.argv) != 2:
+    print("Expected: gen_tb_data.py <path_to_hex_file>")
+    sys.exit(-1)
 
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
+file_name = sys.argv[1]
 
-# Per-project virtualenvs
-.venv*/
+with open(file_name, "w") as tb_data:
+    for i in range(20):
+        for j in range(28):
+            for k in range(27, -1, -1):
+                tb_data.write("{:02X}".format(test_x[i][j][k]))
+            tb_data.write("\n")
+        tb_data.write(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffff{:02X}\n".format(test_y[i])
+        )
 
-# SSH key dir mounted into Docker
-/ssh_keys/
-
-# PYNQ board files
-/board_files/
-
-# datasets for testing
-/dataset/
-/data/
-*.csv
-
-# Google Drive key for dashboard
-/gdrive-key/
-
-# generated files as part of end2end notebooks
-/notebooks/end2end_example/**/*.onnx
-
-# downloaded dep repos
-/deps/
-
-# instrumentation wrapper configuration files
-!system.cfg
-!ila_0_bd.cfg
+print("Testbench data generated at " + file_name)
