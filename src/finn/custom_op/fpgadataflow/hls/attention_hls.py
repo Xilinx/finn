@@ -800,3 +800,10 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
         intf_names["ap_none"] = []
         # Return the interface name dictionary
         return intf_names
+
+    # Prepare for RTL simulation: There is no RTL simulation of the attention
+    # operator for now
+    def prepare_rtlsim(self):
+        # This attribute must be present anyway, but it is ok if it points
+        # nowhere as long as execute_node doe not ry to execute the rtlsim
+        self.set_nodeattr("rtlsim_so", "none")
