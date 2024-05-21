@@ -79,7 +79,10 @@ module mvu_4sx4u #(
 	assign	vld = L[5];
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
-	localparam int unsigned  D[4:0] = '{ ACCU_WIDTH+22, 22, 15, 8, 0 }; // Lane offsets
+	localparam int unsigned  D[4:0] = // Lane offsets
+		VERSION == 1? '{ ACCU_WIDTH+21, 21, 14, 7, 0 } :
+		VERSION == 2? '{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
+		/* else */    '{ default: 0 };
 
 	localparam int unsigned  PIPE_COUNT = (PE+3)/4;
 	for(genvar  c = 0; c < PIPE_COUNT; c++) begin : genPipes
@@ -88,7 +91,7 @@ module mvu_4sx4u #(
 		localparam int unsigned  PE_END = PE < 4*(c+1)? PE : 4*(c+1);
 		localparam int unsigned  PE_REM = 4*(c+1) - PE_END;
 
-		uwire        [57:0]  p3[SIMD];
+		uwire        [47:0]  p3[SIMD];
 		uwire signed [ 1:0]  h3[SIMD][3];
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
