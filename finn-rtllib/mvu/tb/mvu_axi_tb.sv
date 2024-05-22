@@ -41,8 +41,8 @@ module mvu_axi_tb();
 	localparam int unsigned MH = 32;
 	localparam int unsigned SIMD = 48;
 	localparam int unsigned PE = 16;
-	localparam int unsigned SEGMENTLEN = 2.0;
-	localparam bit FORCE_BEHAVIORAL = 1;
+	localparam int unsigned SEGMENTLEN = 2;
+	localparam bit FORCE_BEHAVIORAL = 0;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
 	localparam int unsigned ACTIVATION_WIDTH = 4;
@@ -112,6 +112,17 @@ module mvu_axi_tb();
 	function weight_matrix_t init_WEIGHTS;
 		automatic weight_matrix_t res;
 		std::randomize(res);
+		for(int unsigned  nf = 0; nf < NF; nf++) begin
+			for(int unsigned  sf = 0; sf < SF; sf++) begin
+				for(int unsigned  pe = 0; pe < PE; pe++) begin
+					for(int unsigned  simd = 0; simd < SIMD; simd++) begin
+						if(res[nf][sf][pe][simd] == (1 << (WEIGHT_WIDTH-1))) begin
+							res[nf][sf][pe][simd]++;
+						end
+					end
+				end
+			end
+		end
 		return res;
 	endfunction : init_WEIGHTS;
 
