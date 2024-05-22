@@ -83,6 +83,7 @@ module mvu_4sx4u #(
 		VERSION == 1? '{ ACCU_WIDTH+21, 21, 14, 7, 0 } :
 		VERSION == 2? '{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
 		/* else */    '{ default: 0 };
+	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
 
 	localparam int unsigned  PIPE_COUNT = (PE+3)/4;
 	for(genvar  c = 0; c < PIPE_COUNT; c++) begin : genPipes
@@ -127,7 +128,14 @@ module mvu_4sx4u #(
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 						dd[D[pe + PE_REM]+:3] = ww[pe];
-						aa[D[pe + PE_REM]+ 3] = ww[pe][3];
+
+						// The sign of the weights are generally put on the subtracted A port.
+						// However, when coinciding with the actual sign bit position of the
+						// multiplier input path, it also goes onto the D input. This prevents
+						// sign extensions that may happen when a DSP primitive is auto-promoted
+						// to a newer generation.
+						if(D[pe + PE_REM]+3 == A_WIDTH-1)  dd[D[pe + PE_REM]+3] = ww[pe][3];
+						else                               aa[D[pe + PE_REM]+3] = ww[pe][3];
 					end
 				end
 			end : blkVectorize
@@ -138,6 +146,7 @@ module mvu_4sx4u #(
 			//       rst can be only applied to AD and zero only to B
 			//       with the same effect as zeroing both.
 			if(BEHAVIORAL) begin : genBehav
+
 				// Stage #1: Input Refine
 				logic signed [17:0]  B1  = 0;
 				always_ff @(posedge clk) begin
@@ -145,7 +154,7 @@ module mvu_4sx4u #(
 					else if(en)  B1  <= bb;
 				end
 
-				logic signed [26:0]  AD1 = 0;
+				logic signed [A_WIDTH-1:0]  AD1 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      AD1 <= 0;
 					else if(en)  AD1 <= dd - aa;
