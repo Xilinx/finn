@@ -277,7 +277,7 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
-        verify_step(model, cfg, "qonnx_to_finn_python", need_parent=False)
+        verify_step(model, cfg, "finn_onnx_python", need_parent=False)
 
     return model
 
