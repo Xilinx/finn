@@ -73,7 +73,11 @@ module mvu_4sx4u #(
 		int unsigned  HI_WIDTH_MAX;	// exluding leftmost lane
 	} slicing_t;
 	function slicing_t sliceLanes();
-		automatic slicing_t  slicing;
+		automatic int unsigned  offset[4:0];
+		automatic int unsigned  lo_width[3:0];
+		automatic int unsigned  hi_width[2:0];
+		automatic int unsigned  lw_max;	// exluding leftmost lane
+		automatic int unsigned  hw_max;	// exluding leftmost lane
 
 		// Determine Lane Offsets
 		unique case(VERSION)
@@ -82,10 +86,10 @@ module mvu_4sx4u #(
 				$error("%m: Need NARROW_WEIGHTS for DSP48E1.");
 				$finish;
 			end
-			slicing.OFFSET = '{ ACCU_WIDTH+21, 21, 14, 7, 0 };
+			offset = '{ ACCU_WIDTH+21, 21, 14, 7, 0 };
 		end
 		2: begin
-			slicing.OFFSET = NARROW_WEIGHTS?
+			offset = NARROW_WEIGHTS?
 				'{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
 				'{ ACCU_WIDTH+22, 22, 15, 8, 0 };
 		end
@@ -93,19 +97,26 @@ module mvu_4sx4u #(
 
 		// Derive other Lane Attributes
 		for(int unsigned  i = 0; i < 4; i++) begin
-			automatic int unsigned  lw = slicing.OFFSET[i+1] - slicing.OFFSET[i];
-			slicing.LO_WIDTH[i] = lw;
+			automatic int unsigned  lw = offset[i+1] - offset[i];
+			lo_width[i] = lw;
 
 			if(i < 3) begin
 				automatic int unsigned  hw = 1 + $clog2(2**(ACCU_WIDTH-lw-1)+SIMD);
-				slicing.HI_WIDTH[i] = hw;
+				hi_width[i] = hw;
 
-				if(lw > slicing.LO_WIDTH_MAX)  slicing.LO_WIDTH_MAX = lw;
-				if(hw > slicing.HI_WIDTH_MAX)  slicing.HI_WIDTH_MAX = hw;
+				if(lw > lw_max)  lw_max = lw;
+				if(hw > hw_max)  hw_max = hw;
 			end
 		end
 
-		return  slicing;
+		return  slicing_t'{
+			OFFSET:       offset,
+			LO_WIDTH:     lo_width,
+			HI_WIDTH:     hi_width,
+			LO_WIDTH_MAX: lw_max,
+			HI_WIDTH_MAX: hw_max
+		};
+
 	endfunction : sliceLanes
 	localparam slicing_t  SLICING = sliceLanes();
 	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
@@ -172,8 +183,8 @@ module mvu_4sx4u #(
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 						automatic int unsigned  ofs = SLICING.OFFSET[pe + PE_REM];
 						dd[ofs+:3] = ww[pe];
-						assert(!NARROW_WEIGHTS || (ww[pe] != -8)) else begin
-							$warning("Weight of -8 violates NARROW_WEIGHTS commitment.");
+						assert(!NARROW_WEIGHTS || rst || !en || zero || (ww[pe] != -8)) else begin
+							$warning("%m: Weight of -8 violates NARROW_WEIGHTS commitment.");
 						end
 
 						// The sign of the weights are generally put on the subtracted A port.
