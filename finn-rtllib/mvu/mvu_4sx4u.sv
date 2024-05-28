@@ -65,60 +65,59 @@ module mvu_4sx4u #(
 
 	//-----------------------------------------------------------------------
 	// Determine Lane Configuration
-	typedef struct {
-		int unsigned  OFFSET[4:0];
-		int unsigned  LO_WIDTH[3:0];
-		int unsigned  HI_WIDTH[2:0];
-		int unsigned  LO_WIDTH_MAX;	// exluding leftmost lane
-		int unsigned  HI_WIDTH_MAX;	// exluding leftmost lane
-	} slicing_t;
-	function slicing_t sliceLanes();
-		automatic int unsigned  offset[4:0];
-		automatic int unsigned  lo_width[3:0];
-		automatic int unsigned  hi_width[2:0];
-		automatic int unsigned  lw_max;	// exluding leftmost lane
-		automatic int unsigned  hw_max;	// exluding leftmost lane
+	initial begin
+		if(!NARROW_WEIGHTS && (VERSION == 1)) begin
+			$error("%m: Need NARROW_WEIGHTS for DSP48E1.");
+			$finish;
+		end
+	end
 
-		// Determine Lane Offsets
+	typedef int unsigned  lane_offset_v[4:0];
+	typedef int unsigned  lo_width_v[3:-1];	// Index -1: maximum across all but leftmost lane
+	typedef int unsigned  hi_width_v[2:-1];
+
+	function lane_offset_v sliceLanes();
 		unique case(VERSION)
 		1: begin
-			if(!NARROW_WEIGHTS) begin
-				$error("%m: Need NARROW_WEIGHTS for DSP48E1.");
-				$finish;
-			end
-			offset = '{ ACCU_WIDTH+21, 21, 14, 7, 0 };
+			return  NARROW_WEIGHTS?
+				lane_offset_v'{ ACCU_WIDTH+21, 21, 14, 7, 0 } :
+				lane_offset_v'{ 0, 0, 0, 0, 0 };	// not supported
 		end
 		2: begin
-			offset = NARROW_WEIGHTS?
-				'{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
-				'{ ACCU_WIDTH+22, 22, 15, 8, 0 };
+			return  NARROW_WEIGHTS?
+				lane_offset_v'{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
+				lane_offset_v'{ ACCU_WIDTH+22, 22, 15, 8, 0 };
 		end
 		endcase
-
-		// Derive other Lane Attributes
-		for(int unsigned  i = 0; i < 4; i++) begin
-			automatic int unsigned  lw = offset[i+1] - offset[i];
-			lo_width[i] = lw;
-
-			if(i < 3) begin
-				automatic int unsigned  hw = 1 + $clog2(2**(ACCU_WIDTH-lw-1)+SIMD);
-				hi_width[i] = hw;
-
-				if(lw > lw_max)  lw_max = lw;
-				if(hw > hw_max)  hw_max = hw;
-			end
-		end
-
-		return  slicing_t'{
-			OFFSET:       offset,
-			LO_WIDTH:     lo_width,
-			HI_WIDTH:     hi_width,
-			LO_WIDTH_MAX: lw_max,
-			HI_WIDTH_MAX: hw_max
-		};
-
 	endfunction : sliceLanes
-	localparam slicing_t  SLICING = sliceLanes();
+	localparam lane_offset_v  OFFSETS = sliceLanes();
+
+	function lo_width_v calcLoWidths();
+		automatic lo_width_v    lo_width;
+		automatic int unsigned  lw_max = 0;
+		for(int unsigned  i = 0; i < 4; i++) begin
+			automatic int unsigned  lw = OFFSETS[i+1] - OFFSETS[i];
+			lo_width[i] = lw;
+			if((i < 3) && (lw > lw_max))  lw_max = lw;
+		end
+		lo_width[-1] = lw_max;
+		return  lo_width;
+	endfunction : calcLoWidths
+	localparam lo_width_v  LO_WIDTHS = calcLoWidths();
+
+	function hi_width_v  calcHiWidths();
+		automatic hi_width_v    hi_width;
+		automatic int unsigned  hw_max = 0;
+		for(int unsigned  i = 0; i < 3; i++) begin
+			automatic int unsigned  hw = 1 + $clog2(2**(ACCU_WIDTH-LO_WIDTHS[i]-1)+SIMD);
+			hi_width[i] = hw;
+			if(hw > hw_max)  hw_max = hw;
+		end
+		hi_width[-1] = hw_max;
+		return  hi_width;
+	endfunction : calcHiWidths
+	localparam hi_width_v  HI_WIDTHS = calcHiWidths();
+
 	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
 
 	// Compute the count of decendents for all nodes in the reduction trees.
@@ -159,7 +158,7 @@ module mvu_4sx4u #(
 				uwire signed [3:0]  ww[PE_END - PE_BEG];
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 					assign	ww[pe] = w[PE_BEG + pe][s];
-					if(pe) begin
+					if(pe > 0) begin
 						if(BEHAVIORAL)  assign  xx[pe + PE_REM] = zero? 0 : ww[pe] * a[s];
 `ifndef VERILATOR
 						else begin
@@ -181,7 +180,7 @@ module mvu_4sx4u #(
 					dd = '0;
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-						automatic int unsigned  ofs = SLICING.OFFSET[pe + PE_REM];
+						automatic int unsigned  ofs = OFFSETS[pe + PE_REM];
 						dd[ofs+:3] = ww[pe];
 						assert(!NARROW_WEIGHTS || rst || !en || zero || (ww[pe] != -8)) else begin
 							$warning("%m: Weight of -8 violates NARROW_WEIGHTS commitment.");
@@ -499,14 +498,14 @@ module mvu_4sx4u #(
 					X1 <= xx;
 					X2 <= X1;
 					foreach(X3[i]) begin
-						X3[i] <= X2[i] + (L[3]? 2'h0 : pp[SLICING.OFFSET[i]+:2]);
+						X3[i] <= X2[i] + (L[3]? 2'h0 : pp[OFFSETS[i]+:2]);
 					end
 				end
 			end
 
 			// Derive actual cross-lane overflows
 			for(genvar  i = 0; i < 3; i++) begin
-				assign	h3[s][i] = pp[SLICING.OFFSET[i+1]+:2] - X3[i+1];
+				assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X3[i+1];
 			end
 			assign	p3[s] = pp;
 
@@ -518,15 +517,15 @@ module mvu_4sx4u #(
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1 }; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		uwire signed [ACCU_WIDTH-1:0]  up4;
-		uwire signed [             SLICING.HI_WIDTH_MAX-1:0]  hi4[3];
-		uwire        [$clog2(SIMD)+SLICING.LO_WIDTH_MAX-1:0]  lo4[3];
+		uwire signed [             HI_WIDTHS[-1]-1:0]  hi4[3];
+		uwire        [$clog2(SIMD)+LO_WIDTHS[-1]-1:0]  lo4[3];
 		for(genvar  i = 0; i < 4; i++) begin
 
 			// Conclusive high part accumulation
 			if(i < 3) begin : genHi
 				if(i < PE_REM)  assign  hi4[i] = '0;
 				else begin
-					localparam int unsigned  HI_WIDTH = SLICING.HI_WIDTH[i];
+					localparam int unsigned  HI_WIDTH = HI_WIDTHS[i];
 
 					// Adder Tree across all SIMD high contributions, each from [-1:1]
 					uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
@@ -558,12 +557,12 @@ module mvu_4sx4u #(
 			// Conclusive low part accumulation (all unsigned arithmetic)
 			if(i < PE_REM)  assign  lo4[i] = '0;
 			else begin : genLo
-				localparam int unsigned  LO_WIDTH = SLICING.LO_WIDTH[i];
+				localparam int unsigned  LO_WIDTH = LO_WIDTHS[i];
 
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
-				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][SLICING.OFFSET[i]+:LO_WIDTH];
+				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][OFFSETS[i]+:LO_WIDTH];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
 					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
@@ -589,9 +588,9 @@ module mvu_4sx4u #(
 			if(rst)  Res5 <= '{ default: 0 };
 			else if(en) begin
 				Res5[3] <= up4 - hi4[2];
-				Res5[2] <= $signed({ hi4[2], {(SLICING.LO_WIDTH[2]){1'b0}} }) + $signed({ 1'b0, lo4[2] }) - hi4[1];
-				Res5[1] <= $signed({ hi4[1], {(SLICING.LO_WIDTH[1]){1'b0}} }) + $signed({ 1'b0, lo4[1] }) - hi4[0];
-				Res5[0] <= $signed({ hi4[0], {(SLICING.LO_WIDTH[0]){1'b0}} }) + $signed({ 1'b0, lo4[0] });
+				Res5[2] <= $signed({ hi4[2], {(LO_WIDTHS[2]){1'b0}} }) + $signed({ 1'b0, lo4[2] }) - hi4[1];
+				Res5[1] <= $signed({ hi4[1], {(LO_WIDTHS[1]){1'b0}} }) + $signed({ 1'b0, lo4[1] }) - hi4[0];
+				Res5[0] <= $signed({ hi4[0], {(LO_WIDTHS[0]){1'b0}} }) + $signed({ 1'b0, lo4[0] });
 			end
 		end
 
