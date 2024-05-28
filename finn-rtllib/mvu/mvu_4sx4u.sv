@@ -72,10 +72,18 @@ module mvu_4sx4u #(
 		end
 	end
 
+	/**
+	 * Lane Slicing
+	 *	Assumptions:
+	 *	 - Internal lane widths differ, at most, by a single bit.
+	 *	 - The rightmost lane (#0) has the maximum internal width.
+	 *	 - The leftmost lane (#3) extends into the wide DSP accumulation path and
+	 *	   is constrained by ACCU_WIDTH rather than the next lane. It doesn't have
+	 *	   an external high extension.
+	 *	 - The one but leftmost lane (#2) has the minimum internal width and, hence,
+	 *	   the macimum external high extension.
+	 */
 	typedef int unsigned  lane_offset_v[4:0];
-	typedef int unsigned  lo_width_v[3:-1];	// Index -1: maximum across all but leftmost lane
-	typedef int unsigned  hi_width_v[2:-1];
-
 	function lane_offset_v sliceLanes();
 		unique case(VERSION)
 		1: begin
@@ -92,31 +100,14 @@ module mvu_4sx4u #(
 	endfunction : sliceLanes
 	localparam lane_offset_v  OFFSETS = sliceLanes();
 
-	function lo_width_v calcLoWidths();
-		automatic lo_width_v    lo_width;
-		automatic int unsigned  lw_max = 0;
-		for(int unsigned  i = 0; i < 4; i++) begin
-			automatic int unsigned  lw = OFFSETS[i+1] - OFFSETS[i];
-			lo_width[i] = lw;
-			if((i < 3) && (lw > lw_max))  lw_max = lw;
-		end
-		lo_width[-1] = lw_max;
-		return  lo_width;
-	endfunction : calcLoWidths
-	localparam lo_width_v  LO_WIDTHS = calcLoWidths();
-
-	function hi_width_v  calcHiWidths();
-		automatic hi_width_v    hi_width;
-		automatic int unsigned  hw_max = 0;
-		for(int unsigned  i = 0; i < 3; i++) begin
-			automatic int unsigned  hw = 1 + $clog2(2**(ACCU_WIDTH-LO_WIDTHS[i]-1)+SIMD);
-			hi_width[i] = hw;
-			if(hw > hw_max)  hw_max = hw;
-		end
-		hi_width[-1] = hw_max;
-		return  hi_width;
-	endfunction : calcHiWidths
-	localparam hi_width_v  HI_WIDTHS = calcHiWidths();
+	function int unsigned lo_width(input int unsigned  i);
+		return  OFFSETS[i+1] - OFFSETS[i];
+	endfunction : lo_width
+	function int unsigned hi_width(input int unsigned  i);
+		return  1 + $clog2(2**(ACCU_WIDTH-lo_width(i)-1)+SIMD);
+	endfunction : hi_width
+	localparam int unsigned  LO_WIDTH_MAX = lo_width(0);
+	localparam int unsigned  HI_WIDTH_MAX = hi_width(2);
 
 	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
 
@@ -517,15 +508,15 @@ module mvu_4sx4u #(
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1 }; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		uwire signed [ACCU_WIDTH-1:0]  up4;
-		uwire signed [             HI_WIDTHS[-1]-1:0]  hi4[3];
-		uwire        [$clog2(SIMD)+LO_WIDTHS[-1]-1:0]  lo4[3];
+		uwire signed [             HI_WIDTH_MAX-1:0]  hi4[3];
+		uwire        [$clog2(SIMD)+LO_WIDTH_MAX-1:0]  lo4[3];
 		for(genvar  i = 0; i < 4; i++) begin
 
 			// Conclusive high part accumulation
 			if(i < 3) begin : genHi
 				if(i < PE_REM)  assign  hi4[i] = '0;
 				else begin
-					localparam int unsigned  HI_WIDTH = HI_WIDTHS[i];
+					localparam int unsigned  HI_WIDTH = hi_width(i);
 
 					// Adder Tree across all SIMD high contributions, each from [-1:1]
 					uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
@@ -557,7 +548,7 @@ module mvu_4sx4u #(
 			// Conclusive low part accumulation (all unsigned arithmetic)
 			if(i < PE_REM)  assign  lo4[i] = '0;
 			else begin : genLo
-				localparam int unsigned  LO_WIDTH = LO_WIDTHS[i];
+				localparam int unsigned  LO_WIDTH = lo_width(i);
 
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
@@ -588,9 +579,9 @@ module mvu_4sx4u #(
 			if(rst)  Res5 <= '{ default: 0 };
 			else if(en) begin
 				Res5[3] <= up4 - hi4[2];
-				Res5[2] <= $signed({ hi4[2], {(LO_WIDTHS[2]){1'b0}} }) + $signed({ 1'b0, lo4[2] }) - hi4[1];
-				Res5[1] <= $signed({ hi4[1], {(LO_WIDTHS[1]){1'b0}} }) + $signed({ 1'b0, lo4[1] }) - hi4[0];
-				Res5[0] <= $signed({ hi4[0], {(LO_WIDTHS[0]){1'b0}} }) + $signed({ 1'b0, lo4[0] });
+				Res5[2] <= $signed({ hi4[2], {(lo_width(2)){1'b0}} }) + $signed({ 1'b0, lo4[2] }) - hi4[1];
+				Res5[1] <= $signed({ hi4[1], {(lo_width(1)){1'b0}} }) + $signed({ 1'b0, lo4[1] }) - hi4[0];
+				Res5[0] <= $signed({ hi4[0], {(lo_width(0)){1'b0}} }) + $signed({ 1'b0, lo4[0] });
 			end
 		end
 
