@@ -106,7 +106,7 @@ module mvu_4sx4u #(
 	function int unsigned hi_width(input int unsigned  i);
 		return  1 + $clog2(2**(ACCU_WIDTH-lo_width(i)-1)+SIMD);
 	endfunction : hi_width
-	localparam int unsigned  LO_WIDTH_MAX = lo_width(0);
+	localparam int unsigned  LO_WIDTH_MAX = OFFSETS[1] - OFFSETS[0];
 	localparam int unsigned  HI_WIDTH_MAX = hi_width(2);
 
 	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
