@@ -290,7 +290,7 @@ def _vvu_rtl_possible(n, fpgapart):
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
-    def __init__(self, fpgapart=""):
+    def __init__(self, fpgapart):
         super().__init__()
         self.fpgapart = fpgapart
 

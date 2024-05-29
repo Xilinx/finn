@@ -40,6 +40,8 @@ from finn.analysis.fpgadataflow.res_estimation import (
 )
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+test_fpga_part = "xczu3eg-sbva484-1-e"
+
 
 def check_two_dict_for_equality(dict1, dict2):
     for key in dict1:
@@ -96,7 +98,7 @@ def test_res_estimate():
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
 
-    model.transform(SpecializeLayers())
+    model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {

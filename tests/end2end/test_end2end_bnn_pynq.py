@@ -596,6 +596,7 @@ class TestEnd2End:
             assert len(model.get_nodes_by_op_type(op_type)) == exp_count
 
     def test_specialize_layers(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         # set preferred impl style to hls for all layers
@@ -605,7 +606,7 @@ class TestEnd2End:
                 if is_fpgadataflow_node(node):
                     inst = getCustomOp(node)
                     inst.set_nodeattr("preferred_impl_style", "hls")
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
         exp_layer_counts = {
@@ -739,7 +740,7 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
         model = model.transform(InsertDWC())
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(test_fpga_part))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)

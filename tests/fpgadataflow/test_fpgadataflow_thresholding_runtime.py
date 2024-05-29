@@ -148,7 +148,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
         actval = odt.min()
 
     model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     # Make sure that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
@@ -169,7 +169,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
     old_weight_stream = list(old_weight_stream)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -252,7 +252,7 @@ def test_runtime_thresholds_write(impl_style, cfg):
         actval = odt.min()
 
     model = make_single_thresholding_modelwrapper(impl_style, T_init, idt, odt, actval, n_inp_vecs)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     # Validate that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
@@ -280,7 +280,7 @@ def test_runtime_thresholds_write(impl_style, cfg):
 
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())

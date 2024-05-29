@@ -182,7 +182,7 @@ def test_depthwise_conv_hw_cppsim(act, pe, k, stride, padding):
     new_model = model.transform(InferConvInpGen())
     new_model = new_model.transform(InferVectorVectorActivation())
 
-    new_model = new_model.transform(SpecializeLayers())
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     # set SIMD in ConvInputGen node and PE in VVAU node
     for n in new_model.graph.node:
@@ -226,7 +226,7 @@ def test_depthwise_conv_hw_rtlsim(act, pe, k, stride, padding):
     new_model = model.transform(InferConvInpGen())
     new_model = new_model.transform(InferVectorVectorActivation())
 
-    new_model = new_model.transform(SpecializeLayers())
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     # set SIMD in ConvInputGen node and PE in VVAU node
     for n in new_model.graph.node:
