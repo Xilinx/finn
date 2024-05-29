@@ -55,7 +55,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # Flag to indicate if Versal device is targeted
+            "is_versal": ("i", False, 0, {0, 1}),
+        }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -138,11 +141,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        # TODO: get dsp block type
-        # if dsp_block = "DSP58":
-        #    mult_dsp = P * np.ceil(Q / 3)
-        # else:
-        mult_dsp = np.ceil(P / 4) * Q
+        if self.get_nodeattr("is_versal"):
+            mult_dsp = P * np.ceil(Q / 3)
+        else:
+            mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
     def instantiate_ip(self, cmd):

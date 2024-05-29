@@ -316,6 +316,9 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+            if new_node.op_type == "MVAU_rtl":
+                is_versal_family = is_versal(self.fpgapart)
+                getCustomOp(new_node).set_nodeattr("is_versal", is_versal_family)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)
