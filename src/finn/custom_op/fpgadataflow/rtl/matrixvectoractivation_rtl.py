@@ -55,10 +55,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # Flag to indicate if Versal device is targeted
-            "is_versal": ("i", False, 0, {0, 1}),
-        }
+        my_attrs = {}
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -137,11 +134,12 @@ class MVAU_rtl(MVAU, RTLBackend):
     def lut_estimation(self):
         return 0
 
-    def dsp_estimation(self):
+    def dsp_estimation(self, fpgapart):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        if self.get_nodeattr("is_versal"):
+        dsp_block = get_dsp_block(fpgapart)
+        if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)
         else:
             mult_dsp = np.ceil(P / 4) * Q

@@ -807,7 +807,7 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(build_data["build_fxn"])
-        model = model.transform(AnnotateResources("synth"))
+        model = model.transform(AnnotateResources("synth", build_data["part"]))
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + board))
 
     @pytest.mark.slow

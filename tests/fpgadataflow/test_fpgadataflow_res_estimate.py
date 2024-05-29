@@ -28,6 +28,7 @@
 
 import pytest
 
+from functools import partial
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -100,7 +101,7 @@ def test_res_estimate():
 
     model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
-    prod_resource_estimation = model.analysis(res_estimation)
+    prod_resource_estimation = model.analysis(partial(res_estimation, fpgapart=test_fpga_part))
     expect_resource_estimation = {
         "MVAU_hls_0": {
             "BRAM_18K": 0,
@@ -117,7 +118,9 @@ def test_res_estimate():
     ), """The produced output of
     the res_estimation analysis pass is not equal to the expected one"""
 
-    prod_resource_estimation = model.analysis(res_estimation_complete)
+    prod_resource_estimation = model.analysis(
+        partial(res_estimation_complete, fpgapart=test_fpga_part)
+    )
     expect_resource_estimation = {
         "MVAU_hls_0": [
             {
