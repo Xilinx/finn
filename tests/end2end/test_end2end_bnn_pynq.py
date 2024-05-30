@@ -706,7 +706,7 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "minimize_bit_width")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(build_data["part"], target_clk_ns))

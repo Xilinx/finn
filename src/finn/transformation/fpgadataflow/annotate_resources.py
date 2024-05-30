@@ -78,7 +78,9 @@ class AnnotateResources(Transformation):
                 # recurse into model to manually annotate per-layer resources
                 sdp_model_filename = getCustomOp(node).get_nodeattr("model")
                 sdp_model = ModelWrapper(sdp_model_filename)
-                sdp_model = sdp_model.transform(AnnotateResources(self.mode, self.res_dict))
+                sdp_model = sdp_model.transform(
+                    AnnotateResources(self.mode, self.fpgapart, self.res_dict)
+                )
                 sdp_dict = sdp_model.get_metadata_prop("res_total_" + self.mode)
                 sdp_dict = eval(sdp_dict)
                 # save transformed model
