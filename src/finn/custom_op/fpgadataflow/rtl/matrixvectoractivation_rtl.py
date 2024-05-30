@@ -159,14 +159,24 @@ class MVAU_rtl(MVAU, RTLBackend):
         ]
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
-        cmd.append(
-            "create_bd_cell -type hier -reference %s /%s/%s"
-            % (
-                self.get_nodeattr("gen_top_module"),
-                self.onnx_node.name,
-                self.onnx_node.name,
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            cmd.append(
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                    self.onnx_node.name,
+                )
             )
-        )
+        else:
+            cmd.append(
+                "create_bd_cell -type hier -reference %s %s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                )
+            )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
