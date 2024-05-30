@@ -133,10 +133,18 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # create a npy file for the input of the node
-            assert (
-                str(inp.dtype) == "float32"
-            ), """Input datatype is
-                not float32 as expected."""
+
+            # Make sure the inpout has the right container datatype
+            if inp.dtype != np.float32:
+                # Issue a warning to make the user aware of this type-cast
+                warnings.warn(
+                    f"{node.name}: Changing input datatype from "
+                    f"{inp.dtype} to {np.float32}"
+                )
+                # Convert the input to floating point representation as the
+                # container datatype
+                inp = inp.astype(np.float32)
+
             expected_inp_shape = self.get_folded_input_shape()
             reshaped_input = inp.reshape(expected_inp_shape)
             if DataType[self.get_nodeattr("dataType")] == DataType["BIPOLAR"]:

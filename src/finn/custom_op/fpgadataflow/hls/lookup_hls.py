@@ -273,7 +273,7 @@ class Lookup_hls(Lookup, HLSBackend):
             )
 
         inp = context[node.input[0]]
-        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
+        # assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
         assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
         odt = self.get_output_datatype()
