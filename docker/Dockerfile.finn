@@ -78,7 +78,7 @@ RUN cd verilator && \
     make install
 
 # install XRT
-RUN wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.amd.com/bin/public/amdOpenDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb
+RUN wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.amd.com/bin/public/amdOpenDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb --debug
 RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 RUN rm /tmp/$XRT_DEB_VERSION.deb
 
