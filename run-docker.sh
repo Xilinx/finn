@@ -100,6 +100,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 : ${FINN_SINGULARITY=""}
+: ${FINN_SKIP_XRT_DOWNLOAD=""}
 
 DOCKER_INTERACTIVE=""
 
@@ -186,7 +187,7 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
   cd $OLD_PWD
 fi
 # Launch container with current directory mounted
