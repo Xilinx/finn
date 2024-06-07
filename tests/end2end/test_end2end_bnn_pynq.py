@@ -131,6 +131,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -155,6 +156,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -181,12 +183,14 @@ def fold_cnv_large(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("ram_style", "distributed")
     return model
 
 
@@ -194,8 +198,8 @@ def fold_cnv_small(model):
     fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
-        (8, 3, "distributed"),
-        (16, 16, "distributed"),
+        (8, 3, "auto"),
+        (16, 16, "auto"),
         (8, 16, "auto"),
         (8, 16, "block"),
         (4, 8, "auto"),
@@ -210,12 +214,18 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("ram_style", "distributed")
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
+    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
+    inp_qnt.set_nodeattr("depth_trigger_bram", 32000)
     return model
 
 
@@ -719,8 +729,8 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
-        if topology == "cnv" and wbits == 2 and abits == 2 and board == "Pynq-Z1":
-            # Enabling swg_exception for this single test case. Disabling the exception results in
+        if topology == "cnv" and abits == 2 and board == "Pynq-Z1":
+            # Enabling swg_exception for these test cases. Disabling the exception results in
             # a design that exceeds the resources of the Pynq-Z1 board. In future this should be
             # revisited and handled correctly as the swg_exception is poorly justified.
             model = model.transform(
