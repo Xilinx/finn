@@ -32,6 +32,7 @@ LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuro
 
 ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
 ARG SKIP_XRT
+ARG LOCAL_XRT
 
 WORKDIR /workspace
 
@@ -79,8 +80,12 @@ RUN cd verilator && \
     make install
 
 # install XRT
+RUN if [ -z "$LOCAL_XRT" ];then \
+    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+
+COPY $XRT_DEB_VERSION.deb /tmp/$XRT_DEB_VERSION.deb
+
 RUN if [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.amd.com/bin/public/amdOpenDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb --debug && \
     apt install -y /tmp/$XRT_DEB_VERSION.deb && \
     rm /tmp/$XRT_DEB_VERSION.deb; fi
 
