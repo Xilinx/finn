@@ -80,7 +80,7 @@ RUN cd verilator && \
     make install
 
 # install XRT
-RUN if [ -z "$LOCAL_XRT" ];then \
+RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
     wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
 
 COPY $XRT_DEB_VERSION.deb /tmp/$XRT_DEB_VERSION.deb
