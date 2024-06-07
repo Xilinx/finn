@@ -83,7 +83,7 @@ RUN cd verilator && \
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
     wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
 
-COPY $XRT_DEB_VERSION.deb /tmp/$XRT_DEB_VERSION.deb
+COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
 RUN if [ -z "$SKIP_XRT" ];then \
     apt install -y /tmp/$XRT_DEB_VERSION.deb && \
@@ -91,9 +91,8 @@ RUN if [ -z "$SKIP_XRT" ];then \
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN rm requirements.txt
+RUN pip install -r /tmp/requirements.txt
+RUN rm /tmp/requirements.txt
 
 # install PyTorch
 RUN pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
