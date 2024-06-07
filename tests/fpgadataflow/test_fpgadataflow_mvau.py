@@ -312,7 +312,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         inst.set_nodeattr("mem_mode", mem_mode)
         # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
@@ -423,10 +423,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -531,12 +531,12 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -611,12 +611,12 @@ def test_mvau_fifocharacterize_rtlsim(
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
     exp_total_cycles = total_fold + 10
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     model = model.transform(DeriveCharacteristic(exp_total_cycles))
