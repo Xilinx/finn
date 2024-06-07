@@ -32,6 +32,7 @@ LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuro
 
 ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
 ARG SKIP_XRT
+ARG LOCAL_XRT
 
 WORKDIR /workspace
 
@@ -79,16 +80,19 @@ RUN cd verilator && \
     make install
 
 # install XRT
+RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
+    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
+
+COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
+
 RUN if [ -z "$SKIP_XRT" ];then \
-    wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.amd.com/bin/public/amdOpenDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb --debug && \
     apt install -y /tmp/$XRT_DEB_VERSION.deb && \
     rm /tmp/$XRT_DEB_VERSION.deb; fi
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN rm requirements.txt
+RUN pip install -r /tmp/requirements.txt
+RUN rm /tmp/requirements.txt
 
 # install PyTorch
 RUN pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
