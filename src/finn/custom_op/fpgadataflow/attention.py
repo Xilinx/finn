@@ -479,7 +479,7 @@ class ScaledDotProductAttention(HWCustomOp):
         ]
 
         # If the attention mask is provided as input, it has a shape as well
-        if self.get_nodeattr("mask_mode") == "input":
+        if self.get_nodeattr("mask_mode") in {"input", "const"}:
             # Mask shape is inferred from query and key sequence lengths
             inputs_shapes += [
                 (self.get_nodeattr("QLen"), self.get_nodeattr("KVLen"))
