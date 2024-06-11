@@ -132,6 +132,9 @@ RUN pip install tokenize-rt==4.2.1
 # pyverilator
 RUN pip install tclwrapper==0.0.1
 
+# assure that we have the right setuptools version
+RUN pip install setuptools==68.2.2
+
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
 
