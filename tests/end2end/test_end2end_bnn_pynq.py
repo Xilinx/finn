@@ -95,7 +95,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -185,7 +184,7 @@ def fold_cnv_large(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
@@ -198,14 +197,14 @@ def fold_cnv_small(model):
     fc_layers = model.get_nodes_by_op_type("MVAU_hls")
     # each tuple is (PE, SIMD) for a layer
     folding = [
-        (8, 3, "auto"),
-        (16, 16, "auto"),
+        (8, 3, "distributed"),
+        (16, 16, "distributed"),
         (8, 16, "auto"),
-        (8, 16, "block"),
+        (8, 16, "distributed"),
         (4, 8, "auto"),
         (1, 8, "auto"),
-        (1, 2, "distributed"),
-        (2, 2, "block"),
+        (1, 2, "block"),
+        (2, 2, "auto"),
         (5, 1, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
@@ -216,7 +215,7 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
         fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
@@ -609,13 +608,6 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        # set preferred impl style to hls for all layers
-        force_hls_boards = ["Pynq-Z1", "U250"]
-        if topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
-            for node in model.graph.node:
-                if is_fpgadataflow_node(node):
-                    inst = getCustomOp(node)
-                    inst.set_nodeattr("preferred_impl_style", "hls")
         model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
@@ -646,19 +638,9 @@ class TestEnd2End:
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],
-            "cnv-2-2": [
-                ("Transpose", 1),
-                ("Thresholding_hls", 1),
-                ("ConvolutionInputGenerator_hls", 6),
-                ("MVAU_hls", 9),
-                ("StreamingMaxPool_hls", 2),
-                ("LabelSelect_hls", 1),
-            ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
             exp_key = "tfc-1-1"
-        elif topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
-            exp_key = "cnv-2-2"
         else:
             exp_key = topology
         exp_layer_counts = exp_layer_counts[exp_key]
