@@ -58,6 +58,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs = {
             # Flag to indicate if Versal device is targeted
             "is_versal": ("i", False, 0, {0, 1}),
+            # Double-pumped DSPs enabled
+            "pumped_dsp_compute": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -175,14 +177,25 @@ class MVAU_rtl(MVAU, RTLBackend):
         # ~0.741 ns seems the worst-case delay through first DSP
         # ~0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        if not(self.get_nodeattr("is_versal")):
+            # If not a Versal device, return the default of 1 since this parameter will
+            # be ignored in the instantiated RTL design
+            return 1
+        if self.get_nodeattr("pumped_dsp_compute"):
+            ref_clk = clk / 2
+            simd_factor = 6
+        else:
+            ref_clk = clk
+            simd_factor = 3
+        
         assert (
-            clk > 0.741
+            ref_clk > 0.741
         ), """Infeasible clk target of {} ns has been set,
         consider lowering the targeted clock frequency!""".format(
-            clk
+            ref_clk
         )
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
-        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
+        critical_path_dsps = np.floor((ref_clk - 0.741) / 0.605 + 1)
+        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / simd_factor)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
         return dsp_chain_len
 
@@ -251,6 +264,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumped_dsp_compute"))]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
