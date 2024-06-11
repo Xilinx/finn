@@ -14,7 +14,6 @@ psutil==5.9.4
 pyscaffold==4.4
 scipy==1.10.1
 setupext-janitor>=1.1.2
-setuptools==68.2.2
 sigtools==4.0.1
 toposort==1.7.0
 vcdvcd==1.0.5
