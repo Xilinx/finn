@@ -167,12 +167,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
 
-        # TODO check for sortedness and size here?
         thresholds = model.get_initializer(self.onnx_node.input[1])
         bias = self.get_nodeattr("ActVal")  # activation bias value
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
         o_bitwidth = DataType[output_data_type].bitwidth()
+
+        t_path = self.get_nodeattr("code_gen_dir_ipgen")
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            thresh_file_name = f"{t_path}/memblock.dat"
+            self.make_weight_file(thresholds, "decoupled", thresh_file_name)
 
         # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
         # one less threshold, prepending a dummy threshold (minimal possible value determined by
@@ -197,7 +201,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             prefix="",
         )
 
-        t_path = self.get_nodeattr("code_gen_dir_ipgen")
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
 
@@ -226,10 +229,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     for val in threshs:
                         f.write(val + "\n")
         code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
-
-        if self.get_nodeattr("runtime_writeable_weights") == 1:
-            thresh_file_name = f"{t_path}/memblock.dat"
-            self.make_weight_file(thresholds, "decoupled", thresh_file_name)
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -521,7 +520,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ch = self.get_nodeattr("NumChannels")
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
         o_bitwidth = DataType[output_data_type].bitwidth()
-        n_thres_steps = 2**o_bitwidth - 1
+        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
+        # one less threshold, prepending a dummy threshold (minimal possible value determined by
+        # input data type) and decrease the bias by 1.
+        # Additionally, increase number of threshold steps to reflect new shape
+        expected_thresholds = 2**o_bitwidth - 1
+        n_thres_steps = self.get_nodeattr("numSteps")
+        wdt = self.get_weight_datatype()
+        if expected_thresholds != n_thres_steps:
+            min_val = wdt.min()
+            thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            n_thres_steps += 1
+        expected_shape = (ch, expected_thresholds)
+
+        # If a single threshold value is found, broadcast the value
+        if thresholds.shape != expected_shape:
+            thresholds = np.broadcast_to(thresholds, expected_shape)
+
         width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
         thresh_padded = np.zeros((thresholds.shape[0], width_padded))
         thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds

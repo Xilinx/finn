@@ -95,7 +95,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -131,6 +130,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -155,6 +155,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -181,12 +182,14 @@ def fold_cnv_large(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("ram_style", "distributed")
     return model
 
 
@@ -197,11 +200,11 @@ def fold_cnv_small(model):
         (8, 3, "distributed"),
         (16, 16, "distributed"),
         (8, 16, "auto"),
-        (8, 16, "block"),
+        (8, 16, "distributed"),
         (4, 8, "auto"),
         (1, 8, "auto"),
-        (1, 2, "distributed"),
-        (2, 2, "block"),
+        (1, 2, "block"),
+        (2, 2, "auto"),
         (5, 1, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
@@ -210,12 +213,18 @@ def fold_cnv_small(model):
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
+        fcl_inst.set_nodeattr("resType", "lut")
 
-    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("ram_style", "distributed")
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
+    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
+    inp_qnt.set_nodeattr("depth_trigger_bram", 32000)
     return model
 
 
@@ -596,16 +605,10 @@ class TestEnd2End:
             assert len(model.get_nodes_by_op_type(op_type)) == exp_count
 
     def test_specialize_layers(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "convert_to_hw_layers")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        # set preferred impl style to hls for all layers
-        force_hls_boards = ["Pynq-Z1", "U250"]
-        if topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
-            for node in model.graph.node:
-                if is_fpgadataflow_node(node):
-                    inst = getCustomOp(node)
-                    inst.set_nodeattr("preferred_impl_style", "hls")
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(build_data["part"]))
         model = model.transform(GiveUniqueNodeNames())
         model.save(get_checkpoint_name(topology, wbits, abits, "specialize_layers"))
         exp_layer_counts = {
@@ -635,19 +638,9 @@ class TestEnd2End:
                 ("StreamingMaxPool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],
-            "cnv-2-2": [
-                ("Transpose", 1),
-                ("Thresholding_hls", 1),
-                ("ConvolutionInputGenerator_hls", 6),
-                ("MVAU_hls", 9),
-                ("StreamingMaxPool_hls", 2),
-                ("LabelSelect_hls", 1),
-            ],
         }
         if topology == "tfc" and wbits == 1 and abits == 1:
             exp_key = "tfc-1-1"
-        elif topology == "cnv" and wbits == 2 and abits == 2 and board in force_hls_boards:
-            exp_key = "cnv-2-2"
         else:
             exp_key = topology
         exp_layer_counts = exp_layer_counts[exp_key]
@@ -705,7 +698,7 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "minimize_bit_width")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(build_data["part"], target_clk_ns))
@@ -718,8 +711,8 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
-        if topology == "cnv" and wbits == 2 and abits == 2 and board == "Pynq-Z1":
-            # Enabling swg_exception for this single test case. Disabling the exception results in
+        if topology == "cnv" and abits == 2 and board == "Pynq-Z1":
+            # Enabling swg_exception for these test cases. Disabling the exception results in
             # a design that exceeds the resources of the Pynq-Z1 board. In future this should be
             # revisited and handled correctly as the swg_exception is poorly justified.
             model = model.transform(
@@ -739,7 +732,7 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(board, target_clk_ns)["part"]
         model = model.transform(InsertDWC())
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(test_fpga_part))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
@@ -806,7 +799,7 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(build_data["build_fxn"])
-        model = model.transform(AnnotateResources("synth"))
+        model = model.transform(AnnotateResources("synth", build_data["part"]))
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + board))
 
     @pytest.mark.slow

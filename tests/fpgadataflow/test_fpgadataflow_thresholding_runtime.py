@@ -51,10 +51,17 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
+def generate_random_threshold_values(
+    data_type, num_input_channels, num_steps, narrow=False, per_tensor=False
+):
+    if per_tensor:
+        num_input_channels = 1
+    if narrow:
+        num_steps -= 1
+
     return np.random.randint(
-        input_data_type.min(),
-        input_data_type.max() + 1,
+        data_type.min(),
+        data_type.max() + 1,
         (num_input_channels, num_steps),
     ).astype(np.float32)
 
@@ -75,11 +82,9 @@ def layout_NCHW2FINN(data):
     return np.transpose(data, (0, 2, 3, 1))
 
 
-def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs):
-    NumChannels = T.shape[0]
-
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, n_inp_vecs + [NumChannels])
+def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, num_ch):
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [num_ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, n_inp_vecs + [num_ch])
 
     node_inp_list = ["inp", "thresh"]
 
@@ -89,7 +94,7 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        NumChannels=NumChannels,
+        NumChannels=num_ch,
         numSteps=T.shape[1],
         inputDataType=idt.name,
         weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
@@ -118,10 +123,12 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("narrow", [True, False])
+@pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style, cfg):
+def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     """Read back threshold weights during runtime
 
     1. Create random initial weights T
@@ -137,18 +144,18 @@ def test_runtime_thresholds_read(impl_style, cfg):
     idt = DataType["INT16"]
     odt = act
     n_steps = act.get_num_possible_values() - 1
-    np.random.seed(2)
-    T = np.random.randint(idt.min(), idt.max() + 1, (ch, n_steps)).astype(np.float32)
-    # provide non-decreasing thresholds
-    T = np.sort(T, axis=1)
+    # Generate random thresholds and sort in ascending order
+    T = generate_random_threshold_values(idt, ch, n_steps, narrow, per_tensor)
 
-    if odt == DataType["BIPOLAR"]:
-        actval = 0
-    else:
-        actval = odt.min()
+    # provide non-decreasing/ascending thresholds
+    T = sort_thresholds_increasing(T)
 
-    model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs)
-    model = model.transform(SpecializeLayers())
+    actval = act.min()
+    if narrow:
+        actval += 1
+
+    model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     # Make sure that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
@@ -169,7 +176,7 @@ def test_runtime_thresholds_read(impl_style, cfg):
     old_weight_stream = list(old_weight_stream)
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -204,23 +211,21 @@ def test_runtime_thresholds_read(impl_style, cfg):
     # convert back to NHWC for comparison to hw outputs
     expected = np.transpose(expected, (0, 2, 3, 1))[1]
 
-    if act == DataType["BIPOLAR"]:
-        # binary to bipolarW
-        expected = 2 * expected - 1
-    else:
-        # signed offset
-        expected += act.min()
+    # signed offset
+    expected += actval
 
     # Validate the output is as expected
     assert (y == expected).all()
 
 
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3), (8, 4)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("narrow", [True, False])
+@pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style, cfg):
+def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     """Write threshold weights during runtime
 
     1. Create random initial weights T_init
@@ -241,18 +246,20 @@ def test_runtime_thresholds_write(impl_style, cfg):
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
-    np.random.seed(2)
-    T_init = np.random.randint(idt.min(), idt.max() + 1, (ch, n_steps)).astype(np.float32)
-    # provide non-decreasing thresholds
-    T_init = np.sort(T_init, axis=1)
+    # Generate random thresholds and sort in ascending order
+    T_init = generate_random_threshold_values(idt, ch, n_steps, narrow, per_tensor)
 
-    if odt == DataType["BIPOLAR"]:
-        actval = 0
-    else:
-        actval = odt.min()
+    # provide non-decreasing/ascending thresholds
+    T_init = sort_thresholds_increasing(T_init)
 
-    model = make_single_thresholding_modelwrapper(impl_style, T_init, idt, odt, actval, n_inp_vecs)
-    model = model.transform(SpecializeLayers())
+    actval = act.min()
+    if narrow:
+        actval += 1
+
+    model = make_single_thresholding_modelwrapper(
+        impl_style, T_init, idt, odt, actval, n_inp_vecs, ch
+    )
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     # Validate that specialize layer did not default to HLS implementation
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
@@ -264,10 +271,9 @@ def test_runtime_thresholds_write(impl_style, cfg):
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
 
     # Make new weights for runtime write
-    np.random.seed(4)
-    T_write = np.random.randint(idt.min(), idt.max() + 1, (ch, n_steps)).astype(np.float32)
-    # provide non-decreasing thresholds
-    T_write = np.sort(T_write, axis=1)
+    T_write = generate_random_threshold_values(idt, ch, n_steps, narrow, per_tensor)
+    # provide non-decreasing/ascending thresholds
+    T_write = sort_thresholds_increasing(T_write)
 
     dat_fname = f"T_write_{cfg}.dat"  # distinguish fname per paramter for distributed testing
     op_inst.make_weight_file(T_write, "decoupled_runtime", dat_fname)
@@ -280,7 +286,7 @@ def test_runtime_thresholds_write(impl_style, cfg):
 
     # need to create stitched IP for runtime weight testing
     model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -321,12 +327,8 @@ def test_runtime_thresholds_write(impl_style, cfg):
     # convert back to NHWC for comparison to hw outputs
     expected = np.transpose(expected, (0, 2, 3, 1))[1]
 
-    if act == DataType["BIPOLAR"]:
-        # binary to bipolarW
-        expected = 2 * expected - 1
-    else:
-        # signed offset
-        expected += act.min()
+    # signed off-set
+    expected += actval
 
     # Validate the output is as expected
     assert (y == expected).all()

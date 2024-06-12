@@ -41,8 +41,8 @@ module mvu_axi_tb();
 	localparam int unsigned MH = 32;
 	localparam int unsigned SIMD = 48;
 	localparam int unsigned PE = 16;
-	localparam int unsigned SEGMENTLEN = 2.0;
-	localparam bit FORCE_BEHAVIORAL = 1;
+	localparam int unsigned SEGMENTLEN = 2;
+	localparam bit FORCE_BEHAVIORAL = 0;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
 	localparam int unsigned ACTIVATION_WIDTH = 4;
@@ -70,7 +70,7 @@ module mvu_axi_tb();
 
 	uwire ap_clk = clk;
 
-	// Generate activations
+	// Generate shared Activations
 	typedef logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] activation_t;
 	typedef activation_t activation_vector_t[SF];
 
@@ -82,147 +82,174 @@ module mvu_axi_tb();
 
 	activation_vector_t ACTIVATIONS = init_ACTIVATIONS();
 
-	struct {
-		activation_t dat;
-		logic vld;
-		logic rdy;
-	} activations;
-
-	initial begin
-		activations.vld = 0;
-		activations.dat = 'X;
-		@(posedge clk iff ap_rst_n);
-
-		for (int i=0; i<SF; i++) begin
-			activations.dat <= ACTIVATIONS[i];
-			do begin
-				activations.vld <= $urandom()%7 >= 0;
-				@(posedge clk);
-			end while (!(activations.vld === 1 && activations.rdy === 1));
+	// Run parallel instances across DSP versions and NARROW_WEIGHTS
+	bit [2:1][1:0]  done = { 2: 2'b00, 1: 2'b01 }; // [ver][narrow]
+	always_comb begin
+		if(&done) begin
+			$display("Test completed.");
+			$finish;
 		end
-
-		activations.vld <= 0;
-		activations.dat <= 'x;
 	end
 
-	// Generate weights
-	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
-	typedef weight_t weight_matrix_t[NF][SF];
+	for(genvar  ver = 1; ver <= 2; ver++) begin : genVersion
+		for(genvar  narrow = (ver == 1); narrow <= 1; narrow++) begin : genNarrowWide
 
-	function weight_matrix_t init_WEIGHTS;
-		automatic weight_matrix_t res;
-		std::randomize(res);
-		return res;
-	endfunction : init_WEIGHTS;
+		// Activations Feed
+		struct {
+			activation_t dat;
+			logic vld;
+			logic rdy;
+		} activations;
 
-	weight_matrix_t WEIGHTS = init_WEIGHTS();
+		initial begin
+			activations.vld = 0;
+			activations.dat = 'X;
+			@(posedge clk iff ap_rst_n);
 
-	struct {
-		weight_t dat;
-		logic vld;
-		logic rdy;
-	} weights;
-
-	initial begin
-		weights.vld = 0;
-		weights.dat = 'X;
-		@(posedge clk iff ap_rst_n);
-
-		weights.vld <= 1;
-		for (int i=0; i<NF; i++) begin
-			for (int j=0; j<SF; j++) begin
-				weights.dat <= WEIGHTS[i][j];
-				@(posedge clk iff weights.rdy);
+			for(int unsigned  i = 0; i < SF; i++) begin
+				while($urandom()%7 == 0) @(posedge clk);
+				activations.dat <= ACTIVATIONS[i];
+				activations.vld <= 1;
+				@(posedge clk iff activations.rdy);
+				activations.dat <= 'x;
+				activations.vld <= 0;
 			end
 		end
 
-		weights.vld <= 0;
-		weights.dat <= 'x;
-	end
+		// Instance-specifc Weights (may be narrow)
+		typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
+		typedef weight_t weight_matrix_t[NF][SF];
 
-	// Function to compute golden output
-	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
-	// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
-	// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
-	typedef logic signed [PE-1:0][ACCU_WIDTH-1:0] output_t;
-	typedef output_t output_vector_t [NF];
-
-	struct {
-		output_t dat;
-		logic vld;
-		logic rdy;
-	} outputs;
-
-	function output_vector_t check_output(activation_vector_t a, weight_matrix_t w);
-		automatic output_vector_t res = '{default: 0};
-		// The input stream will have the channels interleaved for VVU when PE>1
-		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
-		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
-		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
-		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
-		for (int i = 0; i < NF; i++) begin
-			for (int j = 0; j < SF; j++) begin
-				for (int k = 0; k < PE; k++) begin
-					for (int l = 0; l < SIMD; l++) begin
-						if (SIGNED_ACTIVATIONS)
-							res[i][k] = $signed(res[i][k]) + $signed(a[j][l]) * $signed(w[i][j][k][l]);
-						else
-							res[i][k] = $signed(res[i][k]) + $signed({1'b0, a[j][l]}) * $signed(w[i][j][k][l]);
+		function weight_matrix_t init_WEIGHTS;
+			automatic weight_matrix_t  res;
+			std::randomize(res);
+			if(narrow) begin  // increment all weights of -8
+				for(int unsigned  nf = 0; nf < NF; nf++) begin
+					for(int unsigned  sf = 0; sf < SF; sf++) begin
+						for(int unsigned  pe = 0; pe < PE; pe++) begin
+							for(int unsigned  simd = 0; simd < SIMD; simd++) begin
+								if(res[nf][sf][pe][simd] == (1 << (WEIGHT_WIDTH-1))) begin
+									res[nf][sf][pe][simd]++;
+								end
+							end
+						end
 					end
 				end
 			end
+			return res;
+		endfunction : init_WEIGHTS;
+
+		weight_matrix_t WEIGHTS = init_WEIGHTS();
+
+		// Weight Feed
+		struct {
+			weight_t dat;
+			logic vld;
+			logic rdy;
+		} weights;
+
+		initial begin
+			weights.vld = 0;
+			weights.dat = 'X;
+			@(posedge clk iff ap_rst_n);
+
+			weights.vld <= 1;
+			for(int unsigned  i = 0; i < NF; i++) begin
+				for(int unsigned  j = 0; j < SF; j++) begin
+					weights.dat <= WEIGHTS[i][j];
+					@(posedge clk iff weights.rdy);
+				end
+			end
+			weights.vld <= 0;
+			weights.dat <= 'x;
 		end
-		return res;
-	endfunction : check_output;
 
-	output_vector_t GOLDEN_OUTPUT = check_output(ACTIVATIONS, WEIGHTS);
+		// Function to compute golden output
+		// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
+		// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
+		// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
+		typedef logic signed [PE-1:0][ACCU_WIDTH-1:0] output_t;
+		typedef output_t output_vector_t [NF];
 
-	int unsigned NF_CNT = 0;
-	initial begin
-		outputs.rdy = 0;
-		while (NF_CNT < NF) begin
-			// Loop until both rdy & vld are asserted
-			do begin
-				outputs.rdy <= $urandom()%7 >= 0;
-				@(posedge clk iff ap_rst_n);
-			end while (!(outputs.rdy === 1 && outputs.vld === 1));
+		struct {
+			output_t dat;
+			logic vld;
+			logic rdy;
+		} outputs;
 
-			// Compare produced outputs against golden outputs
-			foreach(outputs.dat[i]) begin
-				assert ($signed(outputs.dat[i]) == $signed(GOLDEN_OUTPUT[NF_CNT][i])) $display(">>> [t=%0t] Test succeeded (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
-				else begin
-					$error(">>> [t=%0t] TEST failed (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
-					$stop;
+		function output_vector_t check_output(activation_vector_t a, weight_matrix_t w);
+			automatic output_vector_t res = '{default: 0};
+			// The input stream will have the channels interleaved for VVU when PE>1
+			// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
+			// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
+			// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
+			// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
+			for (int i = 0; i < NF; i++) begin
+				for (int j = 0; j < SF; j++) begin
+					for (int k = 0; k < PE; k++) begin
+						for (int l = 0; l < SIMD; l++) begin
+							if (SIGNED_ACTIVATIONS)
+								res[i][k] = $signed(res[i][k]) + $signed(a[j][l]) * $signed(w[i][j][k][l]);
+							else
+								res[i][k] = $signed(res[i][k]) + $signed({1'b0, a[j][l]}) * $signed(w[i][j][k][l]);
+						end
+					end
+				end
+			end
+			return res;
+		endfunction : check_output;
+
+		output_vector_t  GOLDEN_OUTPUT = check_output(ACTIVATIONS, WEIGHTS);
+		initial begin
+			outputs.rdy = 0;
+			@(posedge clk iff ap_rst_n);
+
+			for(int unsigned  nf = 0; nf < NF; nf++) begin
+				while($urandom()%13 == 0) @(posedge clk);
+				outputs.rdy <= 1;
+				@(posedge clk iff outputs.vld);
+				outputs.rdy <= 0;
+
+				// Compare produced outputs against golden outputs
+				foreach(outputs.dat[i]) begin
+					assert ($signed(outputs.dat[i]) == $signed(GOLDEN_OUTPUT[nf][i])) begin
+						$display(">>> [t=%0t] Test succeeded (nf=%0d)! Computed / GOLDEN = %0d / %0d", $time, nf, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[nf][i]));
+					end
+					else begin
+						$error(">>> [t=%0t] TEST failed (nf=%0d)! Computed / GOLDEN = %0d / %0d", $time, nf, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[nf][i]));
+						$stop;
+					end
 				end
 			end
 
-			NF_CNT += 1;
+			done[ver][narrow] = 1;
 		end
 
-		$finish;
-	end
+		// Instantiate DUT
+		mvu_vvu_axi #(
+			.IS_MVU(IS_MVU),
+			.COMPUTE_CORE(ver == 1? "mvu_4sx4u_dsp48e1" : "mvu_4sx4u_dsp48e2"),
+			.MW(MW),
+			.MH(MH),
+			.PE(PE),
+			.SIMD(SIMD),
+			.ACTIVATION_WIDTH(ACTIVATION_WIDTH),
+			.WEIGHT_WIDTH(WEIGHT_WIDTH),
+			.ACCU_WIDTH(ACCU_WIDTH),
+			.NARROW_WEIGHTS(narrow),
+			.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
+			.SEGMENTLEN(SEGMENTLEN),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL),
+			.M_REG_LUT(M_REG_LUT)
+		)
+		dut (
+			.ap_clk, .ap_rst_n, .s_axis_weights_tdata({ {WEIGHT_WIDTH_BA_DELTA{1'b0}}, weights.dat }), .s_axis_weights_tvalid(weights.vld),
+			.s_axis_weights_tready(weights.rdy), .s_axis_input_tdata({ {ACTIVATION_WIDTH_BA_DELTA{1'b0}}, activations.dat }), .s_axis_input_tvalid(activations.vld),
+			.s_axis_input_tready(activations.rdy), .m_axis_output_tdata(outputs.dat), .m_axis_output_tvalid(outputs.vld),
+			.m_axis_output_tready(outputs.rdy)
+		);
 
-	// Instantiate DUT
-	mvu_vvu_axi #(
-		.IS_MVU(IS_MVU),
-		.COMPUTE_CORE(COMPUTE_CORE),
-		.MW(MW),
-		.MH(MH),
-		.PE(PE),
-		.SIMD(SIMD),
-		.ACTIVATION_WIDTH(ACTIVATION_WIDTH),
-		.WEIGHT_WIDTH(WEIGHT_WIDTH),
-		.ACCU_WIDTH(ACCU_WIDTH),
-		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
-		.SEGMENTLEN(SEGMENTLEN),
-		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL),
-		.M_REG_LUT(M_REG_LUT)
-	)
-	dut (
-		.ap_clk, .ap_rst_n, .s_axis_weights_tdata({ {WEIGHT_WIDTH_BA_DELTA{1'b0}}, weights.dat }), .s_axis_weights_tvalid(weights.vld),
-		.s_axis_weights_tready(weights.rdy), .s_axis_input_tdata({ {ACTIVATION_WIDTH_BA_DELTA{1'b0}}, activations.dat }), .s_axis_input_tvalid(activations.vld),
-		.s_axis_input_tready(activations.rdy), .m_axis_output_tdata(outputs.dat), .m_axis_output_tvalid(outputs.vld),
-		.m_axis_output_tready(outputs.rdy)
-	);
+		end : genNarrowWide
+	end : genVersion
 
 endmodule : mvu_axi_tb

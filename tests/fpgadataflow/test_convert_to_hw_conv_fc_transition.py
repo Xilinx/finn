@@ -204,7 +204,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
         if is_fpgadataflow_node(node):
             inst = getCustomOp(node)
             inst.set_nodeattr("preferred_impl_style", "hls")
-    new_model = new_model.transform(SpecializeLayers())
+    new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferDataLayouts())
 
