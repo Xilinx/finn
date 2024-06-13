@@ -55,7 +55,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # Double-pumped DSPs enabled
+            "pumpedCompute": ("i", False, 0, {0, 1}),
+        }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -91,7 +94,6 @@ class MVAU_rtl(MVAU, RTLBackend):
                 elif in_ind > 1:
                     raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
                 in_ind += 1
-
                 sim = self.get_rtlsim()
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
@@ -147,6 +149,7 @@ class MVAU_rtl(MVAU, RTLBackend):
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
+        node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         sourcefiles = [
@@ -165,8 +168,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                    self.onnx_node.name,
+                    node_name,
+                    node_name,
                 )
             )
         else:
@@ -174,8 +177,22 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s %s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
+                    node_name,
                 )
+            )
+        # if using 2x pumped compute, connect the MVU's 2x clk input
+        # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        if self.get_nodeattr("pumpedCompute"):
+            clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+            )
+        else:
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                % (node_name, clk_name, node_name, node_name)
             )
 
     def _resolve_segment_len(self, clk):
@@ -183,14 +200,21 @@ class MVAU_rtl(MVAU, RTLBackend):
         # ~0.741 ns seems the worst-case delay through first DSP
         # ~0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        if self.get_nodeattr("pumpedCompute"):
+            ref_clk = clk / 2
+            simd_factor = 6
+        else:
+            ref_clk = clk
+            simd_factor = 3
+
         assert (
-            clk > 0.741
+            ref_clk > 0.741
         ), """Infeasible clk target of {} ns has been set,
         consider lowering the targeted clock frequency!""".format(
-            clk
+            ref_clk
         )
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
-        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
+        critical_path_dsps = np.floor((ref_clk - 0.741) / 0.605 + 1)
+        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / simd_factor)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
         return dsp_chain_len
 
@@ -265,6 +289,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(dsp_block)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumpedCompute"))]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
