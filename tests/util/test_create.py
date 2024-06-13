@@ -35,9 +35,10 @@ import finn.util.create as create
 
 @pytest.mark.util
 @pytest.mark.parametrize("bitwidth", [DataType["BIPOLAR"], DataType["INT2"], DataType["INT4"]])
-def test_hls_random_mlp_maker(bitwidth):
+def test_hw_random_mlp_maker(bitwidth):
     w = bitwidth
     a = bitwidth
+    common_spec = {"per_channel_thres": 1, "standalone_thres": 0}
     layer_spec = [
         {
             "mw": 185,
@@ -47,10 +48,11 @@ def test_hls_random_mlp_maker(bitwidth):
             "idt": DataType["BIPOLAR"],
             "wdt": w,
             "act": a,
+            **common_spec,
         },
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a, **common_spec},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a, **common_spec},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a, **common_spec},
         {
             "mw": 100,
             "mh": 1,
@@ -59,9 +61,10 @@ def test_hls_random_mlp_maker(bitwidth):
             "idt": a,
             "wdt": w,
             "act": DataType["BIPOLAR"],
+            **common_spec,
         },
     ]
 
-    ret = create.hls_random_mlp_maker(layer_spec)
+    ret = create.hw_random_mlp_maker(layer_spec)
     assert len(ret.graph.node) == 5
     # ret.save("mlp-%s.onnx" % str(bitwidth))

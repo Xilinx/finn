@@ -37,8 +37,8 @@ from qonnx.util.basic import (
 )
 
 
-def hls_random_mlp_maker(layer_spec):
-    """Create an MLP of given specification using HLSCustomOp instances.
+def hw_random_mlp_maker(layer_spec):
+    """Create an MLP of given specification using HWCustomOp instances.
     Generate random weights/thresholds of appropriate size."""
     ret = []
     for lyr in layer_spec:
@@ -47,6 +47,7 @@ def hls_random_mlp_maker(layer_spec):
         mw = lyr["mw"]
         mh = lyr["mh"]
         act = lyr["act"]
+        per_channel_thres = lyr["per_channel_thres"]
         lyr["W"] = gen_finn_dt_tensor(wdt, (mw, mh))
         if act is None:
             # no activation, produce accumulators
@@ -60,7 +61,8 @@ def hls_random_mlp_maker(layer_spec):
             odt = act
             (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
             n_steps = act.get_num_possible_values() - 1
-            T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
+            n_sets = mh if per_channel_thres else 1
+            T = np.random.randint(min, max - 1, (n_sets, n_steps)).astype(np.float32)
             # provide non-decreasing thresholds
             T = np.sort(T, axis=1)
             # generate thresholds for activation
@@ -76,11 +78,11 @@ def hls_random_mlp_maker(layer_spec):
         lyr["odt"] = odt
         ret.append(lyr)
 
-    return hls_mlp_maker(ret)
+    return hw_mlp_maker(ret)
 
 
-def hls_mlp_maker(layer_spec):
-    """Create an MLP of given specification using HLSCustomOp instances."""
+def hw_mlp_maker(layer_spec):
+    """Create an MLP of given specification using HWCustomOp instances."""
 
     current_in_name = ""
     current_out_name = ""
@@ -95,7 +97,6 @@ def hls_mlp_maker(layer_spec):
         current_W_name = "W_%d" % i
         current_T_name = "T_%d" % i
         current_in_name = "act_%d" % i
-        current_out_name = "act_%d" % (i + 1)
 
         W = lyr["W"]
         (mw, mh) = W.shape
@@ -106,13 +107,28 @@ def hls_mlp_maker(layer_spec):
         idt = lyr["idt"]
         tdt = lyr["tdt"]
         odt = lyr["odt"]
+        standalone_thres = lyr["standalone_thres"]
+
+        if standalone_thres:
+            assert not (T is None), "Need to specify thresholds for standalone_thres"
+            current_out_name = "acc_%d" % (i + 1)
+            thres_out_name = "act_%d" % (i + 1)
+        else:
+            current_out_name = "act_%d" % (i + 1)
 
         if i == 0:
             global_in = helper.make_tensor_value_info(current_in_name, TensorProto.FLOAT, [1, mw])
             model.graph.input.append(global_in)
 
         if i == len(layer_spec) - 1:
-            global_out = helper.make_tensor_value_info(current_out_name, TensorProto.FLOAT, [1, mh])
+            if standalone_thres:
+                global_out = helper.make_tensor_value_info(
+                    thres_out_name, TensorProto.FLOAT, [1, mh]
+                )
+            else:
+                global_out = helper.make_tensor_value_info(
+                    current_out_name, TensorProto.FLOAT, [1, mh]
+                )
             model.graph.output.append(global_out)
 
         # there are two ways to implement bipolar weights and inputs for
@@ -131,14 +147,20 @@ def hls_mlp_maker(layer_spec):
             binary_xnor_mode = 0
 
         if T is not None:
-            no_act = 0
-            node_inp_list = [current_in_name, current_W_name, current_T_name]
-            if odt == DataType["BIPOLAR"]:
+            if standalone_thres:
+                # no thresholds as part of MVAU node
+                node_inp_list = [current_in_name, current_W_name]
                 actval = 0
+                no_act = 1
             else:
-                actval = odt.min()
+                no_act = 0
+                node_inp_list = [current_in_name, current_W_name, current_T_name]
+                if odt == DataType["BIPOLAR"]:
+                    actval = 0
+                else:
+                    actval = odt.min()
         else:
-            # no thresholds
+            # no thresholds as part of MVAU node
             node_inp_list = [current_in_name, current_W_name]
             actval = 0
             no_act = 1
@@ -154,7 +176,7 @@ def hls_mlp_maker(layer_spec):
             PE=pe,
             inputDataType=export_idt.name,
             weightDataType=export_wdt.name,
-            outputDataType=odt.name,
+            outputDataType=odt.name if not standalone_thres else "INT32",
             ActVal=actval,
             binaryXnorMode=binary_xnor_mode,
             noActivation=no_act,
@@ -170,6 +192,28 @@ def hls_mlp_maker(layer_spec):
         else:
             model.set_initializer(current_W_name, W)
         if T is not None:
+            if standalone_thres:
+                if odt == DataType["BIPOLAR"]:
+                    actval = 0
+                else:
+                    actval = odt.min()
+                thres_node = helper.make_node(
+                    "Thresholding",
+                    [current_out_name, current_T_name],
+                    [thres_out_name],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    runtime_writeable_weights=0,
+                    PE=pe,
+                    NumChannels=mh,
+                    numSteps=T.shape[1],
+                    inputDataType="INT32",
+                    weightDataType="INT32",
+                    outputDataType=odt.name,
+                    numInputVectors=[1],
+                    ActVal=actval,
+                )
+                model.graph.node.append(thres_node)
             model.set_tensor_datatype(current_T_name, tdt)
             model.set_initializer(current_T_name, T)
         i += 1
