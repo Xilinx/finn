@@ -95,9 +95,6 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         op = "StreamingDataWidthConverter_Batch"
         if self.needs_lcm():
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
-                    self.get_iowidth_lcm()
-                ),
                 "%s<InWidth, LCMWidth, NumInWords>(in0_%s, intermediate, numReps);"
                 % (op, self.hls_sname()),
                 "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out_%s, numReps);"
