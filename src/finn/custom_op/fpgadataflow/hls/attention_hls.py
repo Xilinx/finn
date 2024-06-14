@@ -435,7 +435,7 @@ class ScaledDotProductAttention_hls(  # noqa: Class name does not follow
             "auto": "Resource::AUTO",
             "block": "Resource::BRAM",
             "distributed": "Resource::LUTRAM",
-            "ultra": "Resources::URAM"
+            "ultra": "Resource::URAM"
         }
         # Mapping of compute resource attributes to the corresponding C++ tag
         # types
