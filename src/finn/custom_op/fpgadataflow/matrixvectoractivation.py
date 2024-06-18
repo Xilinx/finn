@@ -855,6 +855,14 @@ class MVAU(HWCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
+        try:
+            pumped_compute = self.get_nodeattr("pumpedCompute")
+        except AttributeError:
+            pumped_compute = 0
+
+        if pumped_compute:
+            intf_names["clk2x"] = ["ap_clk2x"]
+
         mem_mode = self.get_nodeattr("mem_mode")
         sname = self.hls_sname()
         if mem_mode == "external":
@@ -885,6 +893,16 @@ class MVAU(HWCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            # if we need a 2x clock for either compute or memory, instantiate the 2x clk port
+            try:
+                pumped_compute = self.get_nodeattr("pumpedCompute")
+            except AttributeError:
+                pumped_compute = 0
+
+            if pumped_compute:
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk2x_name))
+
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
