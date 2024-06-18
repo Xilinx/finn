@@ -94,37 +94,35 @@ class MVAU_rtl(MVAU, RTLBackend):
                 elif in_ind > 1:
                     raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
                 in_ind += 1
-                sim = self.get_rtlsim()
-                nbits = self.get_instream_width()
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                reset_rtlsim(sim)
-                toggle_clk(sim)
-                if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_weightstream_width()
-                    export_wdt = self.get_weight_datatype()
-                    wei = npy_to_rtlsim_input(
-                        "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                    )
-                    num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                    io_dict = {
-                        "inputs": {"in0": inp, "weights": wei * num_w_reps},
-                        "outputs": {"out": []},
-                    }
-                    self.rtlsim_multi_io(sim, io_dict)
-                    output = io_dict["outputs"]["out"]
-                else:
-                    output = self.rtlsim(sim, inp)
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            reset_rtlsim(sim)
+            toggle_clk(sim)
+            if mem_mode in ["external", "internal_decoupled"]:
+                wnbits = self.get_weightstream_width()
+                export_wdt = self.get_weight_datatype()
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                io_dict = {
+                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
+                    "outputs": {"out": []},
+                }
+                self.rtlsim_multi_io(sim, io_dict)
+                output = io_dict["outputs"]["out"]
+            else:
+                output = self.rtlsim(sim, inp)
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}

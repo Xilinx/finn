@@ -28,6 +28,7 @@
 import math
 import numpy as np
 import onnx.numpy_helper as np_helper
+import os
 import qonnx.custom_op.general.xnorpopcount as xp
 import textwrap
 import warnings
@@ -874,6 +875,38 @@ class MVAU(HWCustomOp):
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
+    def generate_hdl_memstream(self):
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+        )
+        mname = self.get_nodeattr("gen_top_module")
+        wmem = self.calc_wmem()
+        padded_width = self.get_weightstream_width_padded()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        code_gen_dict = {
+            "$MODULE_NAME$": [mname],
+            "$DEPTH$": [str(wmem)],
+            "$WIDTH$": [str(padded_width)],
+            "$INIT_FILE$": [self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat"],
+            "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
+            "$PUMPED_MEMORY$": [str(self.get_nodeattr("pumpedMemory"))],
+        }
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_memstream_wrapper.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+
     def code_generation_ipi(self):
         cmd = []
         # add streamer if needed
@@ -915,29 +948,25 @@ class MVAU(HWCustomOp):
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
 
-            # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            # instantiate a streamer and connect it to the MVU IP
+            self.generate_hdl_memstream()
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+            strm_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+            strm_tmpl_name = self.get_nodeattr("gen_top_module") + "_memstream_wrapper"
+            sourcefiles = [
+                os.path.join(code_gen_dir, strm_tmpl_name + ".v"),
+                strm_rtllib_dir + "axilite_if.v",
+                strm_rtllib_dir + "memstream_axi.sv",
+                strm_rtllib_dir + "memstream.sv",
+            ]
+            for f in sourcefiles:
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             strm_inst = node_name + "_wstrm"
+
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
-            )
-            cmd.append(
-                "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
-                "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.PUMPED_MEMORY {%d} "
-                "] [get_bd_cells /%s/%s]"
-                % (
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-                    self.get_nodeattr("ram_style"),
-                    int(self.get_nodeattr("pumpedMemory")),
-                    node_name,
-                    strm_inst,
-                )
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (strm_tmpl_name, node_name, strm_inst)
             )
 
             cmd.append(
