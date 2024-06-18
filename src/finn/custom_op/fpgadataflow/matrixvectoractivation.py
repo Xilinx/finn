@@ -25,10 +25,10 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 import math
 import numpy as np
 import onnx.numpy_helper as np_helper
+import os
 import qonnx.custom_op.general.xnorpopcount as xp
 import textwrap
 import warnings
@@ -123,6 +123,8 @@ class MVAU(HWCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # double pumped memory
+            "pumpedMemory": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -855,6 +857,13 @@ class MVAU(HWCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
+        try:
+            pumped_compute = self.get_nodeattr("pumpedCompute")
+        except AttributeError:
+            pumped_compute = 0
+
+        if pumped_compute or self.get_nodeattr("pumpedMemory"):
+            intf_names["clk2x"] = ["ap_clk2x"]
         mem_mode = self.get_nodeattr("mem_mode")
         sname = self.hls_sname()
         if mem_mode == "external":
@@ -865,6 +874,38 @@ class MVAU(HWCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def generate_hdl_memstream(self):
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+        )
+        mname = self.get_nodeattr("gen_top_module")
+        wmem = self.calc_wmem()
+        padded_width = self.get_weightstream_width_padded()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        code_gen_dict = {
+            "$MODULE_NAME$": [mname],
+            "$DEPTH$": [str(wmem)],
+            "$WIDTH$": [str(padded_width)],
+            "$INIT_FILE$": [self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat"],
+            "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
+            "$PUMPED_MEMORY$": [str(self.get_nodeattr("pumpedMemory"))],
+        }
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_memstream_wrapper.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
 
     def code_generation_ipi(self):
         cmd = []
@@ -885,6 +926,16 @@ class MVAU(HWCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            # if we need a 2x clock for either compute or memory, instantiate the 2x clk port
+            try:
+                pumped_compute = self.get_nodeattr("pumpedCompute")
+            except AttributeError:
+                pumped_compute = 0
+
+            pumped_memory = self.get_nodeattr("pumpedMemory")
+            if pumped_compute or pumped_memory:
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk2x_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
@@ -897,28 +948,27 @@ class MVAU(HWCustomOp):
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
 
-            # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            # instantiate a streamer and connect it to the MVU IP
+            self.generate_hdl_memstream()
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+            strm_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+            strm_tmpl_name = self.get_nodeattr("gen_top_module") + "_memstream_wrapper"
+            sourcefiles = [
+                os.path.join(code_gen_dir, strm_tmpl_name + ".v"),
+                strm_rtllib_dir + "axilite_if.v",
+                strm_rtllib_dir + "memstream_axi.sv",
+                strm_rtllib_dir + "memstream.sv",
+            ]
+            for f in sourcefiles:
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             strm_inst = node_name + "_wstrm"
+
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (strm_tmpl_name, node_name, strm_inst)
             )
-            cmd.append(
-                "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
-                "CONFIG.RAM_STYLE {%s} "
-                "] [get_bd_cells /%s/%s]"
-                % (
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-                    self.get_nodeattr("ram_style"),
-                    node_name,
-                    strm_inst,
-                )
-            )
+
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
                 "[get_bd_intf_pins %s/%s/weights_%s]"
@@ -932,6 +982,18 @@ class MVAU(HWCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
+            # if using 2x pumped memory, connect the memstreamer's 2x clk input
+            # to the 2x clock port. otherwise connect it to the regular clock port.
+            if self.get_nodeattr("pumpedMemory"):
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk2x_name, node_name, strm_inst)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, strm_inst)
+                )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)

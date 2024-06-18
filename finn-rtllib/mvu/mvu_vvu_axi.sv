@@ -58,7 +58,7 @@ module mvu_vvu_axi #(
 	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
-	bit PUMPED_COMPUTE = 0,
+	bit PUMPED_COMPUTE = 0, // requires an even SIMD % 2 == 0
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
@@ -218,12 +218,10 @@ module mvu_vvu_axi #(
 
 			// Identify second fast cycle just before active slow clock edge
 			logic  Active = 0;
-			if(1) begin : blkActive
-				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
-				always_ff @(posedge clk2x)  Active <= clk_lut[1];
-			end : blkActive
+                        always_ff @(posedge clk2x) begin
+				if(rst)  Active <= 0;
+				else     Active <= !Active;
+			end
 
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
@@ -300,13 +298,25 @@ module mvu_vvu_axi #(
 
 		case(COMPUTE_CORE)
 		"mvu_vvu_8sx9_dsp58":
+  if(PUMPED_COMPUTE) begin
 			mvu_vvu_8sx9_dsp58 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(DSP_SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 			.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(clk2x), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
+  end
+  else begin
+			mvu_vvu_8sx9_dsp58 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(DSP_SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
+			.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
+			.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+
+				.clk(clk), .rst, .en(dsp_en),
+				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+				.vld(dsp_vld), .p(dsp_p)
+			);
+  end
 		"mvu_4sx4u_dsp48e1":
 			mvu_4sx4u #(
 				.PE(PE), .SIMD(DSP_SIMD),

@@ -436,6 +436,8 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
             "runtime_writeable_weights",
             "depth_trigger_uram",
             "depth_trigger_bram",
+            "pumpedCompute",
+            "pumpedMemory",
         ]
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
 
@@ -617,6 +619,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "outFIFODepths",
         "depth_trigger_uram",
         "depth_trigger_bram",
+        "pumpedCompute",
+        "pumpedMemory",
     ]
     extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 

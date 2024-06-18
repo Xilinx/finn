@@ -27,16 +27,15 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @author	Thomas B. Preußer <thomas.preusser@amd.com>
- */
+  */
 
-module memstream_axi_wrapper #(
-	parameter  DEPTH = 512,
-	parameter  WIDTH = 32,
+module $MODULE_NAME$_memstream_wrapper #(
+	parameter  DEPTH = $DEPTH$,
+	parameter  WIDTH = $WIDTH$,
 
-	parameter  INIT_FILE = "",
-	parameter  RAM_STYLE = "auto",
-	parameter  PUMPED_MEMORY = 0,
+	parameter  INIT_FILE = "$INIT_FILE$",
+	parameter  RAM_STYLE = "$RAM_STYLE$",
+	parameter  PUMPED_MEMORY = $PUMPED_MEMORY$,
 
 	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
 )(
@@ -123,4 +122,4 @@ module memstream_axi_wrapper #(
 		.m_axis_0_tdata(m_axis_0_tdata)
 	);
 
-endmodule : memstream_axi_wrapper
+endmodule : $MODULE_NAME$_memstream_wrapper
