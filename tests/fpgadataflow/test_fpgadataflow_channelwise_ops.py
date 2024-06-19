@@ -139,7 +139,7 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
 
     assert (y_produced == y_expected).all(), "HW layer execution failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

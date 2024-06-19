@@ -113,7 +113,7 @@ def test_fpgadataflow_dwc(config, exec_mode):
         input values anymore."""
     assert y.shape == tuple(shape), """The output shape is incorrect."""
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -158,9 +158,9 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config):
     input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())

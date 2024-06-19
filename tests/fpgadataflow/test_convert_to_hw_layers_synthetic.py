@@ -210,7 +210,7 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
 
     output_hw = oxe.execute_onnx(model, input_dict, True)
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     # check topology status
 

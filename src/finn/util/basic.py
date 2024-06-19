@@ -288,3 +288,20 @@ def memutil(req_mem_spec, primitive_spec):
     eff = (req_width * req_depth) / (count * prim_width * prim_depth)
     waste = (count * prim_width * prim_depth) - (req_width * req_depth)
     return (count, eff, waste)
+
+
+def is_versal(fpgapart):
+    """Returns whether board is part of the Versal family"""
+    return (
+        fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
+        or fpgapart[0:5] == "xqrvc"
+    )
+
+
+def get_dsp_block(fpgapart):
+    if is_versal(fpgapart):
+        return "DSP58"
+    elif fpgapart[2] == "7":
+        return "DSP48E1"
+    else:
+        return "DSP48E2"

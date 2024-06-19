@@ -114,7 +114,7 @@ def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all(), exec_mode + " failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "StreamingEltwise_hls"

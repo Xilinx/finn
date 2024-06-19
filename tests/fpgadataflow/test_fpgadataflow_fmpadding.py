@@ -135,7 +135,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     assert y_produced.shape == expected_oshape
     assert (y_produced == y_expected).all(), "HW layer execution failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))

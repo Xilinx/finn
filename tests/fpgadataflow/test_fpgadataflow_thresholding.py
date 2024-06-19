@@ -227,7 +227,7 @@ def test_fpgadataflow_thresholding(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("preferred_impl_style", impl_style)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InferShapes())
     assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
 

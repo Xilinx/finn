@@ -174,7 +174,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
     test_result = output_dict[model.graph.output[0].name]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     # Prep sim
     if exec_mode == "cppsim":

@@ -32,7 +32,7 @@ from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import get_dsp_block, get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 try:
@@ -55,10 +55,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # Flag to indicate if Versal device is targeted
-            "is_versal": ("i", False, 0, {0, 1}),
-        }
+        my_attrs = {}
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -137,11 +134,12 @@ class MVAU_rtl(MVAU, RTLBackend):
     def lut_estimation(self):
         return 0
 
-    def dsp_estimation(self):
+    def dsp_estimation(self, fpgapart):
         # multiplication
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        if self.get_nodeattr("is_versal"):
+        dsp_block = get_dsp_block(fpgapart)
+        if dsp_block == "DSP58":
             mult_dsp = P * np.ceil(Q / 3)
         else:
             mult_dsp = np.ceil(P / 4) * Q
@@ -161,14 +159,24 @@ class MVAU_rtl(MVAU, RTLBackend):
         ]
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
-        cmd.append(
-            "create_bd_cell -type hier -reference %s /%s/%s"
-            % (
-                self.get_nodeattr("gen_top_module"),
-                self.onnx_node.name,
-                self.onnx_node.name,
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            cmd.append(
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                    self.onnx_node.name,
+                )
             )
-        )
+        else:
+            cmd.append(
+                "create_bd_cell -type hier -reference %s %s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                )
+            )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
@@ -186,7 +194,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
         return dsp_chain_len
 
-    def _resolve_impl_style(self, fpgapart):
+    def _resolve_impl_style(self, dsp_block):
         # Based on target device and activation/weight-width, choose the
         # supported RTL compute core
         assert (
@@ -198,15 +206,15 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         act_width = self.get_input_datatype(0).bitwidth()
         weight_width = self.get_input_datatype(1).bitwidth()
-        is_versal_family = self.get_nodeattr("is_versal")
 
-        if is_versal_family:
+        if dsp_block == "DSP58":
             return "mvu_vvu_8sx9_dsp58"
         else:
-            act_width = self.get_input_datatype(0).bitwidth()
-            weight_width = self.get_input_datatype(1).bitwidth()
-            if (act_width == 4 and weight_width == 4) and not (is_versal_family):
-                return "mvu_4sx4u"
+            if act_width <= 4 and weight_width <= 4:
+                if dsp_block == "DSP48E1":
+                    return "mvu_4sx4u_dsp48e1"
+                elif dsp_block == "DSP48E2":
+                    return "mvu_4sx4u_dsp48e2"
             else:
                 return "mvu_8sx8u_dsp48"
 
@@ -216,6 +224,11 @@ class MVAU_rtl(MVAU, RTLBackend):
         self.generate_params(model, code_gen_dir)
 
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
+        # determine if weights are narrow range and add parameter to code gen dict
+        weights = model.get_initializer(self.onnx_node.input[1])
+        wdt = self.get_weight_datatype()
+        narrow_weights = 0 if np.min(weights) == wdt.min() else 1
+        code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
         # save top module name so we can refer to it after this node has been renamed
@@ -248,9 +261,10 @@ class MVAU_rtl(MVAU, RTLBackend):
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
 
+        dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
-        code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(dsp_block)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
