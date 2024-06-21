@@ -135,8 +135,7 @@ def fold_tfc(model):
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
-    # TODO: update PYNQ driver to support runtime writeable weights for RTL Thresholding
-    # inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
+    inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
 
 
