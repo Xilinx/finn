@@ -131,7 +131,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     assert len(model.get_nodes_by_op_type("DownSampler")) == 1
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())

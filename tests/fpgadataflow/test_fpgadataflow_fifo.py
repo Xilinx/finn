@@ -96,7 +96,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_fifo_modelwrapper(Shape, depth, folded_shape, finn_dtype)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())

@@ -131,10 +131,10 @@ def test_convert_to_hw_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode
                 inst.set_nodeattr("preferred_impl_style", "hls")
     if depthwise is True:
         new_model = new_model.transform(to_hw.InferVectorVectorActivation())
-        new_model = new_model.transform(SpecializeLayers())
+        new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
     else:
         new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-        new_model = new_model.transform(SpecializeLayers())
+        new_model = new_model.transform(SpecializeLayers("xc7z020clg400-1"))
         # set folding parameters for MVAU
         if new_model.get_nodes_by_op_type("MVAU_hls"):
             fc_node = new_model.get_nodes_by_op_type("MVAU_hls")[0]

@@ -253,7 +253,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
@@ -281,7 +281,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -523,11 +523,11 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
         dw=dw,
     )
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     # Simulate using stitched-ip-rtlsim so we can use existing infrastructure
     # that supports hook functions to re-program configuration before rtlsim
     model = model.transform(InsertFIFO(True))  # required for proper simulation
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())

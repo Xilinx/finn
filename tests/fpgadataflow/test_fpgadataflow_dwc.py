@@ -47,7 +47,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype):
+def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
@@ -63,6 +63,7 @@ def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype):
         inWidth=inWidth,
         outWidth=outWidth,
         dataType=str(finn_dtype.name),
+        preferred_impl_style=impl_style,
     )
 
     graph = helper.make_graph(nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp])
@@ -86,17 +87,17 @@ def prepare_inputs(input_tensor, dt):
         ([1, 24], 6, 4, DataType["INT2"]),
         ([1, 24], 4, 6, DataType["INT2"]),
         ([1, 4], 2, 4, DataType["BIPOLAR"]),
-        ([1, 2, 8], 2, 4, DataType["BIPOLAR"]),
         ([1, 4], 4, 2, DataType["INT2"]),
         ([1, 2, 8], 4, 4, DataType["INT2"]),
         ([1, 2, 8], 8, 16, DataType["INT2"]),
     ],
 )
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc(config, exec_mode):
+def test_fpgadataflow_dwc(config, exec_mode, impl_style):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -104,7 +105,7 @@ def test_fpgadataflow_dwc(config, exec_mode):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
     # verify abstraction level execution
     y = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
@@ -113,7 +114,7 @@ def test_fpgadataflow_dwc(config, exec_mode):
         input values anymore."""
     assert y.shape == tuple(shape), """The output shape is incorrect."""
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -136,19 +137,17 @@ def test_fpgadataflow_dwc(config, exec_mode):
 @pytest.mark.parametrize(
     "config",
     [
-        ([1, 24], 6, 4, DataType["INT2"]),
-        ([1, 24], 4, 6, DataType["INT2"]),
         ([1, 4], 2, 4, DataType["BIPOLAR"]),
-        ([1, 2, 8], 2, 4, DataType["BIPOLAR"]),
         ([1, 4], 4, 2, DataType["INT2"]),
         ([1, 2, 8], 4, 4, DataType["INT2"]),
         ([1, 2, 8], 8, 16, DataType["INT2"]),
     ],
 )
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_stitched_rtlsim(config):
+def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
     shape, inWidth, outWidth, finn_dtype = config
 
     test_fpga_part = "xc7z020clg400-1"
@@ -157,10 +156,10 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype)
-    model = model.transform(SpecializeLayers())
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())

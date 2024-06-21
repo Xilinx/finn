@@ -60,7 +60,7 @@ def get_checkpoint_name(step):
         # checkpoint for build step is an entire dir
         return build_dir + "/end2end_ext_weights_build"
     elif step == "download":
-        return onnx_dir_local + "/tfc-w1a1.onnx"
+        return onnx_dir_local + "/tfc-w2a2.onnx"
     else:
         # other checkpoints are onnx files
         return build_dir + "/end2end_ext_weights_%s.onnx" % (step)
@@ -82,14 +82,17 @@ def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
     test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
-    folding_config_file = test_data + "/tfc-w1a1-extw.json"
+    folding_config_file = test_data + "/tfc-w2a2-extw.json"
+    specialize_layers_config_file = test_data + "/specialize_layers_config.json"
     output_dir = make_build_dir("test_end2end_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         verbose=True,
+        standalone_thresholds=True,
         folding_config_file=folding_config_file,
+        specialize_layers_config_file=specialize_layers_config_file,
         synth_clk_period_ns=target_clk_ns,
-        board="Pynq-Z1",
+        board="ZCU104",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,

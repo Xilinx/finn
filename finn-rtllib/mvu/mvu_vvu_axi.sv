@@ -55,6 +55,7 @@ module mvu_vvu_axi #(
 	int unsigned ACTIVATION_WIDTH,
 	int unsigned WEIGHT_WIDTH,
 	int unsigned ACCU_WIDTH,
+	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
 	bit PUMPED_COMPUTE = 0,
@@ -306,8 +307,22 @@ module mvu_vvu_axi #(
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_4sx4u":
-			mvu_4sx4u #(.PE(PE), .SIMD(DSP_SIMD), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+		"mvu_4sx4u_dsp48e1":
+			mvu_4sx4u #(
+				.PE(PE), .SIMD(DSP_SIMD),
+				.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
+				.VERSION(1), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+			) core (
+				.clk(dsp_clk), .rst, .en(dsp_en),
+				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+				.vld(dsp_vld), .p(dsp_p)
+			);
+		"mvu_4sx4u_dsp48e2":
+			mvu_4sx4u #(
+				.PE(PE), .SIMD(DSP_SIMD),
+				.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
+				.VERSION(2), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+			) core (
 				.clk(dsp_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
