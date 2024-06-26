@@ -36,7 +36,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import numpy_to_hls_code
+from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code
 
 
 @pytest.mark.util
@@ -141,3 +141,42 @@ def test_numpy_to_hls_code():
     eB = """{{ap_uint<4>("0xf", 16), ap_uint<4>("0xf", 16)},
      {ap_uint<4>("0x7", 16), ap_uint<4>("0xd", 16)}};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eB)
+
+
+@pytest.mark.util
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        DataType["BINARY"],
+        DataType["BIPOLAR"],
+        DataType["TERNARY"],
+        DataType["INT2"],
+        DataType["INT7"],
+        DataType["INT8"],
+        DataType["INT22"],
+        DataType["INT32"],
+        DataType["UINT7"],
+        DataType["UINT8"],
+        DataType["UINT15"],
+        DataType["FIXED<9,6>"],
+        DataType["FLOAT32"],
+    ],
+)
+def test_npy_to_rtlsim_input(dtype):
+    # check if slow and fast data packing produce the same non-sign-extended input for rtlsim
+    # fast mode is triggered for certain data types if last (SIMD) dim = 1
+    inp_fast = gen_finn_dt_tensor(dtype, (1, 8, 8, 8 // 1, 1))  # N H W FOLD SIMD
+    inp_slow = inp_fast.reshape((1, 8, 8, 8 // 2, 2))  # N H W FOLD SIMD
+
+    output_fast = npy_to_rtlsim_input(inp_fast, dtype, 1 * dtype.bitwidth())
+    output_slow = npy_to_rtlsim_input(inp_slow, dtype, 2 * dtype.bitwidth())
+
+    output_slow_split = []
+    for x in output_slow:
+        # least significant bits = first element:
+        output_slow_split.append(x & ((1 << dtype.bitwidth()) - 1))
+        # remaining bits = second element:
+        output_slow_split.append(x >> dtype.bitwidth())
+
+    assert all([(x >> dtype.bitwidth()) == 0 for x in output_fast]), "extraneous bits detected"
+    assert np.all(output_fast == output_slow_split), "different behavior of packing modes detected"

@@ -26,8 +26,8 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 import qonnx.custom_op.registry as registry
+from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -49,15 +49,16 @@ class AnnotateResources(Transformation):
     chosen mode (e.g. HLSSynthIP for hls) was previously run.
     """
 
-    def __init__(self, mode, override_res_dict=None):
+    def __init__(self, mode, fpgapart, override_res_dict=None):
         super().__init__()
         self.mode = mode
+        self.fpgapart = fpgapart
         self.res_dict = override_res_dict
 
     def apply(self, model):
         graph = model.graph
         if self.mode == "estimate":
-            res_fxn = res_estimation
+            res_fxn = partial(res_estimation, fpgapart=self.fpgapart)
         elif self.mode == "hls":
             res_fxn = hls_synth_res_estimation
         elif self.mode == "synth":
@@ -77,7 +78,9 @@ class AnnotateResources(Transformation):
                 # recurse into model to manually annotate per-layer resources
                 sdp_model_filename = getCustomOp(node).get_nodeattr("model")
                 sdp_model = ModelWrapper(sdp_model_filename)
-                sdp_model = sdp_model.transform(AnnotateResources(self.mode, self.res_dict))
+                sdp_model = sdp_model.transform(
+                    AnnotateResources(self.mode, self.fpgapart, self.res_dict)
+                )
                 sdp_dict = sdp_model.get_metadata_prop("res_total_" + self.mode)
                 sdp_dict = eval(sdp_dict)
                 # save transformed model

@@ -100,6 +100,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 : ${FINN_SINGULARITY=""}
+: ${FINN_SKIP_XRT_DOWNLOAD=""}
+: ${FINN_XRT_PATH=""}
 
 DOCKER_INTERACTIVE=""
 
@@ -181,14 +183,27 @@ if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
   ./fetch-repos.sh
 fi
 
+# If xrt path given, copy .deb file to this repo
+# Be aware that we assume a certain name of the xrt deb version
+if [ -d "$FINN_XRT_PATH" ];then
+  cp $FINN_XRT_PATH/$XRT_DEB_VERSION.deb .
+  export LOCAL_XRT=1
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
   cd $OLD_PWD
 fi
+
+# Remove local xrt.deb file from repo
+if [ ! -z "$LOCAL_XRT" ];then
+  rm $XRT_DEB_VERSION.deb
+fi
+
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins

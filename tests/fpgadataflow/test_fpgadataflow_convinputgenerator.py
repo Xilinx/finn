@@ -189,7 +189,7 @@ def test_fpgadataflow_slidingwindow(
     # set impl_style
     inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
     inst.set_nodeattr("preferred_impl_style", impl_style)
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     # set simd
     inst = getCustomOp(model.graph.node[0])
     inst.set_nodeattr("SIMD", simd)
