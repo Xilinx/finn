@@ -147,7 +147,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     fifo_log = []
     fifo_log_templ = '    results_file << "maxcount%s" << "\\t" '
     fifo_log_templ += "<< to_string(top->maxcount%s) << endl;"
-    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
+    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
     fifo_ind = 0
     for fifo_node in fifo_nodes:
         fifo_node = getCustomOp(fifo_node)

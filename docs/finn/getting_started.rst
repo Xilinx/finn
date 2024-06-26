@@ -8,7 +8,7 @@ Quickstart
 ==========
 
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.1``)
+2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest`` to verify your installation.
 5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup` or :ref:`Alveo first-time setup` for board setup.
@@ -28,8 +28,8 @@ to train *customized* networks and create highly-efficient FPGA implementations 
 In general, the approach for using the FINN framework is as follows:
 
 1. Train your own quantized neural network (QNN) in `Brevitas <https://github.com/Xilinx/brevitas>`_. We have some `guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ on quantization-aware training (QAT).
-2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
-3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
+2. Export to QONNX and convert to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/basics/1_brevitas_network_import_via_QONNX.ipynb>`_ .
+3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_ or for advanced settings have a look at this `tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/advanced/4_advanced_builder_settings.ipynb>`_ .
 4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
 
 Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
@@ -49,13 +49,12 @@ Running FINN in Docker
 ======================
 FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
 You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
-If you want to use prebuilt images, read :ref:`Using a prebuilt image`.
 
 The above mentioned script to build and launch the FINN docker container is called `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh>`_ . It can be launched in the following modes:
 
 Launch interactive shell
 ************************
-Simply running sh run-docker.sh without any additional arguments will create a Docker container with all dependencies and give you a terminal with you can use for development for experimentation:
+Simply running bash run-docker.sh without any additional arguments will create a Docker container with all dependencies and give you a terminal with you can use for development for experimentation:
 
 ::
 
@@ -93,11 +92,12 @@ This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a 
 Environment variables
 **********************
 
-Prior to running the `run-docker.sh` script, there are several environment variables you can set to configure certain aspects of FINN.
-These are summarized below:
+Prior to running the ``run-docker.sh`` script, there are several environment variables you can set to configure certain aspects of FINN.
+For a complete list, please have a look in the `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh#L72>`_ file.
+The most relevant are summarized below:
 
 * (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.1``)
+* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
 * (required for Alveo) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Alveo) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
@@ -108,10 +108,8 @@ These are summarized below:
 * (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
 * (optional) ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
 * (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
-* (optional) ``FINN_DOCKER_PREBUILT`` (default 0) if set to 1 then skip Docker image building and use the image tagged with ``FINN_DOCKER_TAG``.
 * (optional) ``FINN_DOCKER_TAG`` (autogenerated) specifies the Docker image tag to use.
 * (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
-* (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``FINN_DOCKER_EXTRA`` (default "") pass extra arguments to the ``docker run`` command when executing ``./run-docker.sh``
 * (optional) ``FINN_SKIP_DEP_REPOS`` (default "0") skips the download of FINN dependency repos (uses the ones already downloaded under deps/.
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
@@ -125,23 +123,11 @@ General FINN Docker tips
 * If you want a new terminal on an already-running container, you can do this with ``docker exec -it <name_of_container> bash``.
 * The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the finn compiler folder (which is mounted from the host computer) or otherwise backed up.
 
-Using a prebuilt image
-**********************
-
-By default the ``run-docker.sh`` script tries to re-build the Docker image with each run. After the first run this should go quite fast thanks to Docker caching.
-If you are having trouble building the Docker image or need offline access, you can use prebuilt images by following these steps:
-
-1. Pull a prebuilt Docker image with ``docker pull maltanar/finn:<tag>`` where ``<tag>`` can be ``dev_latest`` or ``main_latest``
-2. Set the ``FINN_DOCKER_TAG`` to the name of the image you just pulled e.g. ``FINN_DOCKER_TAG=maltanar/finn:dev_latest``
-3. Set ``FINN_DOCKER_PREBUILT=1``
-4. You can now launch the Docker image in all modes without re-building or any internet access.
-
-
 Supported FPGA Hardware
 =======================
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards, as well as Alveo cards.
+**Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx-AMD FPGA as part of a larger system. It’s up to you to take the FINN-generated accelerator (what we call “stitched IP” in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
-**Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as Alveo cards.
 
 PYNQ board first-time setup
 ****************************
@@ -177,7 +163,7 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2022.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
+1. Install Vitis 2022.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
@@ -201,7 +187,7 @@ System Requirements
 
 * Ubuntu 18.04 with ``bash`` installed
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-* A working Vitis/Vivado 2022.1 installation
+* A working Vitis/Vivado 2022.2 installation
 * ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables correctly set, see `Quickstart`_
 * *(optional)* `Vivado/Vitis license`_ if targeting non-WebPack FPGA parts.
 * *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_

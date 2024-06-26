@@ -17,16 +17,6 @@ Since FINN uses ONNX, can I compile any model from the ONNX Model Zoo to an FPGA
     to FINN-ONNX to be converted to FPGA accelerators.
 
 
-Can I install FINN out of the Docker container?
-    We do not support out of the Docker implementations at the moment. This is due
-    to the high complexity of the FINN project dependencies.
-
-Since FINN uses ONNX, can I compile any model from the ONNX Model Zoo to an FPGA accelerator?
-    The short answer is no. FINN uses ONNX in a specific (non-standard) way, including custom layer
-    types and quantization annotations. Networks must be first quantized using Brevitas and exported
-    to FINN-ONNX to be converted to FPGA accelerators.
-
-
 Can I deploy custom NNs with arbitrary precisions and layers using FINN?
     Yes, though the effort required and quality of results will vary.
     Although we do support arbitrary
@@ -52,7 +42,6 @@ What operating systems are supported by FINN?
     FINN should work fine under any Linux-based OS capable of running Vivado/Vitis, as long
     as you install Docker (``docker-ce``) on your machine.
 
-
 I am getting DocNav and Model_Composer errors when launching the Docker image.
     We do not mount those particular directories into the Docker container because they are not
     used. The errors are Vivado related but you can safely ignore them.
@@ -74,16 +63,8 @@ How can I target an arbitrary Xilinx FPGA without PYNQ support?
 Why does FINN-generated architectures need FIFOs between layers?
     See https://github.com/Xilinx/finn/discussions/383
 
-How do I tell FINN to utilize DSPs instead of LUTs for MAC operations in particular layers?
-    This is done with the ``resType="dsp"`` attribute on ``MatrixVectorActivation`` and ``Vector_Vector_Activate`` instances.
-    When using the ``build_dataflow`` system, this can be specified at a per layer basis by specifying it as part of one or more layers’
-    folding config (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).
-    This is a good idea for layers with more weight/input act bits and high PE*SIMD.
-    See the `MobileNet-v1 build config for ZCU104 in finn-examples <https://github.com/Xilinx/finn-examples/blob/main/build/mobilenet-v1/folding_config/ZCU104_folding_config.json#L15>`_ for reference.
-
-
 How do I tell FINN to utilize a particular type of memory resource in particular layers?
-    This is done with the ``ram_style`` attribute. Check the particular ``HLSCustomOp`` attribute definition to see
+    This is done with the ``ram_style`` attribute. Check the particular ``HWCustomOp`` attribute definition to see
     which modes are supported (`example for MatrixVectorActivation <https://github.com/Xilinx/finn/blob/dev/src/finn/custom_op/fpgadataflow/matrixvectoractivation.py#L101>`_).
     When using the ``build_dataflow`` system, this can be specified at a per layer basis by specifying it as part of one or more layers’
     folding config (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).

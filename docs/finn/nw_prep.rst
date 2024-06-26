@@ -32,19 +32,28 @@ The idea behind streamlining is to eliminate floating point operations in a mode
 
 After this transformation the ONNX model is streamlined and contains now custom nodes in addition to the standard nodes. At this point we can use the :ref:`verification` to simulate the model using Python and in the next step some of the nodes can be converted into HLS layers that correspond to finn_hlslib functions.
 
-Convert to HLS Layers
+Convert to HW Layers
 =====================
 
-In this step standard or custom layers are converted to HLS layers. HLS layers are layers that directly correspond to a finn-hlslib function call. For example pairs of binary XNORPopcountMatMul and MultiThreshold layers are converted to MatrixVectorActivation layers. The result is a model consisting of a mixture of HLS and non-HLS layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers`. The MatrixVectorActivation layer can be implemented in three different modes, *const*, *decoupled* (see chapter :ref:`mem_mode`) and *external*.
+In this step standard or custom layers are converted to HW layers. HW abstraction layers are abstract (placeholder) layers that can be either implemented in HLS or as an RTL module using FINN. These layers are abstraction layers that do not directly correspond to an HLS or Verilog implementation but they will be converted in either one later in the flow.
+
+The result is a model consisting of a mixture of HW and non-HW layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hw_layers`.
 
 Dataflow Partitioning
 =====================
 
-In the next step the graph is split and the part consisting of HLS layers is further processed in the FINN flow. The parent graph containing the non-HLS layers remains. The PE and SIMD are set to 1 by default, so the result is a network of only HLS layers with maximum folding. The model can be verified using the *cppsim* simulation. It is a simulation using C++ and is described in more detail in chapter :ref:`verification`.
+In the next step the graph is split and the part consisting of HW layers is further processed in the FINN flow. The parent graph containing the non-HW layers remains.
+
+Specialize Layers
+=====================
+
+The network is converted to HW abstraction layers and we have excluded the non-HW layers to continue with the processing of the model. HW abstraction layers are abstract (placeholder) layers that can be either implemented in HLS or as an RTL module using FINN. In the next flow step, we convert each of these layers to either an HLS or RTL variant by calling the SpecializeLayers transformation. It is possible to let the FINN flow know a preference for the implementation style {"hls", "rtl"} and depending on the layer type this wish will be fulfilled or it will be set to a reasonable default.
 
 Folding
 =========
 
+The PE and SIMD are set to 1 by default, so the result is a network of only HLS/RTL layers with maximum folding. The HLS layers of the model can be verified using the *cppsim* simulation. It is a simulation using C++ and is described in more detail in chapter :ref:`verification`.
+
 To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*cppsim* using C++), for details please have a look at chapter :ref:`verification`.
 
-The result is a network of HLS layers with desired folding and it can be passed to :ref:`hw_build`.
+The result is a network of HLS/RTL layers with desired folding and it can be passed to :ref:`hw_build`.

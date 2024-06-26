@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +32,7 @@ import xml.etree.ElementTree as ET
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def post_synth_res(model, override_synth_report_filename=None):
@@ -57,14 +58,13 @@ def post_synth_res(model, override_synth_report_filename=None):
     else:
         raise Exception("Please run synthesis first")
 
-    # TODO build these indices based on table headers instead of harcoding
     restype_to_ind_default = {
         "LUT": 2,
         "SRL": 5,
         "FF": 6,
         "BRAM_36K": 7,
         "BRAM_18K": 8,
-        "DSP48": 9,
+        "DSP": 10,
     }
     restype_to_ind_vitis = {
         "LUT": 4,
@@ -73,13 +73,36 @@ def post_synth_res(model, override_synth_report_filename=None):
         "BRAM_36K": 9,
         "BRAM_18K": 10,
         "URAM": 11,
-        "DSP48": 12,
+        "DSP": 12,
     }
 
-    if model.get_metadata_prop("platform") == "alveo":
-        restype_to_ind = restype_to_ind_vitis
+    # format: (human_readable_name_in_report, canonical_name)
+    res_types_to_search = [
+        ("Total LUTs", "LUT"),
+        ("SRLs", "SRL"),
+        ("FFs", "FF"),
+        ("RAMB36", "BRAM_36K"),
+        ("RAMB18", "BRAM_18K"),
+        ("URAM", "URAM"),
+        ("DSP Blocks", "DSP"),
+    ]
+
+    # try to infer resource type to table index by
+    # looking at the names in headings
+    header_row = root.findall(".//*[@contents='Instance']/..")
+    if header_row != []:
+        headers = [x.attrib["contents"] for x in list(header_row[0])]
+        restype_to_ind = {}
+        for res_type_name, res_type in res_types_to_search:
+            if res_type_name in headers:
+                restype_to_ind[res_type] = headers.index(res_type_name)
     else:
-        restype_to_ind = restype_to_ind_default
+        # could not infer resource types from header
+        # fall back to default indices
+        if model.get_metadata_prop("platform") == "alveo":
+            restype_to_ind = restype_to_ind_vitis
+        else:
+            restype_to_ind = restype_to_ind_default
 
     def get_instance_stats(inst_name):
         row = root.findall(".//*[@contents='%s']/.." % inst_name)
@@ -102,7 +125,7 @@ def post_synth_res(model, override_synth_report_filename=None):
             sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
             sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
             res_dict.update(sdp_res_dict)
-        elif _is_fpgadataflow_node(node):
+        elif is_hls_node(node) or is_rtl_node(node):
             node_dict = get_instance_stats(node.name)
             if node_dict is not None:
                 res_dict[node.name] = node_dict

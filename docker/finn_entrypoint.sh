@@ -86,7 +86,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     source $XILINX_XRT/setup.sh
     gecho "Found XRT at $XILINX_XRT"
   else
-    recho "XRT not found on $XILINX_XRT, did the installation fail?"
+    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
     exit -1
   fi
 else
@@ -112,7 +112,7 @@ if [ -f "$HLS_PATH/settings64.sh" ];then
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis HLS will not be available."
-  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support. Our recommendation is to use version 2022.2"
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
 fi
 

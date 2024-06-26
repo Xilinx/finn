@@ -143,7 +143,7 @@ def hls_mlp_maker(layer_spec):
             actval = 0
             no_act = 1
         FCLayer_node = helper.make_node(
-            "MatrixVectorActivation",
+            "MVAU",
             node_inp_list,
             [current_out_name],
             domain="finn.custom_op.fpgadataflow",

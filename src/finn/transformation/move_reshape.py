@@ -1,22 +1,9 @@
 import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_by_name, is_finn_op
+from qonnx.util.basic import get_by_name
 
-
-def _is_fpgadataflow_node(node):
-    if node is not None:
-        if is_finn_op(node.domain):
-            n_backend = get_by_name(node.attribute, "backend")
-            if n_backend is None:
-                return False
-            backend_value = n_backend.s.decode("UTF-8")
-            if backend_value == "fpgadataflow":
-                return True
-        else:
-            return False
-    else:
-        return False
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 class RemoveCNVtoFCFlatten(Transformation):
@@ -34,10 +21,10 @@ class RemoveCNVtoFCFlatten(Transformation):
                 oshape = model.get_tensor_shape(n.output[0])
                 if len(oshape) == 2 and ishape[0] == oshape[0]:
                     producer = model.find_producer(n.input[0])
-                    if _is_fpgadataflow_node(producer) is True:
+                    if is_fpgadataflow_node(producer):
                         # standalone flatten, remove
                         consumer = model.find_consumer(n.output[0])
-                        if _is_fpgadataflow_node(consumer) is True:
+                        if is_fpgadataflow_node(consumer):
                             graph_modified = True
                             consumer.input[0] = n.input[0]
                             graph.node.remove(n)
@@ -48,9 +35,9 @@ class RemoveCNVtoFCFlatten(Transformation):
                         perms = list(get_by_name(transp_node.attribute, "perm").ints)
                         if perms == [0, 3, 1, 2]:
                             producer = model.find_producer(transp_node.input[0])
-                            if _is_fpgadataflow_node(producer) is True:
+                            if is_fpgadataflow_node(producer):
                                 consumer = model.find_consumer(n.output[0])
-                                if consumer.op_type == "MatrixVectorActivation":
+                                if consumer.op_type.startswith("MVAU"):
                                     fc_inst = getCustomOp(consumer)
                                     mw = fc_inst.get_nodeattr("MW")
                                     mh = fc_inst.get_nodeattr("MH")

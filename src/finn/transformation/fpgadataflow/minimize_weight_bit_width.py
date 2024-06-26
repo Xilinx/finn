@@ -1,4 +1,4 @@
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@ class MinimizeWeightBitWidth(Transformation):
 
     def apply(self, model):
         for node in model.graph.node:
-            if is_fpgadataflow_node(node) is True:
+            if is_fpgadataflow_node(node):
                 inst = getCustomOp(node)
                 if hasattr(inst, "minimize_weight_bit_width"):
                     inst.minimize_weight_bit_width(model)
