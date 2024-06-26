@@ -40,6 +40,7 @@ __pycache__/*
 .cache/*
 .*.swp
 *.ipynb_checkpoints*
+*.sif
 
 # Project files
 .vscode
