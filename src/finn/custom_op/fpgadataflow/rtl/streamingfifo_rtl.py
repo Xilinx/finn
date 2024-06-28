@@ -115,10 +115,6 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             f.write(template)
 
         shutil.copy(rtlsrc + "/Q_srl.v", code_gen_dir)
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -177,23 +173,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
     def code_generation_ipi(self):
         impl_style = self.get_nodeattr("impl_style")
         if impl_style == "rtl":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-            sourcefiles = [
-                "Q_srl.v",
-                self.get_nodeattr("gen_top_module") + ".v",
-            ]
-
-            sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-            cmd = []
-            for f in sourcefiles:
-                cmd += ["add_files -norecurse %s" % (f)]
-            cmd += [
-                "create_bd_cell -type module -reference %s %s"
-                % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-            ]
-            return cmd
+            return RTLBackend.code_generation_ipi(self)
         elif impl_style == "vivado":
             cmd = []
             node_name = self.onnx_node.name
