@@ -228,7 +228,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 with open(thresh_file, "w") as f:
                     for val in threshs:
                         f.write(val + "\n")
-        code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
+        code_gen_dict["$THRESHOLDS_PATH$"] = [f'"{t_path}/{self.onnx_node.name}_"']
 
         # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
@@ -336,12 +336,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # dump filled-in template to destination directory for compilation
             file_only_path = rtl_file_path.split("/")[-1]
             self.dump_rtl_data(code_gen_dir, file_only_path, data)
-
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        # i.e. during the HLSSynthIP() transformation
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
         return
 
     def prepare_rtlsim(self):
@@ -471,31 +465,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     mode
                 )
             )
-
-    def code_generation_ipi(self):
-        """Constructs and returns the TCL commands for node instantiation as an RTL
-        block."""
-        rtl_file_list = [
-            x.replace("thresholding_template_wrapper", self.get_nodeattr("gen_top_module"))
-            for x in self.get_rtl_file_list()
-        ]
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
-
-        for rtl_file in rtl_file_list:
-            cmd.append(
-                "add_files -copy_to %s -norecurse %s"
-                % (source_target, os.path.join(code_gen_dir, rtl_file))
-            )
-
-        # Create an RTL block, not an IP core (-type ip)
-        cmd.append(
-            "create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        )
-
-        return cmd
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

@@ -201,10 +201,6 @@ class FMPadding_rtl(FMPadding, RTLBackend):
         sv_files = ["fmpadding_axi.sv", "fmpadding.sv", "axi2we.sv"]
         for sv_file in sv_files:
             shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
 
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
@@ -235,25 +231,3 @@ class FMPadding_rtl(FMPadding, RTLBackend):
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
         return sim
-
-    def code_generation_ipi(self):
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "fmpadding_axi.sv",
-            "fmpadding.sv",
-            "axi2we.sv",
-            self.get_nodeattr("gen_top_module") + ".v",
-        ]
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
-
-        cmd = []
-        for f in sourcefiles:
-            cmd += ["add_files -norecurse %s" % (f)]
-        cmd += [
-            "create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        ]
-        return cmd
