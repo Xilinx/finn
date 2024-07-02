@@ -82,6 +82,7 @@ io_shape_dict = {
     "input_dma_name" : $INPUT_DMA_NAME$,
     "output_dma_name" : $OUTPUT_DMA_NAME$,
     "number_of_external_weights": $EXT_WEIGHT_NUM$,
+    "external_weights_input_shapes": $EXT_WEIGHT_INPUT_SHAPES$,
     "num_inputs" : $NUM_INPUTS$,
     "num_outputs" : $NUM_OUTPUTS$,
 }
