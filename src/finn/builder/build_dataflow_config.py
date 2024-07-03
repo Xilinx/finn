@@ -63,6 +63,13 @@ class DataflowOutputType(str, Enum):
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
+    
+class FpgaMemoryType(str, Enum):
+    "Memory Type used by the FPGA to store input/output data"
+
+    DEFAULT = "default"
+    HOST_MEM = "host_memory"
+
 
 
 class VitisOptStrategyCfg(str, Enum):
@@ -303,6 +310,10 @@ class DataflowBuildConfig:
     #: Vitis optimization strategy
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
+    
+    #: FPGA memory type
+    #: Can be used to use host memory for input/output data instead of DDR or HBM memory
+    fpga_memory: Optional[FpgaMemoryType] = FpgaMemoryType.DEFAULT
 
     #: Whether intermediate ONNX files will be saved during the build process.
     #: These can be useful for debugging if the build fails.
