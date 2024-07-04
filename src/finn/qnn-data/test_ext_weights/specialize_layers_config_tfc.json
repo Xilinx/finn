@@ -1,0 +1,30 @@
+{
+  "Defaults": {},
+  "Thresholding_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_0": {
+    "preferred_impl_style": "rtl"
+  },
+  "Thresholding_1": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_1": {
+    "preferred_impl_style": "hls"
+  },
+  "Thresholding_2": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_2": {
+    "preferred_impl_style": "rtl"
+  },
+  "Thresholding_3": {
+    "preferred_impl_style": "rtl"
+  },
+  "MVAU_3": {
+    "preferred_impl_style": "rtl"
+  },
+  "LabelSelect_0": {
+    "preferred_impl_style": "hls"
+  }
+}
