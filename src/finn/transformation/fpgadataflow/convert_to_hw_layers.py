@@ -294,26 +294,30 @@ class InferUpsample(Transformation):
                         scales = model.get_initializer(n.input[1])
                     elif len(n.input) == 3:
                         # Resize version 11 and up (no size input)
-                        scales = model.get_initializer(n.input[2]) 
+                        scales = model.get_initializer(n.input[2])
                     elif len(n.input) == 4:
                         # Resize version 11 and up
-                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (len(model.get_initializer(n.input[2])) != 0)
-                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (len(model.get_initializer(n.input[3])) != 0)
-                        assert (scales_exists ^ sizes_exists), (
-                            "%s: Either scales or the target output size must " 
+                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (
+                            len(model.get_initializer(n.input[2])) != 0
+                        )
+                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (
+                            len(model.get_initializer(n.input[3])) != 0
+                        )
+                        assert scales_exists ^ sizes_exists, (
+                            "%s: Either scales or the target output size must "
                             "be specified. Specifying both is prohibited." % n.name
-                            )  
-                        assert (model.get_initializer(n.input[1]) is None), (
-                            "%s: Defining the ROI is not supported" % n.name    
-                            )
-                        if (scales_exists): 
+                        )
+                        assert model.get_initializer(n.input[1]) is None, (
+                            "%s: Defining the ROI is not supported" % n.name
+                        )
+                        if scales_exists:
                             # Scales input
                             scales = model.get_initializer(n.input[2])
                         else:
                             # Convert sizes to scales
                             sizes = model.get_initializer(n.input[3])
-                            data_input_size =  model.get_tensor_shape(n.input[0])
-                            scales = sizes/data_input_size
+                            data_input_size = model.get_tensor_shape(n.input[0])
+                            scales = sizes / data_input_size
                 in_shape = model.get_tensor_shape(n.input[0])
 
                 dt = model.get_tensor_datatype(n.input[0])

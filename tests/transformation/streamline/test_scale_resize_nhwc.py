@@ -179,6 +179,7 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
 
     return model
 
+
 def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
     ofm_dim_h = sizes[2]
     ofm_dim_w = sizes[3]
@@ -189,7 +190,7 @@ def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
 
     # Not actually used, only needed for compliance with the Resize node interface
     roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
-    
+
     param = oh.make_tensor_value_info("sizes", TensorProto.INT64, [4])
 
     outp_up = oh.make_tensor_value_info(
@@ -232,6 +233,7 @@ def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
 
     return model
 
+
 def check_transform(model):
     graph = model.graph
     node_ind = 0
@@ -251,7 +253,9 @@ def check_transform(model):
 # scales
 @pytest.mark.parametrize("scales", [[1, 1, i, j] for i in range(2, 5) for j in range(2, 5)])
 # sizes
-@pytest.mark.parametrize("sizes", [[1, 3, 2**i, 2**j] for i in range(6, 7) for j in range(6, 7)])
+@pytest.mark.parametrize(
+    "sizes", [[1, 3, 2**i, 2**j] for i in range(6, 7) for j in range(6, 7)]
+)
 # mode
 @pytest.mark.parametrize("mode", ["nearest"])
 # input datatype

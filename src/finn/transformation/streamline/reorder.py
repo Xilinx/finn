@@ -763,21 +763,25 @@ class MakeScaleResizeNHWC(Transformation):
                 else:
                     if len(n.input) == 2:
                         # Resize version 10
-                        transformation_ind = 1 
+                        transformation_ind = 1
                         d_type = "float32"
                     elif len(n.input) == 3:
                         # Resize version 11 and up (no size input)
-                        transformation_ind = 2 
+                        transformation_ind = 2
                         d_type = "float32"
                     elif len(n.input) == 4:
                         # Resize version 11 and up
-                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (len(model.get_initializer(n.input[2])) != 0)
-                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (len(model.get_initializer(n.input[3])) != 0)
-                        assert (scales_exists ^ sizes_exists), (
-                            "%s: Either scales or the target output size must " 
+                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (
+                            len(model.get_initializer(n.input[2])) != 0
+                        )
+                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (
+                            len(model.get_initializer(n.input[3])) != 0
+                        )
+                        assert scales_exists ^ sizes_exists, (
+                            "%s: Either scales or the target output size must "
                             "be specified. Specifying both is prohibited." % n.name
-                            )  
-                        if (scales_exists): 
+                        )
+                        if scales_exists:
                             # Scales input
                             transformation_ind = 2
                             d_type = "float32"
