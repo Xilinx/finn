@@ -58,5 +58,5 @@ def showInNetron(model_filename: str, localhost_url: str = None, port: int = Non
     except ValueError:
         port = 8081
     localhost_url = localhost_url or os.getenv("LOCALHOST_URL", default="localhost")
-    netron.start(model_filename, address=("0.0.0.0", port), browse=False)
+    netron.start(model_filename, address=(localhost_url, port), browse=False)
     return IFrame(src=f"http://{localhost_url}:{port}/", width="100%", height=400)
