@@ -121,7 +121,7 @@ def test_convert_to_hw_channelwise_layer(pdt, idt, onnx_op_name, scalar_param, e
     assert (y_produced == y_expected).all()
     assert model.graph.node[1].op_type == "ChannelwiseOp"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

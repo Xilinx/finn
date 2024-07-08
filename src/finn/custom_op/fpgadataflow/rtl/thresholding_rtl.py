@@ -167,41 +167,47 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
 
-        # TODO check for sortedness and size here?
         thresholds = model.get_initializer(self.onnx_node.input[1])
         bias = self.get_nodeattr("ActVal")  # activation bias value
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
         o_bitwidth = DataType[output_data_type].bitwidth()
 
+        t_path = self.get_nodeattr("code_gen_dir_ipgen")
+        if self.get_nodeattr("runtime_writeable_weights") == 1:
+            thresh_file_name = f"{t_path}/memblock.dat"
+            self.make_weight_file(thresholds, "decoupled", thresh_file_name)
+
         # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold and reducing bias by 1 to compensate.
+        # one less threshold, prepending a dummy threshold (minimal possible value determined by
+        # input data type) and decrease the bias by 1.
+        # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
-        if expected_thresholds != n_thres_steps and DataType[input_data_type].signed() is not True:
-            min_val = np.amin(thresholds, axis=1)
+        wdt = self.get_weight_datatype()
+        if expected_thresholds != n_thres_steps:
+            min_val = wdt.min()
             thresholds = np.insert(thresholds, 0, min_val, axis=1)
             bias = bias - 1
+            n_thres_steps += 1
 
         # add dummy dimension as final dimension (that's what gets packed with next call)
-        thresholds = np.expand_dims(thresholds, axis=-1)
-        wdt = self.get_weight_datatype()
+        t_expand = np.expand_dims(thresholds, axis=-1)
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 4)
         t_packed = pack_innermost_dim_as_hex_string(
-            thresholds,
+            t_expand,
             wdt,
             bw_hexdigit,
             prefix="",
         )
 
-        t_path = self.get_nodeattr("code_gen_dir_ipgen")
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
 
         # If a single threshold value is found, broadcast the value
-        expected_shape = (num_channels, n_thres_steps)
-        if t_packed.shape == (1, 1):
-            t_packed = np.broadcast_to(t_packed, expected_shape)
+        if t_packed.shape[0] == 1:
+            t_packed = np.broadcast_to(t_packed, (pe, expected_thresholds))
+            num_channels = pe
 
         channel_fold = int(num_channels / pe)
 
@@ -235,9 +241,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         i_bitwidth = DataType[input_data_type].bitwidth()
 
         code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
-        code_gen_dict["$M$"] = [
-            str(i_bitwidth)
-        ]  # input/threshold precision - convert bitwidth to string
+        code_gen_dict["$WT$"] = [
+            str(wdt.bitwidth())
+        ]  # threshold precision - convert bitwidth to string
+        code_gen_dict["$WI$"] = [str(i_bitwidth)]  # input precision - convert bitwidth to string
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
         code_gen_dict["$PE$"] = [str(pe)]  # requires C = M*PE
@@ -255,7 +262,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             o_bits = 1 + math.ceil(
                 math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
             )
-
         code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
 
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
@@ -321,10 +327,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Set the 'gen_top_module' attribute for use later
         # by PyVerilator and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-
-        weights = model.get_initializer(self.onnx_node.input[1])
-        weights_fname = f"{code_gen_dir}/memblock.dat"
-        self.make_weight_file(weights, "decoupled", weights_fname)
 
         for rtl_file_path in self.get_rtl_file_paths():
             # read in original RTL template file
@@ -513,26 +515,32 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         * weight_file_name : filename for the weight file to be generated
 
         """
-        threshold_tensor = self.get_hw_compatible_threshold_tensor(weights)
-        tdt = self.get_weight_datatype()
-        assert np.vectorize(tdt.allowed)(
-            threshold_tensor
-        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-
+        thresholds = weights
         pe = self.get_nodeattr("PE")
         ch = self.get_nodeattr("NumChannels")
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
+        # one less threshold, prepending a dummy threshold (minimal possible value determined by
+        # input data type) and decrease the bias by 1.
+        # Additionally, increase number of threshold steps to reflect new shape
+        expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
+        wdt = self.get_weight_datatype()
+        if expected_thresholds != n_thres_steps:
+            min_val = wdt.min()
+            thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            n_thres_steps += 1
 
         # If a single threshold value is found, broadcast the value
-        n_thres_steps = self.get_nodeattr("numSteps")
-        expected_shape = (ch, n_thres_steps)
-        if weights.shape == (1, 1):
-            weights = np.broadcast_to(weights, expected_shape)
+        if thresholds.shape[0] == 1:
+            thresholds = np.broadcast_to(thresholds, (pe, expected_thresholds))
+            ch = pe
 
-        width_padded = roundup_to_integer_multiple(weights.shape[1], 4)
-        weight_padded = np.zeros((weights.shape[0], width_padded))
-        weight_padded[: weights.shape[0], :n_thres_steps] = weights
-        weight_stream = []
+        width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
+        thresh_padded = np.zeros((thresholds.shape[0], width_padded))
+        thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds
+        thresh_stream = []
         wdt = self.get_weight_datatype()
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
         padding = np.zeros(width_padded, dtype=np.int32)
@@ -542,18 +550,18 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         for fold in range(cf):
             for c in range(2 ** (pe - 1).bit_length()):
                 if (c == 0 or c % pe != 0) and c < pe:
-                    for w in weight_padded[chan_ind]:
-                        w_packed = pack_innermost_dim_as_hex_string(
-                            [w], wdt, bw_hexdigit, prefix=""
+                    for t in thresh_padded[chan_ind]:
+                        t_packed = pack_innermost_dim_as_hex_string(
+                            [t], wdt, bw_hexdigit, prefix=""
                         ).item()
-                        weight_stream.append(w_packed)
+                        thresh_stream.append(t_packed)
                     chan_ind += 1
                 else:
                     for z in padding:
-                        w_packed = pack_innermost_dim_as_hex_string(
+                        t_packed = pack_innermost_dim_as_hex_string(
                             [z], wdt, bw_hexdigit, prefix=""
                         ).item()
-                        weight_stream.append(w_packed)
+                        thresh_stream.append(t_packed)
         with open(weight_file_name, "w") as f:
-            for val in weight_stream:
+            for val in thresh_stream:
                 f.write(val + "\n")

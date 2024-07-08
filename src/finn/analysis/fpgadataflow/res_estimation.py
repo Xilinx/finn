@@ -31,7 +31,7 @@ import qonnx.custom_op.registry as registry
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def res_estimation(model):
+def res_estimation(model, fpgapart):
     """Estimates the resources needed for the given model.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
@@ -43,12 +43,12 @@ def res_estimation(model):
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
             inst = registry.getCustomOp(node)
-            res_dict[node.name] = inst.node_res_estimation()
+            res_dict[node.name] = inst.node_res_estimation(fpgapart)
 
     return res_dict
 
 
-def res_estimation_complete(model):
+def res_estimation_complete(model, fpgapart):
     """Estimates the resources needed for the given model and all values for
     resource-related switches.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
@@ -66,21 +66,21 @@ def res_estimation_complete(model):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")
-                res_dict[node.name].append(inst.node_res_estimation())
+                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
                 inst.set_nodeattr("resType", "lut")
-                res_dict[node.name].append(inst.node_res_estimation())
+                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
                 inst.set_nodeattr("resType", orig_restype)
             elif op_type.startswith("ConvolutionInputGenerator"):
                 orig_ramstyle = inst.get_nodeattr("ram_style")
                 res_dict[node.name] = []
                 inst.set_nodeattr("ram_style", "block")
-                res_dict[node.name].append(inst.node_res_estimation())
+                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
                 inst.set_nodeattr("ram_style", "distributed")
-                res_dict[node.name].append(inst.node_res_estimation())
+                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
                 inst.set_nodeattr("ram_style", "ultra")
-                res_dict[node.name].append(inst.node_res_estimation())
+                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
                 inst.set_nodeattr("ram_style", orig_ramstyle)
             else:
-                res_dict[node.name] = [inst.node_res_estimation()]
+                res_dict[node.name] = [inst.node_res_estimation(fpgapart)]
 
     return res_dict
