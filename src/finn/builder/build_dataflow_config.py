@@ -224,6 +224,8 @@ class DataflowBuildConfig:
     #: to the design: e.g. Customer signature, application signature, version
     signature: Optional[List[int]] = None
 
+    #: (Optional) Prefix for node names
+    prefix_node_names: Optional[str] = ""
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
     #: Only relevant if target_fps is specified.

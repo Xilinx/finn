@@ -246,6 +246,7 @@ class InsertAndSetFIFODepths(Transformation):
         swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
+        prefix="",
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -255,6 +256,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
         self.force_python_sim = force_python_sim
+        self.prefix = prefix
 
     def apply(self, model):
         # these optypes may potentially use external weights
@@ -300,7 +302,7 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
         model = model.transform(SpecializeLayers(self.fpgapart))
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(self.prefix))
         model = model.transform(GiveReadableTensorNames())
 
         # gather FIFO names, check they are of expected depth

@@ -291,7 +291,7 @@ def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
-    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
     model = model.transform(RemoveStaticGraphInputs())
@@ -358,7 +358,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(RemoveCNVtoFCFlatten())
     # get rid of Tranpose -> Tranpose identity seq
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
     model = model.transform(InferDataLayouts())
 
     return model
@@ -402,7 +402,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
     a warning will be printed and the implementation style will be set to a default."""
 
     if cfg.specialize_layers_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
         model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     model = model.transform(InferShapes())
@@ -447,7 +447,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     and other attributes, if config file is specified."""
 
     if cfg.folding_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
         model = model.transform(ApplyConfig(cfg.folding_config_file))
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
@@ -547,7 +547,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
             model = model.transform(
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
@@ -565,7 +565,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 )
             )
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
             # multi-in/out streams currently not supported in our C++ verilator driver
@@ -583,6 +583,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     force_python_sim=force_python_sim,
+                    prefix=cfg.prefix_node_names,
                 )
             )
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
@@ -597,7 +598,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         # set by ApplyConfig, so create_shallow_fifos=True
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
         model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueNodeNames(prefix=cfg.prefix_node_names))
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
