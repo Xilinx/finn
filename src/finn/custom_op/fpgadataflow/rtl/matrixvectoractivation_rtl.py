@@ -183,7 +183,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         # if using 2x pumped compute, connect the MVU's 2x clk input
         # to the 2x clock port. Otherwise connect 2x clk to regular clk port
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        if self.get_nodeattr("pumpedCompute"):
+        if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
             clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"

@@ -114,11 +114,12 @@ class CreateStitchedIP(Transformation):
 
     def is_double_pumped(self, node):
         if node.op_type.startswith("MVAU"):
+            inst = getCustomOp(node)
             try:
-                pumped_compute = getCustomOp(node).get_nodeattr("pumpedCompute")
+                pumped_compute = inst.get_nodeattr("pumpedCompute")
             except AttributeError:
                 pumped_compute = 0
-            return pumped_compute
+            return pumped_compute or inst.get_nodeattr("pumpedMemory")
 
     def connect_clk_rst(self, node):
         inst_name = node.name
