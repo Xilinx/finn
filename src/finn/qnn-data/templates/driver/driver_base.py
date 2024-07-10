@@ -374,8 +374,8 @@ class FINNExampleOverlay(Overlay):
                 assert self.odma_handle[o] is None, "Output DMA %d is already running" % o
             for i in range(self.num_inputs):
                 self.idma[i].start(self.ibuf_packed_device[i], batch_size)
-            for iwdma, iwbuf, iwdma_name in self.external_weights:
-                iwdma.start(iwbuf, batch_size)
+            for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
+                iwdma.start(iwbuf, batch_size * num_repeats)
             for o in range(self.num_outputs):
                 self.odma_handle[o] = self.odma[o].start(self.obuf_packed_device[o], batch_size)
         else:
@@ -445,7 +445,7 @@ class FINNExampleOverlay(Overlay):
         res["DRAM_out_bandwidth[MB/s]"] = total_out * 0.000001 / runtime
         for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
             res["DRAM_extw_%s_bandwidth[MB/s]" % iwdma_name] = (
-                self.batch_size * np.prod(iwbuf.shape) * 0.000001 / runtime
+                self.batch_size * np.prod(iwbuf.shape) * num_repeats * 0.000001 / runtime
             )
         if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
