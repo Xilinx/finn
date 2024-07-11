@@ -129,10 +129,3 @@ def test_end2end_ext_weights_build(topology):
     if os.path.isdir(get_checkpoint_name("build", topology)):
         shutil.rmtree(get_checkpoint_name("build", topology))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", topology))
-
-
-# test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
-# folding_config_file = test_data + "/" + "cnv" + "-w2a2-extw.json"
-# output_dir = os.environ["FINN_BUILD_DIR"] + "/test_end2end_ext_weights_buildaa7gwzq7"
-# runtime_weights_dir = output_dir + "/deploy/driver/runtime_weights/"
-# verify_runtime_weights(folding_config_file, runtime_weights_dir)
