@@ -7,7 +7,7 @@
     "preferred_impl_style": ""
   },
   "MVAU_0": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_1": {
     "preferred_impl_style": ""
@@ -28,7 +28,7 @@
     "preferred_impl_style": ""
   },
   "MVAU_2": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_3": {
     "preferred_impl_style": ""
@@ -37,7 +37,7 @@
     "preferred_impl_style": ""
   },
   "MVAU_3": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_4": {
     "preferred_impl_style": ""
@@ -49,7 +49,7 @@
     "preferred_impl_style": ""
   },
   "MVAU_4": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_5": {
     "preferred_impl_style": ""
@@ -58,25 +58,25 @@
     "preferred_impl_style": ""
   },
   "MVAU_5": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_6": {
     "preferred_impl_style": ""
   },
   "MVAU_6": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_7": {
     "preferred_impl_style": ""
   },
   "MVAU_7": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "Thresholding_8": {
     "preferred_impl_style": ""
   },
   "MVAU_8": {
-    "preferred_impl_style": "rtl"
+    "preferred_impl_style": "hls"
   },
   "LabelSelect_0": {
     "preferred_impl_style": ""
