@@ -35,10 +35,10 @@ import subprocess
 import wget
 import json
 
-# import finn.builder.build_dataflow as build
-# import finn.builder.build_dataflow_config as build_cfg
-# from finn.util.basic import make_build_dir
-# from finn.util.test import load_test_checkpoint_or_skip
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+from finn.util.basic import make_build_dir
+from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
 build_dir = os.environ["FINN_BUILD_DIR"]
