@@ -29,11 +29,11 @@
 
 import pytest
 
+import json
 import os
 import shutil
 import subprocess
 import wget
-import json
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -67,7 +67,7 @@ def get_checkpoint_name(step, topology):
     else:
         # other checkpoints are onnx files
         return build_dir + "/end2end_" + topology + "_ext_weights_%s.onnx" % (step)
-    
+
 
 def verify_runtime_weights(folding_config_file, runtime_weights_dir):
     with open(folding_config_file) as file:
@@ -79,7 +79,7 @@ def verify_runtime_weights(folding_config_file, runtime_weights_dir):
             num_ext_weights += 1
     runtime_weights_files = os.listdir(runtime_weights_dir)
     for idx in range(num_ext_weights):
-        expected_file = 'idma{}.npy'.format(idx)
+        expected_file = "idma{}.npy".format(idx)
         assert expected_file in runtime_weights_files
 
 

@@ -242,7 +242,9 @@ class MakePYNQDriver(Transformation):
                     dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
                     iodma_output_tensor = iodma_node.onnx_node.output[0]
                     dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
-                    ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(dma_consumer.output[0])
+                    ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(
+                        dma_consumer.output[0]
+                    )
 
                     init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
                     ext_weight_dma_cnt += 1
