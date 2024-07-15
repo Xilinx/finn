@@ -100,7 +100,7 @@ if __name__ == "__main__":
         driver.copy_output_data_from_device(obuf_normal)
         batch_ok = (obuf_normal.flatten() == exp.flatten()).sum()
         ok += batch_ok
-        nok += (bsize - batch_ok)
+        nok += bsize - batch_ok
         print("batch %d / %d : total OK %d NOK %d" % (i + 1, n_batches, ok, nok))
 
     acc = 100.0 * ok / (total)

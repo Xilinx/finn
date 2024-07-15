@@ -145,7 +145,7 @@ class FINNExampleOverlay(Overlay):
                 # weight_buf.sync_to_device()
                 weight_buf.flush()
 
-                input_shape = self._io_shape_dict['external_weights_input_shapes'][idma_name]
+                input_shape = self._io_shape_dict["external_weights_input_shapes"][idma_name]
                 # NHWC input?
                 if len(input_shape) == 4:
                     num_repeats = input_shape[1] * input_shape[2]
