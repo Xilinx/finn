@@ -34,9 +34,9 @@
 module mvu_8sx8u_dsp48 #(
 	int unsigned  PE,
 	int unsigned  SIMD,
-	int unsigned  ACCU_WIDTH,
-	int unsigned  ACTIVATION_WIDTH,
 	int unsigned  WEIGHT_WIDTH,
+	int unsigned  ACTIVATION_WIDTH,
+	int unsigned  ACCU_WIDTH,
 
 	int unsigned  VERSION = 1,
 	bit  SIGNED_ACTIVATIONS = 0,
