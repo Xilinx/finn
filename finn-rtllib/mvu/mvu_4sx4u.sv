@@ -34,6 +34,8 @@
 module mvu_4sx4u #(
 	int unsigned  PE,
 	int unsigned  SIMD,
+	int unsigned  WEIGHT_WIDTH,
+	int unsigned  ACTIVATION_WIDTH,
 	int unsigned  ACCU_WIDTH,
 
 	int unsigned  VERSION = 1,	// Version 1 (DSP48E1) *must* commit to NARROW_WEIGHTS
@@ -49,8 +51,8 @@ module mvu_4sx4u #(
 	// Input
 	input	logic  last,
 	input	logic  zero,	// ignore current inputs and force this partial product to zero
-	input	logic signed [PE-1:0][SIMD-1:0][3:0]  w,	// signed weights
-	input	logic                [SIMD-1:0][3:0]  a,	// unsigned activations (override by SIGNED_ACTIVATIONS)
+	input	logic signed [PE-1:0][SIMD-1:0][WEIGHT_WIDTH    -1:0]  w,	// signed weights
+	input	logic                [SIMD-1:0][ACTIVATION_WIDTH-1:0]  a,	// unsigned activations (override by SIGNED_ACTIVATIONS)
 
 	// Ouput
 	output	logic  vld,
@@ -141,14 +143,14 @@ module mvu_4sx4u #(
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
-			uwire [17:0]  bb = { {(14){SIGNED_ACTIVATIONS && a[s][3]}}, a[s] };
+			uwire [17:0]  bb = { {(18-ACTIVATION_WIDTH){SIGNED_ACTIVATIONS && a[s][ACTIVATION_WIDTH-1]}}, a[s] };
 			logic [29:0]  aa;
 			logic [26:0]  dd;
 			logic [ 1:0]  xx[3:1];
 			if(1) begin : blkVectorize
 				uwire signed [3:0]  ww[PE_END - PE_BEG];
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-					assign	ww[pe] = w[PE_BEG + pe][s];
+					assign	ww[pe] = $signed(w[PE_BEG + pe][s]);
 					if(pe > 0) begin
 						if(BEHAVIORAL)  assign  xx[pe + PE_REM] = zero? 0 : ww[pe] * a[s];
 `ifndef VERILATOR
