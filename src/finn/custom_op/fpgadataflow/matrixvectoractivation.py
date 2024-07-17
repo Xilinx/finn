@@ -888,7 +888,7 @@ class MVAU(HWCustomOp):
         template_path = (
             os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
         )
-        mname = self.get_nodeattr("gen_top_module")
+        mname = self.onnx_node.name
         wmem = self.calc_wmem()
         padded_width = self.get_weightstream_width_padded()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -911,9 +911,7 @@ class MVAU(HWCustomOp):
             code_gen_line = "\n".join(code_gen_dict[key])
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_memstream_wrapper.v"
-            ),
+            os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
             "w",
         ) as f:
             f.write(template_wrapper)
@@ -965,7 +963,7 @@ class MVAU(HWCustomOp):
             # instantiate a streamer and connect it to the IP
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
-            strm_tmpl_name = self.get_nodeattr("gen_top_module") + "_memstream_wrapper"
+            strm_tmpl_name = self.onnx_node.name + "_memstream_wrapper"
             sourcefiles = [
                 os.path.join(code_gen_dir, strm_tmpl_name + ".v"),
                 swg_rtllib_dir + "axilite_if.v",
