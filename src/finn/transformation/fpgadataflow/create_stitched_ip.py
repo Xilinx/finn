@@ -86,8 +86,11 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], early_exit=False
+    ):
         super().__init__()
+        self.early_exit = early_exit  # temp parameter
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
@@ -627,28 +630,32 @@ close $ofile
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
-        # create a shell script and call Vivado
-        make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
-        working_dir = os.environ["PWD"]
-        with open(make_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_project.tcl\n")
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", make_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        # wrapper may be created in different location depending on Vivado version
-        if not os.path.isfile(wrapper_filename):
-            # check in alternative location (.gen instead of .srcs)
-            wrapper_filename_alt = wrapper_filename.replace(".srcs", ".gen")
-            if os.path.isfile(wrapper_filename_alt):
-                model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
-            else:
-                raise Exception(
-                    """CreateStitchedIP failed, no wrapper HDL found under %s or %s.
-                    Please check logs under the parent directory."""
-                    % (wrapper_filename, wrapper_filename_alt)
-                )
+
+        # TODO: reverse this change
+        # ONLY TEMPORARILY DISABLED TO ALLOW FOR FASTER EXECUTION
+        if not self.early_exit:
+            # create a shell script and call Vivado
+            make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
+            working_dir = os.environ["PWD"]
+            with open(make_project_sh, "w") as f:
+                f.write("#!/bin/bash \n")
+                f.write("cd {}\n".format(vivado_stitch_proj_dir))
+                f.write("vivado -mode batch -source make_project.tcl\n")
+                f.write("cd {}\n".format(working_dir))
+            bash_command = ["bash", make_project_sh]
+            process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+            process_compile.communicate()
+            # wrapper may be created in different location depending on Vivado version
+            if not os.path.isfile(wrapper_filename):
+                # check in alternative location (.gen instead of .srcs)
+                wrapper_filename_alt = wrapper_filename.replace(".srcs", ".gen")
+                if os.path.isfile(wrapper_filename_alt):
+                    model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
+                else:
+                    raise Exception(
+                        """CreateStitchedIP failed, no wrapper HDL found under %s or %s.
+                        Please check logs under the parent directory."""
+                        % (wrapper_filename, wrapper_filename_alt)
+                    )
 
         return (model, False)
