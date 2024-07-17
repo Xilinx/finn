@@ -72,5 +72,6 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
+        assert os.path.isfile(verify_out_dir + f"/verify_node_by_node_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(output_dir + f"/report/verify_rtlsim_{i}.vcd")
