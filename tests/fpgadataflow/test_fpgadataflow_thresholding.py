@@ -129,14 +129,14 @@ def make_single_multithresholding_modelwrapper(
         [1, 2, 2],
     ],
 )
-@pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
+@pytest.mark.parametrize("activation", [DataType["UINT4"], DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize(
     "idt_tdt_cfg",
     [
         (DataType["INT8"], DataType["INT8"]),
         (DataType["INT8"], DataType["INT9"]),
-        (DataType["UINT8"], DataType["UINT8"]),
-        (DataType["UINT8"], DataType["UINT9"]),
+        (DataType["UINT5"], DataType["UINT5"]),
+        (DataType["UINT5"], DataType["UINT6"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -184,7 +184,7 @@ def test_fpgadataflow_thresholding(
         activation_bias = 0
     else:
         activation_bias = activation.min()
-        if narrow:
+        if narrow and activation.signed():
             activation_bias += 1
 
     # Generate random thresholds and sort in ascending order
