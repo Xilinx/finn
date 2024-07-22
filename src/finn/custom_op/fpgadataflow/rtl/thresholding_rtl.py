@@ -197,7 +197,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
                 else:
                     max_val = max_val + 1
-                    wdt = DataType.get_smallest_possible(max_val)
+                    # increase wdt
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
                     thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
             n_thres_steps += 1
 
@@ -548,7 +552,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
                 else:
                     max_val = max_val + 1
-                    wdt = DataType.get_smallest_possible(max_val)
+                    # increase wdt
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
                     thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
             n_thres_steps += 1
 
