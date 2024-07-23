@@ -266,7 +266,8 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 
-# If using build verification, set up the necessary Docker variables
+# This part is used for internal ci for finn-examples
+# if using build verification for finn-examples ci, set up the necessary Docker variables
 if [ "$VERIFICATION_EN" = 1 ]; then
   if [ -z "$FINN_EXAMPLES_ROOT" ]; then
     recho "FINN_EXAMPLES_ROOT path has not been set."
@@ -288,6 +289,7 @@ if [ "$VERIFICATION_EN" = 1 ]; then
     FINN_DOCKER_EXTRA+="-v $VERIFICATION_IO:$VERIFICATION_IO "
   fi
 fi
+
 
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 
