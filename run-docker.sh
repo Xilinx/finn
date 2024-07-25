@@ -281,6 +281,10 @@ if [ "$VERIFICATION_EN" = 1 ]; then
     recho "VERIFICATION_IO paths has not been set."
     recho "Please ensure the path to the input and expected output files has been set correctly to eneable verification."
     exit -1
+  elif [ ! -d "$VERIFICATION_IO" ]; then
+    recho "${VERIFICATION_IO} is not a directory."
+    recho "Please ensure the VERIFICATION_IO path has been set to the directory containing the input and expected output files for verification."
+    exit -1
   else
     DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
     DOCKER_EXEC+="-e FINN_EXAMPLES_ROOT=$FINN_EXAMPLES_ROOT "
