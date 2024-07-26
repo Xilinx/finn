@@ -1,4 +1,5 @@
 # Copyright (c) 2020, Xilinx
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,7 +46,7 @@ def floorplan_params(model):
         }
     }
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node):
             node_inst = getCustomOp(node)
             node_slr = node_inst.get_nodeattr("slr")
             node_pid = node_inst.get_nodeattr("partition_id")

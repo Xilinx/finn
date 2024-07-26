@@ -2,13 +2,12 @@
 
 
 
-<img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="250"/>
+<img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-stack.PNG" alt="drawing" style="margin-right: 20px" width="250"/>
 
 [![GitHub Discussions](https://img.shields.io/badge/discussions-join-green)](https://github.com/Xilinx/finn/discussions)
 [![ReadTheDocs](https://readthedocs.org/projects/finn/badge/?version=latest&style=plastic)](http://finn.readthedocs.io/)
 
-FINN is an experimental framework from Xilinx Research Labs to explore deep neural network
-inference on FPGAs.
+FINN is an experimental framework from Integrated Communications and AI Lab of AMD Research & Advanced Development to explore deep neural network inference on FPGAs.
 It specifically targets <a href="https://github.com/maltanar/qnn-inference-examples" target="_blank">quantized neural
 networks</a>, with emphasis on
 generating dataflow-style architectures customized for each network.
@@ -28,7 +27,7 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## Documentation
 
-You can view the documentation on [readthedocs](https://finn.readthedocs.io) or build them locally using `python setup.py doc` from inside the Docker container. Additionally, there is a series of [Jupyter notebook tutorials](https://github.com/Xilinx/finn/tree/main/notebooks), which we recommend running from inside Docker for a better experience.
+You can view the documentation on [readthedocs](https://finn.readthedocs.io). Additionally, there is a series of [Jupyter notebook tutorials](https://github.com/Xilinx/finn/tree/main/notebooks), which we recommend running from inside Docker for a better experience.
 
 ## Community
 

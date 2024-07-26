@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +35,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def divisors(num):
@@ -99,33 +100,33 @@ class SetFolding(Transformation):
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
-            "AddStreams_Batch",
-            "ChannelwiseOp_Batch",
-            "DuplicateStreams_Batch",
-            "GlobalAccPool_Batch",
-            "Thresholding_Batch",
+            "AddStreams_hls",
+            "ChannelwiseOp_hls",
+            "DuplicateStreams_hls",
+            "GlobalAccPool_hls",
+            "Thresholding_hls",
+            "Thresholding_rtl",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
         # ConvolutionInputGenerator_rtl supports additional parallelism by
         # setting parallel_window=1 mode after maxing out SIMD
         simd_ops = [
-            "DownSampler",
-            "FMPadding_Batch",
-            "FMPadding_Pixel",
-            "ConvolutionInputGenerator",
-            "ConvolutionInputGenerator1D",
+            "DownSampler_hls",
+            "FMPadding_hls",
+            "FMPadding_Pixel_hls",
+            "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VectorVectorActivation", "Pool_Batch"]
+        depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl", "Pool_hls"]
         for node in graph.node:
-            if not is_fpgadataflow_node(node):
+            if not (is_hls_node(node) or is_rtl_node(node)):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type == "MatrixVectorActivation":
+            if op_type in ["MVAU_hls", "MVAU_rtl"]:
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
@@ -152,12 +153,12 @@ class SetFolding(Transformation):
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "LabelSelect_Batch":
+            elif op_type == "LabelSelect_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type == "VectorVectorActivation":
+                if op_type in ["VVAU_hls", "VVAU_rtl"]:
                     node_inst.set_nodeattr("SIMD", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
@@ -165,7 +166,7 @@ class SetFolding(Transformation):
                 pe = node_inst.get_nodeattr("PE")
                 cyc = node_inst.get_exp_cycles()
                 if (
-                    op_type == "VectorVectorActivation"
+                    op_type in ["VVAU_hls", "VVAU_rtl"]
                     and pe == max_pe
                     and cyc > self.target_cycles_per_frame
                 ):
@@ -179,17 +180,14 @@ class SetFolding(Transformation):
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # enable parallel_window mode of RTL SWG if needed
                     if swu_node.op_type == "ConvolutionInputGenerator_rtl":
-                        if (
-                            op_type == "VectorVectorActivation"
-                            and node_inst.get_nodeattr("SIMD") > 1
-                        ):
+                        if op_type.startswith("VVAU") and node_inst.get_nodeattr("SIMD") > 1:
                             swu_node_inst.set_nodeattr("parallel_window", 1)
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                 else:
-                    if op_type == "VectorVectorActivation":
+                    if op_type in ["VVAU_hls", "VVAU_rtl"]:
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
-                    elif op_type == "Pool_Batch":
+                    elif op_type == "Pool_hls":
                         ksize = node_inst.get_nodeattr("KernelSize")
                     else:
                         raise Exception("Undefined edge case for %s" % op_type)

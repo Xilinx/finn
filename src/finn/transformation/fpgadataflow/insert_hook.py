@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2022, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -33,11 +34,11 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 def _is_hook_node(node):
-    if node.op_type in ["CheckSum"]:
+    if node.op_type in ["CheckSum_hls"]:
         return True
     else:
         return False
@@ -45,8 +46,8 @@ def _is_hook_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_fpgadataflow_node(node) is True:
-            if _is_hook_node(node) is False:
+        if is_hls_node(node) or is_rtl_node(node):
+            if not _is_hook_node(node):
                 return True
             else:
                 return False
@@ -81,7 +82,7 @@ class InsertHook(Transformation):
                     if n0_hook in list_supported_hooks:
                         if n0_hook == "checksum":
                             if len(consumers) == 1:
-                                if consumers[0].op_type == "CheckSum":
+                                if consumers[0].op_type == "CheckSum_hls":
                                     continue
                             n0_normal_oshape = n0.get_normal_output_shape()
                             n0_folded_oshape = n0.get_folded_output_shape()
@@ -99,10 +100,10 @@ class InsertHook(Transformation):
                                 [1],
                             )
                             chk_node = oh.make_node(
-                                "CheckSum",
+                                "CheckSum_hls",
                                 [output_name],
                                 outputs=[chk_otensor.name, chk_result.name],
-                                domain="finn.custom_op.fpgadataflow",
+                                domain="finn.custom_op.fpgadataflow.hls",
                                 backend="fpgadataflow",
                                 words_per_frame=words_per_frame,
                                 items_per_word=items_per_word,

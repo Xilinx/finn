@@ -146,7 +146,7 @@ class MakePYNQDriver(Transformation):
                 Ensure CreateDataflowPartition called before driver creation."""
             first_df_model = ModelWrapper(getCustomOp(i_consumer).get_nodeattr("model"))
             assert (
-                first_df_model.graph.node[0].op_type == "IODMA"
+                first_df_model.graph.node[0].op_type == "IODMA_hls"
             ), "First partition must hold input IODMA"
             successors = model.find_direct_successors(i_consumer)
             successor_input_num = list(successors[0].input).index(i_consumer.output[0])
@@ -187,7 +187,9 @@ class MakePYNQDriver(Transformation):
             ), """
                 Ensure CreateDataflowPartition called before driver creation."""
             df_model = ModelWrapper(getCustomOp(o_producer).get_nodeattr("model"))
-            assert df_model.graph.node[-1].op_type == "IODMA", "Partition must hold output IODMA"
+            assert (
+                df_model.graph.node[-1].op_type == "IODMA_hls"
+            ), "Partition must hold output IODMA"
             predecessors = model.find_direct_predecessors(o_producer)
             predecessor_output_num = list(predecessors[0].output).index(o_producer.input[0])
             predecessor_sdp = getCustomOp(predecessors[0])
@@ -231,7 +233,7 @@ class MakePYNQDriver(Transformation):
                 sdp_inst = getCustomOp(node)
                 idma_name = sdp_inst.get_nodeattr("instance_name")
                 df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
-                assert df_model.graph.node[0].op_type == "IODMA"
+                assert df_model.graph.node[0].op_type == "IODMA_hls"
                 iodma_node = getCustomOp(df_model.graph.node[0])
                 if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
                     init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
@@ -280,7 +282,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
+                if node.op_type.startswith("MVAU") or node.op_type.startswith("Thresholding"):
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

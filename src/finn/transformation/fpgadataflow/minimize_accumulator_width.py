@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -46,7 +47,7 @@ class MinimizeAccumulatorWidth(Transformation):
             # Since InferDataTypes potentially changes node attributes in each loop iterations,
             # the for-loop cannot loop over a list of a snapshot of the graph's node protos
             node = model.graph.node[node_id]
-            if is_fpgadataflow_node(node) is True:
+            if is_fpgadataflow_node(node):
                 inst = getCustomOp(node)
                 if hasattr(inst, "minimize_accumulator_width"):
                     inst.minimize_accumulator_width(model)

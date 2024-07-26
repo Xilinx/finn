@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -34,7 +35,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 def _codegen_single_node(node, model):
@@ -78,7 +79,7 @@ class PrepareCppSim(Transformation):
             self._num_workers = mp.cpu_count()
 
     def prepareCppSim_node(self, node):
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node):
             _codegen_single_node(node, self.model)
         return (node, False)
 

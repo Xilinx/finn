@@ -20,7 +20,7 @@ two command line entry points for productivity and ease-of-use:
   Jupyter notebook as a starting point, visualizing the model at intermediate
   steps and adding calls to new transformations as needed.
   Once you have a working flow, you can implement a command line entry for this
-  by using the "advanced mode" described here.
+  by using the "advanced mode".
 
 
 Simple dataflow build mode
@@ -28,7 +28,7 @@ Simple dataflow build mode
 
 This mode is intended for simpler networks whose topologies resemble the
 FINN end-to-end examples.
-It runs a fixed build flow spanning tidy-up, streamlining, HLS conversion
+It runs a fixed build flow spanning tidy-up, streamlining, HW conversion
 and hardware synthesis.
 It can be configured to produce different outputs, including stitched IP for
 integration in Vivado IPI as well as bitfiles.
@@ -43,7 +43,9 @@ To use it, first create a folder with the necessary configuration and model file
 3. Create a JSON file with the build configuration. It must be named ``dataflow_build_dir/dataflow_build_config.json``.
    Read more about the build configuration options on :py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig`.
    You can find an example .json file under ``src/finn/qnn-data/build_dataflow/dataflow_build_config.json``
-4. (Optional) create a JSON file with the folding configuration. It must be named ``dataflow_build_dir/folding_config.json``.
+4. (Optional) create a JSON file with the specialize layers configuration. It must be named ``dataflow_build_dir/specialize_layers_config.json``
+   You can find an example .json file under ``src/finn/qnn-data/build_dataflow/specialize_layers_config.json``.
+5. (Optional) create a JSON file with the folding configuration. It must be named ``dataflow_build_dir/folding_config.json``.
    You can find an example .json file under ``src/finn/qnn-data/build_dataflow/folding_config.json``.
    Instead of specifying the folding configuration, you can use the `target_fps` option in the build configuration
    to control the degree of parallelization for your network.
@@ -59,25 +61,28 @@ as it goes through numerous steps:
 
 .. code-block:: none
 
-  Building dataflow accelerator from /home/maltanar/sandbox/build_dataflow/model.onnx
+  Building dataflow accelerator from build_dataflow/model.onnx
   Outputs will be generated at output_tfc_w1a1_Pynq-Z1
   Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
-  Running step: step_tidy_up [1/16]
-  Running step: step_streamline [2/16]
-  Running step: step_convert_to_hls [3/16]
-  Running step: step_create_dataflow_partition [4/16]
-  Running step: step_target_fps_parallelization [5/16]
-  Running step: step_apply_folding_config [6/16]
-  Running step: step_generate_estimate_reports [7/16]
-  Running step: step_hls_codegen [8/16]
-  Running step: step_hls_ipgen [9/16]
-  Running step: step_set_fifo_depths [10/16]
-  Running step: step_create_stitched_ip [11/16]
-  Running step: step_measure_rtlsim_performance [12/16]
-  Running step: step_make_pynq_driver [13/16]
-  Running step: step_out_of_context_synthesis [14/16]
-  Running step: step_synthesize_bitfile [15/16]
-  Running step: step_deployment_package [16/16]
+  Running step: step_qonnx_to_finn [1/19]
+  Running step: step_tidy_up [2/19]
+  Running step: step_streamline [3/19]
+  Running step: step_convert_to_hw [4/19]
+  Running step: step_create_dataflow_partition [5/19]
+  Running step: step_specialize_layers [6/19]
+  Running step: step_target_fps_parallelization [7/19]
+  Running step: step_apply_folding_config [8/19]
+  Running step: step_minimize_bit_width [9/19]
+  Running step: step_generate_estimate_reports [10/19]
+  Running step: step_hw_codegen [11/19]
+  Running step: step_hw_ipgen [12/19]
+  Running step: step_set_fifo_depths [13/19]
+  Running step: step_create_stitched_ip [14/19]
+  Running step: step_measure_rtlsim_performance [15/19]
+  Running step: step_out_of_context_synthesis [16/19]
+  Running step: step_synthesize_bitfile [17/19]
+  Running step: step_make_pynq_driver [18/19]
+  Running step: step_deployment_package [19/19]
 
 
 You can read a brief description of what each step does on
@@ -99,6 +104,7 @@ The following outputs will be generated regardless of which particular outputs a
 * ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
 * ``time_per_step.json`` will report the time (in seconds) each build step took
 * ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build
+* ``template_specialize_layers_config.json`` is an example json file that can be used to set the specialize layers config
 * ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
 
 
@@ -206,3 +212,5 @@ You can launch the desired custom build flow using:
 This will mount the specified folder into the FINN Docker container and launch
 the build flow. If ``<name-of-build-flow>`` is not specified it will default to ``build``
 and thus execute ``build.py``. If it is specified, it will be ``<name-of-build-flow>.py``.
+
+If you would like to learn more about advance builder settings, please have a look at `our tutorial about this topic <https://github.com/Xilinx/finn/blob/main/notebooks/advanced/4_advanced_builder_settings.ipynb>`_.

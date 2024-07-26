@@ -27,8 +27,6 @@ Custom Operations/Nodes
 
 FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn.*" or domain="qonnx.*" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook about CustomOps (see chapter :ref:`tutorials` for details) or directly in the module :py:mod:`finn.custom_op`.
 
-.. note:: See the description of `this PR <https://github.com/Xilinx/finn-base/pull/6>`_ for more on how the operator wrapper library is organized.
-
 Custom ONNX Execution Flow
 ==========================
 
@@ -137,7 +135,7 @@ ModelWrapper contains more useful functions, if you are interested please have a
 Analysis Pass
 =============
 
-An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook about how to write an analysis pass, see chapter :ref:`tutorials` for details. For more information about existing analysis passes in FINN, see module :py:mod:`finn.analysis` .
+An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook about how to write an analysis pass, see chapter :ref:`tutorials` for details. For more information about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
 
 .. _transformation_pass:
 
@@ -148,26 +146,26 @@ A transformation passes changes (transforms) the given model, it gets the model 
 
 .. _mem_mode:
 
-MatrixVectorActivation *mem_mode*
-==================================
+HLS variant of MatrixVectorActivation: *mem_mode*
+=================================================
 
 FINN supports three types of the so-called *mem_mode* attrıbute for the node MatrixVectorActivation. This mode controls how the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently three settings for the *mem_mode* are supported in FINN:
 
-* "const"
+* "internal_embedded" (former "const" mode)
 
-* "decoupled"
+* "internal_decoupled" (former "decoupled" mode)
 
 * "external"
 
-The following picture shows the idea behind the "const" and "decoupled" mode.
+The following picture shows the idea behind the "internal_embedded" and "internal_decoupled" mode.
 
 .. image:: img/mem_mode.png
    :scale: 55%
    :align: center
 
-Const mode
-----------
-In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L92>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
+Internal_embedded mode
+------------------------
+In *internal_embedded* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *internal_embedded* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L92>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
 
 Advantages:
 
@@ -175,17 +173,15 @@ Advantages:
 
 * easier to debug layer in cppsim since no additional components
 
-* well-tested and mature components
-
 Disadvantages:
 
 * can lead to very long HLS synthesis times for certain weight array shapes
 
 * less control over the weight memory FPGA primitives, Vivado HLS doesn't always make the best resource allocation decisions
 
-Decoupled mode
---------------
-In *decoupled* mode a different variant of the MVAU with three ports is used. Besides the input and output streams, which are fed into the circuit via Verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L214>`_ from the finn-hls library is used. To make the streaming possible a Verilog weight streamer component accesses the weight memory and sends the values via another FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined in a verilog wrapper. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *const* mode.
+Internal_decoupled mode
+------------------------
+In *internal_decoupled* mode a different variant of the MVAU with three ports is used. Besides the input and output streams, which are fed into the circuit via Verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L214>`_ from the finn-hls library is used. To make the streaming possible a Verilog weight streamer component accesses the weight memory and sends the values via another FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *internal_embedded* mode.
 
 Advantages:
 
@@ -197,14 +193,12 @@ Advantages:
 
 Disadvantages:
 
-* somewhat less well-tested compared to the const mode
-
-* higher resource footprint due to additional weight streamer and weight FIFO
+* slightly higher resource footprint due to additional weight streamer and weight FIFO
 
 
 How to set *mem_mode*
 ---------------------
-When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
+When the nodes in the network are specialized to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the specialization to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is set in the node attributes of the nodes and can be passed as part of the folding configuration. The default is *internal_decoupled*.
 
 
 .. _folding_factors:
@@ -217,46 +211,43 @@ Constraints to folding factors per layer
    * - **Layers**
      - **Parameters**
      - **Constraints**
-   * - Addstreams_Batch
+   * - Addstreams
      - PE
      - inp_channels % PE == 0
-   * - ChannelwiseOp_Batch
+   * - ChannelwiseOp
      - PE
      - channels % PE == 0
    * - ConvolutionInputGenerator
      - SIMD
      - inp_channels % SIMD == 0
-   * - ConvolutionInputGenerator1d
-     - SIMD
-     - inp_channels % SIMD == 0
    * - Downsampler
      - SIMD
      - inp_channels % SIMD == 0
-   * - DuplicateStreams_Batch
+   * - DuplicateStreams
      - PE
      - channels % PE == 0
-   * - Eltwise
+   * - StreamingEltwise
      - PE
      - inp_channels % PE == 0
-   * - FMPadding_batch
+   * - FMPadding
      - SIMD
      - inp_channels % SIMD == 0
-   * - FMPadding_rtl
+   * - FMPadding_Pixel
      - SIMD
      - inp_channels % SIMD == 0
-   * - Globalaccpool_Batch
+   * - Globalaccpool
      - PE
      - channels % PE == 0
-   * - Labelselect_Batch
+   * - Labelselect
      - PE
      - num_labels % PE == 0
    * - MatrixVectorActivation
      - PE & SIMD
      - MH % PE == 0 & MW % SIMD == 0
-   * - Pool_Batch
+   * - Pool
      - PE
      - inp_channels % PE == 0
-   * - Thresholding_Batch
+   * - Thresholding
      - PE
      - MH % PE == 0
    * - VectorVectorActivation
@@ -280,9 +271,6 @@ This RTL version is an alternative to the original `HLS implementation <https://
 
 
 The component is implemented by generating (System-)Verilog code for each individual instance, realized via the template + replacement dictionary mechanism found in other FINN components.
-Despite the HDL implementation, the component is managed by its own HLSCustomOp (!) named "ConvolutionInputGenerator_rtl". Naturally, HLS simulation & synthesis are not supported.
-
-The RTL SWG is currently disabled by default and can be enabled either in the corresponding HLS conversion transformation (:py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers.InferConvInpGen`) with `use_rtl_variant=True` or in the build configuration (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.force_rtl_conv_inp_gen` set to True).
 
 Implementation styles
 ---------------------

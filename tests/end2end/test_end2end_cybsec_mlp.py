@@ -168,6 +168,7 @@ def test_end2end_cybsec_mlp_build():
     # check the generated files
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
+    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
     assert os.path.isfile(output_dir + "/driver/driver.py")
     est_cycles_report = output_dir + "/report/estimate_layer_cycles.json"
     assert os.path.isfile(est_cycles_report)
@@ -181,8 +182,8 @@ def test_end2end_cybsec_mlp_build():
     # examine the report contents
     with open(est_cycles_report, "r") as f:
         est_cycles_dict = json.load(f)
-        assert est_cycles_dict["MatrixVectorActivation_0"] == 80
-        assert est_cycles_dict["MatrixVectorActivation_1"] == 64
+        assert est_cycles_dict["MVAU_hls_0"] == 80
+        assert est_cycles_dict["MVAU_hls_1"] == 64
     with open(est_res_report, "r") as f:
         est_res_dict = json.load(f)
         assert est_res_dict["total"]["LUT"] == 7899.0

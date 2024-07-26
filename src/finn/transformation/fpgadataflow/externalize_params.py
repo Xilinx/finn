@@ -42,7 +42,7 @@ class ExternalizeParams(Transformation):
         graph_modified = False
 
         def filter_fc_extw(x):
-            if x.op_type == "IODMA":
+            if x.op_type == "IODMA_hls":
                 burst_mode = get_by_name(x.attribute, "burstMode")
                 if burst_mode is not None:
                     burst_mode = burst_mode.s.decode("UTF-8")
