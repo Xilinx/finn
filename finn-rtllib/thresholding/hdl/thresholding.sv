@@ -259,6 +259,7 @@ module thresholding #(
 			end : blkThresh
 
 			// Pipeline State
+			localparam int unsigned  SCOPE_REDUCE = (2**(M-stage-1) + 2**M-1-N) >> (M-stage);
 			pipe_t  P = '{ op: NOP, default: 'x };
 			logic  Reval = 'x;	// Replace value by readback
 			logic  Scope = 'x;	// Comparison in scope of specified threshold count
@@ -271,7 +272,7 @@ module thresholding #(
 				else begin
 					P <= p;
 					Reval <= (p.op ==? RB) && cs;
-					Scope <= (stage < M-$clog2(2**M-N))? 1 : p.ptr[M-1:SN+1] <= ((N-(M-stage)) >> (M-stage));
+					Scope <= (SCOPE_REDUCE == 0)? 1 : p.ptr[M-1:SN+1] < 2**stage - SCOPE_REDUCE;
 				end
 			end
 
