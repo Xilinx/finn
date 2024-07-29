@@ -10,6 +10,7 @@ class QuantSoftmax(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            "img_dim": ("i", True, 0),
             "simd": ("i", False, 1),
             "channels": ("i", True, 0),
             # FINN DataTypes for inputs, weights, outputs
@@ -17,6 +18,15 @@ class QuantSoftmax(HWCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_normal_input_shape(self, ind=0):
+        idim_h, idim_w = self.get_nodeattr("img_dim")
+        num_ch = self.get_nodeattr("channels")
+        ishape = (1, idim_h, idim_w, num_ch)
+        return ishape
+
+    def get_normal_output_shape(self, ind=0):
+        return self.get_normal_input_shape()
 
     def get_number_output_values(self):
         raise NotImplementedError("This function is not yet implemented.")
