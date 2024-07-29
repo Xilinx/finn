@@ -1772,15 +1772,17 @@ class InferQuantSoftmax(Transformation):
             node_ind += 1
             # check that an optype of Softmax is present followed by a MultiThreshold
             consumer = model.find_consumer(n.output[0])
-            if consumer is not None and consumer.op_type == "MultiThreshold":
+            if n.op_type == "Softmax" and consumer is not None and consumer.op_type == "MultiThreshold":
                 print("Found Softmax followed by MultiThreshold")
                 # get the shape of the input/output tensor
                 input_shape = model.get_tensor_shape(n.input[0])
-                dim_h = int(input_shape[1])
-                dim_w = int(input_shape[2])
-                output_shape = model.get_tensor_shape(n.output[0])
+                assert input_shape == model.get_tensor_shape(consumer.input[0]), (
+                    "Softmax and MultiThreshold input shapes do not match"
+                )
+                h = int(input_shape[1])
+                w = int(input_shape[2])
+                c = int(input_shape[3])
                 idt0 = model.get_tensor_datatype(n.input[0])
-                num_channels = int(input_shape[-1])
                 # create node with no parallelization first
                 simd = 1
                 # create and insert new node
@@ -1790,8 +1792,8 @@ class InferQuantSoftmax(Transformation):
                     [n.output[0]],  # output tensor(s)
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    img_dim=[dim_h, dim_w],
-                    channels=num_channels,
+                    ifm_dim=[h, w],
+                    channels=c,
                     data_type = idt0.name,
                     name=n.name,
                     simd=simd
