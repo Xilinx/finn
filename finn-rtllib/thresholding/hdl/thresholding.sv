@@ -32,11 +32,11 @@
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *
  * @description
- *  Produces the N-bit count of those among 2^N-1 thresholds that are not
+ *  Produces the count of those among N thresholds that are not
  *  larger than the corresponding input:
  *     y = Σ(T_i <= x)
  *  The result is computed by binary search. The runtime-configurable
- *  thresholds must be written in ascending order:
+ *  thresholds must be sorted in ascending order:
  *     i < j => T_i < T_j
  *  The design supports channel folding allowing each input to be processed
  *  with respect to a selectable set of thresholds. The corresponding
@@ -44,22 +44,22 @@
  *  accompanied by a channel selector.
  *
  *  Parameter Layout as seen on AXI-Lite (row by row):
- *            | Base                \    Offs  |   0    1    2  ...   2^N-2   2^N-1
- *   ---------+--------------------------------+------------------------------------
- *    Chnl #0 |   0                            |  T_0  T_1  T_2 ... T_{2^N-2}  'x
- *    Chnl #1 |   2^N                          |  T_0  T_1  T_2 ... T_{2^N-2}  'x
- *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*2^N |  T_0  T_1  T_2 ... T_{2^N-2}  'x
+ *            | Base                \    Offs          |   0    1    2  ...   N-1   ...
+ *   ---------+----------------------------------------+---------------------------------
+ *    Chnl #0 |   0                                    |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #1 |   2^$clog2(N)                          |  T_0  T_1  T_2 ... T_{N-1}  'x
+ *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*2^$clog2(N) |  T_0  T_1  T_2 ... T_{N-1}  'x
  *
  *****************************************************************************/
 module thresholding #(
-	int unsigned  N,  // output precision
 	int unsigned  K,  // input/threshold precision
+	int unsigned  N,  // number of thresholds
 	int unsigned  C,  // number of channels
 	int unsigned  PE, // parallel processing elements
 
 	bit  SIGNED = 1,  // signed inputs
 	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
-	int  BIAS   = 0,  // offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+	int  BIAS   = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
 
 	// Initial Thresholds
 	parameter  THRESHOLDS_PATH = "",
@@ -72,8 +72,8 @@ module thresholding #(
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(2**N+BIAS) :
-		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
+		/* unsigned */ $clog2(N+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
 )(
 	// Global Control
 	input	logic  clk,
@@ -82,7 +82,7 @@ module thresholding #(
 	// Threshold Configuration
 	input	logic  cfg_en,
 	input	logic  cfg_we,
-	input	logic [$clog2(CF)+$clog2(PE)+N-1:0]  cfg_a,
+	input	logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  cfg_a,
 	input	logic [K-1:0]  cfg_d,
 	output	logic  cfg_rack,
 	output	logic [K-1:0]  cfg_q,
@@ -116,8 +116,8 @@ module thresholding #(
 	} op_e;
 
 	// Pipeline Link Type
-	typedef logic [$clog2(CF)+N-1:0]  ptr_t;
-	typedef logic [K           -1:0]  val_t;
+	typedef logic [$clog2(CF)+$clog2(N)-1:0]  ptr_t;
+	typedef logic [K                   -1:0]  val_t;
 	typedef struct packed {
 		op_e   op;
 		ptr_t  ptr;	// WR/RB: address;         TH: result
@@ -126,11 +126,13 @@ module thresholding #(
 
 	//-----------------------------------------------------------------------
 	// Pipeline Feed
+	//	- M := $clog2(N+1) pipeline stages
 	//	- configuration always takes precedence
-	//	- number of pending thresholding ops capped to N+3
-	//	  across pipeline and output FIFO: pipe:N + A:1 + B:1 + 1
-	localparam int unsigned  MAX_PENDING = (DEEP_PIPELINE+1)*N + 3;
-	pipe_t  pipe[PE][N+1];
+	//	- number of pending thresholding ops capped to M+3
+	//	  across pipeline and output FIFO: pipe:M + A:1 + B:1 + 1
+	localparam int unsigned  M = $clog2(N+1);
+	localparam int unsigned  MAX_PENDING = (DEEP_PIPELINE+1)*M + 3;
+	pipe_t  pipe[PE][M+1];
 	if(1) begin : blkFeed
 
 		// Thresholding Input Guard ensuring Output FIFO is never overrun
@@ -148,20 +150,20 @@ module thresholding #(
 		// PE Configuration Address Decoding
 		logic  cfg_sel[PE];
 		logic  cfg_oob;
-		logic [N-1:0]  cfg_ofs;
+		logic [M-1:0]  cfg_ofs;
 		if(PE == 1) begin
 			assign	cfg_sel[0] = 1;
 			assign	cfg_oob = 0;
-			assign	cfg_ofs = cfg_a[0+:N];
+			assign	cfg_ofs = cfg_a[0+:M];
 		end
 		else begin
-			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[N+:$clog2(PE)];
+			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[M+:$clog2(PE)];
 			always_comb begin
 				foreach(cfg_sel[pe]) begin
 					cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_pe == pe);
 				end
 				cfg_oob = (cfg_pe >= PE);
-				cfg_ofs = cfg_a[0+:N];
+				cfg_ofs = cfg_a[0+:M];
 				if(cfg_oob && !cfg_we) begin
 					// Map readbacks from padded rows (non-existent PEs) to padded highest threshold index of first PE
 					cfg_sel[0] = 1;
@@ -171,7 +173,7 @@ module thresholding #(
 		end
 
 		uwire ptr_t  iptr;
-		assign	iptr[0+:N] = cfg_ofs;
+		assign	iptr[0+:M] = cfg_ofs;
 		if(CF > 1) begin
 			// Channel Fold Rotation
 			logic [$clog2(CF)-1:0]  CnlCnt = 0;
@@ -187,7 +189,7 @@ module thresholding #(
 				end
 			end
 
-			assign  iptr[N+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[N+$clog2(PE)+:$clog2(CF)] : CnlCnt;
+			assign  iptr[M+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[M+$clog2(PE)+:$clog2(CF)] : CnlCnt;
 		end
 
 		for(genvar  pe = 0; pe < PE; pe++) begin
@@ -205,9 +207,9 @@ module thresholding #(
 
 	//-----------------------------------------------------------------------
 	// Free-Running Thresholding Pipeline
-	for(genvar  stage = 0; stage < N; stage++) begin : genStages
+	for(genvar  stage = 0; stage < M; stage++) begin : genStages
 
-		localparam int unsigned  SN = N-1-stage;
+		localparam int unsigned  SN = M-1-stage;
 		for(genvar  pe = 0; pe < PE; pe++) begin : genPE
 			uwire pipe_t  p = pipe[pe][stage];
 			uwire  cs = (p.ptr[SN:0] == 2**SN-1);
@@ -222,6 +224,7 @@ module thresholding #(
 					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
 					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
+				// TODO: consider cutting down on DEPTH of stages not even populated half (might hardly ever happen though)
 				(* RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
@@ -236,7 +239,7 @@ module thresholding #(
 						end
 					end
 					else begin
-						uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
+						uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+M-1:SN+1];
 						always @(posedge clk) begin
 							if(we)  Threshs[addr] <= p.val;
 						end
@@ -247,7 +250,7 @@ module thresholding #(
 					assign	Thresh = Threshs[0];
 				end
 				else begin
-					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
+					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+M-1:SN+1];
 					always_ff @(posedge clk) begin
 						Thresh <= Threshs[addr];
 					end
@@ -257,18 +260,29 @@ module thresholding #(
 
 			// Pipeline State
 			pipe_t  P = '{ op: NOP, default: 'x };
-			logic   Reval = 0;
+			logic  Reval = 'x;	// Replace value by readback
+			logic  Scope = 'x;	// Comparison in scope of specified threshold count
 			always_ff @(posedge clk) begin
 				if(rst) begin
 					P <= '{ op: NOP, default: 'x };
-					Reval <= 0;
+					Reval <= 'x;
+					Scope <= 'x;
 				end
 				else begin
 					P <= p;
 					Reval <= (p.op ==? RB) && cs;
+					Scope <= (stage < M-$clog2(2**M-N))? 1 : p.ptr[M-1:SN+1] <= ((N-(M-stage)) >> (M-stage));
 				end
 			end
 
+			always_ff @(posedge clk) begin
+				assert((P.op !=? TH) || (Scope !== 1'bx)) else begin
+					$error("%m: [%0d.%0d] Broken Scope.", pe, stage);
+					$stop;
+				end
+			end
+
+			// Mask comparisons beyond specified threshold count
 			logic  cmp;
 			if(!SIGNED)		assign	cmp = $unsigned(Thresh) <= $unsigned(P.val);
 			else if(!FPARG)	assign	cmp =   $signed(Thresh) <=   $signed(P.val);
@@ -290,7 +304,7 @@ module thresholding #(
 			pipe_t  pp;
 			always_comb begin
 				pp = P;
-				if(P.op !=? CFG)  pp.ptr[SN] = cmp;
+				if(P.op !=? CFG)  pp.ptr[SN] = Scope && cmp;
 				if(Reval)         pp.val = Thresh;
 			end
 
@@ -301,7 +315,13 @@ module thresholding #(
 				pipe_t  Pf = '{ op: NOP, default: 'x };
 				always_ff @(posedge clk) begin
 					if(rst)  Pf <= '{ op: NOP, default: 'x };
-					else     Pf <= pp;
+					else begin
+						assert((pp.op !=? TH) || (^pp.ptr[$left(ptr_t):SN] !== 1'bx)) else begin
+							$error("%m: [%0d.%0d] Broken ptr[$left:%0d].", pe, stage, SN);
+							$stop;
+						end
+						Pf <= pp;
+					end
 				end
 				assign	pf = Pf;
 			end
@@ -317,7 +337,7 @@ module thresholding #(
 		cfg_rack = 0;
 		cfg_q = 0;
 		foreach(pipe[pe]) begin
-			automatic pipe_t  p = pipe[pe][N];
+			automatic pipe_t  p = pipe[pe][M];
 			cfg_rack |= p.op ==? RB;
 			cfg_q    |= p.val;
 		end
@@ -325,18 +345,18 @@ module thresholding #(
 
 	//-----------------------------------------------------------------------
 	// Stream Output through FIFO
-	//	- Depth of N + Output Reg to allow pipe to drain entirely under backpressure
+	//	- Depth of M + Output Reg to allow pipe to drain entirely under backpressure
 	//	- Typically mapped to an SRL shift register
 	if(1) begin : blkStreamOutput
 		localparam int unsigned  A_DEPTH = MAX_PENDING - 1;
-		logic        [PE-1 : 0][N-1 : 0]  ADat[A_DEPTH];
+		logic        [PE-1 : 0][M-1 : 0]  ADat[A_DEPTH];
 		logic signed [$clog2(A_DEPTH):0]  APtr = '1;	// -1, 0, 1, ..., A_DEPTH-1
 		uwire  avld = !APtr[$left(APtr)];
 
-		logic [PE-1:0][N-1:0]  BDat = 'x;
+		logic [PE-1:0][M-1:0]  BDat = 'x;
 		logic  BVld =  0;
 
-		uwire  aload = pipe[0][N].op ==? TH;
+		uwire  aload = pipe[0][M].op ==? TH;
 		uwire  bload = !BVld || ordy;
 
 		always_ff @(posedge clk) begin
@@ -345,7 +365,7 @@ module thresholding #(
 					$error("Overrun after failing stream guard.");
 					$stop;
 				end
-				foreach(pipe[pe])  ADat[0][pe] <= pipe[pe][N].ptr;
+				foreach(pipe[pe])  ADat[0][pe] <= pipe[pe][M].ptr;
 				for(int unsigned  i = 1; i < A_DEPTH; i++)  ADat[i] <= ADat[i-1];
 			end
 		end

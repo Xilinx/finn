@@ -35,7 +35,7 @@
 
 module thresholding_tb #(
 	int unsigned  K  = 10,	// input precision
-	int unsigned  N  =  4,	// output precision
+	int unsigned  N  = 13,	// number of thresholds per channel
 	int unsigned  C  =  6,	// number of channels
 	int unsigned  PE =  2,
 
@@ -59,10 +59,15 @@ module thresholding_tb #(
 
 	//-----------------------------------------------------------------------
 	// Parallel Instances differing in Data Type
-	typedef logic [K -1:0]  val_t;
-	typedef val_t  threshs_t[C][2**N-1];
+	localparam int unsigned  O_BITS = $clog2(N+1);
+	typedef logic [K     -1:0]  val_t;
+	typedef logic [O_BITS-1:0]  res_t;
+	typedef logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  addr_t;
+
+	typedef val_t  threshs_t[C][N];
 	typedef val_t [PE-1:0]  input_t;
-	typedef logic [$clog2(CF)+$clog2(PE)+N-1:0]  addr_t;
+	typedef res_t [PE-1:0]  output_t;
+
 	logic [0:2]  term = '0;
 	always_comb begin
 		if(&term)  $finish;
@@ -74,18 +79,18 @@ module thresholding_tb #(
 		//- DUT -------------------------
 		logic  cfg_en;
 		logic  cfg_we;
-		logic [$clog2(C)+N-1:0]  cfg_a;
-		logic [K-1:0]  cfg_d;
+		addr_t  cfg_a;
+		val_t  cfg_d;
 		uwire  cfg_rack;
-		uwire [K-1:0]  cfg_q;
+		uwire val_t  cfg_q;
 
 		uwire  irdy;
 		logic  ivld;
-		logic [PE-1:0][K-1:0]  idat;
+		input_t  idat;
 
 		logic  ordy = 0;
 		uwire  ovld;
-		uwire [PE-1:0][N-1:0]  odat;
+		uwire output_t  odat;
 
 		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)) dut (
 			.clk, .rst,
@@ -119,7 +124,7 @@ module thresholding_tb #(
 			// Generate thresholds
 			std::randomize(THRESHS);
 			foreach(THRESHS[c]) begin
-				val_t  row[2**N-1] = THRESHS[c];
+				val_t  row[N] = THRESHS[c];
 				row.sort with (sigord(item));
 				THRESHS[c] = row;
 			end
@@ -148,11 +153,11 @@ module thresholding_tb #(
 			cfg_en <= 1;
 			cfg_we <= 1;
 			for(int unsigned  c = 0; c < C; c+=PE) begin
-				if(CF > 1)  cfg_a[N+$clog2(PE)+:$clog2(CF)] <= c/PE;
+				if(CF > 1)  cfg_a[$clog2(N)+$clog2(PE)+:$clog2(CF)] <= c/PE;
 				for(int unsigned  pe = 0; pe < PE; pe++) begin
-					if(PE > 1)  cfg_a[N+:$clog2(PE)] = pe;
-					for(int unsigned  t = 0; t < 2**N-1; t++) begin
-						cfg_a[0+:N] <= t;
+					if(PE > 1)  cfg_a[$clog2(N)+:$clog2(PE)] = pe;
+					for(int unsigned  t = 0; t < N; t++) begin
+						cfg_a[0+:$clog2(N)] <= t;
 						cfg_d <= THRESHS[c+pe][t];
 						@(posedge clk);
 					end
@@ -168,9 +173,9 @@ module thresholding_tb #(
 					cfg_a  <= 'x;
 					@(posedge clk);
 					if(($urandom()%41) == 0) begin
-						automatic addr_t  addr = $urandom()%(N-1);
-						if(PE > 1)  addr[N+:$clog2(PE)] = $urandom()%PE;
-						if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
+						automatic addr_t  addr = $urandom()%N;
+						if(PE > 1)  addr[$clog2(N)+:$clog2(PE)] = $urandom()%PE;
+						if(CF > 1)  addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
 
 						cfg_en <= 1;
 						cfg_we <= 0;
@@ -196,7 +201,7 @@ module thresholding_tb #(
 				end
 			join_any
 			done <= 1;
-			repeat((DEEP_PIPELINE+1)*N+8)  @(posedge clk);
+			repeat((DEEP_PIPELINE+1)*$clog2(N)+8)  @(posedge clk);
 
 			assert(QW.size() == 0) else begin
 				$error("[%0d] Missing %0d outputs.", i, QW.size());
@@ -214,14 +219,15 @@ module thresholding_tb #(
 
 		//- Readback Checker --------------
 		always_ff @(posedge clk iff cfg_rack) begin
+		    $display("QC:. %p", QC);
 			assert(QC.size()) begin
 				automatic addr_t  addr = QC.pop_front();
 				automatic int unsigned  cnl =
-					(CF == 1? 0 : addr[N+$clog2(PE)+:$clog2(CF)] * PE) +
-					(PE == 1? 0 : addr[N+:$clog2(PE)]);
-				automatic logic [K-1:0]  exp = THRESHS[cnl][addr[0+:N]];
+					(CF == 1? 0 : addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] * PE) +
+					(PE == 1? 0 : addr[$clog2(N)+:$clog2(PE)]);
+				automatic logic [K-1:0]  exp = THRESHS[cnl][addr[0+:$clog2(N)]];
 				assert(cfg_q == exp) else begin
-					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, addr[0+:N], cfg_q, exp);
+					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, addr[0+:$clog2(N)], cfg_q, exp);
 					$stop;
 				end
 			end
@@ -251,7 +257,7 @@ module thresholding_tb #(
 							$display("[%0d] Mapped CNL=%0d DAT=%3x -> #%2d", i, cnl, x[pe], odat[pe]);
 							assert(
 								((odat[pe] == 0) || (sigord(THRESHS[cnl][odat[pe]-1]) <= sigord(x[pe]))) &&
-								((odat[pe] == 2**N-1) || (sigord(x[pe]) < sigord(THRESHS[cnl][odat[pe]])))
+								((odat[pe] == N) || (sigord(x[pe]) < sigord(THRESHS[cnl][odat[pe]])))
 							) else begin
 								$error("[%0d] Output error on presumed input CNL=%0d DAT=0x%0x -> #%0d", i, cnl, x[pe], odat[pe]);
 								error_cnt++;
