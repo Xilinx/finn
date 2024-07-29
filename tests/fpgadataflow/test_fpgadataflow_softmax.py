@@ -76,7 +76,7 @@ import torch.nn as nn
 import brevitas.nn as qnn
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
-export_onnx_path = "softmax_dut.onnx"
+export_onnx_path = "softmax_dut_qonnx.onnx"
 
 ### Make model wrapper
 # 1. make node, 
@@ -97,13 +97,13 @@ def create_model():
     Input and output are quantized to Int8ActPerTensorFloat, this is to make sure 
     that the softmax layer is followed by a Quant node.
     '''
-    io_shape = (1, 64)
+    io_shape = (1, 8, 8, 2)
     class QuantSoftMaxSimple(nn.Module):
         def __init__(self):
             super(QuantSoftMaxSimple, self).__init__()
             # self.input_identity = qnn.QuantIdentity(act_quant=Int8ActPerTensorFloat)
             self.output_identity = qnn.QuantIdentity()
-            self.softmax = nn.Softmax(dim=1)
+            self.softmax = nn.Softmax(dim=3) # softmax along the last dimension
 
         def forward(self, x):
             # x = self.input_identity(x)
