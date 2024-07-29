@@ -20,3 +20,21 @@ class QuantSoftmax(HWCustomOp):
 
     def get_number_output_values(self):
         raise NotImplementedError("This function is not yet implemented.")
+
+    def execute_node(self, context, graph):
+        raise NotImplementedError
+
+    def get_number_output_values(self):
+        raise NotImplementedError
+
+    def get_nodeattr_types(self):
+        raise NotImplementedError
+
+    def make_shape_compatible_op(self, model):
+        raise NotImplementedError
+
+    def infer_node_datatype(self, model):
+        raise NotImplementedError
+
+    def verify_node(self):
+        raise NotImplementedError
