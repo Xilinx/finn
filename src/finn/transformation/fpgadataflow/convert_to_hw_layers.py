@@ -307,9 +307,6 @@ class InferUpsample(Transformation):
                             "%s: Either scales or the target output size must "
                             "be specified. Specifying both is prohibited." % n.name
                         )
-                        assert model.get_initializer(n.input[1]) is None, (
-                            "%s: Defining the ROI is not supported" % n.name
-                        )
                         if scales_exists:
                             # Scales input
                             scales = model.get_initializer(n.input[2])
