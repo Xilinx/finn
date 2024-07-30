@@ -64,9 +64,9 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
                 static hls::stream<hls::vector<T,SIMD>>  src0;
                 static hls::stream<hls::vector<T,SIMD>>  dst0;
 
-                move(src, src0);
+                move(in0_{self.hls_sname()}, src0);
                 smaxquant<W,SIMD,T,F>(src0, dst0);
-                move(dst0, dst);
+                move(dst0, out_{self.hls_sname()});
         '''
         ]
 
@@ -74,8 +74,8 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         self.code_gen_dict["$BLACKBOXFUNCTION$"]  = [
             f'''
             void {self.onnx_node.name}(
-                hls::stream<hls::vector<T,SIMD>> &src,
-                hls::stream<hls::vector<T,SIMD>> &dst
+                hls::stream<hls::vector<T,SIMD>> &in0_{self.hls_sname()},
+                hls::stream<hls::vector<T,SIMD>> &out_{self.hls_sname()}
                 )
             '''
         ]
@@ -83,10 +83,10 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"]  = [
             f'''
-            #pragma HLS interface AXIS port=src
-            #pragma HLS interface AXIS port=dst
-            #pragma HLS aggregate  variable=src compact=bit
-            #pragma HLS aggregate  variable=dst compact=bit
+            #pragma HLS interface AXIS port=in0_{self.hls_sname()}
+            #pragma HLS interface AXIS port=out_{self.hls_sname()}
+            #pragma HLS aggregate  variable=in0_{self.hls_sname()} compact=bit
+            #pragma HLS aggregate  variable=out_{self.hls_sname()} compact=bit
 
             #pragma HLS interface ap_ctrl_none port=return
             #pragma HLS dataflow disable_start_propagation
