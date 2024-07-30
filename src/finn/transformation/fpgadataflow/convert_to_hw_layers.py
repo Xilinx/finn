@@ -1795,7 +1795,7 @@ class InferQuantSoftmax(Transformation):
                     ifm_dim=[h, w],
                     channels=c,
                     data_type = idt0.name,
-                    name=n.name,
+                    name="Quant"+n.name,
                     simd=simd
                 )
                 graph.node.insert(node_ind, new_node)
