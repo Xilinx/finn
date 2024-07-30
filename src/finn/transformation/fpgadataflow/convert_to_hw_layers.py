@@ -1731,7 +1731,7 @@ class InferQuantSoftmax(Transformation):
                 new_node = helper.make_node(
                     "QuantSoftmax",
                     [n.input[0]],  # input tensor(s)
-                    [n.output[0]],  # output tensor(s)
+                    [consumer.output[0]],  # output tensor(s)
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     ifm_dim=[h, w],
@@ -1742,6 +1742,8 @@ class InferQuantSoftmax(Transformation):
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
+                # remove multithreshold too
+                graph.node.remove(consumer)
                 graph_modified = True
                 
         if graph_modified:
