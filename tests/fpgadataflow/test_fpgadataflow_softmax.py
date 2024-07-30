@@ -32,13 +32,13 @@ import onnx
 from onnx import helper, numpy_helper
 import numpy as np
 import os
+import finn.core.onnx_exec as oxe
 from brevitas.export import export_qonnx
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -66,6 +66,13 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
 from finn.transformation.streamline import Streamline
 import finn.transformation.streamline.absorb as absorb
 import onnx
@@ -79,7 +86,7 @@ target_clk_ns = 5
 export_onnx_path = "softmax_dut_qonnx.onnx"
 
 ### Make model wrapper
-# 1. make node, 
+# 1. make node,
 
 
 ### Test
@@ -91,13 +98,14 @@ export_onnx_path = "softmax_dut_qonnx.onnx"
 #       1. Check that we can run cpp/rtl sims
 #       2. check values are correct
 
+
 def create_model():
     '''
     Create a quantized softmax model.
-    Input and output are quantized to Int8ActPerTensorFloat, this is to make sure 
+    Input and output are quantized to Int8ActPerTensorFloat, this is to make sure
     that the softmax layer is followed by a Quant node.
     '''
-    io_shape = (1, 8, 8, 2)
+    io_shape = (1, 12, 128, 128)
     class QuantSoftMaxSimple(nn.Module):
         def __init__(self):
             super(QuantSoftMaxSimple, self).__init__()
@@ -122,33 +130,45 @@ def create_model():
     return model
 
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
 @pytest.mark.fpgadataflow
-def test_convert_to_hw_softmax_layer(exec_mode):
+def test_convert_to_hw_softmax_layer(exec_mode, simd):
     '''
     Test that all transofrmations can be applied to a model with a softmax layer.
     '''
     # Create the qonnx model
     # modelproto = create_softmax_graph()
-   
+
     model = create_model()
+    simd = int(simd[-1])
+    folding_config = {
+        "Defaults": {},
+        "QuantSoftmax_0": {
+            "simd": simd
+        }
+    }
     try:
         model = model.transform(ConvertQONNXtoFINN())
         model = model.transform(InferShapes())
         model = model.transform(InferDataTypes())
-        model.save("qonnx_softmax_dut.onnx")
         model = model.transform(to_hw.InferQuantSoftmax())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(ApplyConfig(folding_config))
         model = model.transform(SpecializeLayers(test_fpga_part))
         if exec_mode == "cppsim":
             model = model.transform(PrepareCppSim())
             model = model.transform(CompileCppSim())
             model = model.transform(SetExecMode("cppsim"))
         elif exec_mode == "rtlsim":
-            model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
             model = model.transform(SetExecMode("rtlsim"))
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
             model = model.transform(HLSSynthIP())
             model = model.transform(PrepareRTLSim())
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
+
+    # oxe.execute_onnx()
 
 def test_fpgadataflow_quantsoftmax():
     # Create the qonnx model
@@ -160,6 +180,6 @@ def test_fpgadataflow_quantsoftmax():
         model = model.transform(FoldConstants())
         model = model.transform(to_hw.InferQuantSoftmax())
         model = model.transform(SpecializeLayers(test_fpga_part))
-        
+
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
