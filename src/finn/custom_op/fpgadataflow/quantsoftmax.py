@@ -71,3 +71,26 @@ class QuantSoftmax(HWCustomOp):
 
     def verify_node(self):
         raise NotImplementedError
+
+    def get_instream_width(self, ind=0):
+        ibits = self.get_input_datatype().bitwidth()
+        simd = self.get_nodeattr("simd")
+        return ibits * simd
+
+    def get_outstream_width(self, ind=0):
+        obits = self.get_output_datatype().bitwidth()
+        simd = self.get_nodeattr("simd")
+        return obits * simd
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output. (Same as input datatype)"""
+        return self.get_input_datatype()
+
+    def get_folded_output_shape(self, ind=0):
+        normal_oshape = list(self.get_normal_output_shape())
+        ifm_ch = self.get_nodeattr("channels")
+        simd = self.get_nodeattr("simd")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_oshape[-1] / simd)
+        folded_oshape = normal_oshape[:-1] + [fold, simd]
+        return tuple(folded_oshape)

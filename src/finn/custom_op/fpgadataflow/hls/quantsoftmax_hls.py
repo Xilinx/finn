@@ -32,22 +32,63 @@ from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-        
+
     def get_nodeattr_types(self):
         my_attrs = {}
         my_attrs.update(QuantSoftmax.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
-    
+
     def global_includes(self):
-        # not implemented
-        raise NotImplementedError
-    
+        self.code_gen_dict["$GLOBALS$"] = [
+            '#include "softmax.hpp"',
+            '#include "utils.hpp"'
+            ]
+
     def defines(self, var):
-        raise NotImplementedError
-    
+        simd = self.get_nodeattr("simd")
+        ibits = self.get_input_datatype().bitwidth()
+        channels = self.get_nodeattr("channels")
+        self.code_gen_dict["$DEFINES$"] = [
+           f"""
+            constexpr unsigned  SIMD = {simd};
+            constexpr unsigned  W = {channels};
+            using  T = ap_uint<{ibits}>;
+            using  F = float;
+           """
+        ]
+
     def docompute(self):
-        raise NotImplementedError
-    
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            f'''
+                static hls::stream<hls::vector<T,SIMD>>  src0;
+                static hls::stream<hls::vector<T,SIMD>>  dst0;
+
+                move(src, src0);
+                smaxquant<W,SIMD,T,F>(src0, dst0);
+                move(dst0, dst);
+        '''
+        ]
+
     def blackboxfunction(self):
-        raise NotImplementedError
+        self.code_gen_dict["$BLACKBOXFUNCTION$"]  = [
+            f'''
+            void {self.onnx_node.name}(
+                hls::stream<hls::vector<T,SIMD>> &src,
+                hls::stream<hls::vector<T,SIMD>> &dst
+                )
+            '''
+        ]
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"]  = [
+            f'''
+            #pragma HLS interface AXIS port=src
+            #pragma HLS interface AXIS port=dst
+            #pragma HLS aggregate  variable=src compact=bit
+            #pragma HLS aggregate  variable=dst compact=bit
+
+            #pragma HLS interface ap_ctrl_none port=return
+            #pragma HLS dataflow disable_start_propagation
+            '''
+        ]
