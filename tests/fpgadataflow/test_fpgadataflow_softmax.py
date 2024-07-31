@@ -153,6 +153,11 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
         model = model.transform(InferDataTypes())
         model = model.transform(to_hw.InferQuantSoftmax())
         model = model.transform(GiveUniqueNodeNames())
+        # isolate fpga dataflow layers
+        parent_model = model.transform(CreateDataflowPartition())
+        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+        sdp_node_path = getCustomOp(sdp_node).get_nodeattr("model")
+        model = ModelWrapper(sdp_node_path)
         model = model.transform(ApplyConfig(folding_config))
         model = model.transform(SpecializeLayers(test_fpga_part))
         if exec_mode == "cppsim":
@@ -164,7 +169,8 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
             model = model.transform(HLSSynthIP())
-            model = model.transform(PrepareRTLSim())
+            model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+            # model = model.transform(PrepareRTLSim())
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
 
