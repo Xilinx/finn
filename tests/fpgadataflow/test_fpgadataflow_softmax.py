@@ -148,7 +148,8 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
     folding_config = {
         "Defaults": {},
         "QuantSoftmax_0": {
-            "simd": simd
+            "simd": simd,
+            "preferred_impl_style": "hls"
         }
     }
     try:
