@@ -61,10 +61,14 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.util.basic import pynq_part_map
 from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
+)
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
 )
 from qonnx.transformation.general import (
     ApplyConfig,
