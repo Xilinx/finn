@@ -4,6 +4,10 @@ from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_
 from onnx.helper import make_node
 import warnings
 from qonnx.core.datatype import DataType
+import onnx
+from onnx.helper import make_node, make_tensor_value_info
+import numpy as np
+import torch
 
 class QuantSoftmax(HWCustomOp):
     """Abstraction layer for HW implementation of VectorVectorActivation layers."""
@@ -34,7 +38,10 @@ class QuantSoftmax(HWCustomOp):
         raise NotImplementedError("This function is not yet implemented.")
 
     def execute_node(self, context, graph):
-        raise NotImplementedError
+        node = self.onnx_node
+        input_data = context[node.input[0]]
+        output_data = torch.softmax(input_data, dim=3)
+        context[node.output[0]] = output_data
 
     def get_number_output_values(self):
         raise NotImplementedError
@@ -94,3 +101,12 @@ class QuantSoftmax(HWCustomOp):
         fold = int(normal_oshape[-1] / simd)
         folded_oshape = normal_oshape[:-1] + [fold, simd]
         return tuple(folded_oshape)
+
+    def get_folded_input_shape(self, ind=0):
+        normal_ishape = list(self.get_normal_input_shape())
+        ifm_ch = self.get_nodeattr("channels")
+        simd = self.get_nodeattr("simd")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_ishape[-1] / simd)
+        folded_ishape = normal_ishape[:-1] + [fold, simd]
+        return tuple(folded_ishape)
