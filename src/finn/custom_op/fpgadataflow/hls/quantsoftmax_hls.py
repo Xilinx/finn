@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
+import numpy as np
 from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 
@@ -92,3 +94,26 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
             #pragma HLS dataflow disable_start_propagation
             '''
         ]
+
+    def execute_node(self, context, graph):
+        mode = self.get_nodeattr("exec_mode")
+        node = self.onnx_node
+        exp_ishape = self.get_normal_input_shape()
+        exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
+
+
+        if mode == "cppsim":
+            print("Executing node with cppsim")
+            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            inp = context[node.input[0]]
+            export_idt = self.get_input_datatype()
+            inp = inp.reshape(folded_ishape)
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), inp)
+            # # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # # load output npy file
+            super().npy_to_dynamic_output(context)
+        else:
+            raise Exception(f"Unsupported execution mode: {mode}")
+
