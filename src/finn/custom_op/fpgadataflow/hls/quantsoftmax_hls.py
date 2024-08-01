@@ -30,6 +30,8 @@ import os
 import numpy as np
 from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+import subprocess
+from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 
 class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def __init__(self, onnx_node, **kwargs):
@@ -117,3 +119,25 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         else:
             raise Exception(f"Unsupported execution mode: {mode}")
 
+    def compile_singlenode_code(self):
+        """Builds the bash script for compilation using the CppBuilder from
+        finn.util.basic and executes the script to produce the executable."""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        builder = CppBuilder()
+        # to enable additional debug features please uncommand the next line
+        # builder.append_includes("-DDEBUG")
+        builder.append_includes("-I$FINN_ROOT/src/finn/qnn-data/cpp")
+        builder.append_includes("-I$FINN_ROOT/deps/cnpy/")
+        builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
+        builder.append_includes("-I$FINN_ROOT/custom_hls")
+        builder.append_includes("-I{}/include".format(os.environ["HLS_PATH"]))
+        builder.append_includes("--std=c++14")
+        builder.append_includes("-O3")
+        builder.append_sources(code_gen_dir + "/*.cpp")
+        builder.append_sources("$FINN_ROOT/deps/cnpy/cnpy.cpp")
+        builder.append_includes("-lz")
+        builder.append_includes("-fno-builtin -fno-inline -Wl,-rpath,\"$HLS_PATH/lnx64/lib/csim\" -L$HLS_PATH/lnx64/lib/csim -lhlsmc++-GCC46")
+        builder.append_includes("-L$HLS_PATH/lnx64/tools/fpo_v7_1 -lgmp -lmpfr -lIp_floating_point_v7_1_bitacc_cmodel")
+        builder.set_executable_path(code_gen_dir + "/node_model")
+        builder.build(code_gen_dir)
+        self.set_nodeattr("executable_path", builder.executable_path)
