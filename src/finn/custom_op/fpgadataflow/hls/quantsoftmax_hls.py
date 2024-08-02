@@ -186,3 +186,6 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
                 code_gen_line = "\n".join(self.code_gen_dict[key])
                 template = template.replace(key, code_gen_line)
             f.write(template)
+    def prepare_rtlsim(self):
+        # this node currently does not support rtlsim
+        raise NotImplementedError("QuantSoftmax_hls does not support rtlsim")
