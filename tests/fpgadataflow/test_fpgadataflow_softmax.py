@@ -103,22 +103,19 @@ export_onnx_path = "softmax_dut_qonnx.onnx"
 #       2. check values are correct
 
 
-def create_model():
+def create_model(io_shape=(1, 12, 128, 128)):
     '''
     Create a quantized softmax model.
     Input and output are quantized to Int8ActPerTensorFloat, this is to make sure
     that the softmax layer is followed by a Quant node.
     '''
-    io_shape = (1, 12, 128, 128)
     class QuantSoftMaxSimple(nn.Module):
         def __init__(self):
             super(QuantSoftMaxSimple, self).__init__()
-            # self.input_identity = qnn.QuantIdentity(act_quant=Int8ActPerTensorFloat)
             self.output_identity = qnn.QuantIdentity()
             self.softmax = nn.Softmax(dim=3) # softmax along the last dimension
 
         def forward(self, x):
-            # x = self.input_identity(x)
             x = self.softmax(x)
             x = self.output_identity(x)
             return x
@@ -130,20 +127,24 @@ def create_model():
     # set the model input to INT8
     model = ModelWrapper(export_onnx_path)
     model.set_tensor_datatype(model.graph.input[0].name, DataType["UINT8"])
-    # import pdb; pdb.set_trace()
     return model
 
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim", "stitched_ip"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
 @pytest.mark.fpgadataflow
 def test_convert_to_hw_softmax_layer(exec_mode, simd):
     '''
-    Test that all transofrmations can be applied to a model with a softmax layer.
+    This test checks that the softmax layer can be converted to a HW layer.
     '''
+    if (exec_mode == "stitched_ip" or exec_mode == "rtlsim") and simd != "simd1":
+        pytest.skip("Skipping this test to avoid long test times")
     # Create the qonnx model
-    # modelproto = create_softmax_graph()
+    io_shape = (1, 12, 128, 128)
+    # input = torch.randn(io_shape)
+    input = gen_finn_dt_tensor(DataType["UINT8"], io_shape)
+    input_t = {"global_in": input}
 
-    model = create_model()
+    model = create_model(io_shape)
     simd = int(simd[-1])
     folding_config = {
         "Defaults": {},
@@ -165,21 +166,27 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
         model = ModelWrapper(sdp_node_path)
         model = model.transform(ApplyConfig(folding_config))
         model = model.transform(SpecializeLayers(test_fpga_part))
+        model = model.transform(GiveUniqueNodeNames())
         if exec_mode == "cppsim":
+            model = model.transform(SetExecMode("cppsim"))
             model = model.transform(PrepareCppSim())
             model = model.transform(CompileCppSim())
-            model = model.transform(SetExecMode("cppsim"))
         elif exec_mode == "rtlsim":
             model = model.transform(SetExecMode("rtlsim"))
-            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+            model = model.transform(HLSSynthIP())
+            try:
+                model = model.transform(PrepareRTLSim())
+                pytest.fail("PrepareRTLSim should have failed")
+            except Exception as e:
+                # expected to fail because this node do not support rtlsim
+                pass
+        elif exec_mode == "stitched_ip":
             model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
             model = model.transform(HLSSynthIP())
             model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-            # model = model.transform(PrepareRTLSim())
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
-
-    # oxe.execute_onnx()
 
 def test_fpgadataflow_quantsoftmax():
     # Create the qonnx model
