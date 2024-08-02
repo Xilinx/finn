@@ -30,6 +30,7 @@ import os
 import numpy as np
 from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow import templates
 import subprocess
 from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 
@@ -141,3 +142,47 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         builder.set_executable_path(code_gen_dir + "/node_model")
         builder.build(code_gen_dir)
         self.set_nodeattr("executable_path", builder.executable_path)
+
+    def code_generation_cppsim(self, model):
+        """Generates c++ code for simulation (cppsim)."""
+        node = self.onnx_node
+        path = self.get_nodeattr("code_gen_dir_cppsim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
+        self.generate_params(model, path)
+        self.global_includes()
+        self.defines("cppsim")
+        self.read_npy_data()
+        self.strm_decl()
+        self.pragmas()
+
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            f"""
+                static hls::stream<hls::vector<T,SIMD>>  src0;
+                static hls::stream<hls::vector<T,SIMD>>  dst0;
+
+                hls::vector<T, SIMD> x;
+                for(unsigned i=0; i<SIMD; i++) {{
+                    T v = in0_V.read();
+                    x[i] = v;
+                }}
+                src0.write(x);
+                smaxquant<W,SIMD,T,F>(src0, dst0);
+
+                for(unsigned i=0; i<SIMD; i++) {{
+                    T v = dst0.read()[i];
+                    out_V.write(v);
+                }}
+            """
+        ]
+        self.dataoutstrm()
+        self.save_as_npy()
+
+        template = templates.docompute_template
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim") + f"/execute_{node.op_type}.cpp"
+        with open(code_gen_dir, "w") as f:
+            for key in self.code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(self.code_gen_dict[key])
+                template = template.replace(key, code_gen_line)
+            f.write(template)
