@@ -232,7 +232,7 @@ module thresholding_axi_tb #(
 			end
 		join_any
 		done <= 1;
-		repeat(N+6)  @(posedge clk);
+		repeat(N+8)  @(posedge clk);
 
 		assert(QW.size() == 0) else begin
 			$error("Missing %0d outputs.", QW.size());
