@@ -70,8 +70,34 @@ class InferMultiHeads(Transformation):
                 # non-batched inputs
                 rank = len(shape)
 
+                # Can only handle 3-dimensional (2-dimensional) layouts for now
+                if rank not in {2, 3}:
+                    # Issue a warning of near match of the supported head
+                    # pattern
+                    # @formatter:off
+                    warnings.warn(
+                        f"{self.__class__.__name__}: Skipping near match: "
+                        f"Unsupported shape near {transpose.name}: {inp}"
+                    )
+                    # @formatter:on
+                    # Skip transforming this instance
+                    continue
+
                 # The input shape determines the sequence length
                 seq, _, dim = shape if (rank == 3) else (shape[0], 1, shape[1])
+
+                # Can only handle 3-dimensional (2-dimensional) layouts for now
+                if len(model.get_tensor_shape(mid)) != 3:
+                    # Issue a warning of near match of the supported head
+                    # pattern
+                    # @formatter:off
+                    warnings.warn(
+                        f"{self.__class__.__name__}: Skipping near match: "
+                        f"Unsupported shape near {transpose.name}: {mid}"
+                    )
+                    # @formatter:on
+                    # Skip transforming this instance
+                    continue
 
                 # The intermediate shape must be the same as specified as the
                 # second input to the reshape operation
@@ -193,9 +219,29 @@ class InferMultiHeads(Transformation):
                 inp = node.input[0]
                 end = reshape.output[0]
 
+                # Get the shape of the input tensor for inferring the number of
+                # heads and correctly propagating shapes
+                shape = model.get_tensor_shape(inp)
+                # Determine the rank of the input tensor to support batched and
+                # non-batched inputs
+                rank = len(shape)
+
+                # Can only handle 3-dimensional (2-dimensional) layouts for now
+                if rank not in {3}:
+                    # Issue a warning of near match of the supported head
+                    # pattern
+                    # @formatter:off
+                    warnings.warn(
+                        f"{self.__class__.__name__}: Skipping near match: "
+                        f"Unsupported shape near {reshape.name}: {inp}"
+                    )
+                    # @formatter:on
+                    # Skip transforming this instance
+                    continue
+
                 # The input shape determines the heads, sequence length and
                 # embedding dimension
-                heads, seq, dim = model.get_tensor_shape(inp)
+                heads, seq, dim = shape
 
                 # Get the (optional) permutation indices of the transpose in
                 # case it is a multi-axis transpose
