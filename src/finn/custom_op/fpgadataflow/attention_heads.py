@@ -99,14 +99,11 @@ class SplitMultiHeads(HWCustomOp):
     def make_shape_compatible_op(self, model: ModelWrapper):  # noqa
         # Get the node wrapped by this custom op
         node = self.onnx_node
-        # Get the shape of the input tensor for inferring the number of
-        # heads and correctly propagating shapes
-        shape = model.get_tensor_shape(node.input[0])
         # Determine the rank of the input tensor to support batched and
         # non-batched inputs
-        rank = len(shape)
+        rank = len(self.num_inputs) + 1
         # The input shape determines the sequence length
-        seq, _, dim = shape if (rank == 3) else (shape[0], 1, shape[1])
+        (seq, *_), dim = self.num_inputs, self.num_elems
         # Packed outputs a represented by a reshape operation producing one
         # tensor
         if self.packed:
