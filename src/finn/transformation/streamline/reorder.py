@@ -32,6 +32,7 @@ import warnings
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_node
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -1244,3 +1245,65 @@ class MoveIdenticalOpPastJoinOp(Transformation):
 class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Add"])
+
+
+# Moves a Squeeze operation past MultiThresholds
+# TODO: extend to all operations invariant to or compatible with squeezing
+class MoveSqueezePastMultiThreshold(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Squeeze operation types
+            if node.op_type == "Squeeze":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Squeeze is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to MultiThreshold
+                if successor.op_type in {"MultiThreshold"}:
+                    # Get names of all tensors involved in connecting the nodes
+                    inp = node.input[0]  # noqa: Duplicate
+                    mid = node.output[0]
+                    out = successor.output[0]
+                    # Rewire the graph to feed original into the MultiThreshold
+                    # node first
+                    successor.input[0] = inp
+                    # Repurpose the middle tensor for the output of the
+                    # MultiThreshold
+                    successor.output[0] = mid
+                    # The Squeeze operator now gets the middle tensor as its
+                    # input
+                    node.input[0] = mid
+                    # Squeeze now produces the original output tensor
+                    node.output[0] = out
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later
+                    model.set_tensor_shape(mid, None)
+                    model.set_tensor_shape(out, None)
+                    # Track whether the graph has been modified, never
+                    # resets to False
+                    graph_modified = True
+                    # Break the loop after deleting shape annotations to
+                    # immediately re-do these before changing the next
+                    # operator
+                    break
+        # Need to redo the shape inference after potentially deleting them
+        model = model.transform(InferShapes())  # noqa: Shadows model
+        # Return the transformed model and indicate whether the graph
+        # actually has been transformed
+        return model, graph_modified
