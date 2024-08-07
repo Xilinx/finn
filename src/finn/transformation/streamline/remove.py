@@ -27,8 +27,8 @@ class RemoveIdentityReshape(Transformation):
         for index, node in enumerate(graph.node):
             # Applies to Reshape operation types
             if node.op_type == "Reshape":
-                # Currently does not handle fork- or join-nodes
-                if model.is_fork_node(node) or model.is_join_node(node):
+                # Currently does not handle join-nodes
+                if model.is_join_node(node):
                     # Softly skip this node
                     continue
                 # Second input to the reshape operation is the target shape
@@ -66,7 +66,7 @@ class RemoveIdentityTranspose(Transformation):
         for index, node in enumerate(graph.node):
             # Applies to Transpose operation types
             if node.op_type == "Transpose":
-                # Currently does not handle fork- or join-nodes
+                # Currently does not handle join-nodes
                 if model.is_join_node(node):
                     # Softly skip this node
                     continue
