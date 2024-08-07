@@ -2,6 +2,9 @@
 # For array handling
 import numpy as np
 
+# Python warning subsystem
+import warnings
+
 # Helper for creating ONNX nodes
 from onnx import helper as oh
 
@@ -10,6 +13,12 @@ from qonnx.core.modelwrapper import ModelWrapper
 
 # QONNX graph transformation base class
 from qonnx.transformation.base import Transformation
+
+# Transformations running qonnx datatype inference
+from qonnx.transformation.infer_datatypes import InferDataTypes
+
+# Transformation running onnx shape inference
+from qonnx.transformation.infer_shapes import InferShapes
 
 # Gets items from protobuf by name
 from qonnx.util.basic import get_by_name, remove_by_name
@@ -33,10 +42,11 @@ class Squeeze(Transformation):
         for index, node in enumerate(graph.node):
             # There should not be any squeeze or unsqueeze operations in the
             # graph as these would interfere with this transformation
-            assert node.op_type not in {
-                "Squeeze",
-                "Unsqueeze",
-            }, f"Squeezing graph containing {node.op_type}"
+            if node.op_type in {"Squeeze", "Unsqueeze"}:
+                # Issue a warning to make the user aware of this potential issue
+                warnings.warn(
+                    f"Squeezing graph containing {node.op_type}: {node.name}"
+                )
 
             # Validate slice not slicing along squeezed dimension
             if node.op_type == "Slice":
@@ -158,28 +168,172 @@ class Squeeze(Transformation):
                     # Is never reset back to False during iteration
                     graph_modified = True
 
+            # Need to patch the Im2Col operator when squeezing as this cannot
+            # operate on other data layouts than 4-dimensional layouts
+            if node.op_type == "Im2Col":
+                # Do not squeeze the same operation twice
+                if get_by_name(node.attribute, "squeezed"):
+                    continue
+                # Add a new marker attribute to not squeeze this node again
+                node.attribute.append(oh.make_attribute("squeezed", True))
+                # Get the shape of the input tensor to seek for input
+                # dimensions of size 1
+                shape = model.get_tensor_shape(
+                    # fmt: off
+                    node.input[0], fix_missing_init_shape=True
+                    # fmt: on
+                )
+                # Skip if there is no shape
+                if shape is None:
+                    continue
+                # Get the axes to be squeezed, i.e., dimensions of size 1
+                axes = [dim for dim, size in enumerate(shape) if size == 1]
+                # To be compatible with ONNX opset >= 13, the axes to
+                # unsqueeze/squeeze need to be provided as an input
+                axes_input = model.make_new_valueinfo_name()
+                # Set the axes as an initializer list
+                model.set_initializer(axes_input, np.asarray(axes))
+                # Instantiate an unsqueeze operation adapting from the squeezed
+                # layout back to the 4-dimensional layout
+                unsqueeze = oh.make_node(
+                    # Unsqueeze ONNX operators
+                    "Unsqueeze",
+                    # Inherit the inputs from the Im2Col operation
+                    inputs=[node.input[0], axes_input],
+                    # Create a new output tensor
+                    outputs=[model.make_new_valueinfo_name()],
+                    # Specify the axes to unsqueeze
+                    axes=axes
+                )
+                # Instantiate a squeeze operator adapting from unsqueezed
+                # 4-dimensional layout back to the squeezed layout
+                squeeze = oh.make_node(
+                    # Squeeze ONNX operators
+                    "Squeeze",
+                    # Create a new input tensor
+                    inputs=[model.make_new_valueinfo_name(), axes_input],
+                    # Inherit the output tensor from the Im2Col operation
+                    outputs=node.output,
+                    # Specify the axes to squeeze
+                    axes=axes
+                )
+                # Rewire the input/output to/from the Im2Col operator to connect
+                # the Unsqueeze/Squeeze wrapper
+                node.input[0] = unsqueeze.output[0]
+                node.output[0] = squeeze.input[0]
+                # Insert the new nodes
+                graph.node.insert(index, unsqueeze)
+                graph.node.insert(index, squeeze)
+                # The graph has now been modified. This is never reset back to
+                # False during iteration
+                graph_modified = True
+
+        # Get the names of all global input tensors to insert a Squeeze
+        # operation in front
+        global_inputs = [inp.name for inp in model.graph.input]
+        # Insert Squeeze operators at each global input
+        for inp in global_inputs:
+            # Get the shape of the tensor to seek for dimensions of size 1
+            shape = model.get_tensor_shape(  # noqa: Duplicate
+                inp, fix_missing_init_shape=True
+            )
+            # Skip if there is no shape and skip squeezing 0d or 1d tensors
+            if shape is None or len(shape) <= 1:
+                continue
+            # Get the axes to be squeezed, i.e., dimensions of size 1
+            axes = [dim for dim, size in enumerate(shape) if size == 1]
+            # Te be compatible with ONNX opset >= 13, the axes to
+            # unsqueeze/squeeze need to be provided as an input
+            axes_input = model.make_new_valueinfo_name()
+            # Set the axes as an initializer list
+            model.set_initializer(axes_input, np.asarray(axes))
+            # Instantiate the squeeze operator
+            squeeze = oh.make_node(
+                # Squeeze ONNX operators
+                "Squeeze",
+                # Inherit the input from the global input and add axes to be
+                # squeezed to the input list
+                inputs=[inp, axes_input],
+                # Create a new output connecting to the graph
+                outputs=[model.make_new_valueinfo_name()],
+                # Specify the axes to squeeze
+                axes=axes
+            )
+            # Connect the new squeeze operator to all consumers of this
+            # global input
+            for consumer in model.find_consumers(inp):
+                # Find the inputs of the consumer which are the global input
+                for i, c_inp in enumerate(consumer.input):
+                    # Note: This might happen multiple times?
+                    if c_inp == inp:
+                        # Rewire consumer's input directly to the output of
+                        # the squeeze operation
+                        consumer.input[i] = squeeze.output[0]
+            # Insert the squeeze operator into the model graph
+            model.graph.node.insert(0, squeeze)
+
+        # Get the names of all global output tensors to insert an Unsqueeze
+        # operation afterwards
+        global_outputs = [out.name for out in model.graph.output]
+        # Insert Unsqueeze operators at each global output
+        for out in global_outputs:
+            # Get the shape of the tensor to seek for dimensions of size 1
+            shape = model.get_tensor_shape(  # noqa: Duplicate
+                out, fix_missing_init_shape=True
+            )
+            # Skip if there is no shape and skip squeezing 0d or 1d tensors
+            if shape is None or len(shape) <= 1:
+                continue
+            # Get the axes to be squeezed, i.e., dimensions of size 1
+            axes = [dim for dim, size in enumerate(shape) if size == 1]
+            # Te be compatible with ONNX opset >= 13, the axes to
+            # unsqueeze/squeeze need to be provided as an input
+            axes_input = model.make_new_valueinfo_name()
+            # Set the axes as an initializer list
+            model.set_initializer(axes_input, np.asarray(axes))
+            # Instantiate the unsqueeze operator
+            unsqueeze = oh.make_node(
+                # Unsqueeze ONNX operators
+                "Unsqueeze",
+                # Connect to a new intermediate tensor
+                inputs=[model.make_new_valueinfo_name(), axes_input],
+                # Connect tho the global output
+                outputs=[out],
+                # Specify the axes to unsqueeze
+                axes=axes
+            )
+            # Connect the new unsqueeze operator to the producer of this global
+            # output
+            producer = model.find_producer(out)
+            # Find the output of the producer which is the global output
+            for i, p_out in enumerate(producer.output):
+                # Note: This might happen multiple times?
+                if p_out == out:
+                    # Rewire producer's output directly to the input of
+                    # the unsqueeze operation
+                    producer.output[i] = unsqueeze.input[0]
+            # Insert the unsqueeze operator into the model graph
+            model.graph.node.insert(0, unsqueeze)
+
         # Iterate all tensors in the graph keeping track of the index
         for index, name in enumerate(model.get_all_tensor_names()):
-            # Query the shape of the tensor adding annotations for initializers
-            # if missing
-            shape = model.get_tensor_shape(name, fix_missing_init_shape=True)
-            # Skip squeezing 0d or 1d tensors
-            if len(shape) <= 1:
+            # Skip the global inputs and outputs
+            if name in [*global_inputs, *global_outputs]:
+                # Skip without warning, these are handled by explicit
+                # Squeeze/Unsqueeze operations
                 continue
-            # Squeeze the shape by removing all dimensions with size 1
-            new_shape = [size for size in shape if size != 1]
-            # Try to get the initializer of the tensor
-            initializer = model.get_initializer(name)
-            # If an initializer is present replace by the squeezed tensor
-            if initializer is not None:
-                # Reassign the squeezed tensor
-                model.set_initializer(name, initializer.squeeze())
-            # Set new shape annotation
-            model.set_tensor_shape(name, new_shape)
-            # Track whether the shape actually changed
-            if len(new_shape) != len(shape):
-                # Is never reset back to False during iteration
-                graph_modified = True
-        # Return the transformed model and indicate whether the graph actually
-        # has been transformed
-        return model, graph_modified
+            # Skip initializer tensors: Shape inference should actually restore
+            # these shapes, but for some reason it does not work...
+            if model.get_initializer(name) is not None:
+                continue
+            # Just delete all existing shape annotations to redo them later
+            model.set_tensor_shape(name, None)
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether this transformation
+        # needs to be repeated
+        # Note: Never repeat this transformation as it might break when
+        # inserting multiple Squeeze operators
+        return model, False
