@@ -666,7 +666,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         estimate_network_performance = verify_model.analysis(dataflow_performance)
         prev_liveness = pyverilate_get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"])
+            int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
