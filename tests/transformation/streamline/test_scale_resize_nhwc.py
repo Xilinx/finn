@@ -180,6 +180,60 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     return model
 
 
+def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
+    ofm_dim_h = sizes[2]
+    ofm_dim_w = sizes[3]
+    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
+
+    # Empty scales
+    scales = oh.make_tensor_value_info("scales", TensorProto.FLOAT, [])
+
+    # Not actually used, only needed for compliance with the Resize node interface
+    roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
+
+    param = oh.make_tensor_value_info("sizes", TensorProto.INT64, [4])
+
+    outp_up = oh.make_tensor_value_info(
+        "outp_up", TensorProto.FLOAT, [1, ifm_ch, ofm_dim_h, ofm_dim_w]
+    )
+    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch])
+
+    resize_node = oh.make_node(
+        "Resize",
+        inputs=["inp", "roi", "scales", "sizes"],
+        outputs=["outp_up"],
+        name="Resize1",
+        mode=mode,
+    )
+
+    transpose_node = onnx.helper.make_node(
+        "Transpose",
+        inputs=["outp_up"],
+        outputs=["outp"],
+        name="Transpose1",
+        perm=[0, 2, 3, 1],
+    )
+
+    graph = oh.make_graph(
+        nodes=[resize_node, transpose_node],
+        name="resize_graph",
+        inputs=[inp],
+        outputs=[outp],
+        value_info=[outp_up, roi, scales, param],
+    )
+
+    model = qonnx_make_model(graph, producer_name="resize_model4")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+
+    model.set_tensor_layout("inp", DataLayout.NCHW)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataLayouts())
+
+    return model
+
+
 def check_transform(model):
     graph = model.graph
     node_ind = 0
@@ -198,20 +252,27 @@ def check_transform(model):
 @pytest.mark.parametrize("ifm_ch", [3])
 # scales
 @pytest.mark.parametrize("scales", [[1, 1, i, j] for i in range(2, 5) for j in range(2, 5)])
+# sizes
+@pytest.mark.parametrize(
+    "sizes", [[1, 3, 2**i, 2**j] for i in range(6, 7) for j in range(6, 7)]
+)
 # mode
 @pytest.mark.parametrize("mode", ["nearest"])
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
-def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
+def test_scale_resize_nhwc(ifm_dim, ifm_ch, sizes, scales, mode, idt):
     # create models
     resize_model1 = create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
     resize_model2 = create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt)
     resize_model3 = create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
+    resize_model4 = create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt)
 
     # set initializers
     resize_model1.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model2.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model3.set_initializer("scales", np.array(scales, dtype=np.float32))
+    resize_model4.set_initializer("sizes", np.array(sizes, dtype=np.int64))
+    resize_model4.set_initializer("scales", np.array([], dtype=np.float32))
 
     # generate input tensor for testing
     input_tensor_nchw = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
@@ -269,3 +330,20 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     # compare outputs
     assert (expected3 == output3).all()
     assert check_transform(resize_model3)
+
+    # execute fourth model
+    output_dict4 = oxe.execute_onnx(resize_model4, input_dict_nchw)
+    expected4 = output_dict4["outp"]
+
+    # transform Resize into ResizeNHWC
+    resize_model4 = resize_model4.transform(MakeScaleResizeNHWC())
+    resize_model4 = resize_model4.transform(InferDataLayouts())
+
+    # execute transformed model
+    output_node_name4 = resize_model4.graph.output[0].name
+    output_dict4 = oxe.execute_onnx(resize_model4, input_dict_nchw, return_full_exec_context=False)
+    output4 = output_dict4[output_node_name4]
+
+    # compare outputs
+    assert (expected4 == output4).all()
+    assert check_transform(resize_model4)
