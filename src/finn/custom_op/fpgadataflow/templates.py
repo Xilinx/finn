@@ -42,18 +42,22 @@ $GLOBALS$
 $DEFINES$
 
 int main(){
-$PRAGMAS$
 
-$STREAMDECLARATIONS$
+    $PRAGMAS$
 
-$READNPYDATA$
+    try {
+    $STREAMDECLARATIONS$
 
-$DOCOMPUTE$
+    $READNPYDATA$
 
-$DATAOUTSTREAM$
+    $DOCOMPUTE$
 
-$SAVEASCNPY$
+    $DATAOUTSTREAM$
 
+    $SAVEASCNPY$
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
 }
 
 """
