@@ -28,9 +28,7 @@
 
 import pytest
 import torch
-import onnx
-from onnx import helper, numpy_helper
-import numpy as np
+from onnx import helper
 import os
 import finn.core.onnx_exec as oxe
 from brevitas.export import export_qonnx
@@ -42,17 +40,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.fold_constants import FoldConstants
-from finn.transformation.streamline.absorb import (
-    AbsorbAddIntoMultiThreshold,
-    AbsorbMulIntoMultiThreshold,
-    FactorOutMulSignMagnitude,
-    Absorb1BitMulIntoConv,
-)
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from brevitas.quant.scaled_int import Int8ActPerTensorFloat, Int8WeightPerTensorFloat
 import finn.core.onnx_exec as oxe
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -62,26 +51,15 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.util.basic import pynq_part_map
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from qonnx.transformation.general import (
     ApplyConfig,
-    GiveReadableTensorNames,
     GiveUniqueNodeNames,
-    RemoveStaticGraphInputs,
-    RemoveUnusedTensors,
 )
-from finn.transformation.streamline import Streamline
 import finn.transformation.streamline.absorb as absorb
-import onnx
 from onnx import helper
-import onnxruntime
 import torch
 import torch.nn as nn
 import brevitas.nn as qnn
