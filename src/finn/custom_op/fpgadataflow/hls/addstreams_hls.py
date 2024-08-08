@@ -31,7 +31,9 @@ import os
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.pyxsi import compile_sim_obj, load_sim_obj, reset_rtlsim, rtlsim_multi_io
 
 
 class AddStreams_hls(AddStreams, HLSBackend):
@@ -125,8 +127,8 @@ class AddStreams_hls(AddStreams, HLSBackend):
             rtlsim_inp1 = npy_to_rtlsim_input(
                 "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
             )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            # super().reset_rtlsim(sim)
+            # super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
@@ -251,3 +253,33 @@ class AddStreams_hls(AddStreams, HLSBackend):
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+
+    def prepare_rtlsim(self):
+        verilog_files = self.get_all_verilog_filenames(abspath=True)
+        single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
+
+        ret = compile_sim_obj(self.get_verilog_top_module_name(), verilog_files, single_src_dir)
+
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
+
+    def get_rtlsim(self):
+        sim_xo_path = self.get_nodeattr("rtlsim_so")
+        sim_base, sim_rel = sim_xo_path.split("xsim.dir")
+        sim_rel = "xsim.dir" + sim_rel
+        tracefile = "trace.wdb"
+        return load_sim_obj(sim_base, sim_rel, tracefile)
+
+    def rtlsim(self, sim, inp, inp2=None):
+        """Runs the pyverilator simulation by passing the input values to the simulation,
+        toggle the clock and observing the execution time. Function contains also an
+        observation loop that can abort the simulation if no output value is produced
+        after 100 cycles."""
+
+        reset_rtlsim(sim)
+        io_dict = {"inputs": {"in0": inp, "in1": inp2}, "outputs": {"out": []}}
+        num_out_values = self.get_number_output_values()
+        sname = "_" + self.hls_sname() + "_"
+        rtlsim_multi_io(sim, io_dict, num_out_values, sname=sname)
+
+        return io_dict["outputs"]["out"]
