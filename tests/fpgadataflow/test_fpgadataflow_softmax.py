@@ -89,20 +89,6 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 export_onnx_path = "softmax_dut_qonnx.onnx"
 
-### Make model wrapper
-# 1. make node,
-
-
-### Test
-## 1. Compiler integration
-#       1. check all transforms can be applied to a model with a softmax layer
-#       2. Check that IP stitching produces valid HLS package
-
-## 2. Functionality test
-#       1. Check that we can run cpp/rtl sims
-#       2. check values are correct
-
-
 def create_model(io_shape=(1, 12, 128, 128)):
     '''
     Create a quantized softmax model.
