@@ -1773,7 +1773,6 @@ class InferQuantSoftmax(Transformation):
             # check that an optype of Softmax is present followed by a MultiThreshold
             consumer = model.find_consumer(n.output[0])
             if n.op_type == "Softmax" and consumer is not None and consumer.op_type == "MultiThreshold":
-                print("Found Softmax followed by MultiThreshold")
                 # get the shape of the input/output tensor
                 input_shape = model.get_tensor_shape(n.input[0])
                 assert input_shape == model.get_tensor_shape(consumer.input[0]), (
