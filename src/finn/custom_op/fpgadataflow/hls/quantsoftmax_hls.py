@@ -44,10 +44,10 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            '#include "npy2vectorstream.hpp"',
-            '#include "debug_print.hpp"',
+            '#include <hls_vector.h>',
             '#include "softmax.hpp"',
-            '#include "utils.hpp"'
+            '#include "utils.hpp"',
+            '#include "sm_utils.hpp"'
             ]
 
     def defines(self, var):
@@ -70,7 +70,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
                 static hls::stream<hls::vector<T,SIMD>>  dst0;
 
                 move(in0_{self.hls_sname()}, src0);
-                smaxquant<W,SIMD,T,F>(src0, dst0);
+                smaxquant<W,SIMD,T>(src0, dst0);
                 move(dst0, out_{self.hls_sname()});
         '''
         ]
