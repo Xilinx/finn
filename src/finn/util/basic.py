@@ -192,8 +192,12 @@ class CppBuilder:
             f.write("#!/bin/bash \n")
             f.write(bash_compile + "\n")
         bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+
+        with open(str(self.code_gen_dir) + "/compile.log", "w") as f:
+            try:
+                subprocess.check_output(bash_command, stderr=f)
+            except subprocess.CalledProcessError:
+                raise Exception(f"Error in compiling the generated code. Check {f.name} for more details.")
 
 
 def launch_process_helper(args, proc_env=None, cwd=None):

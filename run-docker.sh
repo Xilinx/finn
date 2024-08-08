@@ -265,6 +265,36 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
     DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
+
+# This part is used for internal ci for finn-examples
+# if using build verification for finn-examples ci, set up the necessary Docker variables
+if [ "$VERIFICATION_EN" = 1 ]; then
+  if [ -z "$FINN_EXAMPLES_ROOT" ]; then
+    recho "FINN_EXAMPLES_ROOT path has not been set."
+    recho "Please set FINN_EXAMPLES_ROOT path to enable verification."
+    exit -1
+  elif [ ! -d "${FINN_EXAMPLES_ROOT}/ci" ]; then
+    recho "ci folder not found in ${FINN_EXAMPLES_ROOT}."
+    recho "Please ensure the FINN-examples repo has been set up correctly, and FINN_EXAMPLES_ROOT path is set correctly, to enable verification."
+    exit -1
+  elif [ -z "$VERIFICATION_IO" ]; then
+    recho "VERIFICATION_IO paths has not been set."
+    recho "Please ensure the path to the input and expected output files has been set correctly to eneable verification."
+    exit -1
+  elif [ ! -d "$VERIFICATION_IO" ]; then
+    recho "${VERIFICATION_IO} is not a directory."
+    recho "Please ensure the VERIFICATION_IO path has been set to the directory containing the input and expected output files for verification."
+    exit -1
+  else
+    DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
+    DOCKER_EXEC+="-e FINN_EXAMPLES_ROOT=$FINN_EXAMPLES_ROOT "
+    DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
+    FINN_DOCKER_EXTRA+="-v $FINN_EXAMPLES_ROOT/ci:$FINN_EXAMPLES_ROOT/ci "
+    FINN_DOCKER_EXTRA+="-v $VERIFICATION_IO:$VERIFICATION_IO "
+  fi
+fi
+
+
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 
 if [ -z "$FINN_SINGULARITY" ];then
