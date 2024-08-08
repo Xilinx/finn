@@ -127,11 +127,15 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir):
     return (sim_out_dir, out_so_relative_path)
 
 
-def load_sim_obj(sim_out_dir, out_so_relative_path):
+def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None):
+    vivadolib_path = get_vivado_root() + "/lib/lnx64.o"
     oldcwd = os.getcwd()
     os.chdir(sim_out_dir)
-    sim = pyxsi.XSI(out_so_relative_path)
+    oldld = os.environ["LD_LIBRARY_PATH"]
+    os.environ["LD_LIBRARY_PATH"] = vivadolib_path
+    sim = pyxsi.XSI(out_so_relative_path, tracefile=tracefile, logfile="rtlsim.log")
     os.chdir(oldcwd)
+    os.environ["LD_LIBRARY_PATH"] = oldld
     return sim
 
 
