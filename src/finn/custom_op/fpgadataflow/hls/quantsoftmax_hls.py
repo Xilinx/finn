@@ -107,7 +107,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
             inp = context[node.input[0]]
             export_idt = self.get_input_datatype()
-            # inp = inp.reshape(folded_ishape)
+            inp = inp.reshape(folded_ishape)
             np.save(os.path.join(code_gen_dir, "input_0.npy"), inp)
             # # execute the precompiled model
             super().exec_precompiled_singlenode_model()
@@ -151,7 +151,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         self.global_includes()
         self.defines("cppsim")
         self.pragmas()
-        oshape = self.get_normal_output_shape()
+        oshape = self.get_folded_output_shape()
         oshape_str = str(oshape).replace("(", "{").replace(")", "}")
         self.code_gen_dict["$DOCOMPUTE$"] = [
             f'''
@@ -160,7 +160,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
             npy2vectorstream<T, float, SIMD>("{path}/input_0.npy", in0_V);
 
-            for (unsigned i = 0; i < 300; i++){{
+            for (unsigned i = 0; i < 900; i++){{
                 smaxquant<W, SIMD, T>(in0_V, out_V);
             }}
 
