@@ -1,14 +1,11 @@
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 from onnx.helper import make_node
 import warnings
 from qonnx.core.datatype import DataType
-import onnx
-from onnx.helper import make_node, make_tensor_value_info
+from onnx.helper import make_node
 import numpy as np
-import torch
-
+from scipy.special import softmax
 class QuantSoftmax(HWCustomOp):
     """Abstraction layer for HW implementation of VectorVectorActivation layers."""
 
@@ -37,11 +34,22 @@ class QuantSoftmax(HWCustomOp):
     def get_number_output_values(self):
         raise NotImplementedError("This function is not yet implemented.")
 
+    def quantise_to_int(self, arr, dtype):
+        max_val = np.iinfo(dtype).max
+        output = np.zeros_like(arr, dtype=dtype)
+        frac_part = arr - np.floor(arr)
+        scaled_frac = frac_part * max_val
+        output = scaled_frac.astype(dtype)
+        output[arr >= 1.0] = max_val
+        return output
+
     def execute_node(self, context, graph):
         node = self.onnx_node
         input_data = context[node.input[0]]
-        output_data = torch.softmax(input_data, dim=3)
-        context[node.output[0]] = output_data
+        output_data = softmax(input_data, axis=-1)
+        qsm_out = self.quantise_to_int(output_data, np.int8)
+        context[node.output[0]] = qsm_out
+
 
     def get_number_output_values(self):
         raise NotImplementedError
