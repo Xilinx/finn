@@ -91,6 +91,9 @@ class MoveAddPastMul(Transformation):
                     graph.node.insert(node_ind + 1, new_add)
                     # replace add value
                     model.set_initializer(add_weight_name, BA)
+                    # Delete the datatype annotation of the parameter tensor
+                    # TODO: Maybe we should derive the new type properly...
+                    model.set_tensor_datatype(add_weight_name, None)
                     # Delete the shape annotation of the connecting tensors
                     # to be re-done later. This prevents shapes from propagating
                     # backwards.
@@ -105,6 +108,9 @@ class MoveAddPastMul(Transformation):
         # Note: Running shape inference is necessary as shape
         # annotations have been deleted above
         model = model.transform(InferShapes())
+        # Note. Running datatype inference is necessary as datatype
+        # annotations have been deleted above
+        model = model.transform(InferDataTypes())
         return model, graph_modified
 
 
