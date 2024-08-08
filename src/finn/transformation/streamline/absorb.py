@@ -30,16 +30,18 @@ import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import helper as oh
-# Protobuf onnx graph node type
-from onnx import NodeProto  # noqa
+from qonnx.core.datatype import DataType
+
 # QONNX wrapper of ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+# Protobuf onnx graph node type
+from onnx import NodeProto  # noqa
 
 
 class AbsorbSignBiasIntoMultiThreshold(Transformation):
@@ -109,14 +111,10 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
 def group_inputs_by_category(node: NodeProto, model: ModelWrapper):  # noqa
     # First select all dynamic inputs, which are those without initializer
     # tensor
-    dynamics = [
-        i for i in node.input if model.get_initializer(i) is None
-    ]
+    dynamics = [i for i in node.input if model.get_initializer(i) is None]
     # Select all input which are initializers, which, by exclusion, are all
     # those not among the dynamic inputs
-    initializers = [
-        i for i in node.input if i not in dynamics
-    ]
+    initializers = [i for i in node.input if i not in dynamics]
     # Return lists of dynamic anc initializer inputs
     return dynamics, initializers
 
@@ -137,9 +135,7 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     # As Add is not a join node, there must be one initializer
                     # and one dynamic input. We do not know their order, but
                     # can group them accordingly to extract the tensor names
-                    (start,), (add_weight, ) = group_inputs_by_category(
-                        n, model
-                    )
+                    (start,), (add_weight,) = group_inputs_by_category(n, model)
                     threshold = consumer.input[1]
                     A = model.get_initializer(add_weight)
                     T = model.get_initializer(threshold)
@@ -236,7 +232,7 @@ class FactorOutMulSignMagnitude(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if n.op_type == "Mul" and not model.is_join_node(n):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."
