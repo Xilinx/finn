@@ -148,7 +148,7 @@ def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType
 
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
-    
+
     return model
 
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim", "stitched_ip"])
@@ -213,19 +213,20 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 
 @pytest.mark.parametrize("impl_style", ["hls","rtl"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
-@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
+@pytest.mark.parametrize("idt", [DataType["UINT8"],DataType["INT8"],DataType["INT4"],DataType["UINT4"]])
 @pytest.mark.parametrize("ifm_dim", [(12,128)])
 @pytest.mark.parametrize("channels", [128, 384])
 @pytest.mark.fpgadataflow
 def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
     simd = int(simd[-1])
     model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim, channels=channels)
-    
+
     # Create the qonnx model
-    io_shape = (1, 12, 128, 128)
-    # input = torch.randn(io_shape)
-    input = gen_finn_dt_tensor(DataType["UINT8"], io_shape)
-    input_t = {"global_in": input}
+    io_shape = (1, ifm_dim[0], ifm_dim[1], channels)
+    input = gen_finn_dt_tensor(idt, io_shape)
+    input_t = {"inp": input}
+
+    y_expected = oxe.execute_onnx(model, input_t)["outp"]
 
     try:
         model = model.transform(SpecializeLayers(test_fpga_part))
@@ -234,6 +235,7 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         # run the model
-        oxe.execute_onnx(model, input_t)
+        y_hw = oxe.execute_onnx(model, input_t)["outp"]
+        assert (y_hw == y_expected).all(), "HW layer execution failed"
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
