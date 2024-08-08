@@ -81,14 +81,14 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
   export XILINX_XRT=/opt/xilinx/xrt
   source $VITIS_PATH/settings64.sh
   gecho "Found Vitis at $VITIS_PATH"
-  # if [ -f "$XILINX_XRT/setup.sh" ];then
-  #   # source XRT
-  #   source $XILINX_XRT/setup.sh
-  #   gecho "Found XRT at $XILINX_XRT"
-  # else
-  #   recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-  #   exit -1
-  # fi
+  if [ -f "$XILINX_XRT/setup.sh" ];then
+    # source XRT
+    source $XILINX_XRT/setup.sh
+    gecho "Found XRT at $XILINX_XRT"
+  else
+    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
+    exit -1
+  fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis will not be available."
