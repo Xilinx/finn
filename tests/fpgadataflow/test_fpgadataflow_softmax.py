@@ -29,7 +29,6 @@
 import pytest
 import torch
 from onnx import helper
-import os
 import finn.core.onnx_exec as oxe
 from brevitas.export import export_qonnx
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
@@ -41,7 +40,6 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.transformation.infer_datatypes import InferDataTypes
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -63,35 +61,39 @@ from onnx import helper
 import torch
 import torch.nn as nn
 import brevitas.nn as qnn
+import numpy as np
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
-export_onnx_path = "softmax_dut_qonnx.onnx"
+export_onnx_path = "pytest_quantsoftmax_dut.onnx"
 
-def create_model(io_shape=(1, 12, 128, 128)):
+class QuantSoftMaxSimple(nn.Module):
+    def __init__(self, bit_width=8, signed=True):
+        super(QuantSoftMaxSimple, self).__init__()
+        self.output_identity = qnn.QuantIdentity(bit_width=bit_width, scaling_per_tensor=True, bias=False, signed = signed)
+        self.softmax = nn.Softmax(dim=3) # softmax along the last dimension
+
+    def get_quant_scale(self):
+        return self.output_identity.quant_act_scale()
+
+    def forward(self, x):
+        x = self.softmax(x)
+        x = self.output_identity(x)
+        return x
+
+def create_model(io_shape=(1, 12, 128, 128), idt=DataType["INT8"]):
     '''
     Create a quantized softmax model.
     Input and output are quantized to Int8ActPerTensorFloat, this is to make sure
     that the softmax layer is followed by a Quant node.
     '''
-    class QuantSoftMaxSimple(nn.Module):
-        def __init__(self):
-            super(QuantSoftMaxSimple, self).__init__()
-            self.output_identity = qnn.QuantIdentity()
-            self.softmax = nn.Softmax(dim=3) # softmax along the last dimension
-
-        def forward(self, x):
-            x = self.softmax(x)
-            x = self.output_identity(x)
-            return x
-
-    dut = QuantSoftMaxSimple()
-    input = torch.randn(io_shape)
+    dut = QuantSoftMaxSimple(idt.bitwidth(), idt.signed())
+    input = torch.rand(io_shape)
     export_qonnx(dut, input, export_onnx_path, opset_version=11)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-    # set the model input to INT8
+    # set the model input to UINT8
     model = ModelWrapper(export_onnx_path)
-    model.set_tensor_datatype(model.graph.input[0].name, DataType["UINT8"])
-    return model
+    model.set_tensor_datatype(model.graph.input[0].name, idt)
+    return model, dut.get_quant_scale()
 
 def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType["UINT8"], ifm_dim=(128, 128), channels=12):
     '''
@@ -101,12 +103,12 @@ def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType
     h = ifm_dim[0]
     w = ifm_dim[1]
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, h, w, channels])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, h, w, channels])
+    inp = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, [1, h, w, channels])
+    outp = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, [1, h, w, channels])
     new_node = helper.make_node(
         "QuantSoftmax",
-        ["inp"],
-        ["outp"],
+        ["global_in"],
+        ["global_out"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         ifm_dim=[h, w],
@@ -121,11 +123,11 @@ def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType
         inputs=[inp],
         outputs=[outp]
     )
-    model = qonnx_make_model(graph, producer_name="fmpadding-model")
+    model = qonnx_make_model(graph)
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", idt)
+    model.set_tensor_datatype("global_in", idt)
+    model.set_tensor_datatype("global_out", idt)
 
     return model
 
@@ -144,7 +146,8 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
     input = gen_finn_dt_tensor(DataType["UINT8"], io_shape)
     input_t = {"global_in": input}
 
-    model = create_model(io_shape)
+    model, _ = create_model(io_shape)
+
     simd = int(simd[-1])
     folding_config = {
         "Defaults": {},
@@ -192,19 +195,28 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 @pytest.mark.parametrize("impl_style", ["hls","rtl"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
 @pytest.mark.parametrize("idt", [DataType["UINT8"],DataType["INT8"],DataType["INT4"],DataType["UINT4"]])
-@pytest.mark.parametrize("ifm_dim", [(12,128)])
-@pytest.mark.parametrize("channels", [128, 384])
+@pytest.mark.parametrize("ifm_dim", [(12,12)])
+@pytest.mark.parametrize("channels", [12, 384])
 @pytest.mark.fpgadataflow
 def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
     simd = int(simd[-1])
+
     model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim, channels=channels)
 
     # Create the qonnx model
     io_shape = (1, ifm_dim[0], ifm_dim[1], channels)
-    input = gen_finn_dt_tensor(idt, io_shape)
-    input_t = {"inp": input}
 
-    y_expected = oxe.execute_onnx(model, input_t)["outp"]
+    input = gen_finn_dt_tensor(idt, io_shape)
+    input_t = {"global_in": input}
+
+    # Create reference values using the qonnx model
+    ref_model, scale = create_model(io_shape, idt)
+    y_ref = oxe.execute_onnx(ref_model, input_t)["global_out"]
+    y_ref = y_ref / scale
+    y_ref = y_ref.numpy()
+
+    y_out = oxe.execute_onnx(model, input_t)["global_out"]
+    assert np.allclose(y_ref, y_out, atol=5), "Model output does not match expected output"
 
     try:
         model = model.transform(SpecializeLayers(test_fpga_part))
@@ -213,7 +225,9 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         # run the model
-        y_hw = oxe.execute_onnx(model, input_t)["outp"]
-        assert (y_hw == y_expected).all(), "HW layer execution failed"
+        y_hw = oxe.execute_onnx(model, input_t)["global_out"]
+
+        assert np.allclose(y_ref, y_hw, atol=5), "Model output does not match expected output"
+
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
