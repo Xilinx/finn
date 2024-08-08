@@ -31,9 +31,7 @@ import numpy as np
 from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow import templates
-import subprocess
-from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
-
+from finn.util.basic import CppBuilder
 class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -46,19 +44,21 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
+            '#include "npy2vectorstream.hpp"',
+            '#include "debug_print.hpp"',
             '#include "softmax.hpp"',
             '#include "utils.hpp"'
             ]
 
     def defines(self, var):
         simd = self.get_nodeattr("simd")
-        ibits = self.get_input_datatype().bitwidth()
+        dtype = self.get_input_datatype()
         channels = self.get_nodeattr("channels")
         self.code_gen_dict["$DEFINES$"] = [
            f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {channels};
-            using  T = ap_uint<{ibits}>;
+            using  T = {dtype.get_hls_datatype_str()};
             using  F = float;
            """
         ]
@@ -101,17 +101,13 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
 
-
         if mode == "cppsim":
-            print("Executing node with cppsim")
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
             inp = context[node.input[0]]
             export_idt = self.get_input_datatype()
-            inp = inp.reshape(folded_ishape)
+            # inp = inp.reshape(folded_ishape)
             np.save(os.path.join(code_gen_dir, "input_0.npy"), inp)
             # # execute the precompiled model
             super().exec_precompiled_singlenode_model()
@@ -145,36 +141,32 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
     def code_generation_cppsim(self, model):
         """Generates c++ code for simulation (cppsim)."""
+        self.code_gen_dict["$READNPYDATA$"] = [""]
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [""]
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = [""]
         node = self.onnx_node
         path = self.get_nodeattr("code_gen_dir_cppsim")
         self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("cppsim")
-        self.read_npy_data()
-        self.strm_decl()
         self.pragmas()
-
+        oshape = self.get_normal_output_shape()
+        oshape_str = str(oshape).replace("(", "{").replace(")", "}")
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            f"""
-                static hls::stream<hls::vector<T,SIMD>>  src0;
-                static hls::stream<hls::vector<T,SIMD>>  dst0;
+            f'''
+            static hls::stream<hls::vector<T,SIMD>>  in0_V;
+            static hls::stream<hls::vector<T,SIMD>>  out_V;
 
-                hls::vector<T, SIMD> x;
-                for(unsigned i=0; i<SIMD; i++) {{
-                    T v = in0_V.read();
-                    x[i] = v;
-                }}
-                src0.write(x);
-                smaxquant<W,SIMD,T,F>(src0, dst0);
+            npy2vectorstream<T, float, SIMD>("{path}/input_0.npy", in0_V);
 
-                for(unsigned i=0; i<SIMD; i++) {{
-                    T v = dst0.read()[i];
-                    out_V.write(v);
-                }}
-            """
+            for (unsigned i = 0; i < 300; i++){{
+                smaxquant<W, SIMD, T>(in0_V, out_V);
+            }}
+
+            vectorstream2npy<T, float, SIMD>(out_V,{oshape_str}, "{path}/output.npy");
+            '''
         ]
-        self.dataoutstrm()
         self.save_as_npy()
 
         template = templates.docompute_template
@@ -186,6 +178,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
                 code_gen_line = "\n".join(self.code_gen_dict[key])
                 template = template.replace(key, code_gen_line)
             f.write(template)
+
     def prepare_rtlsim(self):
         # this node currently does not support rtlsim
         raise NotImplementedError("QuantSoftmax_hls does not support rtlsim")
