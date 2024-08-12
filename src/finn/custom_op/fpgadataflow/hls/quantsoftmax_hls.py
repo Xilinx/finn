@@ -47,7 +47,6 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
             '#include <hls_vector.h>',
             '#include "softmax.hpp"',
             '#include "utils.hpp"',
-            '#include "sm_utils.hpp"'
             ]
 
     def defines(self, var):
@@ -159,8 +158,9 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
             static hls::stream<hls::vector<T,SIMD>>  out_V;
 
             npy2vectorstream<T, float, SIMD>("{path}/input_0.npy", in0_V);
+            int stream_size = in0_V.size() - 1;
 
-            for (unsigned i = 0; i < 900; i++){{
+            while(out_V.size() != stream_size){{
                 smaxquant<W, SIMD, T>(in0_V, out_V);
             }}
 
