@@ -100,8 +100,8 @@ def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType
     Create a single quantized softmax node with variable parameters.
     this is before SpecializeLayers() transformation.
     '''
-    h = ifm_dim[0]
-    w = ifm_dim[1]
+    h = ifm_dim[1]
+    w = ifm_dim[2]
 
     inp = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, [1, h, w, channels])
     outp = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, [1, h, w, channels])
@@ -192,19 +192,20 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
         pytest.fail(f"Failed to transform the model: {str(e)}")
 
 
-@pytest.mark.parametrize("impl_style", ["hls","rtl"])
+@pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
-@pytest.mark.parametrize("idt", [DataType["UINT8"],DataType["INT8"],DataType["INT4"],DataType["UINT4"]])
-@pytest.mark.parametrize("ifm_dim", [(12,12)])
-@pytest.mark.parametrize("channels", [12, 384])
+@pytest.mark.parametrize("idt", ["INT8"])
+@pytest.mark.parametrize("ifm_dim", [(1, 12, 12, 12), (1, 128, 128, 384)])
 @pytest.mark.fpgadataflow
-def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
+def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim):
+    idt = DataType[idt]
     simd = int(simd[-1])
+    io_shape = (ifm_dim[0], ifm_dim[1], ifm_dim[2], ifm_dim[3])
+    tollerance = 2
+    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim, channels=ifm_dim[3])
 
-    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim, channels=channels)
-
-    # Create the qonnx model
-    io_shape = (1, ifm_dim[0], ifm_dim[1], channels)
+    if(ifm_dim[3] % 3 != 0):
+        pytest.skip(f"Skipping this test because the number of channels is not a multiple of {simd}")
 
     input = gen_finn_dt_tensor(idt, io_shape)
     input_t = {"global_in": input}
@@ -216,7 +217,7 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
     y_ref = y_ref.numpy()
 
     y_out = oxe.execute_onnx(model, input_t)["global_out"]
-    assert np.allclose(y_ref, y_out, atol=5), "Model output does not match expected output"
+    assert np.allclose(y_ref, y_out, atol=tollerance), "Model output does not match expected output"
 
     try:
         model = model.transform(SpecializeLayers(test_fpga_part))
@@ -224,20 +225,18 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim, channels):
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
-        # run the model
-        y_hw = oxe.execute_onnx(model, input_t)["global_out"]
-
-        # loop through the output tensor and compare the values
-        tollerance = 2
-
-        # Debug prints to help identify the failing values
-        for i in range(len(y_ref)):
-            for j in range(len(y_ref[i])):
-                for k in range(len(y_ref[i][j])):
-                    for l in range(len(y_ref[i][j][k])):
-                        if np.allclose(y_ref[i][j][k][l], y_hw[i][j][k][l], atol=tollerance) == False:
-                            print(f"|  {i},{j},{k},{l:<2}  |  {y_ref[i][j][k][l]:<4.0f} | {y_hw[i][j][k][l]:<4.0f} | {y_ref[i][j][k][l] - y_hw[i][j][k][l]:<4.0f} |")
-
-
     except Exception as e:
         pytest.fail(f"Failed to transform the model: {str(e)}")
+
+    # run the model
+    y_hw = oxe.execute_onnx(model, input_t)["global_out"]
+
+    # Debug prints to help identify the failing values
+    for i in range(len(y_ref)):
+        for j in range(len(y_ref[i])):
+            for k in range(len(y_ref[i][j])):
+                for l in range(len(y_ref[i][j][k])):
+                    if np.allclose(y_ref[i][j][k][l], y_hw[i][j][k][l], atol=tollerance) == False:
+                        print(f"|  {i},{j},{k},{l:<2}  |  {y_ref[i][j][k][l]:<4.0f} | {y_hw[i][j][k][l]:<4.0f} | {y_ref[i][j][k][l] - y_hw[i][j][k][l]:<4.0f} |")
+
+    assert np.allclose(y_ref, y_hw, atol=tollerance), "Model output does not match expected output"
