@@ -87,7 +87,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     gecho "Found XRT at $XILINX_XRT"
   else
     recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    # exit -1
+    exit -1
   fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"
