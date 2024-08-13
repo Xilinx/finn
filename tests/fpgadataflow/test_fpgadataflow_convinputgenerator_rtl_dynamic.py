@@ -41,11 +41,13 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import (
-    LowerConvsToMatMul,
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import (
+    auto_pad_to_explicit_padding,
+    gen_finn_dt_tensor,
+    get_by_name,
+    qonnx_make_model,
 )
-from qonnx.util.basic import auto_pad_to_explicit_padding
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
