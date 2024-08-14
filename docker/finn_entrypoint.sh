@@ -81,14 +81,14 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
   export XILINX_XRT=/opt/xilinx/xrt
   source $VITIS_PATH/settings64.sh
   gecho "Found Vitis at $VITIS_PATH"
-  if [ -f "$XILINX_XRT/setup.sh" ];then
-    # source XRT
-    source $XILINX_XRT/setup.sh
-    gecho "Found XRT at $XILINX_XRT"
-  else
-    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    exit -1
-  fi
+  # if [ -f "$XILINX_XRT/setup.sh" ];then
+  #   # source XRT
+  #   source $XILINX_XRT/setup.sh
+  #   gecho "Found XRT at $XILINX_XRT"
+  # else
+  #   recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
+  #   exit -1
+  # fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis will not be available."
@@ -136,6 +136,15 @@ else
   echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
+
+# add hls library path to LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/fpo_v7_1"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/fft_v9_1"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/fir_v7_0"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/dds_v6_0"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/tps/lnx64/gcc-8.3.0/lib"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lib/lnx64.o/Rhel"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/lib/csim"
 
 export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root

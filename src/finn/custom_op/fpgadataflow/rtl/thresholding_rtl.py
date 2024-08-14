@@ -186,9 +186,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         n_thres_steps = self.get_nodeattr("numSteps")
         wdt = self.get_weight_datatype()
         if expected_thresholds != n_thres_steps:
-            min_val = wdt.min()
-            thresholds = np.insert(thresholds, 0, min_val, axis=1)
-            bias = bias - 1
+            if DataType[output_data_type].signed():
+                min_val = wdt.min()
+                thresholds = np.insert(thresholds, 0, min_val, axis=1)
+                bias = bias - 1
+            # TODO: temporary fix for unsigned narrow quantization
+            else:
+                max_val = wdt.max()
+                if max_val > DataType[input_data_type].max():
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
+                else:
+                    max_val = max_val + 1
+                    # increase wdt
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
             n_thres_steps += 1
 
         # add dummy dimension as final dimension (that's what gets packed with next call)
@@ -528,8 +542,22 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         n_thres_steps = self.get_nodeattr("numSteps")
         wdt = self.get_weight_datatype()
         if expected_thresholds != n_thres_steps:
-            min_val = wdt.min()
-            thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            if DataType[output_data_type].signed():
+                min_val = wdt.min()
+                thresholds = np.insert(thresholds, 0, min_val, axis=1)
+            # TODO: temporary fix for unsigned narrow quantization
+            else:
+                max_val = wdt.max()
+                if max_val > self.get_input_datatype().max():
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
+                else:
+                    max_val = max_val + 1
+                    # increase wdt
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
+                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
             n_thres_steps += 1
 
         # If a single threshold value is found, broadcast the value
@@ -541,7 +569,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         thresh_padded = np.zeros((thresholds.shape[0], width_padded))
         thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds
         thresh_stream = []
-        wdt = self.get_weight_datatype()
         bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
         padding = np.zeros(width_padded, dtype=np.int32)
 

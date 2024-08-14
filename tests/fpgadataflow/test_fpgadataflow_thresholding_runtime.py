@@ -122,13 +122,16 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Read back threshold weights during runtime
 
     1. Create random initial weights T
@@ -140,8 +143,8 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
     odt = act
     n_steps = act.get_num_possible_values() - 1
     # Generate random thresholds and sort in ascending order
@@ -151,7 +154,7 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     T = sort_thresholds_increasing(T)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
@@ -219,13 +222,16 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Write threshold weights during runtime
 
     1. Create random initial weights T_init
@@ -241,8 +247,8 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
 
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
@@ -253,7 +259,7 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     T_init = sort_thresholds_increasing(T_init)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(

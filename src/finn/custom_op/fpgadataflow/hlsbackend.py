@@ -307,16 +307,21 @@ class HLSBackend(ABC):
 
     def exec_precompiled_singlenode_model(self):
         """Executes precompiled executable."""
-        executable_path = self.get_nodeattr("executable_path")
-        if executable_path == "":
+        executable = self.get_nodeattr("executable_path")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        if executable == "":
             raise Exception(
                 """
 Found no executable for this node, did you run the codegen and
 compilation transformations?
             """
             )
-        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
-        process_execute.communicate()
+        with open(code_gen_dir + "/sim.log", "w") as f:
+            try:
+                subprocess.check_output(executable, stderr=f)
+            except subprocess.CalledProcessError:
+                raise Exception(f"Error running the generated code. Check {f.name} for more details.")
+
 
     def hls_sname(self):
         """Get the naming convention used by Vitis HLS for stream signals

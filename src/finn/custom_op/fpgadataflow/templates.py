@@ -32,6 +32,7 @@ docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
+#include "npy2vectorstream.hpp"
 #include <vector>
 #include "bnn-library.h"
 
@@ -42,18 +43,22 @@ $GLOBALS$
 $DEFINES$
 
 int main(){
-$PRAGMAS$
 
-$STREAMDECLARATIONS$
+    $PRAGMAS$
 
-$READNPYDATA$
+    try {
+    $STREAMDECLARATIONS$
 
-$DOCOMPUTE$
+    $READNPYDATA$
 
-$DATAOUTSTREAM$
+    $DOCOMPUTE$
 
-$SAVEASCNPY$
+    $DATAOUTSTREAM$
 
+    $SAVEASCNPY$
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+    }
 }
 
 """
