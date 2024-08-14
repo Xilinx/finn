@@ -52,11 +52,11 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def defines(self, var):
         simd = self.get_nodeattr("simd")
         dtype = self.get_input_datatype()
-        channels = self.get_nodeattr("channels")
+        w = self.get_nodeattr("ifm_dim")[-1]
         self.code_gen_dict["$DEFINES$"] = [
            f"""
             constexpr unsigned  SIMD = {simd};
-            constexpr unsigned  W = {channels};
+            constexpr unsigned  W = {w};
             using  T = {dtype.get_hls_datatype_str()};
             using  F = float;
            """

@@ -16,7 +16,6 @@ class QuantSoftmax(HWCustomOp):
         my_attrs = {
             "ifm_dim": ("ints", True, []),
             "simd": ("i", False, 1),
-            "channels": ("i", True, 0),
             # FINN DataTypes for inputs, weights, outputs
             "data_type": ("s", True, ""),
         }
@@ -24,9 +23,7 @@ class QuantSoftmax(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        h, w = self.get_nodeattr("ifm_dim")
-        c = self.get_nodeattr("channels")
-        return (1, h, w, c)
+        return self.get_nodeattr("ifm_dim")
 
     def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
@@ -50,10 +47,8 @@ class QuantSoftmax(HWCustomOp):
         qsm_out = self.quantise_to_int(output_data, np.int8)
         context[node.output[0]] = qsm_out
 
-
     def get_number_output_values(self):
         raise NotImplementedError
-
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -102,19 +97,12 @@ class QuantSoftmax(HWCustomOp):
         return self.get_input_datatype()
 
     def get_folded_output_shape(self, ind=0):
-        normal_oshape = list(self.get_normal_output_shape())
-        ifm_ch = self.get_nodeattr("channels")
-        simd = self.get_nodeattr("simd")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_oshape[-1] / simd)
-        folded_oshape = normal_oshape[:-1] + [fold, simd]
-        return tuple(folded_oshape)
+        return self.get_folded_input_shape()
 
     def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
-        ifm_ch = self.get_nodeattr("channels")
         simd = self.get_nodeattr("simd")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        assert normal_ishape[-1] % simd == 0, "SIMD must divide into input dimension"
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)

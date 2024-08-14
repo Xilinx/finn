@@ -70,7 +70,7 @@ class QuantSoftMaxSimple(nn.Module):
     def __init__(self, bit_width=8, signed=True):
         super(QuantSoftMaxSimple, self).__init__()
         self.output_identity = qnn.QuantIdentity(bit_width=bit_width, scaling_per_tensor=True, bias=False, signed = signed)
-        self.softmax = nn.Softmax(dim=3) # softmax along the last dimension
+        self.softmax = nn.Softmax(dim=-1) # softmax along the last dimension
 
     def get_quant_scale(self):
         return self.output_identity.quant_act_scale()
@@ -95,24 +95,20 @@ def create_model(io_shape=(1, 12, 128, 128), idt=DataType["INT8"]):
     model.set_tensor_datatype(model.graph.input[0].name, idt)
     return model, dut.get_quant_scale()
 
-def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType["UINT8"], ifm_dim=(128, 128), channels=12):
+def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType["UINT8"], ifm_dim=(128, 128)):
     '''
     Create a single quantized softmax node with variable parameters.
     this is before SpecializeLayers() transformation.
     '''
-    h = ifm_dim[1]
-    w = ifm_dim[2]
-
-    inp = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, [1, h, w, channels])
-    outp = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, [1, h, w, channels])
+    inp = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, list(ifm_dim))
+    outp = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, list(ifm_dim))
     new_node = helper.make_node(
         "QuantSoftmax",
         ["global_in"],
         ["global_out"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        ifm_dim=[h, w],
-        channels=channels,
+        ifm_dim=list(ifm_dim),
         data_type = idt.name,
         simd=simd,
         preferred_impl_style=impl_style,
@@ -195,17 +191,17 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
 @pytest.mark.parametrize("idt", ["INT8"])
-@pytest.mark.parametrize("ifm_dim", [(1, 12, 12, 12), (1, 128, 128, 384)])
+@pytest.mark.parametrize("ifm_dim", [(1, 128, 384), (1, 12, 12, 128)])
 @pytest.mark.fpgadataflow
 def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim):
     idt = DataType[idt]
     simd = int(simd[-1])
-    io_shape = (ifm_dim[0], ifm_dim[1], ifm_dim[2], ifm_dim[3])
+    io_shape = ifm_dim
     tollerance = 2
-    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim, channels=ifm_dim[3])
+    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim)
 
-    if(ifm_dim[3] % 3 != 0):
-        pytest.skip(f"Skipping this test because the number of channels is not a multiple of {simd}")
+    if(ifm_dim[-1] % simd != 0):
+        pytest.skip(f"Skipping this test because the inner dimension is not a multiple of {simd}")
 
     input = gen_finn_dt_tensor(idt, io_shape)
     input_t = {"global_in": input}
@@ -231,12 +227,10 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim):
     # run the model
     y_hw = oxe.execute_onnx(model, input_t)["global_out"]
 
-    # Debug prints to help identify the failing values
-    for i in range(len(y_ref)):
-        for j in range(len(y_ref[i])):
-            for k in range(len(y_ref[i][j])):
-                for l in range(len(y_ref[i][j][k])):
-                    if np.allclose(y_ref[i][j][k][l], y_hw[i][j][k][l], atol=tollerance) == False:
-                        print(f"|  {i},{j},{k},{l:<2}  |  {y_ref[i][j][k][l]:<4.0f} | {y_hw[i][j][k][l]:<4.0f} | {y_ref[i][j][k][l] - y_hw[i][j][k][l]:<4.0f} |")
+    y_hw_flat = y_hw.flatten()
+    y_ref_flat = y_ref.flatten()
+    for i in range(len(y_hw_flat)):
+        if np.allclose(y_hw_flat[i], y_ref_flat[i], atol=tollerance) == False:
+            print(f"Index: {i}, Expected: {y_ref_flat[i]}, Got: {y_hw_flat[i]}")
 
     assert np.allclose(y_ref, y_hw, atol=tollerance), "Model output does not match expected output"
