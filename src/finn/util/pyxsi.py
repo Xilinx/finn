@@ -30,79 +30,20 @@ import errno
 import os
 import os.path
 import pyxsi
-import shutil
 
-from finn.util.basic import get_finn_root, get_vivado_root, launch_process_helper
-from finn.util.pyverilator import make_single_source_file
+from finn.util.basic import get_vivado_root, launch_process_helper
 
 
 def compile_sim_obj(top_module_name, source_list, sim_out_dir):
-    pyxsi_path = get_finn_root() + "/deps/pyxsi"
-    xsimincl_path = get_vivado_root() + "/data/xsim/include"
-    # first, copy the pyxsi.so (XSI python bindings) into our sim dir
-    # TODO skip building the .o/.so files here if they already exist
-    cmd_build_pybind = [
-        "g++",
-        "-Wall",
-        "-Werror",
-        "-g",
-        "-fPIC",
-        "-std=c++20",
-        "-I/usr/include/python3.10",
-        "-I" + xsimincl_path,
-        "-Isrc",
-        "-c",
-        "-o",
-        "pybind.o",
-        "src/pybind.cpp",
-    ]
-    launch_process_helper(cmd_build_pybind, cwd=pyxsi_path)
-
-    cmd_build_xsiloader = [
-        "g++",
-        "-Wall",
-        "-Werror",
-        "-g",
-        "-fPIC",
-        "-std=c++20",
-        "-I/usr/include/python3.10",
-        "-I" + xsimincl_path,
-        "-Isrc",
-        "-c",
-        "-o",
-        "xsi_loader.o",
-        "src/xsi_loader.cpp",
-    ]
-    launch_process_helper(cmd_build_xsiloader, cwd=pyxsi_path)
-
-    cmd_build_pyxsi_so = [
-        "g++",
-        "-Wall",
-        "-Werror",
-        "-g",
-        "-fPIC",
-        "-std=c++20",
-        "-I/usr/include/python3.10",
-        "-I" + xsimincl_path,
-        "-Isrc",
-        "-shared",
-        "-o",
-        "pyxsi.so",
-        "pybind.o",
-        "xsi_loader.o",
-        "-lfmt",
-        "-ldl",
-    ]
-    launch_process_helper(cmd_build_pyxsi_so, cwd=pyxsi_path)
-
-    shutil.copy(pyxsi_path + "/pyxsi.so", sim_out_dir)
-    # create a single source file from the list of sources
-    # TODO this should be no longer necessary for pyxsi since we have .prj files
-    single_source_file = sim_out_dir + "/all_sources.v"
-    make_single_source_file(source_list, single_source_file)
-    # create a .prj file with the single source file
+    # create a .prj file with the source files
     with open(sim_out_dir + "/rtlsim.prj", "w") as f:
-        f.write("verilog work all_sources.v\n")
+        for src_line in source_list:
+            if src_line.endswith(".v"):
+                f.write(f"verilog work {src_line}\n")
+            elif src_line.endswith(".vhd"):
+                f.write(f"vhdl2008 work {src_line}\n")
+            else:
+                raise Exception(f"Unknown extension for .prj file sources: {src_line}")
 
     # now call xelab to generate the .so for the design to be simulated
     # TODO make debug controllable to allow faster sim when desired
@@ -127,13 +68,18 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir):
     return (sim_out_dir, out_so_relative_path)
 
 
-def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None):
+def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_verilog=True):
     vivadolib_path = get_vivado_root() + "/lib/lnx64.o"
     oldcwd = os.getcwd()
     os.chdir(sim_out_dir)
     oldld = os.environ["LD_LIBRARY_PATH"]
     os.environ["LD_LIBRARY_PATH"] = vivadolib_path
-    sim = pyxsi.XSI(out_so_relative_path, tracefile=tracefile, logfile="rtlsim.log")
+    sim = pyxsi.XSI(
+        out_so_relative_path,
+        is_toplevel_verilog=is_toplevel_verilog,
+        tracefile=tracefile,
+        logfile="rtlsim.log",
+    )
     os.chdir(oldcwd)
     os.environ["LD_LIBRARY_PATH"] = oldld
     return sim
