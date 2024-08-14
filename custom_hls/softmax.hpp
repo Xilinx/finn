@@ -44,6 +44,7 @@
 #include <functional>
 #include <cmath>
 #include <climits>
+#include <type_traits>
 #include "sm_utils.hpp"
 
 // First stage of the pipeline:
@@ -211,20 +212,29 @@ void smax(
 
 // Threshold/quantisation at the output of the softmax 
 template<
-	typename T, // The quantised output type (Needs to be signed)
-	typename F // The float based input type
+        typename T, // The quantised output type (Needs to be signed)
+        typename TF // The float based input type
 >
-T quant_threshold(F val) {
+T quant_threshold(TF val) {
 #pragma HLS INLINE
-	if(val>=1.0f) 
-		return T((~unsigned(0)) >> 1); 
+        constexpr unsigned numBits = sizeof(T)*CHAR_BIT;
+        if(val>=1.0f){
+                T frac_val = ~T(0);
+                if(std::is_signed<T>::value) {
+                        return frac_val;
+                } else {
+                        T mask = ~(T(1) << (numBits - 1));
+                        return frac_val & mask;
+                }
+        }
 
-	constexpr unsigned N_fracbits = (sizeof(T)*CHAR_BIT);
 
-	ap_fixed<N_fracbits-1, 0> fixed_point_val = val;
-	T frac_val = fixed_point_val.range(N_fracbits - 2, 0);
-	return frac_val; 
+        ap_fixed<numBits-1, 0> fixed_point_val = val;
+        T frac_val = fixed_point_val.range(numBits - 2, 0);
+        return frac_val;
 }
+
+
 
 // Quantisation pipeline stage
 //
