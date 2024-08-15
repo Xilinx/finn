@@ -1778,9 +1778,6 @@ class InferQuantSoftmax(Transformation):
                 assert input_shape == model.get_tensor_shape(consumer.input[0]), (
                     "Softmax and MultiThreshold input shapes do not match"
                 )
-                h = int(input_shape[1])
-                w = int(input_shape[2])
-                c = int(input_shape[3])
                 idt0 = model.get_tensor_datatype(n.input[0])
                 # create node with no parallelization first
                 simd = 1
@@ -1791,8 +1788,7 @@ class InferQuantSoftmax(Transformation):
                     [consumer.output[0]],  # output tensor(s)
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    ifm_dim=[h, w],
-                    channels=c,
+                    ifm_dim=input_shape,
                     data_type = idt0.name,
                     name="Quant"+n.name,
                     simd=simd
