@@ -24,30 +24,32 @@ LOGGING_CONFIG = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'standard': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        'brief': {
+            'format': '[%(levelname)-6s] %(asctime)s - %(message)s',
+            'datefmt': '%d-%m-%Y %H:%M:%S'
         },
-        'detailed': {
-            'format': '%(asctime)s - %(name)s - %(levelname)s - %(message)s [in %(pathname)s:%(lineno)d]'
+        'precise': {
+            'format': '[%(levelname)-6s] %(asctime)s - %(name)s - %(message)s [in %(pathname)s:%(lineno)d]',
+            'datefmt': '%d-%m-%Y %H:%M:%S'
         },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'standard',
-            'level': 'NOTSET',
+            'formatter': 'brief',
+            'level': 'INFO',
         },
         'file': {
             'class': 'logging.FileHandler',
             'filename': 'finn.log',
-            'formatter': 'detailed',
-            'level': 'NOTSET',
+            'formatter': 'precise',
+            'level': 'DEBUG',
         },
     },
     'loggers': {
         '': {  # root logger
             'handlers': ['console', 'file'],
-            'level': 'NOTSET',
+            'level': 'DEBUG',
             'propagate': True
         }
     }
@@ -86,13 +88,13 @@ def log_func(logger_name):
 
         @functools.wraps(func)
         def wrapper_log_func(*args, **kwargs):
-            logger.info(f"Entering {func.__name__} with args: {args} and kwargs: {kwargs}")
+            logger.debug(f"Entering {func.__name__}")
             try:
                 result = func(*args, **kwargs)
-                logger.info(f"Exiting {func.__name__} with result: {result}")
+                logger.debug(f"Exiting {func.__name__}")
                 return result
             except Exception as e:
-                logger.error(f"Exception in {func.__name__}: {e}")
+                logger.error(f"Exception in {func.__name__}: {e}", exc_info=True)
                 raise
         return wrapper_log_func
     return decorator_log_func
@@ -105,17 +107,17 @@ def log_func_perf(logger_name):
         @functools.wraps(func)
         def wrapper_log_func_perf(*args, **kwargs):
             start_time = time.time()
-            logger.info(f"Starting {func.__name__}")
+            logger.debug(f"Starting {func.__name__}")
             try:
                 result = func(*args, **kwargs)
                 end_time = time.time()
                 elapsed_time = end_time - start_time
-                logger.info(f"Finished {func.__name__} in {elapsed_time:.4f} seconds")
+                logger.debug(f"Finished {func.__name__} in {elapsed_time:.4f} seconds")
                 return result
             except Exception as e:
                 end_time = time.time()
                 elapsed_time = end_time - start_time
-                logger.error(f"Exception in {func.__name__} after {elapsed_time:.4f} seconds: {e}")
+                logger.error(f"Exception in {func.__name__} after {elapsed_time:.4f} seconds: {e}", exc_info=True)
                 raise
         return wrapper_log_func_perf
     return decorator_log_func_perf
