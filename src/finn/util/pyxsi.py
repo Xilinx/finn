@@ -31,7 +31,7 @@ import os
 import os.path
 import pyxsi
 
-from finn.util.basic import get_vivado_root, launch_process_helper
+from finn.util.basic import launch_process_helper
 
 
 def compile_sim_obj(top_module_name, source_list, sim_out_dir):
@@ -69,11 +69,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir):
 
 
 def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_verilog=True):
-    vivadolib_path = get_vivado_root() + "/lib/lnx64.o"
     oldcwd = os.getcwd()
     os.chdir(sim_out_dir)
-    oldld = os.environ["LD_LIBRARY_PATH"]
-    os.environ["LD_LIBRARY_PATH"] = vivadolib_path
     sim = pyxsi.XSI(
         out_so_relative_path,
         is_toplevel_verilog=is_toplevel_verilog,
@@ -81,7 +78,6 @@ def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_
         logfile="rtlsim.log",
     )
     os.chdir(oldcwd)
-    os.environ["LD_LIBRARY_PATH"] = oldld
     return sim
 
 
