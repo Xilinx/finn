@@ -280,6 +280,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
         io_dict = {"inputs": {"in0": inp, "in1": inp2}, "outputs": {"out": []}}
         num_out_values = self.get_number_output_values()
         sname = "_" + self.hls_sname() + "_"
-        rtlsim_multi_io(sim, io_dict, num_out_values, sname=sname)
+        total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, sname=sname)
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
         return io_dict["outputs"]["out"]
