@@ -206,16 +206,18 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
     if(ifm_dim[-1] % simd != 0):
         pytest.skip(f"Skipping this test because the inner dimension is not a multiple of {simd}")
 
-    output = gen_finn_dt_tensor(odt, io_shape)
-    output_t = {"global_out": output}
+    input = gen_finn_dt_tensor(idt, io_shape)
+    in_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    input_t = {in_name: input}
 
     # Create reference values using the qonnx model
     ref_model, scale = create_model(io_shape, odt)
-    y_ref = oxe.execute_onnx(ref_model, output_t)["global_out"]
+    y_ref = oxe.execute_onnx(ref_model, input_t)[out_name]
     y_ref = y_ref / scale
     y_ref = y_ref.numpy()
 
-    y_out = oxe.execute_onnx(model, output_t)["global_out"]
+    y_out = oxe.execute_onnx(model, input_t)[out_name]
     assert np.allclose(y_ref, y_out, atol=tollerance), "Model output does not match expected output"
 
     try:
@@ -228,7 +230,7 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
         pytest.fail(f"Failed to transform the model: {str(e)}")
 
     # run the model
-    y_hw = oxe.execute_onnx(model, output_t)["global_out"]
+    y_hw = oxe.execute_onnx(model, input_t)[out_name]
 
     y_hw_flat = y_hw.flatten()
     y_ref_flat = y_ref.flatten()
