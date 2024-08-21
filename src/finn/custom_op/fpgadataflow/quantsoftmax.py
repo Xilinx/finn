@@ -17,7 +17,8 @@ class QuantSoftmax(HWCustomOp):
             "ifm_dim": ("ints", True, []),
             "simd": ("i", False, 1),
             # FINN DataTypes for inputs, weights, outputs
-            "data_type": ("s", True, ""),
+            "input_data_type": ("s", True, ""),
+            "output_data_type": ("s", True, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -52,7 +53,7 @@ class QuantSoftmax(HWCustomOp):
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        data_type = DataType[self.get_nodeattr("data_type")]
+        data_type = DataType[self.get_nodeattr("input_data_type")]
         # the hlslib op always pads with zeros, so ensure that the DataType
         # is able to represent zeros
         assert data_type.allowed(0), "DataType must support zero"
@@ -70,13 +71,23 @@ class QuantSoftmax(HWCustomOp):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
         if idt != self.get_input_datatype():
-            warn_str = "data_type changing for %s: %s -> %s " % (
+            warn_str = "input_data_type changing for %s: %s -> %s " % (
                 node.name,
                 str(self.get_input_datatype()),
                 str(idt),
             )
             warnings.warn(warn_str)
-        self.set_nodeattr("data_type", idt.name)
+        self.set_nodeattr("input_data_type", idt.name)
+        
+        odt = model.get_tensor_datatype(node.output[0])
+        if odt != self.get_output_datatype():
+            warn_str = "output_data_type changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_output_datatype()),
+                str(odt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("output_data_type", odt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
@@ -93,8 +104,12 @@ class QuantSoftmax(HWCustomOp):
         return obits * simd
 
     def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output. (Same as input datatype)"""
-        return self.get_input_datatype()
+        """Returns FINN DataType of output."""
+        data_type = DataType[self.get_nodeattr("output_data_type")]
+        # the hlslib op always pads with zeros, so ensure that the DataType
+        # is able to represent zeros
+        assert data_type.allowed(0), "DataType must support zero"
+        return data_type
 
     def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
