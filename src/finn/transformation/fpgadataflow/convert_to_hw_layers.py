@@ -1779,6 +1779,7 @@ class InferQuantSoftmax(Transformation):
                     "Softmax and MultiThreshold input shapes do not match"
                 )
                 idt0 = model.get_tensor_datatype(n.input[0])
+                odt0 = model.get_tensor_datatype(n.output[0])
                 # create node with no parallelization first
                 simd = 1
                 # create and insert new node
@@ -1789,7 +1790,8 @@ class InferQuantSoftmax(Transformation):
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     ifm_dim=input_shape,
-                    data_type = idt0.name,
+                    input_data_type = idt0.name,
+                    output_data_type = odt0.name,
                     name="Quant"+n.name,
                     simd=simd
                 )
