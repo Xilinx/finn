@@ -1,11 +1,12 @@
+import numpy as np
+import warnings
+from onnx.helper import make_node
+from qonnx.core.datatype import DataType
+from scipy.special import softmax
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from onnx.helper import make_node
-import warnings
-from qonnx.core.datatype import DataType
-from onnx.helper import make_node
-import numpy as np
-from scipy.special import softmax
+
+
 class QuantSoftmax(HWCustomOp):
     """Abstraction layer for HW implementation of VectorVectorActivation layers."""
 
@@ -48,9 +49,6 @@ class QuantSoftmax(HWCustomOp):
         qsm_out = self.quantise_to_int(output_data, np.int8)
         context[node.output[0]] = qsm_out
 
-    def get_number_output_values(self):
-        raise NotImplementedError
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         data_type = DataType[self.get_nodeattr("input_data_type")]
@@ -62,11 +60,13 @@ class QuantSoftmax(HWCustomOp):
     def make_shape_compatible_op(self, model):
         shape = self.get_normal_input_shape()
         # create an ONNX Softmax node with the same shape as this one
-        return make_node("Softmax",
-                         inputs=[self.onnx_node.input[0]],
-                         outputs=[self.onnx_node.output[0]],
-                         shape=list(shape)
-                         )
+        return make_node(
+            "Softmax",
+            inputs=[self.onnx_node.input[0]],
+            outputs=[self.onnx_node.output[0]],
+            shape=list(shape),
+        )
+
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -78,17 +78,10 @@ class QuantSoftmax(HWCustomOp):
             )
             warnings.warn(warn_str)
         self.set_nodeattr("input_data_type", idt.name)
-        
-        odt = model.get_tensor_datatype(node.output[0])
-        if odt != self.get_output_datatype():
-            warn_str = "output_data_type changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_output_datatype()),
-                str(odt),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("output_data_type", odt.name)
-        model.set_tensor_datatype(node.output[0], idt)
+
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         raise NotImplementedError

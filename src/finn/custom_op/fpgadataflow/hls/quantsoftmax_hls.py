@@ -26,12 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import numpy as np
-from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
-from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+import os
+
 from finn.custom_op.fpgadataflow import templates
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.custom_op.fpgadataflow.quantsoftmax import QuantSoftmax
 from finn.util.basic import CppBuilder
+
+
 class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -44,10 +47,10 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
-            '#include <hls_vector.h>',
+            "#include <hls_vector.h>",
             '#include "softmax.hpp"',
             '#include "utils.hpp"',
-            ]
+        ]
 
     def defines(self, var):
         simd = self.get_nodeattr("simd")
@@ -55,7 +58,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         odtype = self.get_output_datatype()
         w = self.get_nodeattr("ifm_dim")[-1]
         self.code_gen_dict["$DEFINES$"] = [
-           f"""
+            f"""
             constexpr unsigned  SIMD = {simd};
             constexpr unsigned  W = {w};
             using  TI = {idtype.get_hls_datatype_str()};
@@ -66,29 +69,29 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            f'''
-                static hls::stream<hls::vector<T,SIMD>>  src0;
-                static hls::stream<hls::vector<T,SIMD>>  dst0;
+            f"""
+                static hls::stream<hls::vector<TI,SIMD>>  src0;
+                static hls::stream<hls::vector<TO,SIMD>>  dst0;
 
                 move(in0_{self.hls_sname()}, src0);
                 smaxquant<W,SIMD,TI,TO>(src0, dst0);
                 move(dst0, out_{self.hls_sname()});
-        '''
+        """
         ]
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"]  = [
-            f'''
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            f"""
             void {self.onnx_node.name}(
                 hls::stream<hls::vector<TI,SIMD>> &in0_{self.hls_sname()},
                 hls::stream<hls::vector<TO,SIMD>> &out_{self.hls_sname()}
                 )
-            '''
+            """
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"]  = [
-            f'''
+        self.code_gen_dict["$PRAGMAS$"] = [
+            f"""
             #pragma HLS interface AXIS port=in0_{self.hls_sname()}
             #pragma HLS interface AXIS port=out_{self.hls_sname()}
             #pragma HLS aggregate  variable=in0_{self.hls_sname()} compact=bit
@@ -96,7 +99,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
 
             #pragma HLS interface ap_ctrl_none port=return
             #pragma HLS dataflow disable_start_propagation
-            '''
+            """
         ]
 
     def execute_node(self, context, graph):
@@ -107,7 +110,6 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
             inp = context[node.input[0]]
-            export_idt = self.get_input_datatype()
             inp = inp.reshape(folded_ishape)
             np.save(os.path.join(code_gen_dir, "input_0.npy"), inp)
             # # execute the precompiled model
@@ -134,8 +136,12 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("$FINN_ROOT/deps/cnpy/cnpy.cpp")
         builder.append_includes("-lz")
-        builder.append_includes("-fno-builtin -fno-inline -Wl,-rpath,\"$HLS_PATH/lnx64/lib/csim\" -L$HLS_PATH/lnx64/lib/csim -lhlsmc++-GCC46")
-        builder.append_includes("-L$HLS_PATH/lnx64/tools/fpo_v7_1 -lgmp -lmpfr -lIp_floating_point_v7_1_bitacc_cmodel")
+        builder.append_includes(
+            '-fno-builtin -fno-inline -Wl,-rpath,"$HLS_PATH/lnx64/lib/csim" -L$HLS_PATH/lnx64/lib/csim -lhlsmc++-GCC46'
+        )
+        builder.append_includes(
+            "-L$HLS_PATH/lnx64/tools/fpo_v7_1 -lgmp -lmpfr -lIp_floating_point_v7_1_bitacc_cmodel"
+        )
         builder.set_executable_path(code_gen_dir + "/node_model")
         builder.build(code_gen_dir)
         self.set_nodeattr("executable_path", builder.executable_path)
@@ -155,7 +161,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
         oshape = self.get_folded_output_shape()
         oshape_str = str(oshape).replace("(", "{").replace(")", "}")
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            f'''
+            f"""
             static hls::stream<hls::vector<TI,SIMD>>  in0_V;
             static hls::stream<hls::vector<TO,SIMD>>  out_V;
 
@@ -167,7 +173,7 @@ class QuantSoftmax_hls(QuantSoftmax, HLSBackend):
             }}
 
             vectorstream2npy<TO, float, SIMD>(out_V,{oshape_str}, "{path}/output.npy");
-            '''
+            """
         ]
         self.save_as_npy()
 
