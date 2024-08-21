@@ -95,7 +95,7 @@ def create_model(io_shape=(1, 12, 128, 128), idt=DataType["INT8"]):
     model.set_tensor_datatype(model.graph.input[0].name, idt)
     return model, dut.get_quant_scale()
 
-def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType["UINT8"], ifm_dim=(128, 128)):
+def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType["UINT8"], odt=DataType["UINT8"], ifm_dim=(128, 128)):
     '''
     Create a single quantized softmax node with variable parameters.
     this is before SpecializeLayers() transformation.
@@ -109,7 +109,8 @@ def make_single_quantsoftmax_modelwrapper(impl_style="hls", simd=1, idt=DataType
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         ifm_dim=list(ifm_dim),
-        data_type = idt.name,
+        input_data_type = idt.name,
+        output_data_type = odt.name,
         simd=simd,
         preferred_impl_style=impl_style,
     )
@@ -191,14 +192,16 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
 @pytest.mark.parametrize("idt", ["INT8"])
+@pytest.mark.parametrize("odt", ["INT8"])
 @pytest.mark.parametrize("ifm_dim", [(1, 128, 384), (1, 12, 12, 128)])
 @pytest.mark.fpgadataflow
-def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, ifm_dim):
+def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
     idt = DataType[idt]
+    odt = DataType[odt]
     simd = int(simd[-1])
     io_shape = ifm_dim
     tollerance = 2
-    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, ifm_dim=ifm_dim)
+    model = make_single_quantsoftmax_modelwrapper(impl_style=impl_style, simd=simd, idt=idt, odt=odt, ifm_dim=ifm_dim)
 
     if(ifm_dim[-1] % simd != 0):
         pytest.skip(f"Skipping this test because the inner dimension is not a multiple of {simd}")
