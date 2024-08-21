@@ -191,8 +191,8 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
-@pytest.mark.parametrize("idt", ["INT8",  "INT16"])
-@pytest.mark.parametrize("odt", ["INT8",  "INT16"])
+@pytest.mark.parametrize("idt", ["INT8", "INT9", "INT16"])
+@pytest.mark.parametrize("odt", ["INT8", "INT16"])
 @pytest.mark.parametrize("ifm_dim", [(1, 128, 384), (1, 12, 12, 128)])
 @pytest.mark.fpgadataflow
 def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
