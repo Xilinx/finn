@@ -80,13 +80,13 @@ class QuantSoftMaxSimple(nn.Module):
         x = self.output_identity(x)
         return x
 
-def create_model(io_shape=(1, 12, 128, 128), idt=DataType["INT8"]):
+def create_model(io_shape=(1, 12, 128, 128), idt=DataType["INT8"], odt=DataType["INT8"]):
     '''
     Create a quantized softmax model.
     Input and output are quantized to Int8ActPerTensorFloat, this is to make sure
     that the softmax layer is followed by a Quant node.
     '''
-    dut = QuantSoftMaxSimple(idt.bitwidth(), idt.signed())
+    dut = QuantSoftMaxSimple(odt.bitwidth(), odt.signed())
     input = torch.rand(io_shape)
     export_qonnx(dut, input, export_onnx_path, opset_version=11)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
@@ -191,8 +191,8 @@ def test_convert_to_hw_softmax_layer(exec_mode, simd):
 
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.parametrize("simd", ["simd1", "simd2", "simd3", "simd4"])
-@pytest.mark.parametrize("idt", ["INT8"])
-@pytest.mark.parametrize("odt", ["INT8"])
+@pytest.mark.parametrize("idt", ["INT8",  "INT16"])
+@pytest.mark.parametrize("odt", ["INT8",  "INT16"])
 @pytest.mark.parametrize("ifm_dim", [(1, 128, 384), (1, 12, 12, 128)])
 @pytest.mark.fpgadataflow
 def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
@@ -206,16 +206,16 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
     if(ifm_dim[-1] % simd != 0):
         pytest.skip(f"Skipping this test because the inner dimension is not a multiple of {simd}")
 
-    input = gen_finn_dt_tensor(idt, io_shape)
-    input_t = {"global_in": input}
+    output = gen_finn_dt_tensor(odt, io_shape)
+    output_t = {"global_out": output}
 
     # Create reference values using the qonnx model
-    ref_model, scale = create_model(io_shape, idt)
-    y_ref = oxe.execute_onnx(ref_model, input_t)["global_out"]
+    ref_model, scale = create_model(io_shape, odt)
+    y_ref = oxe.execute_onnx(ref_model, output_t)["global_out"]
     y_ref = y_ref / scale
     y_ref = y_ref.numpy()
 
-    y_out = oxe.execute_onnx(model, input_t)["global_out"]
+    y_out = oxe.execute_onnx(model, output_t)["global_out"]
     assert np.allclose(y_ref, y_out, atol=tollerance), "Model output does not match expected output"
 
     try:
@@ -228,7 +228,7 @@ def test_fpga_dataflow_quantsoftmax(impl_style, simd, idt, odt, ifm_dim):
         pytest.fail(f"Failed to transform the model: {str(e)}")
 
     # run the model
-    y_hw = oxe.execute_onnx(model, input_t)["global_out"]
+    y_hw = oxe.execute_onnx(model, output_t)["global_out"]
 
     y_hw_flat = y_hw.flatten()
     y_ref_flat = y_ref.flatten()
