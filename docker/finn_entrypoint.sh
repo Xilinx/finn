@@ -129,6 +129,18 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
     mkdir "$HOME/.Xilinx/Vivado/"
     cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
     gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+    # pyxsi depends on Vivado so only triggered after we find Vivado
+    if [ -f "${FINN_ROOT}/deps/pyxsi/pyxsi.so" ]; then
+      gecho "Found pyxsi at ${FINN_ROOT}/deps/pyxsi/pyxsi.so"
+    else
+      OLDPWD=$(pwd)
+      cd ${FINN_ROOT}/deps/pyxsi
+      touch .dockerenv
+      make
+      cd $OLDPWD
+    fi
+    export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${XILINX_VIVADO}/lib/lnx64.o
   else
     yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
   fi
@@ -137,18 +149,6 @@ else
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
-
-if [ -f "${FINN_ROOT}/deps/pyxsi/pyxsi.so" ];then
-  gecho "Found pyxsi at ${FINN_ROOT}/deps/pyxsi/pyxsi.so"
-else
-  OLDPWD=$(pwd)
-  cd ${FINN_ROOT}/deps/pyxsi
-  touch .dockerenv
-  make
-  cd $OLDPWD
-fi
-export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${XILINX_VIVADO}/lib/lnx64.o
 export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root
 exec "$@"
