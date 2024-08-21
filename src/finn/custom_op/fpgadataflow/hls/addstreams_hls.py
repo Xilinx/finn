@@ -28,12 +28,12 @@
 
 import numpy as np
 import os
+from pyxsi_utils import compile_sim_obj, load_sim_obj, reset_rtlsim, rtlsim_multi_io
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.pyxsi import compile_sim_obj, load_sim_obj, reset_rtlsim, rtlsim_multi_io
 
 
 class AddStreams_hls(AddStreams, HLSBackend):
