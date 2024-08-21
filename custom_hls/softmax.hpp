@@ -268,18 +268,19 @@ void quant_stage(
 template<
 	 unsigned N, // The width of the input dimension 
 	 unsigned SIMD, // Amount of parallelism (how many items consumed/produced at a time 
-	 typename T  
+	 typename TI, // Input type param  
+	 typename TO // Output type param
 	 >
 void smaxquant(
-	hls::stream<hls::vector<T,SIMD>> &src,
-	hls::stream<hls::vector<T,SIMD>> &dst
+	hls::stream<hls::vector<TI,SIMD>> &src,
+	hls::stream<hls::vector<TO,SIMD>> &dst
 ) {
 #pragma HLS DATAFLOW disable_start_propagation
 	hls::stream<hls::vector<float,SIMD>> smax_out;
 #pragma HLS stream variable=smax_out depth=2
 	static_assert(N%SIMD == 0, "SIMD must be a factor of N"); 
 
-	smax<N,SIMD,T>(src, smax_out);
-	quant_stage<N,SIMD,T>(smax_out, dst);
+	smax<N,SIMD,TI>(src, smax_out);
+	quant_stage<N,SIMD,TO>(smax_out, dst);
 
 } // smaxquant()
