@@ -1251,8 +1251,8 @@ class InferConcatLayer(Transformation):
 
 
 class InferStreamingEltwise(Transformation):
-    """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
-    with SubEltwise or AbsDiffEltwise op."""
+    """Convert eltwise Add, Sub or Sub -> Abs to StreamingEltwise layer
+    with AddEltwise, SubEltwise or AbsDiffEltwise op."""
 
     def apply(self, model):
         graph = model.graph
