@@ -529,6 +529,60 @@ class InferDuplicateStreamsLayer(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
+        # check first if global input is split
+        successors = model.find_consumers(graph.input[0].name)
+        dt = model.get_tensor_datatype(graph.input[0].name)
+        if successors is not None and len(successors) >= 2 and dt.is_integer():
+            output_tensor = graph.input[0].name
+            n_outputs = len(successors)
+            dt = model.get_tensor_datatype(output_tensor)
+
+            # create clone tensors
+            out_shape = model.get_tensor_shape(output_tensor)
+            out_tensor_clones = []
+            for i in range(n_outputs):
+                clone = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                )
+                model.graph.value_info.append(clone)
+                out_tensor_clones += [clone.name]
+
+            num_ch = int(out_shape[-1])
+            vecs = out_shape[:-1]
+
+            # create node with no parallelization first
+            pe = 1
+
+            dup_node = helper.make_node(
+                "DuplicateStreams",
+                [output_tensor],
+                out_tensor_clones,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                NumChannels=num_ch,
+                PE=pe,
+                inputDataType=dt.name,
+                numInputVectors=vecs,
+                NumOutputStreams=n_outputs,
+                outFIFODepths=[2] * n_outputs,
+                name="DuplicateStreams_" + output_tensor,
+            )
+
+            graph.node.insert(0, dup_node)
+
+            # connect successors to out tensor clone
+            clone_idx = 0
+            for successor in successors:
+                for i, succ_input in enumerate(successor.input):
+                    if succ_input == output_tensor:
+                        successor.input[i] = out_tensor_clones[clone_idx]
+                        clone_idx += 1
+                        # if one node has multiple connections to the same output
+                        # find_direct_successors will return one node per input
+                        # so break the inner loop will result in correct behaviour
+                        break
+            graph_modified = True
+
         for node in graph.node:
             node_ind += 1
             successors = model.find_consumers(node.output[0])
@@ -1197,8 +1251,8 @@ class InferConcatLayer(Transformation):
 
 
 class InferStreamingEltwise(Transformation):
-    """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
-    with SubEltwise or AbsDiffEltwise op."""
+    """Convert eltwise Add, Sub or Sub -> Abs to StreamingEltwise layer
+    with AddEltwise, SubEltwise or AbsDiffEltwise op."""
 
     def apply(self, model):
         graph = model.graph
@@ -1206,7 +1260,7 @@ class InferStreamingEltwise(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type == "Sub":
+            if node.op_type in ["Sub", "Add"]:
                 in0 = node.input[0]
                 in1 = node.input[1]
                 result = node.output[0]
@@ -1230,14 +1284,15 @@ class InferStreamingEltwise(Transformation):
                 if not (idt0.is_integer() and idt1.is_integer()):
                     continue
 
-                eltwiseOp = "Sub"
+                eltwiseOp = node.op_type
                 nodes_to_remove = [node]
-                # look for a downstream Abs node
-                res_consumer = model.find_consumer(result)
-                if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
-                    eltwiseOp = "AbsDiff"
-                    result = res_consumer.output[0]
-                    nodes_to_remove.append(res_consumer)
+                if node.op_type == "Sub":
+                    # look for a downstream Abs node
+                    res_consumer = model.find_consumer(result)
+                    if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
+                        eltwiseOp = "AbsDiff"
+                        result = res_consumer.output[0]
+                        nodes_to_remove.append(res_consumer)
 
                 # check layout and convert if necessary
                 in0_layout = model.get_tensor_layout(in0)
@@ -1438,6 +1493,9 @@ class InferQuantizedMatrixVectorActivation(Transformation):
             if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
+                # if mm_weight is not constant, skip node
+                if model.get_initializer(n.input[1]) is None:
+                    continue
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
