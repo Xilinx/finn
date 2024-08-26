@@ -27,12 +27,38 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import binascii
+from math import ceil
 import numpy as np
 import os
 import sys
 from bitstring import BitArray
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
+
+
+# Import the faster packing functions. This is executed when loading the module so that the faster version is always available when this is imported
+import ctypes as ct
+from numpy.ctypeslib import ndpointer
+import os
+
+from qonnxdtype import DataTypeMeta
+
+# Setup
+fastpack_source = os.path.join(os.path.dirname(__file__), "fast_pack.c")
+fastpack_lib = os.path.join(os.path.dirname(__file__), "fastpack.so")
+assert os.path.isfile(fastpack_source), "Could not find fast_pack.c in the utils/ dir of FINN"
+
+# Compile
+os.system("gcc -shared -O3 -fpic fast_pack.c -o fastpack.so")
+assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilation fail?"
+
+# Load
+fastpack = ct.CDLL(fastpack_lib)
+fastpack_floatarray = ndpointer(ct.c_float, flags="C_CONTIGUOUS")
+fastpack.array_to_hexstring_binary.argtypes = (fastpack_floatarray, ct.c_uint, ct.c_uint, ct.c_char_p)
+fastpack.array_to_hexstring_binary.restype = ct.c_bool
+
+
 
 
 def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
@@ -71,6 +97,17 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     # reverse prior to packing, if desired
     if reverse:
         array = np.flip(array, -1)
+
+
+    # Check if the fast way can be taken
+    # TODO: Expand this to cover more cases
+    if dtype == DataType["BINARY"] and prefix == "0x":
+        output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
+        success = fastpack.array_to_hexstring_binary(array, array.size, pad_to_nbits, output_string)
+        assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
+        return output_string
+
+    
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()
     # special handling for fixed point: rescale, then pack as integers
