@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from gpg import Data
 import pytest
 
 import numpy as np
@@ -187,15 +186,16 @@ def test_npy_to_rtlsim_input(dtype):
 
 @pytest.mark.util
 @pytest.mark.parametrize("tensorshape", [
-    (1, 2, 16384, 64)
+    (1, 2, 16384, 64),
+    (1, 1024, 2048)
 ])
 def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
     # check that the sped up function call in pack_inermost_dim_to_hex_string() is valid
-    tensor_count = 10
-    assert tensorshape[-1] % 4, "Smallest tensorshape dimension must be divisible by 4"
+    tensor_count = 2
+    assert tensorshape[-1] % 4 == 0, "Smallest tensorshape dimension must be divisible by 4"
 
     # Create random binary tensor by simply rounding a random tensor
-    tensors = [np.round(np.random.random(tensorshape)) for i in range(tensor_count)]
+    tensors = [np.round(np.random.random(tensorshape)).astype(np.float32) for i in range(tensor_count)]
 
     results_python = []
     results_c = []
@@ -215,12 +215,20 @@ def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
     end_c = time.time()
 
     # Check correctness
-    for i in range(tensor_count):
-        assert results_python[i] == results_c[i], f"Results don't match: Python: {results_python[i]}, C: {results_c[i]}"
+    #for i in range(tensor_count):
+    #    python_strings = results_python[i].flatten()
+    #    c_strings = results_c[i].flatten()
+    #    for j in range(len(python_result)):
+    #        pr = python_strings[j]
+    #        cr = c_strings[j].value.decode("utf-8")
+    #        assert pr == cr, f"Results don't match: Python: {pr}, C: {cr}"
+    assert np.array_equal(np.array(results_python), np.array(results_c))
+
 
     # Write timing results
-    with open("fastpack_benchmark.txt", 'w+') as f:
+    with open(os.path.join(os.path.dirname(__file__), f"fastpack_benchmark" + "_".join(map(lambda x: str(x), list(tensorshape))) + ".txt"), 'w+') as f:
         f.write("Pack_innermost_dim_to_hexstring benchmark test results\n")
-        f.write(f"Ran {tensor_count} times")
-        f.write(f"Python: {end_python - start_python}s overall | {(end_python - start_python) / tensor_count}s on avg. per sample")
-        f.write(f"C: {end_c - start_c}s overall | {(end_c - start_c) / tensor_count}s on avg. per sample")
+        f.write("Shape: " + str(tensorshape) + "\n")
+        f.write(f"Ran {tensor_count} times\n")
+        f.write(f"Python: {end_python - start_python}s overall | {(end_python - start_python) / tensor_count}s on avg. per sample\n")
+        f.write(f"C: {end_c - start_c}s overall | {(end_c - start_c) / tensor_count}s on avg. per sample\n")

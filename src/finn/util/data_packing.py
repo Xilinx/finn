@@ -41,15 +41,13 @@ import ctypes as ct
 from numpy.ctypeslib import ndpointer
 import os
 
-from qonnxdtype import DataTypeMeta
-
 # Setup
-fastpack_source = os.path.join(os.path.dirname(__file__), "fast_pack.c")
-fastpack_lib = os.path.join(os.path.dirname(__file__), "fastpack.so")
+fastpack_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "fast_pack.c"))
+fastpack_lib = os.path.abspath(os.path.join(os.path.dirname(__file__), "fastpack.so"))
 assert os.path.isfile(fastpack_source), "Could not find fast_pack.c in the utils/ dir of FINN"
 
 # Compile
-os.system("gcc -shared -O3 -fpic fast_pack.c -o fastpack.so")
+os.system(f"gcc -shared -O3 -fpic {fastpack_source} -o {fastpack_lib}")
 assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilation fail?"
 
 # Load
@@ -107,7 +105,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_
         output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
         success = fastpack.array_to_hexstring_binary(array, array.size, pad_to_nbits, output_string)
         assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
-        return output_string
+        return output_string.value.decode("utf-8")
 
     
     lineval = BitArray(length=0)
@@ -189,7 +187,7 @@ def pack_innermost_dim_as_hex_string(
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix)
+        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix, use_fastpack=use_fastpack)
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
