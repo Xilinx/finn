@@ -61,7 +61,7 @@ fastpack.array_to_hexstring_binary.restype = ct.c_bool
 
 
 
-def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
+def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_fastpack=True):
     """
     Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
     string.
@@ -71,7 +71,9 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     fixed width. The minimum value for pad_to_nbits is 4, since a single hex
     digit is four bits. reverse can be used to reverse the array prior to
     packing.
-
+    When use_fastpack is set to true, if available the function is outsourced 
+    to a faster C implementation for some cases.
+    
     Examples:
 
     array2hexstring([1, 1, 1, 0], DataType["BINARY"], 4) = "0xe"
@@ -101,7 +103,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
 
     # Check if the fast way can be taken
     # TODO: Expand this to cover more cases
-    if dtype == DataType["BINARY"] and prefix == "0x":
+    if use_fastpack and dtype == DataType["BINARY"] and prefix == "0x":
         output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
         success = fastpack.array_to_hexstring_binary(array, array.size, pad_to_nbits, output_string)
         assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
@@ -161,10 +163,11 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 
 def pack_innermost_dim_as_hex_string(
-    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x"
+    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x", use_fastpack=True
 ):
     """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring.
+    strings using array2hexstring. If use_fastpack is enabled this tries to speed
+    up the conversion
 
     Examples:
 

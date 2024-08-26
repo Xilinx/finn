@@ -26,9 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from gpg import Data
 import pytest
 
 import numpy as np
+import time
 import os
 import shutil
 import subprocess
@@ -36,7 +38,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code
+from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
 @pytest.mark.util
@@ -180,3 +182,45 @@ def test_npy_to_rtlsim_input(dtype):
 
     assert all([(x >> dtype.bitwidth()) == 0 for x in output_fast]), "extraneous bits detected"
     assert np.all(output_fast == output_slow_split), "different behavior of packing modes detected"
+
+
+
+@pytest.mark.util
+@pytest.mark.parametrize("tensorshape", [
+    (1, 2, 16384, 64)
+])
+def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
+    # check that the sped up function call in pack_inermost_dim_to_hex_string() is valid
+    tensor_count = 10
+    assert tensorshape[-1] % 4, "Smallest tensorshape dimension must be divisible by 4"
+
+    # Create random binary tensor by simply rounding a random tensor
+    tensors = [np.round(np.random.random(tensorshape)) for i in range(tensor_count)]
+
+    results_python = []
+    results_c = []
+
+    # Test python impl
+    start_python = time.time()
+    for count in range(tensor_count):
+        python_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=False)
+        results_python.append(python_result)
+    end_python = time.time()
+    
+    # Test C impl
+    start_c = time.time()
+    for count in range(tensor_count):
+        c_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=True)
+        results_c.append(c_result)
+    end_c = time.time()
+
+    # Check correctness
+    for i in range(tensor_count):
+        assert results_python[i] == results_c[i], f"Results don't match: Python: {results_python[i]}, C: {results_c[i]}"
+
+    # Write timing results
+    with open("fastpack_benchmark.txt", 'w+') as f:
+        f.write("Pack_innermost_dim_to_hexstring benchmark test results\n")
+        f.write(f"Ran {tensor_count} times")
+        f.write(f"Python: {end_python - start_python}s overall | {(end_python - start_python) / tensor_count}s on avg. per sample")
+        f.write(f"C: {end_c - start_c}s overall | {(end_c - start_c) / tensor_count}s on avg. per sample")
