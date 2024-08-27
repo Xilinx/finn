@@ -9,7 +9,7 @@
  * Takes a numpy array of floats in BINARY datatype from finn and the number of elements in that array, as well as the number of padded bits required.
  * It also takes an out-string buffer to write the results to. This buffer is created by python via ctypes.create_string_buffer() and must be large enough to
  * hold the required number of padded bits.
- * 
+ *
  * The function returns false on an error and true in case of success
  */
 bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned int padded_bits, char* out) {
@@ -57,6 +57,6 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
         } else {
             bit_shift_left++;
         }
-    } 
+    }
     return true;
 }

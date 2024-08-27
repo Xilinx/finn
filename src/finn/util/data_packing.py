@@ -27,19 +27,18 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import binascii
-from math import ceil
+
+# Import the faster packing functions. This is executed when loading the module
+# so that the faster version is always available when this is imported
+import ctypes as ct
 import numpy as np
 import os
 import sys
 from bitstring import BitArray
+from math import ceil
+from numpy.ctypeslib import ndpointer
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import roundup_to_integer_multiple
-
-
-# Import the faster packing functions. This is executed when loading the module so that the faster version is always available when this is imported
-import ctypes as ct
-from numpy.ctypeslib import ndpointer
-import os
 
 # Setup
 fastpack_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "fast_pack.c"))
@@ -53,10 +52,13 @@ assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilatio
 # Load
 fastpack = ct.CDLL(fastpack_lib)
 fastpack_floatarray = ndpointer(ct.c_float, flags="C_CONTIGUOUS")
-fastpack.array_to_hexstring_binary.argtypes = (fastpack_floatarray, ct.c_uint, ct.c_uint, ct.c_char_p)
+fastpack.array_to_hexstring_binary.argtypes = (
+    fastpack_floatarray,
+    ct.c_uint,
+    ct.c_uint,
+    ct.c_char_p,
+)
 fastpack.array_to_hexstring_binary.restype = ct.c_bool
-
-
 
 
 def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_fastpack=True):
@@ -69,9 +71,9 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_
     fixed width. The minimum value for pad_to_nbits is 4, since a single hex
     digit is four bits. reverse can be used to reverse the array prior to
     packing.
-    When use_fastpack is set to true, if available the function is outsourced 
+    When use_fastpack is set to true, if available the function is outsourced
     to a faster C implementation for some cases.
-    
+
     Examples:
 
     array2hexstring([1, 1, 1, 0], DataType["BINARY"], 4) = "0xe"
@@ -98,16 +100,16 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_
     if reverse:
         array = np.flip(array, -1)
 
-
     # Check if the fast way can be taken
     # TODO: Expand this to cover more cases
     if use_fastpack and dtype == DataType["BINARY"] and prefix == "0x":
         output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
-        success = fastpack.array_to_hexstring_binary(np.asarray(array, order='C'), array.size, pad_to_nbits, output_string)
+        success = fastpack.array_to_hexstring_binary(
+            np.asarray(array, order="C"), array.size, pad_to_nbits, output_string
+        )
         assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
         return output_string.value.decode("utf-8")
 
-    
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()
     # special handling for fixed point: rescale, then pack as integers
@@ -187,7 +189,9 @@ def pack_innermost_dim_as_hex_string(
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix, use_fastpack=use_fastpack)
+        return array2hexstring(
+            x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix, use_fastpack=use_fastpack
+        )
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 

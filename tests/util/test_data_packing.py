@@ -26,21 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import ctypes
 import pytest
 
 import numpy as np
-import time
 import os
 import shutil
 import subprocess
-from finn.util.data_packing import array2hexstring
+import time
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code, pack_innermost_dim_as_hex_string
-from finn.util.data_packing import *
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    pack_innermost_dim_as_hex_string,
+)
 
 
 @pytest.mark.util
@@ -186,42 +187,64 @@ def test_npy_to_rtlsim_input(dtype):
     assert np.all(output_fast == output_slow_split), "different behavior of packing modes detected"
 
 
-
 @pytest.mark.util
-@pytest.mark.parametrize("tensorshape", [
-    (1, 2, 16384, 64),
-    (1, 1024, 2048)
-])
+@pytest.mark.parametrize("tensorshape", [(1, 2, 16384, 64), (1, 1024, 2048)])
 def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
     # check that the sped up function call in pack_inermost_dim_to_hex_string() is valid
     tensor_count = 5
     assert tensorshape[-1] % 4 == 0, "Smallest tensorshape dimension must be divisible by 4"
 
     # Create random binary tensor by simply rounding a random tensor
-    tensors = [np.round(np.random.random(tensorshape)).astype(np.float32) for i in range(tensor_count)]
+    tensors = [
+        np.round(np.random.random(tensorshape)).astype(np.float32) for i in range(tensor_count)
+    ]
     results_python = []
     results_c = []
 
     # Test C impl
     start_c = time.time()
     for count in range(tensor_count):
-        c_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=True)
+        c_result = pack_innermost_dim_as_hex_string(
+            tensors[count],
+            DataType["BINARY"],
+            tensorshape[-1] * 2,
+            reverse_inner=False,
+            prefix="0x",
+            use_fastpack=True,
+        )
         results_c.append(c_result)
     end_c = time.time()
 
     # Test python impl
     start_python = time.time()
     for count in range(tensor_count):
-        python_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=False)
+        python_result = pack_innermost_dim_as_hex_string(
+            tensors[count],
+            DataType["BINARY"],
+            tensorshape[-1] * 2,
+            reverse_inner=False,
+            prefix="0x",
+            use_fastpack=False,
+        )
         results_python.append(python_result)
     end_python = time.time()
-    
+
     assert np.array_equal(np.array(results_python), np.array(results_c))
 
     # Write timing results
-    with open(os.path.join(os.path.dirname(__file__), f"fastpack_benchmark" + "_".join(map(lambda x: str(x), list(tensorshape))) + ".txt"), 'w+') as f:
+    with open(
+        os.path.join(
+            os.path.dirname(__file__),
+            "fastpack_benchmark" + "_".join(map(lambda x: str(x), list(tensorshape))) + ".txt",
+        ),
+        "w+",
+    ) as f:
         f.write("Pack_innermost_dim_to_hexstring benchmark test results\n")
         f.write("Shape: " + str(tensorshape) + "\n")
         f.write(f"Ran {tensor_count} times\n")
-        f.write(f"Python: {end_python - start_python}s overall | {(end_python - start_python) / tensor_count}s on avg. per sample\n")
-        f.write(f"C: {end_c - start_c}s overall | {(end_c - start_c) / tensor_count}s on avg. per sample\n")
+        python_time = end_python - start_python
+        c_time = end_c - start_c
+        f.write(
+            f"Python: {python_time}s overall | {python_time / tensor_count}s on avg. per sample\n"
+        )
+        f.write(f"C: {c_time}s overall | {c_time / tensor_count}s on avg. per sample\n")
