@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdint.h>
 
-
 /***
  * Takes a numpy array of floats in BINARY datatype from finn and the number of elements in that array, as well as the number of padded bits required.
  * It also takes an out-string buffer to write the results to. This buffer is created by python via ctypes.create_string_buffer() and must be large enough to
