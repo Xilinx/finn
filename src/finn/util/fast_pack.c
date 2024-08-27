@@ -36,27 +36,26 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
     out[2 + prefix_digits + min_bits / 4] = '\0';
 
     unsigned int temp = 0;
-    char letter;
     unsigned int digits = 0;
-    unsigned int bit_in = 0;
+    unsigned int bit_shift_left = 0;
+    char letter;
     for (int index = elements - 1; index >= 0; index--) {
         // Add new bit
-        temp |= (((unsigned int) values[index]) << bit_in);
+        temp |= (((unsigned int) values[index]) << bit_shift_left);
 
         // Convert to hex either when 4 bits are there or we arrived at the end
-        if (bit_in == 3 || index == 0) {
+        if (bit_shift_left == 3 || index == 0) {
             if (temp <= 9) {
                 letter = '0' + temp;
             } else {
                 letter = 'a' + temp - 10;
             }
-            unsigned int assignindex = 2 + prefix_digits + min_bits / 4 - digits - 1;
-            out[assignindex] = letter;
+            out[2 + prefix_digits + min_bits / 4 - digits - 1] = letter;
             digits++;
             temp = 0;
-            bit_in = 0;
+            bit_shift_left = 0;
         } else {
-            bit_in++;
+            bit_shift_left++;
         }
     } 
     return true;
