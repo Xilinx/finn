@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import ctypes
 import pytest
 
 import numpy as np
@@ -33,11 +34,13 @@ import time
 import os
 import shutil
 import subprocess
+from finn.util.data_packing import array2hexstring
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code, pack_innermost_dim_as_hex_string
+from finn.util.data_packing import *
 
 
 @pytest.mark.util
@@ -191,14 +194,20 @@ def test_npy_to_rtlsim_input(dtype):
 ])
 def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
     # check that the sped up function call in pack_inermost_dim_to_hex_string() is valid
-    tensor_count = 2
+    tensor_count = 5
     assert tensorshape[-1] % 4 == 0, "Smallest tensorshape dimension must be divisible by 4"
 
     # Create random binary tensor by simply rounding a random tensor
     tensors = [np.round(np.random.random(tensorshape)).astype(np.float32) for i in range(tensor_count)]
-
     results_python = []
     results_c = []
+
+    # Test C impl
+    start_c = time.time()
+    for count in range(tensor_count):
+        c_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=True)
+        results_c.append(c_result)
+    end_c = time.time()
 
     # Test python impl
     start_python = time.time()
@@ -207,23 +216,7 @@ def test_pack_innermost_dim_to_hexstring_fast(tensorshape: tuple[int]):
         results_python.append(python_result)
     end_python = time.time()
     
-    # Test C impl
-    start_c = time.time()
-    for count in range(tensor_count):
-        c_result = pack_innermost_dim_as_hex_string(tensors[count], DataType["BINARY"], tensorshape[-1] * 2, reverse_inner=False, prefix="0x", use_fastpack=True)
-        results_c.append(c_result)
-    end_c = time.time()
-
-    # Check correctness
-    #for i in range(tensor_count):
-    #    python_strings = results_python[i].flatten()
-    #    c_strings = results_c[i].flatten()
-    #    for j in range(len(python_result)):
-    #        pr = python_strings[j]
-    #        cr = c_strings[j].value.decode("utf-8")
-    #        assert pr == cr, f"Results don't match: Python: {pr}, C: {cr}"
     assert np.array_equal(np.array(results_python), np.array(results_c))
-
 
     # Write timing results
     with open(os.path.join(os.path.dirname(__file__), f"fastpack_benchmark" + "_".join(map(lambda x: str(x), list(tensorshape))) + ".txt"), 'w+') as f:

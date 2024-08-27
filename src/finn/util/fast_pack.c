@@ -39,7 +39,7 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
     char letter;
     unsigned int digits = 0;
     unsigned int bit_in = 0;
-    for (int index = elements - 1; index > 0; index--) {
+    for (int index = elements - 1; index >= 0; index--) {
         // Add new bit
         temp |= (((unsigned int) values[index]) << bit_in);
 
