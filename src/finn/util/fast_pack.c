@@ -30,47 +30,34 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
     strcpy(out, "0x");
     unsigned int prefix_digits = (padded_bits - min_bits) / 4;
     for (int i = 0; i < prefix_digits; i++) {
-        strcat(out, "0");
+        out[2 + i] = '0';
     }
-    out[2 + prefix_digits + min_bits / 4 + 1] = '\0';
+    out[2 + prefix_digits] = '0';
+    out[2 + prefix_digits + min_bits / 4] = '\0';
 
-    // Converting 4 at a time
-    uint8_t temp;
-    char buffer[100];
+    unsigned int temp = 0;
+    char letter;
     unsigned int digits = 0;
-    for (int i = elements - (min_bits - 4); i < elements; i += 4) {
-        // Clear temp
-        temp = 0;
+    unsigned int bit_in = 0;
+    for (int index = elements - 1; index > 0; index--) {
+        // Add new bit
+        temp |= (((unsigned int) values[index]) << bit_in);
 
-        // Fill lower 4 bits
-        for (int j = 0; j < 4; j++) {
-            temp <<= 1;
-            temp |= (unsigned int) values[i + j];
-        }
-
-        // Save hex digit
-        if (temp <= 9) {
-            buffer[0] = '0' + temp;
+        // Convert to hex either when 4 bits are there or we arrived at the end
+        if (bit_in == 3 || index == 0) {
+            if (temp <= 9) {
+                letter = '0' + temp;
+            } else {
+                letter = 'a' + temp - 10;
+            }
+            unsigned int assignindex = 2 + prefix_digits + min_bits / 4 - digits - 1;
+            out[assignindex] = letter;
+            digits++;
+            temp = 0;
+            bit_in = 0;
         } else {
-            buffer[0] = 'a' + temp - 10;
+            bit_in++;
         }
-        out[2 + prefix_digits + (min_bits / 4) - digits - 1] = buffer[0]; 
-        digits++;
-    }
-        
-    // Fill in the last odd bits
-    temp = 0;
-    for (int j = 0; j < elements - (min_bits - 4); j++) {
-        temp <<= 1;
-        temp |= (unsigned int) values[min_bits - 4 + j];
-    }
-
-    // Save hex digit
-    if (temp <= 9) {
-        buffer[0] = '0' + temp;
-    } else {
-        buffer[0] = 'a' + temp - 10;
-    }
-    out[2 + prefix_digits] = buffer[0]; 
+    } 
     return true;
 }
