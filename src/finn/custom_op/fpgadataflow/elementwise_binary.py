@@ -92,6 +92,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
             "ram_style": (
                 "s", False, "auto", {"auto", "block", "distributed", "ultra"}
             ),
+            # Input and output FIFO depths for multi-I/O nodes
+            #   Note: Need to override here as there might be two inputs
+            "inFIFODepths": ("ints", False, [2, 2]),
+            "outFIFODepths": ("ints", False, [2]),
         })
         # Return updated attribute dictionary
         return attrs
