@@ -1301,8 +1301,14 @@ class MoveTransposePastEltwise(Transformation):
                     # This transformation does only apply to Add nodes where the
                     # second input is a constant initializer
                     if (value := model.get_initializer(a)) is not None:
-                        # Transpose the initializer and re-insert into the model
-                        model.set_initializer(a, value.transpose(perm))
+                        # Do not transpose scalar or effectively scalar
+                        # initializers
+                        if not (value.shape is None or all(
+                                x == 1 for x in value.shape)
+                        ):
+                            # Transpose the initializer and re-insert into the
+                            # model
+                            model.set_initializer(a, value.transpose(perm))
                         # Rewire the graph to feed original input and the
                         # transposed initializer into the Add node first
                         successor.input[:] = [inp, a]
