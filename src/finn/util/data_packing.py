@@ -102,13 +102,13 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_
 
     # Check if the fast way can be taken
     # TODO: Expand this to cover more cases
-    if use_fastpack and dtype == DataType["BINARY"] and prefix == "0x":
+    if use_fastpack and dtype == DataType["BINARY"]:
         output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
         success = fastpack.array_to_hexstring_binary(
             np.asarray(array, order="C"), array.size, pad_to_nbits, output_string
         )
         assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
-        return output_string.value.decode("utf-8")
+        return prefix + output_string.value.decode("utf-8")
 
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()

@@ -26,13 +26,13 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
     }
 
     // Pad output string
-    strcpy(out, "0x");
+    strcpy(out, "");
     unsigned int prefix_digits = (padded_bits - min_bits) / 4;
     for (int i = 0; i < prefix_digits; i++) {
-        out[2 + i] = '0';
+        out[i] = '0';
     }
-    out[2 + prefix_digits] = '0';
-    out[2 + prefix_digits + min_bits / 4] = '\0';
+    out[prefix_digits] = '0';
+    out[prefix_digits + min_bits / 4] = '\0';
 
     unsigned int temp = 0;
     unsigned int digits = 0;
@@ -49,7 +49,7 @@ bool array_to_hexstring_binary(float* values, unsigned int elements, unsigned in
             } else {
                 letter = 'a' + temp - 10;
             }
-            out[2 + prefix_digits + min_bits / 4 - digits - 1] = letter;
+            out[prefix_digits + min_bits / 4 - digits - 1] = letter;
             digits++;
             temp = 0;
             bit_shift_left = 0;
