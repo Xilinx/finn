@@ -34,6 +34,7 @@ import ctypes as ct
 import numpy as np
 import os
 import sys
+import threading
 from bitstring import BitArray
 from math import ceil
 from numpy.ctypeslib import ndpointer
@@ -43,22 +44,34 @@ from qonnx.util.basic import roundup_to_integer_multiple
 # Setup
 fastpack_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "fast_pack.c"))
 fastpack_lib = os.path.abspath(os.path.join(os.path.dirname(__file__), "fastpack.so"))
+__fastpack_so = None
+__fastpack_load_lock = threading.Lock()
 assert os.path.isfile(fastpack_source), "Could not find fast_pack.c in the utils/ dir of FINN"
 
-# Compile
-os.system(f"gcc -shared -O3 -fpic {fastpack_source} -o {fastpack_lib}")
-assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilation fail?"
 
-# Load
-fastpack = ct.CDLL(fastpack_lib)
-fastpack_floatarray = ndpointer(ct.c_float, flags="C_CONTIGUOUS")
-fastpack.array_to_hexstring_binary.argtypes = (
-    fastpack_floatarray,
-    ct.c_uint,
-    ct.c_uint,
-    ct.c_char_p,
-)
-fastpack.array_to_hexstring_binary.restype = ct.c_bool
+# Singleton setup to safely load this module in multithreading contexts
+def get_fastpack():
+    global __fastpack_load_lock, __fastpack_so
+    with __fastpack_load_lock:
+        if __fastpack_so is None:
+            # Compile
+            if os.path.isfile(fastpack_lib):
+                os.system(f"rm {fastpack_lib}")
+            os.system(f"gcc -shared -O3 -fpic {fastpack_source} -o {fastpack_lib}")
+            assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilation fail?"
+
+            # Load
+            fastpack = ct.CDLL(fastpack_lib)
+            fastpack_floatarray = ndpointer(ct.c_float, flags="C_CONTIGUOUS")
+            fastpack.array_to_hexstring_binary.argtypes = (
+                fastpack_floatarray,
+                ct.c_uint,
+                ct.c_uint,
+                ct.c_char_p,
+            )
+            fastpack.array_to_hexstring_binary.restype = ct.c_bool
+            __fastpack_so = fastpack
+    return __fastpack_so
 
 
 def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_fastpack=True):
@@ -104,7 +117,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_
     # TODO: Expand this to cover more cases
     if use_fastpack and dtype == DataType["BINARY"]:
         output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
-        success = fastpack.array_to_hexstring_binary(
+        success = get_fastpack().array_to_hexstring_binary(
             np.asarray(array, order="C"), array.size, pad_to_nbits, output_string
         )
         assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
