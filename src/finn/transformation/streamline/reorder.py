@@ -26,11 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from copy import deepcopy
-
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
+from copy import deepcopy
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
@@ -721,7 +720,8 @@ class MakeMaxPoolNHWC(Transformation):
                 elif producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
-                        # check if the producer is a fork node (need to move it past the fork before this transform)
+                        # check if the producer is a fork node
+                        # (need to move it past the fork before this transform)
                         if model.is_fork_node(producer):
                             model = model.transform(MoveTransposePastFork())
                             # topology modified, "ask" ModelWrapper to apply this transform again
@@ -777,7 +777,8 @@ class MakeScaleResizeNHWC(Transformation):
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
-                        # check if the producer is a fork node (need to move it past the fork before this transform)
+                        # check if the producer is a fork node
+                        # (need to move it past the fork before this transform)
                         if model.is_fork_node(producer):
                             model = model.transform(MoveTransposePastFork())
                             # topology modified, "ask" ModelWrapper to apply this transform again
@@ -957,14 +958,18 @@ class MoveScalarLinearPastSplit(Transformation):
                     for split_output_idx, old_split_output in enumerate(split_outputs):
                         new_mul_node = deepcopy(producer)
                         new_split_output = model.make_new_valueinfo_name()
-                        model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
-                        # model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
-                        model.set_tensor_shape(new_split_output, model.get_tensor_shape(old_split_output))
-                        
+                        model.set_tensor_datatype(
+                            new_split_output, model.get_tensor_datatype(producer.input[0])
+                        )
+
+                        model.set_tensor_shape(
+                            new_split_output, model.get_tensor_shape(old_split_output)
+                        )
+
                         n.output[split_output_idx] = new_split_output
                         new_mul_node.input[0] = new_split_output
                         new_mul_node.output[0] = old_split_output
-                        
+
                         graph.node.insert(node_ind, new_mul_node)
                         node_ind += 1
 
@@ -973,7 +978,6 @@ class MoveScalarLinearPastSplit(Transformation):
                     graph.node.remove(producer)
                     graph_modified = True
 
-
         if graph_modified:
             model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
 
@@ -981,7 +985,6 @@ class MoveScalarLinearPastSplit(Transformation):
 
 
 class MoveTransposePastSplit(Transformation):
-
     def __init__(self):
         super().__init__()
         self.ops_to_move = ["Transpose"]
@@ -1004,14 +1007,18 @@ class MoveTransposePastSplit(Transformation):
                         new_trans_node = deepcopy(producer)
                         new_split_output = model.make_new_valueinfo_name()
                         old_split_output_shape = model.get_tensor_shape(old_split_output)
-                        model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
-                        # model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
-                        model.set_tensor_shape(new_split_output, permute_shape(old_split_output_shape, reverse_perm))
-                        
+                        model.set_tensor_datatype(
+                            new_split_output, model.get_tensor_datatype(producer.input[0])
+                        )
+
+                        model.set_tensor_shape(
+                            new_split_output, permute_shape(old_split_output_shape, reverse_perm)
+                        )
+
                         n.output[split_output_idx] = new_split_output
                         new_trans_node.input[0] = new_split_output
                         new_trans_node.output[0] = old_split_output
-                        
+
                         graph.node.insert(node_ind, new_trans_node)
                         node_ind += 1
 
@@ -1342,7 +1349,7 @@ class MoveIdenticalOpPastJoinOp(Transformation):
             model.graph.node.remove(prod)
 
         return True
-    
+
     def are_producers_identical(self, model, producers):
         """
         Checks only op_types
@@ -1428,10 +1435,10 @@ class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
         return True
 
     def move_node(self, model, n, producers):
-        '''
+        """
         We use the base move_node method to move the first producer
         past the join node (and delete the rest)
-        '''
+        """
         add_inits = [model.get_initializer(producer.input[1]) for producer in producers]
         new_init = np.sum(add_inits)
         model.set_initializer(producers[0].input[1], new_init)
@@ -1439,7 +1446,7 @@ class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
 
         return True
 
-        
+
 class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Concat"])
@@ -1461,7 +1468,7 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         for i in range(len(n.input)):
             n.input[i] = trans_inputs[i]
 
-        new_concat_out = model.make_new_valueinfo_name() #reuse tensor
+        new_concat_out = model.make_new_valueinfo_name()  # reuse tensor
         # reverse the permutation of the concat output
         transpose_perm = get_by_name(producers[0].attribute, "perm").ints
         reverse_perm = np.argsort(transpose_perm)
@@ -1490,6 +1497,7 @@ class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
     """
     Applies to scalar linear or channelwise affine ops with the same parameter value
     """
+
     def __init__(self, linear_ops=["Mul", "Add"]):
         super().__init__(linear_ops, ["Concat"])
 
@@ -1499,17 +1507,20 @@ class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
             producer_param = model.get_initializer(producer.input[1])
             if (first_param != producer_param).any() or np.prod(producer_param.shape) != 1:
                 return False
-        
+
         return True
-            
+
     def are_producers_channelwise_ops(self, channel_dim, model, producers):
         for producer in producers:
             producer_input = producer.input[0]
             num_channels = model.get_tensor_shape(producer_input)[channel_dim]
             producer_param = model.get_initializer(producer.input[1])
-            if len(producer_param.shape) < channel_dim or producer_param.shape[channel_dim] != num_channels:
+            if (
+                len(producer_param.shape) < channel_dim
+                or producer_param.shape[channel_dim] != num_channels
+            ):
                 return False
-            
+
         return True
 
     def move_node(self, model, n, producers):
@@ -1519,7 +1530,7 @@ class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
             if len(producer.input) != 2 or producer_init is None:
                 warnings.warn("Producer found that is not single-input, skipping")
                 return False
-            
+
         # decide if producers are identical scalar ops or channelwise ops
         channelwise_op = False
         identical_scalar_op = self.are_producers_identical_scalar_ops(model, producers)
@@ -1527,7 +1538,9 @@ class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
             channel_dim = get_by_name(n.attribute, "axis").i
             channelwise_op = self.are_producers_channelwise_ops(channel_dim, model, producers)
             if not channelwise_op:
-                warnings.warn("Producers are neither identical scalar ops nor channelwise ops, skipping")
+                warnings.warn(
+                    "Producers are neither identical scalar ops nor channelwise ops, skipping"
+                )
                 return False
 
         # Rewire concat inputs
@@ -1561,12 +1574,10 @@ class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
 
 
 class MoveMulPastJoinConcat(MoveAffinePastJoinConcat):
-
     def __init__(self):
         super().__init__(["Mul"])
 
 
 class MoveAddPastJoinConcat(MoveAffinePastJoinConcat):
-
     def __init__(self):
         super().__init__(["Add"])

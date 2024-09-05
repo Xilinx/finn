@@ -26,23 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
-import os
-from os.path import join
-import numpy as np
 
+import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from qonnx.transformation.general import GiveUniqueNodeNames
-
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveScalarLinearPastSplit, MoveTransposePastSplit
+from finn.transformation.streamline.reorder import (
+    MoveScalarLinearPastSplit,
+    MoveTransposePastSplit,
+)
 
 
 def create_split_model(identical_op):
-
     perm = None
     if "Transpose" in identical_op:
         perm = identical_op.split("_")[1]
@@ -69,9 +68,7 @@ def create_split_model(identical_op):
     op_value = 1.5
     split = [32, 64]
 
-    op_node = oh.make_node(
-        identical_op, inputs=["in1"], outputs=["op_out"]
-    )
+    op_node = oh.make_node(identical_op, inputs=["in1"], outputs=["op_out"])
 
     if identical_op == "Transpose":
         new_attr = oh.make_attribute("perm", perm)
@@ -79,18 +76,15 @@ def create_split_model(identical_op):
     elif identical_op == "Mul" or identical_op == "Add":
         op_init = oh.make_tensor_value_info("op_param", TensorProto.FLOAT, [1])
         op_node.input.append(op_init.name)
-    
+
     in1 = oh.make_tensor_value_info("in1", TensorProto.FLOAT, in_shape)
     op_out = oh.make_tensor_value_info("op_out", TensorProto.FLOAT, out_shape)
     out1_split = oh.make_tensor_value_info("out1_split", TensorProto.FLOAT, out1_split_shape)
     out2_split = oh.make_tensor_value_info("out2_split", TensorProto.FLOAT, out2_split_shape)
     split_init = oh.make_tensor_value_info("split", TensorProto.INT64, [2])
-    
+
     split_node = oh.make_node(
-        "Split",
-        [op_out.name, split_init.name],
-        [out1_split.name, out2_split.name],
-        axis=split_axis
+        "Split", [op_out.name, split_init.name], [out1_split.name, out2_split.name], axis=split_axis
     )
 
     graph = oh.make_graph(
@@ -98,9 +92,7 @@ def create_split_model(identical_op):
         name="test_graph",
         inputs=[in1],
         outputs=[out1_split, out2_split],
-        value_info=[
-            op_out
-        ],
+        value_info=[op_out],
     )
 
     model = oh.make_model(graph)
@@ -117,7 +109,7 @@ transform_dict = {
     "Transpose_0231": MoveTransposePastSplit(),
     "Transpose_0312": MoveTransposePastSplit(),
     "Mul": MoveScalarLinearPastSplit(),
-    "Add": MoveScalarLinearPastSplit()
+    "Add": MoveScalarLinearPastSplit(),
 }
 
 
@@ -134,11 +126,14 @@ def test_move_identical_op_past_join_concat(identical_op):
 
     # Note: it is assumed that both tensors have the same shape and data type
     input_dict = {}
-    input_dict[input0_tensor_name] = gen_finn_dt_tensor(model.get_tensor_datatype(input0_tensor_name),
-                                                        model.get_tensor_shape(input0_tensor_name))
-   
+    input_dict[input0_tensor_name] = gen_finn_dt_tensor(
+        model.get_tensor_datatype(input0_tensor_name), model.get_tensor_shape(input0_tensor_name)
+    )
+
     model_transformed = model.transform(transform_dict[identical_op])
-    # model_transformed.save(join(build_dir, "split_pytest_model_{}_trans.onnx".format(identical_op)))
+    # model_transformed.save(
+    #     join(build_dir, "split_pytest_model_{}_trans.onnx".format(identical_op))
+    # )
 
     assert oxe.compare_execution(model, model_transformed, input_dict)
 

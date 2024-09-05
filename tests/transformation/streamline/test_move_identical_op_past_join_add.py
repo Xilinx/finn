@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
-import os
-from os.path import join
 
 import numpy as np
 from onnx import TensorProto
@@ -36,11 +34,14 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveTransposePastJoinAdd, MoveMulPastJoinAdd, MoveAddPastJoinAdd
+from finn.transformation.streamline.reorder import (
+    MoveAddPastJoinAdd,
+    MoveMulPastJoinAdd,
+    MoveTransposePastJoinAdd,
+)
 
 
 def create_add_model(identical_op):
-
     perm = None
     if "Transpose" in identical_op:
         perm = identical_op.split("_")[1]
@@ -57,13 +58,9 @@ def create_add_model(identical_op):
         out_shape = in_shape
     op_value = 1.5
 
-    op1_node = oh.make_node(
-        identical_op, inputs=["in1"], outputs=["op1_out"]
-    )
+    op1_node = oh.make_node(identical_op, inputs=["in1"], outputs=["op1_out"])
 
-    op2_node = oh.make_node(
-        identical_op, inputs=["in2"], outputs=["op2_out"]
-    )
+    op2_node = oh.make_node(identical_op, inputs=["in2"], outputs=["op2_out"])
 
     if identical_op == "Transpose":
         new_attr = oh.make_attribute("perm", perm)
@@ -74,10 +71,8 @@ def create_add_model(identical_op):
         op2_init = oh.make_tensor_value_info("op2_param", TensorProto.FLOAT, [1])
         op1_node.input.append(op1_init.name)
         op2_node.input.append(op2_init.name)
-    
-    add_node = oh.make_node(
-        "Add", inputs=["op1_out", "op2_out"], outputs=["out_join1"]
-    )
+
+    add_node = oh.make_node("Add", inputs=["op1_out", "op2_out"], outputs=["out_join1"])
 
     in1 = oh.make_tensor_value_info("in1", TensorProto.FLOAT, in_shape)
     in2 = oh.make_tensor_value_info("in2", TensorProto.FLOAT, in_shape)
@@ -109,7 +104,7 @@ transform_dict = {
     "Transpose_0231": MoveTransposePastJoinAdd(),
     "Transpose_0312": MoveTransposePastJoinAdd(),
     "Mul": MoveMulPastJoinAdd(),
-    "Add": MoveAddPastJoinAdd()
+    "Add": MoveAddPastJoinAdd(),
 }
 
 

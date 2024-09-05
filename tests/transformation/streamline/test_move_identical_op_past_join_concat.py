@@ -26,21 +26,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
-import os
-from os.path import join
-import numpy as np
 
+import numpy as np
+import os
 from onnx import TensorProto
 from onnx import helper as oh
+from os.path import join
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveTransposePastJoinConcat, MoveMulPastJoinConcat, MoveAddPastJoinConcat
+from finn.transformation.streamline.reorder import (
+    MoveAddPastJoinConcat,
+    MoveMulPastJoinConcat,
+    MoveTransposePastJoinConcat,
+)
 
 
 def create_concat_model(identical_op):
-
     perm = None
     channelwise = False
     if "Transpose" in identical_op:
@@ -81,14 +84,10 @@ def create_concat_model(identical_op):
             op2_param_shape = [1]
             op1_param = 1.5
             op2_param = 1.5
-    
-    op1_node = oh.make_node(
-        identical_op, inputs=["in1"], outputs=["op1_out"]
-    )
 
-    op2_node = oh.make_node(
-        identical_op, inputs=["in2"], outputs=["op2_out"]
-    )
+    op1_node = oh.make_node(identical_op, inputs=["in1"], outputs=["op1_out"])
+
+    op2_node = oh.make_node(identical_op, inputs=["in2"], outputs=["op2_out"])
 
     if identical_op == "Transpose":
         new_attr = oh.make_attribute("perm", perm)
@@ -99,7 +98,7 @@ def create_concat_model(identical_op):
         op2_init = oh.make_tensor_value_info("op2_param", TensorProto.FLOAT, op2_param_shape)
         op1_node.input.append(op1_init.name)
         op2_node.input.append(op2_init.name)
-    
+
     concat_node = oh.make_node(
         "Concat", inputs=["op1_out", "op2_out"], outputs=["out_join1"], axis=concat_axis
     )
@@ -136,13 +135,16 @@ transform_dict = {
     "Mul": MoveMulPastJoinConcat(),
     "Mul_channelwise": MoveMulPastJoinConcat(),
     "Add": MoveAddPastJoinConcat(),
-    "Add_channelwise": MoveAddPastJoinConcat()
+    "Add_channelwise": MoveAddPastJoinConcat(),
 }
 
 
 @pytest.mark.streamline
 # Permutation of transpose node
-@pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add", "Mul_channelwise", "Add_channelwise"])
+@pytest.mark.parametrize(
+    "identical_op",
+    ["Transpose_0231", "Transpose_0312", "Mul", "Add", "Mul_channelwise", "Add_channelwise"],
+)
 def test_move_identical_op_past_join_concat(identical_op):
     model = create_concat_model(identical_op)
     build_dir = os.environ["FINN_BUILD_DIR"]
@@ -154,13 +156,17 @@ def test_move_identical_op_past_join_concat(identical_op):
 
     # Note: it is assumed that both tensors have the same shape and data type
     input_dict = {}
-    input_dict[input0_tensor_name] = gen_finn_dt_tensor(model.get_tensor_datatype(input0_tensor_name),
-                                                        model.get_tensor_shape(input0_tensor_name))
-    input_dict[input1_tensor_name] = gen_finn_dt_tensor(model.get_tensor_datatype(input1_tensor_name),
-                                                        model.get_tensor_shape(input1_tensor_name))
+    input_dict[input0_tensor_name] = gen_finn_dt_tensor(
+        model.get_tensor_datatype(input0_tensor_name), model.get_tensor_shape(input0_tensor_name)
+    )
+    input_dict[input1_tensor_name] = gen_finn_dt_tensor(
+        model.get_tensor_datatype(input1_tensor_name), model.get_tensor_shape(input1_tensor_name)
+    )
 
     model_transformed = model.transform(transform_dict[identical_op])
-    model_transformed.save(join(build_dir, "concat_pytest_model_{}_trans.onnx".format(identical_op)))
+    model_transformed.save(
+        join(build_dir, "concat_pytest_model_{}_trans.onnx".format(identical_op))
+    )
 
     assert oxe.compare_execution(model, model_transformed, input_dict)
 
