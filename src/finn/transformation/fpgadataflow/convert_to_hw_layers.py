@@ -585,63 +585,64 @@ class InferDuplicateStreamsLayer(Transformation):
 
         for node in graph.node:
             node_ind += 1
-            successors = model.find_consumers(node.output[0])
-            if successors is not None and len(successors) >= 2:
-                output_tensor = node.output[0]
-                n_outputs = len(successors)
+            for output_tensor in node.output:
+                successors = model.find_consumers(output_tensor)
+                if successors is not None and len(successors) >= 2:
+                    # output_tensor = node.output[0]
+                    n_outputs = len(successors)
 
-                dt = model.get_tensor_datatype(output_tensor)
+                    dt = model.get_tensor_datatype(output_tensor)
 
-                # skip conversion for layers with float input
-                if not dt.is_integer():
-                    continue
+                    # skip conversion for layers with float input
+                    if not dt.is_integer():
+                        continue
 
-                # create clone tensors
-                out_shape = model.get_tensor_shape(output_tensor)
-                out_tensor_clones = []
-                for i in range(n_outputs):
-                    clone = helper.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                    # create clone tensors
+                    out_shape = model.get_tensor_shape(output_tensor)
+                    out_tensor_clones = []
+                    for i in range(n_outputs):
+                        clone = helper.make_tensor_value_info(
+                            model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                        )
+                        model.graph.value_info.append(clone)
+                        out_tensor_clones += [clone.name]
+
+                    num_ch = int(out_shape[-1])
+                    vecs = out_shape[:-1]
+
+                    # create node with no parallelization first
+                    pe = 1
+
+                    dup_node = helper.make_node(
+                        "DuplicateStreams",
+                        [output_tensor],
+                        out_tensor_clones,
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=num_ch,
+                        PE=pe,
+                        inputDataType=dt.name,
+                        numInputVectors=vecs,
+                        NumOutputStreams=n_outputs,
+                        outFIFODepths=[2] * n_outputs,
+                        name="DuplicateStreams_" + node.name,
                     )
-                    model.graph.value_info.append(clone)
-                    out_tensor_clones += [clone.name]
 
-                num_ch = int(out_shape[-1])
-                vecs = out_shape[:-1]
+                    graph.node.insert(node_ind, dup_node)
 
-                # create node with no parallelization first
-                pe = 1
+                    # connect successors to out tensor clone
+                    clone_idx = 0
+                    for successor in successors:
+                        for i, succ_input in enumerate(successor.input):
+                            if succ_input == output_tensor:
+                                successor.input[i] = out_tensor_clones[clone_idx]
+                                clone_idx += 1
+                                # if one node has multiple connections to the same output
+                                # find_direct_successors will return one node per input
+                                # so break the inner loop will result in correct behaviour
+                                break
 
-                dup_node = helper.make_node(
-                    "DuplicateStreams",
-                    [output_tensor],
-                    out_tensor_clones,
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_ch,
-                    PE=pe,
-                    inputDataType=dt.name,
-                    numInputVectors=vecs,
-                    NumOutputStreams=n_outputs,
-                    outFIFODepths=[2] * n_outputs,
-                    name="DuplicateStreams_" + node.name,
-                )
-
-                graph.node.insert(node_ind, dup_node)
-
-                # connect successors to out tensor clone
-                clone_idx = 0
-                for successor in successors:
-                    for i, succ_input in enumerate(successor.input):
-                        if succ_input == output_tensor:
-                            successor.input[i] = out_tensor_clones[clone_idx]
-                            clone_idx += 1
-                            # if one node has multiple connections to the same output
-                            # find_direct_successors will return one node per input
-                            # so break the inner loop will result in correct behaviour
-                            break
-
-                graph_modified = True
+                    graph_modified = True
 
         if graph_modified:
             model = model.transform(SortGraph())
@@ -1211,21 +1212,20 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn("Inputs with undefined datatype detected, skipping InferConcatLayer()")
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
+                    warnings.warn("Inputs with non-integer datatype detected, skipping InferConcatLayer()")
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1233,11 +1233,76 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
-                    ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    name="StreamingConcat_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+    
+
+class InferSplitLayer(Transformation):
+    """Convert suitable Split nodes (operating on last/-1 axis)
+    into StreamingConcat HW layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Split":
+                split_param = node.input[1]       
+                if model.get_initializer(split_param) is None:
+                    warnings.warn("Split param not constant, skipping InferSplitLayer()")
+                    continue
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
+                    continue
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    warnings.warn("StreamingSplit supports only last (channel) axis, skipping InferSplitLayer()")
+                    continue
+                # only one input allowed (two including split_param)
+                if len(node.input) != 2:
+                    warnings.warn("Only one input allowed, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if the input is static
+                if model.get_initializer(node.input[0]) is not None:
+                    warnings.warn("Static input detected, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if inputs are not integers
+                if not model.get_tensor_datatype(node.input[0]).is_integer():
+                    warnings.warn("Non-integer input detected, skipping InferSplitLayer()")
+                    continue
+                # ready for conversion
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.output]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                new_node = helper.make_node(
+                    "StreamingSplit",
+                    node.input,
+                    node.output,
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="StreamingSplit_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataType=model.get_tensor_datatype(node.input[0]).name,
+                    numInputVectors=inp_vec,
+                    outFIFODepths=[2] * len(node.output),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node

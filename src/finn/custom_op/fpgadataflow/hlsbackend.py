@@ -474,3 +474,15 @@ compilation transformations?
         ret = max([instream, outstream])
         assert ret <= 8191, "AP_INT_MAX_W=%d is larger than allowed maximum of 8191" % ret
         return ret
+
+    def timeout_value(self):
+        """Set timeout value for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = ["100"]
+
+    def timeout_condition(self):
+        """Set timeout condition for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out_{}.empty()".format(self.hls_sname())]
+
+    def timeout_read_stream(self):
+        """Set reading output stream procedure for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = ["debug_out_{} << out_{}.read();".format(self.hls_sname(), self.hls_sname())]

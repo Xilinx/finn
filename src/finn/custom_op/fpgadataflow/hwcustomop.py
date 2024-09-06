@@ -284,11 +284,11 @@ class HWCustomOp(CustomOp):
             sim.stop_vcd_trace()
         return outputs
 
-    def rtlsim_multi_io(self, sim, io_dict):
+    def rtlsim_multi_io(self, sim, io_dict, sname=None):
         "Run rtlsim for this node, supports multiple i/o streams."
 
         # signal name
-        sname = "_" + self.hls_sname() + "_"
+        sname = "_" + self.hls_sname() + "_" if sname == None else sname
 
         trace_file = self.get_nodeattr("rtlsim_trace")
         if trace_file == "default":

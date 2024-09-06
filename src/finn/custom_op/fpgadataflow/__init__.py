@@ -30,6 +30,7 @@
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
+from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
@@ -77,6 +78,7 @@ custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup
 custom_op["Pool"] = Pool
 custom_op["StreamingConcat"] = StreamingConcat
+custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool

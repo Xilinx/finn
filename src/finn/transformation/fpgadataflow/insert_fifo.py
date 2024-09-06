@@ -263,7 +263,7 @@ class InsertFIFO(Transformation):
                         fifo_input_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
-                            n0.get_normal_output_shape(),
+                            n0.get_normal_output_shape(out_ind),
                         )
                         graph.value_info.append(fifo_input_tensor)
                         model.set_tensor_datatype(fifo_input_tensor.name, dtype)
@@ -289,7 +289,7 @@ class InsertFIFO(Transformation):
                         graph.node.append(fifo_node)
 
                         # set fifo output tensor as new input tensor of second node
-                        final_node.output[0] = fifo_input_tensor.name
+                        final_node.output[out_ind] = fifo_input_tensor.name
                     else:
                         warnings.warn(
                             """Output FIFO for %s has depth %d and won't
