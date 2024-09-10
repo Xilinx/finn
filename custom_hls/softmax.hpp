@@ -229,7 +229,7 @@ T quant_threshold(TF val) {
         }
 
 
-        ap_fixed<numBits-1, 0> fixed_point_val = val;
+        ap_fixed<numBits-1, 0, AP_RND> fixed_point_val = val;
         T frac_val = fixed_point_val.range(numBits - 2, 0);
         return frac_val;
 }
