@@ -60,8 +60,10 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 # integration test
 # Note: The integration test serves as the test-case for InferUnsqueeze
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferUnsqueeze
+
 # Synthesizes HLS code generated from an operator to IP block
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+
 # Transformations preparing the operators for C++ and RTL simulation
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -97,7 +99,7 @@ def specialize_hls(model: ModelWrapper):
 
 # Creates a dummy model for testing the Unsqueeze operation
 def mock_unsqueeze(axes, inp_dtype, out_dtype, inp_shape, out_shape, pe):
-    # Create a node representing the binary elementwise operation
+    # Create a node representing the unsqueeze operation
     node = oh.make_node(
         # Operator type from the name of the fpgadataflow hlscustomop
         op_type="Unsqueeze",
