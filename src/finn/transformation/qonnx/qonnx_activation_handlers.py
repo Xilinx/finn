@@ -139,6 +139,8 @@ class QuantActBaseHandler(ABC):
         graph.value_info.append(thresh_tensor)
         model.set_initializer(thresh_tensor.name, thresholds)
 
+        data_layout = model.get_tensor_layout(n.input[0])
+
         # Insert MultiThreshold node
         outp_trans_node = helper.make_node(
             "MultiThreshold",
@@ -153,6 +155,11 @@ class QuantActBaseHandler(ABC):
         # Get the MultiThreshold node instance to work with
         mt_node = graph.node[running_node_index - 1]
         mt_inst = getCustomOp(mt_node)
+
+        # Inherit the data layout from the input tensor if available
+        if data_layout is not None:
+            # Convert list to string representation of the data layout
+            mt_inst.set_nodeattr("data_layout", "".join(data_layout))
 
         # Set scale and bias
         # If these values are scalar then they can be set as attributes
@@ -395,9 +402,9 @@ class QuantReluHandler(QuantActBaseHandler):
                     else:
                         thresholds[c][t] = step / selu_scale
 
-        # First try to consider the tensor layout of the output for determining
+        # First try to consider the tensor layout of the input for determining
         # the number of output channels
-        layout = self._model.get_tensor_layout(self._q_node.output[0])
+        layout = self._model.get_tensor_layout(self._q_node.input[0])
         # If there is a layout annotation, use this to determine the index of
         # the channel dimension
         if layout is not None and "C" in layout:
@@ -410,7 +417,7 @@ class QuantReluHandler(QuantActBaseHandler):
             cdim = 1
             # Issue a warning to the user, so they are aware of this
             warnings.warn(
-                f"No layout annotations for {self._q_node.output[0]}:"
+                f"No layout annotations for {self._q_node.input[0]}:"
                 f" Assuming channel dimension at index {cdim}"
             )
 
@@ -556,9 +563,9 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
-            # First try to consider the tensor layout of the output for
+            # First try to consider the tensor layout of the input for
             # determining the number of output channels
-            layout = self._model.get_tensor_layout(self._q_node.output[0])
+            layout = self._model.get_tensor_layout(self._q_node.input[0])
             # If there is a layout annotation, use this to determine the index
             # of the channel dimension
             if layout is not None and "C" in layout:
@@ -571,7 +578,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 cdim = 1
                 # Issue a warning to the user, so they are aware of this
                 warnings.warn(
-                    f"No layout annotations for {self._q_node.output[0]}:"
+                    f"No layout annotations for {self._q_node.input[0]}:"
                     f" Assuming channel dimension at index {cdim}"
                 )
 
