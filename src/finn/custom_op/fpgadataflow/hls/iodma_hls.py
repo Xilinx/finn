@@ -236,17 +236,31 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             raise ValueError("Invalid IODMA direction, please set to in or out")
         # define templates for instantiation
         dma_inst_template = func + "<DataWidth1, NumBytes1>(%s, %s, numReps);"
-        dwc_inst_template = dwc_func + "<%d, %d, %d>(%s, %s, numReps);"
+        dwc_inst_template = dwc_func + "<%d, %d, %d, %d, %d, %d, %d, %d>(%s, %s, numReps);"
         # do stream infrastructure and instantiations
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")
-        width_lcm = (strmw * intfw) // math.gcd(strmw, intfw)
+
         # we always need two streams: one of width_lcm, and one of intfw width
         # because we use WidthAdjustedInputStream,
         dtype_bits = self.get_input_datatype().bitwidth()
         total_bits = dtype_bits * np.prod(self.get_normal_input_shape())
 
         if direction == "in":
+            inWidth = intfw
+            outWidth = strmw
+
+            numInWords = total_bits // inWidth
+            numOutWords = total_bits // outWidth
+            totalIters = max(numInWords, numOutWords)
+
+            if outWidth > inWidth:
+                totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
+
+            NumInWordsLog = int(np.log2(numInWords) + 1)
+            NumOutWordsLog = int(np.log2(numOutWords) + 1)
+            BufferWidthLog = int(np.log2(inWidth + outWidth) + 1)
+
             # AXI MM -> IODMA -> (DWCs) -> out
             # DWCs depend on AXI MM and out interface width
             if strmw == intfw:
@@ -254,41 +268,43 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     dma_inst_template % ("in0_" + self.hls_sname(), "out_" + self.hls_sname())
                 ]
-            elif (strmw % intfw == 0) or (intfw % strmw == 0):
-                # case 1: AXI MM width divisible by out width or vice versa
-                # single DWC + single extra stream needed
+            else:
+                # case 1: Need to perform a data width conversion
+                # we use the HLS variant here
+                # TODO: use RTL variant if possible
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     "hls::stream<ap_uint<%d> > dma2dwc;" % intfw,
                     dma_inst_template % ("in0_" + self.hls_sname(), "dma2dwc"),
                     dwc_inst_template
                     % (
-                        intfw,
-                        strmw,
-                        total_bits // intfw,
+                        inWidth,
+                        outWidth,
+                        numInWords,
+                        numOutWords,
+                        NumInWordsLog,
+                        NumOutWordsLog,
+                        BufferWidthLog,
+                        totalIters,
                         "dma2dwc",
                         "out_" + self.hls_sname(),
                     ),
                 ]
-            else:
-                # case 2: AXI MM width not divisible by out width or vice versa
-                # need 2 DWCs (going through the least common multiple width)
-                # and 2 streams
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls::stream<ap_uint<%d> > dma2lcm;" % intfw,
-                    "hls::stream<ap_uint<%d> > lcm2out;" % width_lcm,
-                    dma_inst_template % ("in0_" + self.hls_sname(), "dma2lcm"),
-                    dwc_inst_template
-                    % (intfw, width_lcm, total_bits // intfw, "dma2lcm", "lcm2out"),
-                    dwc_inst_template
-                    % (
-                        width_lcm,
-                        strmw,
-                        total_bits // width_lcm,
-                        "lcm2out",
-                        "out_" + self.hls_sname(),
-                    ),
-                ]
+
         elif direction == "out":
+            inWidth = strmw
+            outWidth = intfw
+
+            numInWords = total_bits // inWidth
+            numOutWords = total_bits // outWidth
+            totalIters = max(numInWords, numOutWords)
+
+            if outWidth > inWidth:
+                totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
+
+            NumInWordsLog = int(np.log2(numInWords) + 1)
+            NumOutWordsLog = int(np.log2(numOutWords) + 1)
+            BufferWidthLog = int(np.log2(inWidth + outWidth) + 1)
+
             # in0 -> (DWCs) -> IODMA -> AXI MM
             # DWCs depend on AXI MM and out interface width
             if strmw == intfw:
@@ -296,40 +312,28 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     dma_inst_template % ("in0_" + self.hls_sname(), "out_" + self.hls_sname())
                 ]
-            elif (strmw % intfw == 0) or (intfw % strmw == 0):
-                # case 1: AXI MM width divisible by in width or vice versa
-                # single DWC + single extra stream needed
+            else:
+                # case 1: Need to perform a data width conversion
+                # we use the HLS variant here
+                # TODO: use RTL variant if possible
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     "hls::stream<ap_uint<%d> > dwc2dma;" % intfw,
                     dwc_inst_template
                     % (
-                        strmw,
-                        intfw,
-                        total_bits // strmw,
+                        inWidth,
+                        outWidth,
+                        numInWords,
+                        numOutWords,
+                        NumInWordsLog,
+                        NumOutWordsLog,
+                        BufferWidthLog,
+                        totalIters,
                         "in0_" + self.hls_sname(),
                         "dwc2dma",
                     ),
                     dma_inst_template % ("dwc2dma", "out_" + self.hls_sname()),
                 ]
-            else:
-                # case 2: AXI MM width not divisible by out width or vice versa
-                # need 2 DWCs (going through the least common multiple width)
-                # and 2 streams
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "hls::stream<ap_uint<%d> > in2lcm;" % width_lcm,
-                    "hls::stream<ap_uint<%d> > lcm2dma;" % intfw,
-                    dwc_inst_template
-                    % (
-                        strmw,
-                        width_lcm,
-                        total_bits // strmw,
-                        "in0_" + self.hls_sname(),
-                        "in2lcm",
-                    ),
-                    dwc_inst_template
-                    % (width_lcm, intfw, total_bits // width_lcm, "in2lcm", "lcm2dma"),
-                    dma_inst_template % ("lcm2dma", "out_" + self.hls_sname()),
-                ]
+
         else:
             raise Exception("Unknown IODMA direction: %s" % direction)
 
