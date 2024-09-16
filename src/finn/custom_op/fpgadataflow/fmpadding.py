@@ -170,3 +170,158 @@ class FMPadding(HWCustomOp):
             inp_values, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
         )
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+
+    def prepare_kwargs_for_characteristic_fx(self):
+
+
+        # key parameters
+        ImgDim = self.get_nodeattr("ImgDim")
+        Padding = self.get_nodeattr("Padding")
+        NewDim = [ImgDim[0]+Padding[0]+Padding[2],ImgDim[1]+Padding[1]+Padding[3]]
+        NumChannels = self.get_nodeattr("NumChannels")
+        SIMD = self.get_nodeattr("SIMD")
+        TOTAL_ELS = np.prod(NewDim)
+        NF = int(NumChannels/SIMD)
+
+       # assert True == False
+        kwargs = (ImgDim, Padding, NumChannels, SIMD, TOTAL_ELS,NF)
+
+
+       # assert True==False
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        # Compute one period of the input characteristic function
+
+        (ImgDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF) = kwargs
+
+        delay = 0
+        # if NF == 1, we always have a one cycle delay
+
+        if NF == 1: nf1 = 2
+        else: nf1 = 1
+
+        for i in range(0,ImgDim[0]):
+            for j in range(0,ImgDim[1]):
+                for k in range(NF):
+                    txns.append(counter)
+                    counter+=1
+                    cycles+=1
+                if NF == 1:
+                    txns.append(counter)
+                    cycles+=1                    
+            for z in range((Padding[1]+Padding[3])*NF*nf1+delay):
+                txns.append(counter)
+                cycles+=1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        # Compute one period of the output characteristic function
+
+        (ImgDim, Padding, NumChannels, SIMD, TOTAL_ELS,NF) = kwargs
+
+
+        for i in range(0,TOTAL_ELS):
+            for j in range(int(NumChannels/SIMD)):
+                txns.append(counter)
+                counter+=1
+                cycles+=1
+
+        return txns, cycles, counter
+
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+
+        ignore = self.get_nodeattr("ipgen_ignore")
+        if ignore == 0: # this node is being derived using RTLSIM
+            # RTL-based flow
+            super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+            return
+        
+
+        # Analytical flow 
+        
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+
+        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+
+
+        self.set_nodeattr("io_chrc_period",period)
+
+
+
+
+        txn_in = []
+        txn_out = []
+
+        # INPUT
+
+        counter = 0
+        padding = 0
+        
+
+        kwargs = self.prepare_kwargs_for_characteristic_fx()
+
+        
+        # first period
+        cycles = 0
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+
+        txn_in += [counter] * (period-cycles)
+        padding+=(period*-cycles)
+        
+
+        # second period
+        cycles = period
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+
+
+        #for i in range(cycles,period*2):
+        #    txn_in.append(counter)
+        #pads = (period*2-cycles)
+
+        txn_in += [counter] * (period*2-cycles)
+        padding+=(period*2-cycles)
+
+        # final assignments
+        all_txns_in[0, :] = np.array(txn_in)
+        self.set_nodeattr("io_chrc_in", all_txns_in)
+        self.set_nodeattr("io_chrc_pads_in", padding)
+
+
+        # OUTPUT
+        
+        counter = 0
+        cycles = 0  
+        padding = 0          
+
+
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
+
+
+        txn_out += [counter] * (period-cycles)
+        padding += (period*-cycles)
+
+        cycles = period
+
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
+
+        txn_out += [counter] * (period*2-cycles)
+        padding+=(period*2-cycles)
+
+
+        all_txns_out[0, :] = np.array(txn_out)   
+        self.set_nodeattr("io_chrc_out", all_txns_out)
+        self.set_nodeattr("io_chrc_pads_out", padding)
