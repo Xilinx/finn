@@ -96,8 +96,6 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
-    #: verify after step_hw_ipgen
-    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -115,16 +113,35 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_set_fifo_depths",
     "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
-    "step_set_fifo_depths",
+    "step_synth_ip",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_make_pynq_driver",
     "step_deployment_package",
+]
+
+stitch_only_build_dataflow_steps = [
+    "step_qonnx_to_finn",
+    "step_tidy_up",
+    "step_streamline",
+    "step_convert_to_hw",
+    "step_create_dataflow_partition",
+    "step_specialize_layers",
+    "step_target_fps_parallelization",
+    "step_apply_folding_config",
+    "step_minimize_bit_width",
+    "step_set_fifo_depths",
+    "step_generate_estimate_reports",
+    "step_hw_codegen",
+    "step_hw_ipgen",
+    "step_synth_ip",
+    "step_create_stitched_ip",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
@@ -138,7 +155,11 @@ estimate_only_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_set_fifo_depths",
     "step_generate_estimate_reports",
+   # "step_hw_codegen",
+   # "step_hw_ipgen",
+   # "step_synth_ip",    
 ]
 
 #: List of steps to run for a dataflow build including HW code generation, but
@@ -196,6 +217,47 @@ class DataflowBuildConfig:
     #: useful for decreasing the latency (even though throughput won't increase).
     folding_two_pass_relaxation: Optional[bool] = True
 
+    #: (Optional) Control the maximum width of the per-PE MVAU stream while
+    #: exploring the parallelization attributes to reach target_fps
+    #: Only relevant if target_fps is specified.
+    #: Set this to a large value (e.g. 10000) if targeting full unfolding or
+    #: very high performance.
+    mvau_wwidth_max: Optional[int] = 1024
+
+    # (Optional) which SetFolding optimizer to use (naive, optimized)
+    folding_style: Optional[str] = "naive"
+
+    # (Optional) How much padding to allow for enabling more fine-grain folding
+    # parameters (generally, more than 6 is unnecessary)
+    # Enabling this flag requires the generalized datawidthconverter in your finn branch
+    folding_maximum_padding: Optional[int] = 0
+
+    # (Optional) Whether to allow padding IO nodes during folding
+    # If set to True, the model IO npy arrays would also need to be
+    # padded by the user on host side! 
+    folding_pad_io_nodes: Optional[bool] = False
+
+    # (Optional) Heuristic to consider dwc LUT cost when performing folding
+    # this will make the folding optimizer avoid mismatching stream widths
+    enable_folding_dwc_heuristic: Optional[int] = 1
+
+    # (Optional) Heuristic to consider FIFO sizing cost when performing folding
+    # this heuristic might help with not over-sizing fifos
+    enable_folding_fifo_heuristic: Optional[int] = 0
+
+    # (Optional) How much effort to put into automatic folding
+    # minimizer function. Typical ranges are between 100 and 500
+    folding_effort: Optional[int] = 100
+
+    # (Optional) How many times to attempt to optimize throughput
+    #  1: only attempts the target throughput
+    # >1: attempt to increase the throughput to the maximum possible
+    # for a given device. Increasing the value by one doubles the 
+    # precision towards reaching maximal throughput possible
+    # 2 attempts: within 100% of optimum
+    # 6 attempts: within 6.25% of optimum
+    folding_max_attempts: Optional[int] = 1
+
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.
@@ -215,7 +277,7 @@ class DataflowBuildConfig:
 
     #: (Optional) Save .vcd waveforms from rtlsim under reports.
     #: By default, waveforms won't be saved.
-    verify_save_rtlsim_waveforms: Optional[bool] = False
+    verify_save_rtlsim_waveforms: Optional[bool] = True
 
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
@@ -226,12 +288,11 @@ class DataflowBuildConfig:
     #: to the design: e.g. Customer signature, application signature, version
     signature: Optional[List[int]] = None
 
-    #: (Optional) Control the maximum width of the per-PE MVAU stream while
-    #: exploring the parallelization attributes to reach target_fps
-    #: Only relevant if target_fps is specified.
-    #: Set this to a large value (e.g. 10000) if targeting full unfolding or
-    #: very high performance.
-    mvau_wwidth_max: Optional[int] = 36
+
+    # (Optional) Flag for generating a hw config json in set_fifo_sizes
+    # this should be turned off during setFolding optimization's call
+    # to the set_fifo_sizes step
+    extract_hw_config: Optional[bool] = True
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HW layers,
@@ -271,7 +332,7 @@ class DataflowBuildConfig:
 
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
-    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.CHARACTERIZE
 
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
