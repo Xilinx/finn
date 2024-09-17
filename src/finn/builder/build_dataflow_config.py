@@ -239,23 +239,26 @@ class DataflowBuildConfig:
 
     # (Optional) Heuristic to consider dwc LUT cost when performing folding
     # this will make the folding optimizer avoid mismatching stream widths
-    enable_folding_dwc_heuristic: Optional[int] = 1
+    enable_folding_dwc_heuristic: Optional[bool] = True
 
     # (Optional) Heuristic to consider FIFO sizing cost when performing folding
     # this heuristic might help with not over-sizing fifos
-    enable_folding_fifo_heuristic: Optional[int] = 0
+    # Highly recommended to NOT enable this flag unless analytic fifo sizing is
+    # also being used and so RTLSIM is never called for folding
+    enable_folding_fifo_heuristic: Optional[bool] = False
 
     # (Optional) How much effort to put into automatic folding
-    # minimizer function. Typical ranges are between 100 and 500
-    folding_effort: Optional[int] = 100
+    # minimizer function. Typical ranges are between 50 and 500
+    folding_effort: Optional[int] = 50
 
     # (Optional) How many times to attempt to optimize throughput
+    # (binary search steps)
     #  1: only attempts the target throughput
     # >1: attempt to increase the throughput to the maximum possible
     # for a given device. Increasing the value by one doubles the 
     # precision towards reaching maximal throughput possible
-    # 2 attempts: within 100% of optimum
-    # 6 attempts: within 6.25% of optimum
+    # 2 attempts: at worst half of the maximum throughput
+    # 6 attempts: at worst 93.75% of maximum throughput
     folding_max_attempts: Optional[int] = 1
 
     #: (Optional) At which steps the generated intermediate output model

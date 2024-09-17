@@ -502,7 +502,7 @@ class Optimizer:
         maxfun_per_parameter=               100,
         fpgapart=                           "xc7z020clg400-1",
         parameters_to_apply=                ["SIMD", "PE", "ram_style", "resType","ram_style_thresholds"],
-        penalize_hls_dwc_variant_use=       True,
+        enable_folding_dwc_heuristic=       True,
         verbose=                            False,
         mvau_wwidth_max=                    1024,
         value_to_minimize_relaxation=       0.98,
@@ -539,7 +539,7 @@ class Optimizer:
         
         self.hard_constraint_target = hard_constraint_target
         self.parameters_to_apply = parameters_to_apply
-        self.penalize_hls_dwc_variant_use = penalize_hls_dwc_variant_use
+        self.enable_folding_dwc_heuristic = enable_folding_dwc_heuristic
         self.verbose=verbose
         self.optimization_parameters = optimization_parameters
 
@@ -653,7 +653,7 @@ class Optimizer:
         # increases. All pairs are considered because
         # we optimize partitions left to right and consider
         # the DWC between a node and its left neighbor
-        if self.penalize_hls_dwc_variant_use:
+        if self.enable_folding_dwc_heuristic:
             cost += self.compute_hls_dwc_cost(opt.model, opt.params.nodes, opt.targets["LUT"])
 
         return cost
@@ -718,7 +718,7 @@ class Optimizer:
         """
 
         print("STARTED OPTIMIZER WITH PARAMS:")
-        print("penalize_hls_dwc_variant_use: ",self.penalize_hls_dwc_variant_use)
+        print("enable_folding_dwc_heuristic: ",self.enable_folding_dwc_heuristic)
         print("padding: ",self.padding)
         print("effort: ",self.maxfun_per_parameter)
 
@@ -1439,6 +1439,12 @@ class SetFolding(Transformation):
         folding_pad_io_nodes=False,
         devices=1,
         verbose=False,
+        max_parameters_per_partition=4,
+
+        # the strategy should ideally be analytic fifo sizing only.
+        # RTLSIM-based sizing would make the folding time
+        # quickly explode
+        auto_fifo_strategy="analytic",
     ):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
@@ -1468,6 +1474,8 @@ class SetFolding(Transformation):
         self.insert_dwcs = False
         self.consider_dwc_costs = True
 
+        self.max_parameters_per_partition = max_parameters_per_partition
+
         # WARNING: if set to true, this flag
         # can result in an enormous increase in 
         # the time it takes to run this transformation
@@ -1475,16 +1483,10 @@ class SetFolding(Transformation):
         # set_fifo_depths times (folding_max_attempts-1)
         # Recommended to only run if analytic FIFO sizing
         # is also enabled (experimental feature)
-        if enable_folding_fifo_heuristic:
-            self.consider_fifo_costs = True
-        else:
-            self.consider_fifo_costs = False
-        self.auto_fifo_strategy = "characterize_analytic"
+        self.enable_folding_fifo_heuristic = enable_folding_fifo_heuristic
 
-        if enable_folding_dwc_heuristic == 1:
-            self.penalize_hls_dwc_variant_use = True
-        else:
-            self.penalize_hls_dwc_variant_use = False
+        self.auto_fifo_strategy = auto_fifo_strategy
+        self.enable_folding_dwc_heuristic = enable_folding_dwc_heuristic
         
         self.target_resources = ["LUT","BRAM_18K","DSP","URAM"]
 
@@ -1520,12 +1522,13 @@ class SetFolding(Transformation):
             fpgapart=self.fpgapart,
             maxfun_per_parameter=self.effort,
             parameters_to_apply=["SIMD", "PE"],
-            penalize_hls_dwc_variant_use=self.penalize_hls_dwc_variant_use,
+            enable_folding_dwc_heuristic=self.enable_folding_dwc_heuristic,
             verbose=self.verbose,
             mvau_wwidth_max=self.mvau_wwidth_max,
             init_run=True,
             pad_io_nodes=self.pad_io_nodes,
             optimization_parameters=self.optimization_parameters
+            max_parameters_per_partition=self.max_parameters_per_partition,
         )
 
         opt1.targets = targets
@@ -1594,12 +1597,13 @@ class SetFolding(Transformation):
             fpgapart=self.fpgapart,
             maxfun_per_parameter=self.effort,
             parameters_to_apply=self.optimization_parameters,
-            penalize_hls_dwc_variant_use=self.penalize_hls_dwc_variant_use,
+            enable_folding_dwc_heuristic=self.enable_folding_dwc_heuristic,
             verbose=self.verbose,
             mvau_wwidth_max=self.mvau_wwidth_max,
             init_run=False,
             pad_io_nodes=self.pad_io_nodes,
             optimization_parameters=self.optimization_parameters,
+            max_parameters_per_partition=self.max_parameters_per_partition,
         )
 
         opt2.targets = targets
@@ -1650,7 +1654,7 @@ class SetFolding(Transformation):
                 model = model.transform(InsertDWC())
                 model = model.transform(SpecializeLayers(self.fpgapart))
             
-            if self.consider_fifo_costs and self.max_attempts != 1:
+            if self.enable_folding_fifo_heuristic and self.max_attempts != 1:
 
                 # store model to use in the builder
                 model_dir = "folded_model.onnx"
