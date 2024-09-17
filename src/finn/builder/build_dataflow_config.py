@@ -96,6 +96,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hw_ipgen
+    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -113,10 +115,10 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
-    "step_set_fifo_depths",
     "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
+    "step_set_fifo_depths",
     "step_synth_ip",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
@@ -124,24 +126,6 @@ default_build_dataflow_steps = [
     "step_synthesize_bitfile",
     "step_make_pynq_driver",
     "step_deployment_package",
-]
-
-stitch_only_build_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_set_fifo_depths",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_synth_ip",
-    "step_create_stitched_ip",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
@@ -155,11 +139,7 @@ estimate_only_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
-    "step_set_fifo_depths",
     "step_generate_estimate_reports",
-   # "step_hw_codegen",
-   # "step_hw_ipgen",
-   # "step_synth_ip",    
 ]
 
 #: List of steps to run for a dataflow build including HW code generation, but
@@ -280,7 +260,7 @@ class DataflowBuildConfig:
 
     #: (Optional) Save .vcd waveforms from rtlsim under reports.
     #: By default, waveforms won't be saved.
-    verify_save_rtlsim_waveforms: Optional[bool] = True
+    verify_save_rtlsim_waveforms: Optional[bool] = False
 
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
@@ -335,7 +315,7 @@ class DataflowBuildConfig:
 
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
-    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.CHARACTERIZE
+    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
