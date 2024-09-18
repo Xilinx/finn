@@ -41,7 +41,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
-    """Class that corresponds to finn-hlslib StreamingDataWidthConverter_Batch
+    """Class that corresponds to finn-hlslib StreamingDataWidthConverterGeneralized_Batch
     function."""
 
     def get_nodeattr_types(self):
@@ -77,18 +77,12 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         if outWidth > inWidth:
             totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
 
-        NumInWordsLog = int(np.log2(numInWords) + 1)
-        NumOutWordsLog = int(np.log2(numOutWords) + 1)
-        BufferWidthLog = int(np.log2(inWidth + outWidth) + 1)
 
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
             "#define NumInWords %d " % numInWords,
             "#define NumOutWords %d " % numOutWords,
-            "#define NumInWordsLog %d " % NumInWordsLog,
-            "#define NumOutWordsLog %d " % NumOutWordsLog,
-            "#define BufferWidthLog %d " % BufferWidthLog,
             "#define totalIters %d " % totalIters,
             "#define numReps %d" % numReps,
         ]
@@ -109,11 +103,10 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
     def docompute(self):
         # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_Batch"
+        op = "StreamingDataWidthConverterGeneralized_Batch"
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
             "%s<InWidth, OutWidth, NumInWords,NumOutWords," % op
-            + "NumInWordsLog, NumOutWordsLog, BufferWidthLog,"
             + " totalIters>(in0_%s, out_%s, numReps);" % (self.hls_sname(), self.hls_sname())
         ]
 
