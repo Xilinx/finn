@@ -44,62 +44,53 @@ class UpsampleNearestNeighbour(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # Size of the output feature map
-            "OFMDim": ("i", True, 0),
-            # Size of the input feature map
-            "IFMDim": ("i", True, 0),
+            "SIMD": ("i", True, 0),
+            # Height, width of the output feature map
+            "HO": ("i", True, 0),
+            "WO": ("i", True, 0),
+            # Height, width of the input feature map
+            "HI": ("i", True, 0),
+            "WI": ("i", True, 0),
             # Amount of channels of the input feature map
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
             # Batch size
-            "numInputVectors": ("i", False, 1),
-            # Dimensionality mode: 0 = 2D square, 1 = 1D in H dim
-            "DimMode": ("i", False, 0),
+            "batchSize": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
     def get_exp_cycles(self):
-        OFMDim = self.get_nodeattr("OFMDim")
-        batch_size = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        reps = 1
-        if is_2d:
-            OFMDim = OFMDim * OFMDim
-            reps = batch_size
-        exp_cycles = OFMDim * reps
-        return int(exp_cycles)
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     def get_normal_input_shape(self, ind=0):
-        IFMDim = self.get_nodeattr("IFMDim")
+        batch = self.get_nodeattr("batchSize")
+        HI = self.get_nodeattr("HI")
+        WI = self.get_nodeattr("WI")
         num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        if is_2d:
-            ishape = (batch, IFMDim, IFMDim, num_ch)
-        else:
-            ishape = (batch, IFMDim, 1, num_ch)
+        ishape = (batch, HI, WI, num_ch)
         return ishape
 
     def get_normal_output_shape(self, ind=0):
-        OFMDim = self.get_nodeattr("OFMDim")
+        batch = self.get_nodeattr("batchSize")
+        HO = self.get_nodeattr("HO")
+        WO = self.get_nodeattr("WO")
         num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        is_2d = self.get_nodeattr("DimMode") == 0
-        if is_2d:
-            oshape = (batch, OFMDim, OFMDim, num_ch)
-        else:
-            oshape = (batch, OFMDim, 1, num_ch)
+        oshape = (batch, HO, WO, num_ch)
         return oshape
 
     def get_folded_input_shape(self, ind=0):
-        normal_ishape = list(self.get_normal_input_shape())
-        return tuple(normal_ishape)
+        spatial_shape = list(self.get_normal_input_shape())[:-1]
+        simd = self.get_nodeattr("SIMD")
+        folds = self.get_nodeattr("NumChannels") // simd
+        return tuple(spatial_shape + [folds, simd])
 
     def get_folded_output_shape(self, ind=0):
-        normal_oshape = list(self.get_normal_output_shape())
-        return tuple(normal_oshape)
+        spatial_shape = list(self.get_normal_output_shape())[:-1]
+        simd = self.get_nodeattr("SIMD")
+        folds = self.get_nodeattr("NumChannels") // simd
+        return tuple(spatial_shape + [folds, simd])
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
@@ -136,13 +127,13 @@ class UpsampleNearestNeighbour(HWCustomOp):
 
     def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
-        ifm_ch = self.get_nodeattr("NumChannels")
-        return ibits * ifm_ch
+        simd = self.get_nodeattr("SIMD")
+        return ibits * simd
 
     def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
-        ifm_ch = self.get_nodeattr("NumChannels")
-        return obits * ifm_ch
+        simd = self.get_nodeattr("SIMD")
+        return obits * simd
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -153,17 +144,11 @@ class UpsampleNearestNeighbour(HWCustomOp):
         node = self.onnx_node
         inp_values = context[node.input[0]]
         ishape = inp_values.shape
-        odim = self.get_nodeattr("OFMDim")
-        idim = self.get_nodeattr("IFMDim")
-        if ishape[1] == ishape[2]:
-            scales_val = [1, int(round(odim / idim)), int(round(odim / idim)), 1]
-        elif ishape[1] > 1 and ishape[2] == 1:
-            scales_val = [1, int(round(odim / idim)), 1, 1]
-        else:
-            warnings.warn(
-                """HW abstraction layer for Upsample cannot be executed.
-            Upsampling only supported for 1D H, or 2D square scaling"""
-            )
+        HO = self.get_nodeattr("HO")
+        WO = self.get_nodeattr("WO")
+        HI = self.get_nodeattr("HI")
+        WI = self.get_nodeattr("WI")
+        scales_val = [1, int(round(HO / HI)), int(round(WO / WI)), 1]
         oshape = context[node.output[0]].shape
         inp = helper.make_tensor_value_info(node.input[0], TensorProto.FLOAT, ishape)
         scales = helper.make_tensor_value_info("scales", TensorProto.FLOAT, [4])

@@ -26,10 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
 import numpy as np
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
+from finn.custom_op.fpgadataflow import templates
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -58,48 +60,40 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
-        ifm_ch = self.get_nodeattr("NumChannels")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMChannels {}".format(ifm_ch)]
+        HI = self.get_nodeattr("HI")
+        self.code_gen_dict["$DEFINES$"] += ["#define HI {}".format(HI)]
 
-        ibits = self.get_input_datatype().bitwidth()
-        self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
+        WI = self.get_nodeattr("WI")
+        self.code_gen_dict["$DEFINES$"] += ["#define WI {}".format(WI)]
 
-        idim = self.get_nodeattr("IFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
+        HO = self.get_nodeattr("HO")
+        self.code_gen_dict["$DEFINES$"] += ["#define HO {}".format(HO)]
 
-        odim = self.get_nodeattr("OFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
+        WO = self.get_nodeattr("WO")
+        self.code_gen_dict["$DEFINES$"] += ["#define WO {}".format(WO)]
 
-        batch_size = self.get_nodeattr("numInputVectors")
-        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
+        SIMD = self.get_nodeattr("SIMD")
+        self.code_gen_dict["$DEFINES$"] += ["#define SIMD {}".format(SIMD)]
+
+        CF = self.get_nodeattr("NumChannels") // SIMD
+        self.code_gen_dict["$DEFINES$"] += ["#define CF {}".format(CF)]
 
     def docompute(self):
-        is_2d = self.get_nodeattr("DimMode") == 0
-        batch = self.get_nodeattr("numInputVectors")
-        if is_2d:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
-        else:
-            assert batch == 1, "1D upsampler currently needs numReps=1"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s);"""
-                % (self.hls_sname(), self.hls_sname())
-            ]
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            """upsample_nn<HI, WI, HO, WO, CF>(in0_%s, out_%s);"""
+            % (self.hls_sname(), self.hls_sname())
+        ]
 
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        output_elem_hls_type = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<hls::vector<%s, SIMD>> &in0_%s, hls::stream<hls::vector<%s, SIMD>> &out_%s)"
             % (
                 self.onnx_node.name,
-                packed_hls_type,
+                input_elem_hls_type,
                 self.hls_sname(),
-                packed_hls_type,
+                output_elem_hls_type,
                 self.hls_sname(),
             )
         ]
@@ -109,7 +103,6 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
-        folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -138,7 +131,7 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == folded_oshape
+                context[node.output[0]].shape == exp_oshape
             ), "cppsim did not produce expected folded output shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
@@ -173,3 +166,97 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
             context[node.output[0]].shape == exp_oshape
         ), """Output shape doesn't match expected shape
             (1, OutputDim, OutputDim, NumChannels)."""
+
+    def code_generation_cppsim(self, model):
+        """Generates c++ code for simulation (cppsim)."""
+        node = self.onnx_node
+        path = self.get_nodeattr("code_gen_dir_cppsim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
+        self.generate_params(model, path)
+        self.global_includes()
+        self.defines("cppsim")
+        self.read_npy_data()
+        self.strm_decl()
+        self.pragmas()
+        self.docompute()
+        self.dataoutstrm()
+        self.save_as_npy()
+        self.timeout_value()
+        self.timeout_condition()
+        self.timeout_read_stream()
+
+        template = templates.docompute_template_timeout
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
+
+    def read_npy_data(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        npy_type = "float"
+        self.code_gen_dict["$READNPYDATA$"] = []
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        npy_in = "%s/input_0.npy" % (code_gen_dir)
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2vectorstream<%s, %s, SIMD>("%s", in0_%s);'
+            % (
+                input_elem_hls_type,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
+        )
+
+    def dataoutstrm(self):
+        npy_type = "float"
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        oshape = self.get_folded_output_shape()
+        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+        npy_out = "%s/output.npy" % code_gen_dir
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            'vectorstream2npy<%s, %s, SIMD>(debug_out_%s, %s, "%s");'
+            % (
+                self.get_output_datatype().get_hls_datatype_str(),
+                npy_type,
+                self.hls_sname(),
+                oshape_cpp_str,
+                npy_out,
+            )
+        ]
+    
+    def strm_decl(self):
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{}, SIMD>> in0_{} ("in0_{}");'.format(
+                self.get_input_datatype().get_hls_datatype_str(),
+                self.hls_sname(),
+                self.hls_sname()
+            )
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{}, SIMD>> out_{} ("out_{}");'.format(
+                self.get_output_datatype().get_hls_datatype_str(),
+                self.hls_sname(),
+                self.hls_sname()
+            )
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{}, SIMD>> debug_out_{} ("debug_out_{}");'.format(
+                self.get_output_datatype().get_hls_datatype_str(),
+                self.hls_sname(),
+                self.hls_sname()
+            )
+        )
+
+    def pragmas(self):
+        super().pragmas()
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=in0_%s compact=bit" % self.hls_sname())
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=out_%s compact=bit" % self.hls_sname())
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
+        
