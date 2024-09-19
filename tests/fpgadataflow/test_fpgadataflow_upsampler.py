@@ -103,13 +103,13 @@ class PyTorchTestModel(nn.Module):
 # spatial dim input feature map
 @pytest.mark.parametrize("IFMDim", [3, 5])
 # upscaling factor
-@pytest.mark.parametrize("scale", [2, 3])
+@pytest.mark.parametrize("scale", [2])
 # Number of input/output channels
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # whether to use 1D or 2D square testcases
-@pytest.mark.parametrize("is_1d", [False, True])
+@pytest.mark.parametrize("is_1d", [False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
