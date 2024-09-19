@@ -123,12 +123,14 @@ module mvu_4sx4u #(
 	endfunction : init_leave_loads
 
 	// Pipeline for last indicator flag
-	logic [1:5] L = '0;
+	// Depth: 3 cycles for DSP + external SIMD reduction
+	localparam int unsigned  PIPELINE_DEPTH = 3 + $clog2(SIMD+1) + (SIMD == 1);
+	logic [1:PIPELINE_DEPTH] L = '0;
 	always_ff @(posedge clk) begin
 		if(rst)      L <= '0;
-		else if(en)  L <= { last, L[1:4] };
+		else if(en)  L <= { last, L[1:PIPELINE_DEPTH-1] };
 	end
-	assign	vld = L[5];
+	assign	vld = L[PIPELINE_DEPTH];
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
 	localparam int unsigned  PIPE_COUNT = (PE+3)/4;
@@ -504,10 +506,13 @@ module mvu_4sx4u #(
 
 		end : genSIMD
 
-		// Stage #4: Cross-SIMD Reduction
+		// Stage #4: Potentially Multiple Cycles of Cross-SIMD Reduction
+		// - binary reduction trees with SIMD leave nodes for both the core lane outputs and the spill accumulation
+		// - balanced tree construction with all fully occupied levels pipelined
 
 		// Count leaves reachable from each node
 		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1 }; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
+		localparam int unsigned  HI_NODE_REGISTERED = 2**($clog2(SIMD+1)-1)-2;
 
 		uwire signed [ACCU_WIDTH-1:0]  up4;
 		uwire signed [             HI_WIDTH_MAX-1:0]  hi4[3];
@@ -525,8 +530,17 @@ module mvu_4sx4u #(
 					for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s][i];
 					for(genvar  n = 0; n < SIMD-1; n++) begin
 						// Sum truncated to actual maximum bit width at this node
-						uwire signed [$clog2(1+LEAVE_LOAD[n]):0]  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
-						assign  tree[n] = s;
+						typedef logic signed [$clog2(1+LEAVE_LOAD[n]):0]  sum_t;
+						uwire sum_t  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
+						if((0 < n) && (n <= HI_NODE_REGISTERED)) begin
+							sum_t  S = 'x;
+							always_ff @(posedge clk) begin
+								if(rst)  S <= 'x;
+								else     S <= s;
+							end
+							assign	tree[n] = S;
+						end
+						else  assign  tree[n] = s;
 					end
 
 					// High Sideband Accumulation
@@ -534,7 +548,7 @@ module mvu_4sx4u #(
 					always_ff @(posedge clk) begin
 						if(rst)      Hi4 <= 0;
 						else if(en) begin
-							automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+							automatic logic signed [HI_WIDTH:0]  h = $signed(L[PIPELINE_DEPTH-1]? 0 : Hi4) + $signed(tree[0]);
 							assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
 								$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
 								$stop;
@@ -555,22 +569,36 @@ module mvu_4sx4u #(
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
-				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][OFFSETS[i]+:LO_WIDTH];
-				for(genvar  n = 0; n < SIMD-1; n++) begin
-					// Sum truncated to actual maximum bit width at this node
-					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
-					uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
-					assign  tree[n] = s;
-				end
 
-				logic [ROOT_WIDTH-1:0]  Lo4 = 0;
-				always_ff @(posedge clk) begin
-					if(rst)      Lo4 <= 0;
-					else if(en)  Lo4 <= tree[0];
-				end
+				if(SIMD == 1) begin : genReg
+					// Just slide in a balancing register
+					logic [ROOT_WIDTH-1:0]  R = 'x;
+					always_ff @(posedge clk) begin
+						if(rst)  R <= 'x;
+						else     R <= p3[0][OFFSETS[i]+:LO_WIDTH];
+					end
+					assign	tree[0] = R;
+				end : genReg
+				else begin : genTree
+					for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][OFFSETS[i]+:LO_WIDTH];
+					for(genvar  n = 0; n < SIMD-1; n++) begin
+						// Sum truncated to actual maximum bit width at this node
+						localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
+						uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
+						if(n <= HI_NODE_REGISTERED) begin
+							logic [NODE_WIDTH-1:0]  S = 'x;
+							always_ff @(posedge clk) begin
+								if(rst)  S <= 'x;
+								else     S <= s;
+							end
+							assign	tree[n] = S;
+						end
+						else  assign  tree[n] = s;
+					end
+				end : genTree
 
-				if(i == 3)  assign  up4 = Lo4;
-				else  assign  lo4[i] = Lo4;
+				if(i == 3)  assign  up4 = tree[0];
+				else  assign  lo4[i] = tree[0];
 			end : genLo
 
 		end
