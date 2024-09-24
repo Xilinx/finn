@@ -4,7 +4,7 @@ title:  "FINN tutorial at FPL'24"
 author: "Jakoba Petri-Koenig"
 ---
 
-We were delighted to offer a full-day FINN tutorial at this year’s FPL conference in Turin, Italy: https://github.com/Xilinx/finn/discussions/1144.
+We were delighted to offer a full-day [FINN tutorial at this year’s FPL conference in Turin, Italy](https://github.com/Xilinx/finn/discussions/1144).
 The tutorial was held on September 3rd, 2024 as part of the FPL conference program.
 Next to a general introduction to the FINN framework and a session for participants to gain hands-on experience with the FINN tools, many members from the FINN community travelled to Turin to present their very own work with FINN.
 
