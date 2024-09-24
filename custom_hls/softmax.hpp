@@ -210,6 +210,18 @@ void smax(
 
 } // smax()
 
+// Helper trait to determine if a type is signed  
+template <typename T>  
+struct is_ap_int_signed : std::false_type {};  
+  
+// Specialization for ap_int  
+template <int N>  
+struct is_ap_int_signed<ap_int<N>> : std::true_type {};  
+  
+// Specialization for ap_uint  
+template <int N>  
+struct is_ap_int_signed<ap_uint<N>> : std::false_type {}; 
+
 // Threshold/quantisation at the output of the softmax 
 template<
         typename T, // The quantised output type (Needs to be signed)
@@ -217,21 +229,27 @@ template<
 >
 T quant_threshold(TF val) {
 #pragma HLS INLINE
-        constexpr unsigned numBits = sizeof(T)*CHAR_BIT;
-        if(val>=1.0f){
-                T frac_val = ~T(0);
-                if(std::is_signed<T>::value) {
-                        return frac_val;
-                } else {
-                        T mask = ~(T(1) << (numBits - 1));
-                        return frac_val & mask;
-                }
-        }
 
+	const int T_width = sizeof(T) * 8;  
+    	ap_fixed<T_width, 1> fixed_val = val;  
 
-        ap_fixed<numBits-1, 0, AP_RND> fixed_point_val = val;
-        T frac_val = fixed_point_val.range(numBits - 2, 0);
-        return frac_val;
+	if(is_ap_int_signed<T>::value) {
+    	    	T mask = (1 << (T_width - 1)) - 1;  
+    	    	if (val >= 1.0f) {  
+    	        	return mask;  
+    	    	}  
+
+    	    	T fractional_part = static_cast<T>(fixed_val.range(T_width - 2, 0));  
+    	    	return fractional_part;  
+	} else {
+    		T mask = ~static_cast<T>(0);
+    		if (val >= 1.0f) {
+    		    return mask;
+    		}
+
+    		T fractional_part = static_cast<T>(fixed_val.range(T_width - 1, 0));
+    		return fractional_part;
+	}
 }
 
 
