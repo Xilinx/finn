@@ -342,6 +342,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hw.InferThresholdingLayer())
+
+    model = model.transform(to_hw.InferQuantSoftmax())
     # needed for bipolar MatMul layers
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     # needed for non-bipolar MatMul layers

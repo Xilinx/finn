@@ -137,6 +137,9 @@ else
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
+# add hls library path to LD_LIBRARY_PATH
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/fpo_v7_1"
+
 export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root
 exec "$@"
