@@ -1,5 +1,5 @@
 # Events, Tutorials and Keynotes
-* [FINN tutorial at FPL’24 (3rd September 2024)](https://xilinx.github.io/finn//2024/09/24/finn-tutorial-fpl24.html)
+* [FINN tutorial at FPL’24 (3rd September 2024)](https://xilinx.github.io/finn//2024/09/25/finn-tutorial-fpl24.html)
 * [FINN tutorial at FPL’23 (4th September 2023)](https://github.com/Xilinx/finn/discussions/861)
 * [FINN tutorial at FPL’22 (2nd September 2022)](https://github.com/Xilinx/finn/discussions/672)
 * [FINN tutorial, March 2021 (24th March 2021)](https://xilinx.github.io/finn//2021/03/11/finn-tutorial-march21.html)
