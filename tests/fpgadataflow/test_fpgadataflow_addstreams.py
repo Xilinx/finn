@@ -116,7 +116,7 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all(), "Execution of hw layer failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

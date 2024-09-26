@@ -146,7 +146,7 @@ def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xczu3eg-sbva484-1-e"))
 
     # Ensure PE value is set
     streamingmaxpool_node = model.get_nodes_by_op_type("StreamingMaxPool_hls")[0]

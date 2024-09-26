@@ -82,7 +82,7 @@ def test_convert_to_hw_layers_tfc_w1a1():
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     fc0 = model.graph.node[2]
     assert fc0.op_type.startswith("MVAU")
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
@@ -154,7 +154,7 @@ def test_convert_to_hw_layers_tfc_w1a2():
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     fc0 = model.graph.node[2]
     assert fc0.op_type.startswith("MVAU")
