@@ -46,7 +46,7 @@ class RoundAndClipThresholds(Transformation):
         graph_modified = False
         for index, node in enumerate(graph.node):
             op_type = node.op_type
-            if op_type == "MultiThreshold":
+            if op_type == "MultiThreshold" or op_type.startswith("Thresholding"):
                 thresholds = model.get_initializer(node.input[1])
                 if thresholds is None:
                     continue
