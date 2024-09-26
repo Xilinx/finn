@@ -29,6 +29,7 @@
 
 import numpy as np
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 
@@ -69,6 +70,10 @@ class RoundAndClipThresholds(Transformation):
                 # The rounded and clipped thresholds now fit into the input data
                 # type
                 model.set_tensor_datatype(node.input[1], dtype)
+                # If hw op we need to set the weight data type attribute as well
+                if op_type.startswith("Thresholding"):
+                    inst = getCustomOp(node)
+                    inst.set_nodeattr("weightDataType", dtype.name)
                 # ones
                 if np.any(new_thresholds != thresholds):
                     # Track the graph has been modified to inform the transform
