@@ -585,63 +585,63 @@ class InferDuplicateStreamsLayer(Transformation):
 
         for node in graph.node:
             node_ind += 1
-            successors = model.find_consumers(node.output[0])
-            if successors is not None and len(successors) >= 2:
-                output_tensor = node.output[0]
-                n_outputs = len(successors)
+            for output_tensor in node.output:
+                successors = model.find_consumers(output_tensor)
+                if successors is not None and len(successors) >= 2:
+                    n_outputs = len(successors)
 
-                dt = model.get_tensor_datatype(output_tensor)
+                    dt = model.get_tensor_datatype(output_tensor)
 
-                # skip conversion for layers with float input
-                if not dt.is_integer():
-                    continue
+                    # skip conversion for layers with float input
+                    if not dt.is_integer():
+                        continue
 
-                # create clone tensors
-                out_shape = model.get_tensor_shape(output_tensor)
-                out_tensor_clones = []
-                for i in range(n_outputs):
-                    clone = helper.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                    # create clone tensors
+                    out_shape = model.get_tensor_shape(output_tensor)
+                    out_tensor_clones = []
+                    for i in range(n_outputs):
+                        clone = helper.make_tensor_value_info(
+                            model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                        )
+                        model.graph.value_info.append(clone)
+                        out_tensor_clones += [clone.name]
+
+                    num_ch = int(out_shape[-1])
+                    vecs = out_shape[:-1]
+
+                    # create node with no parallelization first
+                    pe = 1
+
+                    dup_node = helper.make_node(
+                        "DuplicateStreams",
+                        [output_tensor],
+                        out_tensor_clones,
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=num_ch,
+                        PE=pe,
+                        inputDataType=dt.name,
+                        numInputVectors=vecs,
+                        NumOutputStreams=n_outputs,
+                        outFIFODepths=[2] * n_outputs,
+                        name="DuplicateStreams_" + node.name,
                     )
-                    model.graph.value_info.append(clone)
-                    out_tensor_clones += [clone.name]
 
-                num_ch = int(out_shape[-1])
-                vecs = out_shape[:-1]
+                    graph.node.insert(node_ind, dup_node)
 
-                # create node with no parallelization first
-                pe = 1
+                    # connect successors to out tensor clone
+                    clone_idx = 0
+                    for successor in successors:
+                        for i, succ_input in enumerate(successor.input):
+                            if succ_input == output_tensor:
+                                successor.input[i] = out_tensor_clones[clone_idx]
+                                clone_idx += 1
+                                # if one node has multiple connections to the same output
+                                # find_direct_successors will return one node per input
+                                # so break the inner loop will result in correct behaviour
+                                break
 
-                dup_node = helper.make_node(
-                    "DuplicateStreams",
-                    [output_tensor],
-                    out_tensor_clones,
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_ch,
-                    PE=pe,
-                    inputDataType=dt.name,
-                    numInputVectors=vecs,
-                    NumOutputStreams=n_outputs,
-                    outFIFODepths=[2] * n_outputs,
-                    name="DuplicateStreams_" + node.name,
-                )
-
-                graph.node.insert(node_ind, dup_node)
-
-                # connect successors to out tensor clone
-                clone_idx = 0
-                for successor in successors:
-                    for i, succ_input in enumerate(successor.input):
-                        if succ_input == output_tensor:
-                            successor.input[i] = out_tensor_clones[clone_idx]
-                            clone_idx += 1
-                            # if one node has multiple connections to the same output
-                            # find_direct_successors will return one node per input
-                            # so break the inner loop will result in correct behaviour
-                            break
-
-                graph_modified = True
+                    graph_modified = True
 
         if graph_modified:
             model = model.transform(SortGraph())
