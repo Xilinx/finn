@@ -167,6 +167,36 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         ), """Output shape doesn't match expected shape
             (1, OutputDim, OutputDim, NumChannels)."""
 
+    # def code_generation_cppsim(self, model):
+    #     """Generates c++ code for simulation (cppsim)."""
+    #     node = self.onnx_node
+    #     path = self.get_nodeattr("code_gen_dir_cppsim")
+    #     self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
+    #     self.generate_params(model, path)
+    #     self.global_includes()
+    #     self.defines("cppsim")
+    #     self.read_npy_data()
+    #     self.strm_decl()
+    #     self.pragmas()
+    #     self.docompute()
+    #     self.dataoutstrm()
+    #     self.save_as_npy()
+    #     self.timeout_value()
+    #     self.timeout_condition()
+    #     self.timeout_read_stream()
+
+    #     template = templates.docompute_template_timeout
+
+    #     for key in self.code_gen_dict:
+    #         # transform list into long string separated by '\n'
+    #         code_gen_line = "\n".join(self.code_gen_dict[key])
+    #         template = template.replace(key, code_gen_line)
+    #     code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+    #     f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
+    #     f.write(template)
+    #     f.close()
+    #     self.code_gen_dict.clear()
+
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         npy_type = "float"
