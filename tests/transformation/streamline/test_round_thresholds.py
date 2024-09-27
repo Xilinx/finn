@@ -96,6 +96,7 @@ from finn.transformation.streamline import RoundAndClipThresholds
         256,
     ],
 )
+@pytest.mark.streamline
 def test_round_and_clip_thresholds_ints(i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["INT25"]  # Note: Matches configuration above
@@ -106,6 +107,7 @@ def test_round_and_clip_thresholds_ints(i_dtype, o_dtype, n_elems):
         inputs=["inp", "thresholds"],
         outputs=["out"],
         out_dtype=str(o_dtype),
+        out_bias=float(o_dtype.min()),
     )
     n_thresholds = o_dtype.get_num_possible_values() - 1
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, n_elems])
@@ -117,6 +119,7 @@ def test_round_and_clip_thresholds_ints(i_dtype, o_dtype, n_elems):
     model = ModelWrapper(helper.make_model(graph))
 
     inp = gen_finn_dt_tensor(i_dtype, [1, n_elems])
+    inp[0][0] = i_dtype.max()
     thresholds = np.sort(gen_finn_dt_tensor(t_dtype, [n_elems, n_thresholds]))
     model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
     model.set_tensor_datatype("thresholds", t_dtype)
@@ -131,7 +134,11 @@ def test_round_and_clip_thresholds_ints(i_dtype, o_dtype, n_elems):
 
     # After this transformation, the thresholds and output data type should be
     # inferred correctly
-    assert model.get_tensor_datatype("thresholds") == i_dtype
+    if not i_dtype.signed():
+        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
+    else:
+        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
     # After this transformation, the container type used to store the thresholds
@@ -203,6 +210,7 @@ def test_round_and_clip_thresholds_ints(i_dtype, o_dtype, n_elems):
         256,
     ],
 )
+@pytest.mark.streamline
 def test_round_and_clip_thresholds_floats(i_dtype, o_dtype, n_elems):
     i_dtype = DataType[i_dtype]
     t_dtype = DataType["FLOAT32"]
@@ -244,7 +252,11 @@ def test_round_and_clip_thresholds_floats(i_dtype, o_dtype, n_elems):
 
     model = model.transform(RoundAndClipThresholds())
 
-    assert model.get_tensor_datatype("thresholds") == i_dtype
+    if not i_dtype.signed():
+        new_tdt = DataType.get_smallest_possible(i_dtype.max() + 1)
+    else:
+        new_tdt = DataType.get_smallest_possible(-(i_dtype.max() + 1) - 1)
+    assert model.get_tensor_datatype("thresholds") == new_tdt
     assert model.get_tensor_datatype("out") == o_dtype
 
     # After this transformation, the container type used to store the thresholds

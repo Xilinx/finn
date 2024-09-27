@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -62,18 +63,24 @@ class RoundAndClipThresholds(Transformation):
                 #   introduce extra inaccuracies due to large integers not being
                 #   exactly representable in floating-point representation.
                 #   See for example: np.ceil(np.float32(16777217)) == 16777216
-                new_thresholds = np.clip(np.ceil(thresholds), dtype.min(), dtype.max())
+                new_thresholds = np.clip(np.ceil(thresholds), dtype.min(), dtype.max() + 1)
                 # Convert back to the preferred float32 container type
                 new_thresholds = new_thresholds.astype(np.float32)
                 # Insert the rounded and clipped thresholds back into the model
                 model.set_initializer(node.input[1], new_thresholds)
-                # The rounded and clipped thresholds now fit into the input data
-                # type
-                model.set_tensor_datatype(node.input[1], dtype)
+                # The rounded and clipped thresholds now fit into a data type
+                # that is one bit bigger than the input datatype
+                # Determine new max_value
+                max_val = dtype.max() + 1
+                if not dtype.signed():
+                    tdt = DataType.get_smallest_possible(max_val)
+                else:
+                    tdt = DataType.get_smallest_possible(-(max_val) - 1)
+                model.set_tensor_datatype(node.input[1], tdt)
                 # If hw op we need to set the weight data type attribute as well
                 if op_type.startswith("Thresholding"):
                     inst = getCustomOp(node)
-                    inst.set_nodeattr("weightDataType", dtype.name)
+                    inst.set_nodeattr("weightDataType", tdt.name)
                 # ones
                 if np.any(new_thresholds != thresholds):
                     # Track the graph has been modified to inform the transform
