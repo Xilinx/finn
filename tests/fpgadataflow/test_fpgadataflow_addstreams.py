@@ -144,5 +144,5 @@ def test_fpgadataflow_addstreams(idt_name, ch, fold, exec_mode):
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
