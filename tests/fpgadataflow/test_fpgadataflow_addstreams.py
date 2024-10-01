@@ -84,7 +84,7 @@ def prepare_inputs(input1, input2):
 
 
 # data types
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize("idt_name", ["UINT4", "UINT8", "FLOAT32"])
 # channels
 @pytest.mark.parametrize("ch", [1, 64])
 # folding
@@ -93,7 +93,8 @@ def prepare_inputs(input1, input2):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
+def test_fpgadataflow_addstreams(idt_name, ch, fold, exec_mode):
+    idt = DataType[idt_name]
     if fold == -1:
         pe = 1
     else:

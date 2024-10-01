@@ -155,7 +155,11 @@ class AddStreams_hls(AddStreams, HLSBackend):
         ), """Output shape doesn't match expected shape."""
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        idt_name = self.get_nodeattr("inputDataType")
+        if idt_name == "FLOAT32":
+            self.code_gen_dict["$GLOBALS$"] = ['#include "addstreams_float.hpp"']
+        else:
+            self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
@@ -213,20 +217,34 @@ class AddStreams_hls(AddStreams, HLSBackend):
         )
 
     def docompute(self):
-        hls_call = "AddStreams_Batch"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
-                hls_call,
-                self.get_nodeattr("PE"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_output_datatype().get_hls_datatype_str(),
-                self.get_number_output_values(),
-                self.hls_sname(),
-                self.hls_sname(),
-                self.hls_sname(),
-            )
-        ]
+        idt_name = self.get_nodeattr("inputDataType")
+        if idt_name == "FLOAT32":
+            hls_call = "AddStreams_float_Batch"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
+                    hls_call,
+                    self.get_nodeattr("PE"),
+                    self.get_number_output_values(),
+                    self.hls_sname(),
+                    self.hls_sname(),
+                    self.hls_sname(),
+                )
+            ]
+        else:
+            hls_call = "AddStreams_Batch"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, {}, {}, {}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
+                    hls_call,
+                    self.get_nodeattr("PE"),
+                    self.get_input_datatype().get_hls_datatype_str(),
+                    self.get_input_datatype().get_hls_datatype_str(),
+                    self.get_output_datatype().get_hls_datatype_str(),
+                    self.get_number_output_values(),
+                    self.hls_sname(),
+                    self.hls_sname(),
+                    self.hls_sname(),
+                )
+            ]
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [

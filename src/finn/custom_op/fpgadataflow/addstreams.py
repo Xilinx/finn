@@ -114,10 +114,15 @@ class AddStreams(HWCustomOp):
         # enhancement: consider specifying w/ explicit outputDataType attribute
         # to allow overflow and use the same idt if user wants
         idt = DataType[self.get_nodeattr("inputDataType")]
-        if idt.signed():
-            return DataType.get_smallest_possible(2 * idt.min())
+        if idt.is_integer():
+            if idt.signed():
+                return DataType.get_smallest_possible(2 * idt.min())
+            else:
+                return DataType.get_smallest_possible(2 * idt.max())
+        elif "FLOAT" in idt.get_canonical_name():
+            return DataType["FLOAT32"]
         else:
-            return DataType.get_smallest_possible(2 * idt.max())
+            assert False, f"Unsupported input dtype for AddStreams: {idt.get_canonical_name()}"
 
     def get_instream_width(self, ind=0):
         """Returns input stream width."""
