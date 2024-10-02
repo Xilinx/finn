@@ -41,6 +41,10 @@ recho () {
   echo -e "${RED}$1${NC}"
 }
 
+: ${FINN_XILINX_PATH="/mnt/labstore/Xilinx"}
+: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
+: ${FINN_XILINX_VERSION="2023.1"}
+
 if [ -z "$FINN_XILINX_PATH" ];then
   recho "Please set the FINN_XILINX_PATH environment variable to the path to your Xilinx tools installation directory (e.g. /opt/Xilinx)."
   recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
