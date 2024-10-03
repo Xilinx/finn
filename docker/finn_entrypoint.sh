@@ -120,7 +120,7 @@ else
   export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi:${FINN_ROOT}/deps/pyxsi/py
   # launch the pyxsi RPC server and let it run in the background
   gecho "Launching pyxsi RPC server..."
-  LD_LIBRARY_PATH=${XILINX_VIVADO}/lib/lnx64.o python ${FINN_ROOT}/src/finn/util/pyxsi_rpcserver.py &
+  LD_LIBRARY_PATH=${XILINX_VIVADO}/lib/lnx64.o python ${FINN_ROOT}/src/finn/util/pyxsi_rpcserver.py &> ${FINN_BUILD_DIR}/pyxsi_rpcserver.log &
   sleep 1
 fi
 
