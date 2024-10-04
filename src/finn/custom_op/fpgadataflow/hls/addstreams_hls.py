@@ -29,11 +29,11 @@
 import numpy as np
 import os
 
+import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.pyxsi_rpcclient import PyXSIRPCProxy
 
 
 class AddStreams_hls(AddStreams, HLSBackend):
@@ -130,6 +130,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
             # super().reset_rtlsim(sim)
             # super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
+            pyxsi_rpcclient.close_sim(sim)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -258,7 +259,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
 
-        ret = PyXSIRPCProxy().compile_sim_obj(
+        ret = pyxsi_rpcclient.compile_sim_obj(
             self.get_verilog_top_module_name(), verilog_files, single_src_dir
         )
 
@@ -269,8 +270,8 @@ class AddStreams_hls(AddStreams, HLSBackend):
         sim_xo_path = self.get_nodeattr("rtlsim_so")
         sim_base, sim_rel = sim_xo_path.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
-        tracefile = "trace.wdb"
-        return PyXSIRPCProxy().load_sim_obj(sim_base, sim_rel, tracefile)
+        tracefile = None
+        return pyxsi_rpcclient.load_sim_obj(sim_base, sim_rel, tracefile)
 
     def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
@@ -278,11 +279,11 @@ class AddStreams_hls(AddStreams, HLSBackend):
         observation loop that can abort the simulation if no output value is produced
         after 100 cycles."""
 
-        PyXSIRPCProxy().reset_rtlsim(sim)
+        pyxsi_rpcclient.reset_rtlsim(sim)
         io_dict = {"inputs": {"in0": inp, "in1": inp2}, "outputs": {"out": []}}
         num_out_values = self.get_number_output_values()
         sname = "_" + self.hls_sname() + "_"
-        total_cycle_count = PyXSIRPCProxy().rtlsim_multi_io(
+        total_cycle_count = pyxsi_rpcclient.rtlsim_multi_io(
             sim, io_dict, num_out_values, sname=sname
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)

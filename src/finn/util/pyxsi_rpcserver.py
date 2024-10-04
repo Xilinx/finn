@@ -106,11 +106,9 @@ def toggle_pos_edge(sim_id, clk_name):
     pyxsi_utils.toggle_pos_edge(sim, clk_name)
 
 
-# Create server
-port = 8000
-with SimpleXMLRPCServer(
-    ("localhost", port), requestHandler=RequestHandler, allow_none=True
-) as server:
+# ask to create server on port 0 to find an available port
+with SimpleXMLRPCServer(("localhost", 0), requestHandler=RequestHandler, allow_none=True) as server:
+    port = server.server_address[1]
     server.register_introspection_functions()
     server.register_function(compile_sim_obj)
     server.register_function(load_sim_obj)
@@ -121,5 +119,5 @@ with SimpleXMLRPCServer(
     server.register_function(toggle_clk)
     server.register_function(toggle_neg_edge)
     server.register_function(toggle_pos_edge)
-    print(f"pyxsi RPC server is now running at {port}")
+    print(f"pyxsi RPC server is now running on {port}")
     server.serve_forever()
