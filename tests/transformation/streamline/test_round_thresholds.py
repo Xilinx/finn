@@ -27,15 +27,32 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# fmt: off
+# Disable formatter. This is deliberately formatted to stay within 80 characters
+# per line. Black, however, formats some lines going beyond this.
+
+# Testing framework
 import pytest
 
+# Use numpy for python execution / computing the ground truth expected values
 import numpy as np
+
+# Utility types and function for creating onnx nodes and graphs
 from onnx import TensorProto, helper
+
+# QONNX data types like INT25
 from qonnx.core.datatype import DataType
+
+# QONNX wrapper of ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
+
+# Generate random tensors of QONNX/FINN data types for testing
 from qonnx.util.basic import gen_finn_dt_tensor
 
+# Execution of onnx graphs within FINN
 import finn.core.onnx_exec as oxe
+
+# The transformation to be tested
 from finn.transformation.streamline import RoundAndClipThresholds
 
 
@@ -243,8 +260,8 @@ def test_round_and_clip_thresholds_floats(i_dtype, o_dtype, n_elems):
     model.set_tensor_datatype("inp", i_dtype)  # noqa: Duplicate model execution
     model.set_tensor_datatype("thresholds", t_dtype)
     model.set_tensor_datatype("out", o_dtype)
+    # Set the thresholds as initializer input to the model
     model.set_initializer("thresholds", thresholds)
-
     # Execute the model before running the RoundAndClipThresholds transformation
     out_expected = oxe.execute_onnx(model, {"inp": inp})["out"]
     # Before rounding the threshold data type must be as annotated
@@ -263,8 +280,14 @@ def test_round_and_clip_thresholds_floats(i_dtype, o_dtype, n_elems):
     # values must be float32. No other type-cast or type promotion may happen.
     assert model.get_initializer("thresholds").dtype == np.float32
     # After rounding, all thresholds must be integers represented as float32
-    assert all(x.is_integer() for x in model.get_initializer("thresholds").flatten())
-
+    assert all(
+        x.is_integer() for x in model.get_initializer("thresholds").flatten()
+    )
+    # Execute the model after running the RoundAndClipThresholds transformation
     out_produced = oxe.execute_onnx(model, {"inp": inp})["out"]
-
+    # Compare the results before and after: This is the floating-point test with
+    # actual rounding, this the transformed result may only be equal within some
+    # tolerance.
+    # Hm, never observed this to be relevant. For all test configurations, exact
+    # equality seems to hold, probably due to only integer inputs being tested.
     assert np.allclose(out_produced, out_expected, atol=1.0e-3)

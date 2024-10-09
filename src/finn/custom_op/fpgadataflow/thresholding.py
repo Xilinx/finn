@@ -257,7 +257,10 @@ class Thresholding(HWCustomOp):
         if act == DataType["BIPOLAR"]:
             # binary to bipolar
             y = 2 * y - 1
-        context[node.output[0]] = y
+        else:
+            # signed offset
+            y += act.min()
+        context[node.output[0]] = y.astype(np.float32)
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""

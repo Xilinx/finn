@@ -31,11 +31,17 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+
+# QONNX wrapper of ONNX model graphs
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+# Protobuf onnx graph node type
+from onnx import NodeProto  # noqa
 
 
 class AbsorbSignBiasIntoMultiThreshold(Transformation):
@@ -100,6 +106,19 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
         return (model, graph_modified)
 
 
+# Groups inputs by categories, i.e., groups dynamic inputs first, followed by
+# initializers. Keeps order of inputs in each category.
+def group_inputs_by_category(node: NodeProto, model: ModelWrapper):  # noqa
+    # First select all dynamic inputs, which are those without initializer
+    # tensor
+    dynamics = [i for i in node.input if model.get_initializer(i) is None]
+    # Select all input which are initializers, which, by exclusion, are all
+    # those not among the dynamic inputs
+    initializers = [i for i in node.input if i not in dynamics]
+    # Return lists of dynamic anc initializer inputs
+    return dynamics, initializers
+
+
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
     values. Only scalar/1D add vectors can be absorbed."""
@@ -113,28 +132,55 @@ class AbsorbAddIntoMultiThreshold(Transformation):
             if n.op_type == "Add" and not model.is_fork_node(n) and not model.is_join_node(n):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
-                    add_weight_name = n.input[1]
-                    threshold_name = consumer.input[1]
-                    A = model.get_initializer(add_weight_name)
-                    T = model.get_initializer(threshold_name)
-                    assert A is not None, "Initializer for add weights is not set."
+                    # As Add is not a join node, there must be one initializer
+                    # and one dynamic input. We do not know their order, but
+                    # can group them accordingly to extract the tensor names
+                    (start,), (add_weight,) = group_inputs_by_category(n, model)
+                    threshold = consumer.input[1]
+                    A = model.get_initializer(add_weight)
+                    T = model.get_initializer(threshold)
+                    # Test for the thresholds actually being initializers
+                    # Note: No need to validate the add_weights anymore, this
+                    # is already handled by the grouping and is_join_node test.
                     assert T is not None, "Initializer for thresholds is not set."
-                    start_name = n.input[0]
                     # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
                     actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
                     is_1d = actual_ndims == 1
+
+                    def can_broadcast_shapes(lhs, rhs):
+                        # Broadcasting might raise an exception
+                        try:
+                            # Try broadcasting the shapes
+                            if len(np.broadcast_shapes(lhs, rhs)) == 2:
+                                # These tensors can be broadcast, preserving the
+                                # left-hand-side shape
+                                return True
+                            # These tensors cannot be broadcast
+                            return False
+                        # Failing to broadcast the tensors raises ValueError
+                        except ValueError:
+                            # These tensors cannot be broadcast
+                            return False
+
                     if is_scalar or is_1d:
-                        Tnew = T - A.reshape(-1, 1)
-                        # Tnew = T - A.reshape(-1, T.shape[1])
-                        # compute new thresholds and set initializer
-                        model.set_initializer(threshold_name, Tnew)
-                        # wire add input directly to MultiThreshold
-                        consumer.input[0] = start_name
-                        # remove the add node
-                        graph.node.remove(n)
-                        graph_modified = True
-        return (model, graph_modified)
+                        # Reshape addition parameters to have the elements/PE
+                        # dimension first, aligned with the thresholds.
+                        A = A.reshape(-1, 1)  # noqa: Not lowercase
+                        # Check that we can actually broadcast the addition
+                        # weights to the thresholds tensors, i.e., it is adding
+                        # along the right axis
+                        if can_broadcast_shapes(T.shape, A.shape):
+                            Tnew = T - A  # noqa: Not lowercase
+                            # Tnew = T - A.reshape(-1, T.shape[1])
+                            # compute new thresholds and set initializer
+                            model.set_initializer(threshold, Tnew)
+                            # wire add input directly to MultiThreshold
+                            consumer.input[0] = start
+                            # remove the add node
+                            graph.node.remove(n)
+                            graph_modified = True
+        return model, graph_modified
 
 
 class AbsorbMulIntoMultiThreshold(Transformation):
@@ -186,7 +232,7 @@ class FactorOutMulSignMagnitude(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if n.op_type == "Mul" and not model.is_join_node(n):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."

@@ -25,8 +25,8 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 import numpy as np
+import warnings
 from abc import ABC, abstractmethod
 from onnx import TensorProto, helper
 from qonnx.core.modelwrapper import ModelWrapper
@@ -70,7 +70,7 @@ class QuantActBaseHandler(ABC):
     @abstractmethod
     def _calculate_act_bias(self):
         """Calculate the activation bias,
-        which is introduced as an Add node behind the MultiTrheshold node.
+        which is introduced as an Add node behind the MultiThreshold node.
         """
         raise NotImplementedError()
 
@@ -82,7 +82,7 @@ class QuantActBaseHandler(ABC):
     @abstractmethod
     def _calculate_act_scale(self):
         """Calculate the activation scale,
-        which is indroduced as a Mul node behind the Add node
+        which is introduced as a Mul node behind the Add node
         for the activation bias.
         """
         raise NotImplementedError()
@@ -157,7 +157,7 @@ class QuantActBaseHandler(ABC):
         # Set scale and bias
         # If these values are scalar then they can be set as attributes
         # of the MultiThreshold node, if not they get inserted as adder and mul nodes
-        # behind the MultiTrheshold nodes.
+        # behind the MultiThreshold nodes.
         bias_scalar = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
         scale_scalar = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
         if scale_scalar and bias_scalar and self._q_node.op_type == "BipolarQuant":
@@ -355,7 +355,7 @@ class QuantReluHandler(QuantActBaseHandler):
         act_node = self._model.find_direct_predecessors(self._q_node)
         act_node = act_node[0]
         if act_node.op_type == "Relu":
-            # Calculate thersholds, see: https://github.com/Xilinx/brevitas/blob/
+            # Calculate thresholds, see: https://github.com/Xilinx/brevitas/blob/
             # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
             # onnx/finn/handler/act.py#L21
             num_distinct_values = 2**bit_width
@@ -395,8 +395,27 @@ class QuantReluHandler(QuantActBaseHandler):
                     else:
                         thresholds[c][t] = step / selu_scale
 
+        # First try to consider the tensor layout of the output for determining
+        # the number of output channels
+        layout = self._model.get_tensor_layout(self._q_node.output[0])
+        # If there is a layout annotation, use this to determine the index of
+        # the channel dimension
+        if layout is not None and "C" in layout:
+            # Lookup the index in list
+            cdim = layout.index("C")
+        # If no layout has been annotated or there is no channel dimension, fall
+        # back to the previous default assumption
+        else:
+            # Assume the channels to be in axis 1
+            cdim = 1
+            # Issue a warning to the user, so they are aware of this
+            warnings.warn(
+                f"No layout annotations for {self._q_node.output[0]}:"
+                f" Assuming channel dimension at index {cdim}"
+            )
+
         # ToDo: The index 1 needs to be changed to -1 for the channels last format
-        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
+        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
         final_shape = (num_output_channels, num_thresholds)
         if thresholds.shape != final_shape:
             thresholds = np.broadcast_to(thresholds, final_shape)
@@ -417,12 +436,12 @@ class QuantReluHandler(QuantActBaseHandler):
         act_node = self._model.find_direct_predecessors(self._q_node)
         if act_node is None:
             raise RuntimeError(
-                "For handling of Relu activations a predecesor to " "the Quant node must exist."
+                "For handling of Relu activations a predecessor to " "the Quant node must exist."
             )
         act_node = act_node[0]
         if act_node.op_type not in self.valid_predecessor_op_types():
             raise RuntimeError(
-                "The predecesor of the Quant node must be Relu or Selu for handling "
+                "The predecessor of the Quant node must be Relu or Selu for handling "
                 "of activations."
             )
 
@@ -509,7 +528,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
 
-        # Calculate thersholds, see: https://github.com/Xilinx/brevitas/
+        # Calculate thresholds, see: https://github.com/Xilinx/brevitas/
         # blob/a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/
         # export/onnx/finn/handler/act.py#L76
         if bit_width == 1.0:
@@ -537,8 +556,27 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
-            # currently only per tensor or per channel quantization is supported
-            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
+            # First try to consider the tensor layout of the output for
+            # determining the number of output channels
+            layout = self._model.get_tensor_layout(self._q_node.output[0])
+            # If there is a layout annotation, use this to determine the index
+            # of the channel dimension
+            if layout is not None and "C" in layout:
+                # Lookup the index in list
+                cdim = layout.index("C")
+            # If no layout has been annotated or there is no channel dimension,
+            # fall back to the previous default assumption
+            else:
+                # Assume the channels to be in axis 1
+                cdim = 1
+                # Issue a warning to the user, so they are aware of this
+                warnings.warn(
+                    f"No layout annotations for {self._q_node.output[0]}:"
+                    f" Assuming channel dimension at index {cdim}"
+                )
+
+            # ToDo: The index 1 needs to be changed to -1 for the channels last format
+            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
             assert (
                 thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
             ), """Quant node cannot be converted to MultiThreshold because only
