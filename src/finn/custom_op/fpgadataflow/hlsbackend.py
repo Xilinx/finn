@@ -65,8 +65,11 @@ class HLSBackend(ABC):
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
-        # default impl only returns the HLS verilog codegen dir
-        return [verilog_path]
+        subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+        # default impl only returns the HLS verilog codegen dir and subcore (ip/hdl/ip) dir
+        return [verilog_path, subcore_verilog_path]
 
     def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
