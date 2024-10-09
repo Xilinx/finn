@@ -72,6 +72,10 @@ module mvu_8sx8u_dsp48 #(
 		return  res;
 	endfunction : init_leave_loads
 
+	function int unsigned sum_width(input int unsigned  n, input int unsigned  w);
+		return	w <= 16? $clog2(1 + n*(2**w - 1)) : w + $clog2(n);
+	endfunction : sum_width
+
 	// Pipeline for last indicator flag
 	logic [1:5] L = '0;
 	always_ff @(posedge clk) begin
@@ -445,7 +449,7 @@ module mvu_8sx8u_dsp48 #(
 		// Stage #4: Cross-SIMD Reduction
 
 		// Count leaves reachable from each node
-		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 0}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
+		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 0 }; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		// Range of Cross-lane Contribution Tracked in Hi4
 		/*
@@ -462,7 +466,7 @@ module mvu_8sx8u_dsp48 #(
 		 *   signed value is determined by its lower bound to be at least:
 		 *		1 + $clog2(2^(w-1)+SIMD)
 		 */
-		localparam int unsigned  HI_WIDTH = 1 + $clog2(2**(ACCU_WIDTH-D[1]-1)+SIMD);
+		localparam int unsigned  HI_WIDTH = 1 + ($clog2(SIMD) < ACCU_WIDTH-D[1]? ACCU_WIDTH-D[1] : $clog2(2**(ACCU_WIDTH-D[1]-1)+SIMD));
 
 		uwire signed [ACCU_WIDTH       -1:0]  up4;
 		uwire signed [HI_WIDTH         -1:0]  hi4;
@@ -504,12 +508,12 @@ module mvu_8sx8u_dsp48 #(
 			// Conclusive low part accumulation
 			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions (all unsigned arithmetic)
-				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
+				localparam int unsigned  ROOT_WIDTH = sum_width(SIMD, LO_WIDTH);
 				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][D[i]+:LO_WIDTH];
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
-					localparam int unsigned  NODE_WIDTH = $clog2(1 + LEAVE_LOAD[n]*(2**LO_WIDTH-1));
+					localparam int unsigned  NODE_WIDTH = sum_width(LEAVE_LOAD[n], LO_WIDTH);
 					uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
 					assign  tree[n] = s;
 				end

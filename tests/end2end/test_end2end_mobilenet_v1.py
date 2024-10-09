@@ -353,6 +353,7 @@ def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
 
