@@ -69,8 +69,12 @@ class HLSBackend(ABC):
         subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
             code_gen_dir, self.onnx_node.name
         )
-        # default impl only returns the HLS verilog codegen dir and subcore (ip/hdl/ip) dir
-        return [verilog_path, subcore_verilog_path]
+        # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir
+        # if it exists
+        ret = [verilog_path]
+        if os.path.isdir(subcore_verilog_path):
+            ret += [subcore_verilog_path]
+        return ret
 
     def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
