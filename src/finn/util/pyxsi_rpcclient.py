@@ -60,13 +60,17 @@ def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_
     rpc_port = 8000
     # TODO sleep to ensure RPC server has started before trying to read its port number from stdout
     # bit hacky - is there a better way of communicating the open port number back to the client?
-    sleep(0.1)
     line = logfile_rd_fd.readline()
+    retries = 10
+    while line == "" and retries > 0:
+        sleep(0.1)
+        line = logfile_rd_fd.readline()
+        retries -= 1
     if "pyxsi RPC server is now running on" in line:
         rpc_port = int(line.split(" on ")[1])
         logfile_rd_fd.close()
     else:
-        assert False, "Unexpected output from pyxsi RPC server"
+        assert False, f"Unexpected output from pyxsi RPC server: {line}"
     rpc_proxy = xmlrpc.client.ServerProxy(f"http://localhost:{rpc_port}", allow_none=True)
     sim_id = rpc_proxy.load_sim_obj(
         sim_out_dir, out_so_relative_path, tracefile, is_toplevel_verilog
