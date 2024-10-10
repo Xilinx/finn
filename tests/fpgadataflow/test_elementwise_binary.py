@@ -153,6 +153,8 @@ def mock_elementwise_binary_operation(
 ):
     # Automatically derive the output shape by broadcasting the inputs
     out_shape = np.broadcast_shapes(lhs_shape, rhs_shape)
+    rtlsim_backend = "pyxsi" if "FLOAT" in out_dtype else "pyverilator"
+
     # Create a node representing the binary elementwise operation
     node = oh.make_node(
         # Operator type from the name of the fpgadataflow hlscustomop
@@ -181,6 +183,8 @@ def mock_elementwise_binary_operation(
         out_shape=out_shape,
         # Number of elements to process in parallel
         PE=pe,
+        # backend to be used for rtlsim
+        rtlsim_backend=rtlsim_backend,
     )
     # Construct the input tensor value infos
     lhs = oh.make_tensor_value_info("lhs", TensorProto.FLOAT, lhs_shape)
@@ -582,82 +586,81 @@ def test_elementwise_binary_operation_rtlsim(
     assert np.all(o_produced == o_expected)
 
 
-# TODO: No floating-point support in RTL simulation
-# # Operator type to be tested
-# @pytest.mark.parametrize("op_type", [  # noqa: Duplicate test setup
-#     # Test all Numpy references specified above, except for the bitwise
-#     # operations, for which floating-point doe not make sense
-#     *sorted((NUMPY_REFERENCES.keys() - BITWISE)),
-# ])
-# # Data type of the left-hand-side input elements
-# @pytest.mark.parametrize("lhs_dtype", ["FLOAT32"])
-# # Data type of the right-hand-side input elements
-# @pytest.mark.parametrize("rhs_dtype", ["FLOAT32"])
-# # Data type of the output elements
-# @pytest.mark.parametrize("out_dtype", ["FLOAT32"])
-# # Shape of the left-hand-side input
-# @pytest.mark.parametrize("lhs_shape", [
-#     [3, 1, 7, 1], [1]
-# ])
-# # Shape of the right-hand-side input
-# @pytest.mark.parametrize("rhs_shape", [
-#     [3, 32, 1, 16],
-# ])
-# # Which inputs to set as initializers
-# @pytest.mark.parametrize("initializers", [
-#     [], ["lhs"], ["rhs"], ["lhs", "rhs"]
-# ])
-# # Number of elements to process in parallel
-# @pytest.mark.parametrize("pe", [1, 2, 4])
-# # This is a slow running fpgadataflow type of test which requires vivado
-# @pytest.mark.fpgadataflow
-# @pytest.mark.slow
-# def test_elementwise_binary_operation_float_rtlsim(
-#         op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape, pe,
-#         initializers
-# ):
-#     # Make dummy model for testing
-#     model = mock_elementwise_binary_operation(  # noqa: Duplicate test setup
-#         op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape, pe
-#     )
-#     # Prepare the execution context
-#     context = {
-#         "lhs": gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape),
-#         "rhs": gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
-#     }
-#
-#     # Turn selected inputs into initializers
-#     for name in initializers:
-#         model.set_initializer(name, context[name])
-#
-#     # Get the numpy reference implementation for this operation
-#     numpy_reference = NUMPY_REFERENCES[op_type]
-#
-#     # Test running shape and data type inference on the model graph
-#     model = model.transform(InferDataTypes())
-#     model = model.transform(InferShapes())
-#     # Specializes all nodes to be implemented as HLS backend
-#     model = specialize_hls(model)
-#
-#     # Try to minimize the bit-widths of all data types involved
-#     model = model.transform(MinimizeWeightBitWidth())
-#     model = model.transform(MinimizeAccumulatorWidth())
-#
-#     # Set model execution mode to RTL simulation
-#     model = model.transform(SetExecMode("rtlsim"))
-#     # Generates the C++ source and compiles the RTL simulation
-#     model = model.transform(GiveUniqueNodeNames())
-#     model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 10))  # noqa
-#     model = model.transform(HLSSynthIP())
-#     model = model.transform(PrepareRTLSim())
-#
-#     # Compute ground-truth output in software
-#     o_expected = numpy_reference(context["lhs"], context["rhs"])
-#     # Execute the onnx model to collect the result
-#     o_produced = execute_onnx(model, context)["out"]
-#
-#     # Compare the expected to the produced for exact equality
-#     assert np.all(o_produced == o_expected)
+# Operator type to be tested
+@pytest.mark.parametrize("op_type", [  # noqa: Duplicate test setup
+    # Test all Numpy references specified above, except for the bitwise
+    # operations, for which floating-point doe not make sense
+    *sorted((NUMPY_REFERENCES.keys() - BITWISE)),
+])
+# Data type of the left-hand-side input elements
+@pytest.mark.parametrize("lhs_dtype", ["FLOAT32"])
+# Data type of the right-hand-side input elements
+@pytest.mark.parametrize("rhs_dtype", ["FLOAT32"])
+# Data type of the output elements
+@pytest.mark.parametrize("out_dtype", ["FLOAT32"])
+# Shape of the left-hand-side input
+@pytest.mark.parametrize("lhs_shape", [
+    [3, 1, 7, 1], [1]
+])
+# Shape of the right-hand-side input
+@pytest.mark.parametrize("rhs_shape", [
+    [3, 32, 1, 16],
+])
+# Which inputs to set as initializers
+@pytest.mark.parametrize("initializers", [
+    [], ["lhs"], ["rhs"], ["lhs", "rhs"]
+])
+# Number of elements to process in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4])
+# This is a slow running fpgadataflow type of test which requires vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+def test_elementwise_binary_operation_float_rtlsim(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape, pe,
+        initializers
+):
+    # Make dummy model for testing
+    model = mock_elementwise_binary_operation(  # noqa: Duplicate test setup
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape, pe
+    )
+    # Prepare the execution context
+    context = {
+        "lhs": gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape),
+        "rhs": gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    }
+
+    # Turn selected inputs into initializers
+    for name in initializers:
+        model.set_initializer(name, context[name])
+
+    # Get the numpy reference implementation for this operation
+    numpy_reference = NUMPY_REFERENCES[op_type]
+
+    # Test running shape and data type inference on the model graph
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    # Specializes all nodes to be implemented as HLS backend
+    model = specialize_hls(model)
+
+    # Try to minimize the bit-widths of all data types involved
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+
+    # Set model execution mode to RTL simulation
+    model = model.transform(SetExecMode("rtlsim"))
+    # Generates the C++ source and compiles the RTL simulation
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 10))  # noqa
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    # Compute ground-truth output in software
+    o_expected = numpy_reference(context["lhs"], context["rhs"])
+    # Execute the onnx model to collect the result
+    o_produced = execute_onnx(model, context)["out"]
+
+    # Compare the expected to the produced for exact equality
+    assert np.all(o_produced == o_expected)
 
 
 # Test-case setting up a complete dummy model containing various elementwise
