@@ -288,6 +288,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
         super().toggle_clk(sim)
         # Run the RTL Simulation
         self.rtlsim_multi_io(sim, io_dict)
+        # free up resources
+        self.close_rtlsim(sim)
 
         # Collect the output from RTL simulation
         out = io_dict["outputs"]["out"]

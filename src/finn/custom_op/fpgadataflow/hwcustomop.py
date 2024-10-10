@@ -155,6 +155,18 @@ class HWCustomOp(CustomOp):
 
         return sim
 
+    def close_rtlsim(self, sim):
+        "Close and free up resources for rtlsim."
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+
+        if rtlsim_backend == "pyverilator":
+            # no action needed
+            pass
+        elif rtlsim_backend == "pyxsi":
+            pyxsi_rpcclient.close_rtlsim(sim)
+        else:
+            assert False, "Unknown rtlsim_backend"
+
     def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
         of the node as a dictionary."""
