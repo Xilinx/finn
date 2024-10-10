@@ -59,7 +59,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir):
     return ret
 
 
-def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_verilog=True):
+def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile, is_toplevel_verilog):
     ret_sim_obj = pyxsi_utils.load_sim_obj(
         sim_out_dir, out_so_relative_path, tracefile, is_toplevel_verilog
     )
@@ -106,6 +106,11 @@ def toggle_pos_edge(sim_id, clk_name):
     pyxsi_utils.toggle_pos_edge(sim, clk_name)
 
 
+def close_rtlsim(sim_id):
+    sim = sim_id_to_obj[sim_id]
+    pyxsi_utils.close_rtlsim(sim)
+
+
 # ask to create server on port 0 to find an available port
 with SimpleXMLRPCServer(("localhost", 0), requestHandler=RequestHandler, allow_none=True) as server:
     port = server.server_address[1]
@@ -119,5 +124,6 @@ with SimpleXMLRPCServer(("localhost", 0), requestHandler=RequestHandler, allow_n
     server.register_function(toggle_clk)
     server.register_function(toggle_neg_edge)
     server.register_function(toggle_pos_edge)
+    server.register_function(close_rtlsim)
     print(f"pyxsi RPC server is now running on {port}")
     server.serve_forever()
