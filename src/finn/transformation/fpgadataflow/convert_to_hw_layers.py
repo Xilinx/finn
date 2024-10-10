@@ -1860,9 +1860,13 @@ class InferElementwiseBinaryOperation(Transformation):
                 inst.set_nodeattr(
                     "rhs_dtype", str(model.get_tensor_datatype(node.input[1]))
                 )
+                odt_name = str(model.get_tensor_datatype(node.output[0]))
                 inst.set_nodeattr(
-                    "out_dtype", str(model.get_tensor_datatype(node.output[0]))
+                    "out_dtype", odt_name
                 )
+                # need to use pyxsi as rtlsim backend for float ops
+                if "FLOAT" in odt_name:
+                    inst.set_nodeattr("rtlsim_backend", "pyxsi")
                 # Insert shape attributes from "context" into the CustomOp node
                 # TODO: Find a way to handle this via shape inference?
                 inst.set_nodeattr(
