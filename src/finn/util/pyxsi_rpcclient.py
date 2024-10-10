@@ -30,6 +30,7 @@ import os
 import pyxsi_utils
 import subprocess
 import xmlrpc.client
+from time import sleep
 
 from finn.util.basic import get_finn_root, get_vivado_root
 
@@ -45,19 +46,25 @@ def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_
     # launch a pyxsi RPC server
     proc_env = os.environ.copy()
     proc_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
+    logfile_wr_fd = open(sim_out_dir + "/pyxsi_rpcserver.log", "w")
+    logfile_rd_fd = open(sim_out_dir + "/pyxsi_rpcserver.log", "r")
     command = ["python", "-u", get_finn_root() + "/src/finn/util/pyxsi_rpcserver.py"]
     proc = subprocess.Popen(
         command,
         bufsize=1,
         env=proc_env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stdout=logfile_wr_fd,
+        stderr=logfile_wr_fd,
         universal_newlines=True,
     )
     rpc_port = 8000
-    line = proc.stdout.readline()
+    # TODO sleep to ensure RPC server has started before trying to read its port number from stdout
+    # bit hacky - is there a better way of communicating the open port number back to the client?
+    sleep(0.1)
+    line = logfile_rd_fd.readline()
     if "pyxsi RPC server is now running on" in line:
         rpc_port = int(line.split(" on ")[1])
+        logfile_rd_fd.close()
     else:
         assert False, "Unexpected output from pyxsi RPC server"
     rpc_proxy = xmlrpc.client.ServerProxy(f"http://localhost:{rpc_port}", allow_none=True)
