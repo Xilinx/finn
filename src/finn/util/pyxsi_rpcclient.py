@@ -69,8 +69,9 @@ def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, is_toplevel_
     return handle
 
 
-def close_sim(handle):
-    (_, _, _, proc) = handle
+def close_rtlsim(handle):
+    (sim_id, rpc_proxy, _, proc) = handle
+    rpc_proxy.close_rtlsim(sim_id)
     proc.terminate()
 
 
