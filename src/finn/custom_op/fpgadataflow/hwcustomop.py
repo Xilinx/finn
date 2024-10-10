@@ -41,6 +41,8 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
+import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
+
 
 class HWCustomOp(CustomOp):
     """HWCustomOp class all custom ops that can be implemented with either
@@ -96,6 +98,8 @@ class HWCustomOp(CustomOp):
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
+            # experimental: rtlsim backend
+            "rtlsim_backend": ("s", False, "pyverilator", {"pyverilator", "pyxsi"}),
         }
 
     def get_verilog_top_module_name(self):
@@ -132,8 +136,23 @@ class HWCustomOp(CustomOp):
 
         rtlsim_so = self.get_nodeattr("rtlsim_so")
         assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
-        # create PyVerilator wrapper
-        sim = PyVerilator(rtlsim_so)
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+
+        if rtlsim_backend == "pyverilator":
+            # create PyVerilator wrapper
+            sim = PyVerilator(rtlsim_so)
+        elif rtlsim_backend == "pyxsi":
+            # load up pyXSI sim using pyxsi_rpcclient
+            sim_base, sim_rel = rtlsim_so.split("xsim.dir")
+            sim_rel = "xsim.dir" + sim_rel
+            # pass in correct tracefile from attribute
+            tracefile = self.get_nodeattr("rtlsim_trace")
+            if tracefile == "default":
+                tracefile = self.onnx_node.name + ".wdb"
+            sim = pyxsi_rpcclient.load_sim_obj(sim_base, sim_rel, tracefile)
+        else:
+            assert False, "Unknown rtlsim_backend"
+
         return sim
 
     def node_res_estimation(self, fpgapart):
@@ -194,15 +213,27 @@ class HWCustomOp(CustomOp):
     def reset_rtlsim(self, sim):
         """Sets reset input in pyverilator to zero, toggles the clock and set it
         back to one"""
-        sim.io.ap_rst_n = 0
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
-        sim.io.ap_rst_n = 1
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+        if rtlsim_backend == "pyverilator":
+            sim.io.ap_rst_n = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_rst_n = 1
+        elif rtlsim_backend == "pyxsi":
+            pyxsi_rpcclient.reset_rtlsim(sim)
+        else:
+            assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
 
     def toggle_clk(self, sim):
         """Toggles the clock input in pyverilator once."""
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+        if rtlsim_backend == "pyverilator":
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+        elif rtlsim_backend == "pyxsi":
+            pyxsi_rpcclient.toggle_clk(sim)
+        else:
+            assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
 
     def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
@@ -210,98 +241,112 @@ class HWCustomOp(CustomOp):
         observation loop that can abort the simulation if no output value is produced
         after 100 cycles."""
 
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file != "":
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-            sim.start_vcd_trace(trace_file)
-        inputs = inp
-        outputs = []
-        sname = self.hls_sname()
-        o_ready = "out_" + sname + "_TREADY"
-        o_valid = "out_" + sname + "_TVALID"
-        o_data = "out_" + sname + "_TDATA"
-        in0_ready = "in0_" + sname + "_TREADY"
-        in0_valid = "in0_" + sname + "_TVALID"
-        in0_data = "in0_" + sname + "_TDATA"
-        in1_ready = "in1_" + sname + "_TREADY"
-        in1_valid = "in1_" + sname + "_TVALID"
-        in1_data = "in1_" + sname + "_TDATA"
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+        if rtlsim_backend == "pyverilator":
+            trace_file = self.get_nodeattr("rtlsim_trace")
+            if trace_file != "":
+                if trace_file == "default":
+                    trace_file = self.onnx_node.name + ".vcd"
+                sim.start_vcd_trace(trace_file)
+            inputs = inp
+            outputs = []
+            sname = self.hls_sname()
+            o_ready = "out_" + sname + "_TREADY"
+            o_valid = "out_" + sname + "_TVALID"
+            o_data = "out_" + sname + "_TDATA"
+            in0_ready = "in0_" + sname + "_TREADY"
+            in0_valid = "in0_" + sname + "_TVALID"
+            in0_data = "in0_" + sname + "_TDATA"
+            in1_ready = "in1_" + sname + "_TREADY"
+            in1_valid = "in1_" + sname + "_TVALID"
+            in1_data = "in1_" + sname + "_TDATA"
 
-        sim.io[o_ready] = 1
+            sim.io[o_ready] = 1
 
-        # observe if output is completely calculated
-        # observation_count will contain the number of cycles the calculation ran
-        num_out_values = self.get_number_output_values()
-        output_observed = False
-        observation_count = 0
+            # observe if output is completely calculated
+            # observation_count will contain the number of cycles the calculation ran
+            num_out_values = self.get_number_output_values()
+            output_observed = False
+            observation_count = 0
 
-        # avoid infinite looping of simulation by aborting when there is no change in
-        # output values after 100 cycles
-        no_change_count = 0
-        old_outputs = outputs
-        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
+            # avoid infinite looping of simulation by aborting when there is no change in
+            # output values after 100 cycles
+            no_change_count = 0
+            old_outputs = outputs
+            liveness_threshold = pyverilate_get_liveness_threshold_cycles()
 
-        while not (output_observed):
-            sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
-            sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
-            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
-                inputs = inputs[1:]
+            while not (output_observed):
+                sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
+                sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
+                if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
+                    inputs = inputs[1:]
 
-            if inp2 is not None:
-                sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
-                sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
-                if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
-                    inp2 = inp2[1:]
+                if inp2 is not None:
+                    sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
+                    sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
+                    if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
+                        inp2 = inp2[1:]
 
-            if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
-                outputs = outputs + [sim.io[o_data]]
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
+                if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
+                    outputs = outputs + [sim.io[o_data]]
+                sim.io.ap_clk = 1
+                sim.io.ap_clk = 0
 
-            observation_count = observation_count + 1
-            no_change_count = no_change_count + 1
+                observation_count = observation_count + 1
+                no_change_count = no_change_count + 1
 
-            if len(outputs) == num_out_values:
-                self.set_nodeattr("cycles_rtlsim", observation_count)
-                output_observed = True
+                if len(outputs) == num_out_values:
+                    self.set_nodeattr("cycles_rtlsim", observation_count)
+                    output_observed = True
 
-            if no_change_count == liveness_threshold:
-                if old_outputs == outputs:
-                    if trace_file != "":
-                        sim.flush_vcd_trace()
-                        sim.stop_vcd_trace()
-                    raise Exception(
-                        "Error in simulation! Takes too long to produce output. "
-                        "Consider setting the LIVENESS_THRESHOLD env.var. to a "
-                        "larger value."
-                    )
-                else:
-                    no_change_count = 0
-                    old_outputs = outputs
-        if trace_file != "":
-            sim.flush_vcd_trace()
-            sim.stop_vcd_trace()
+                if no_change_count == liveness_threshold:
+                    if old_outputs == outputs:
+                        if trace_file != "":
+                            sim.flush_vcd_trace()
+                            sim.stop_vcd_trace()
+                        raise Exception(
+                            "Error in simulation! Takes too long to produce output. "
+                            "Consider setting the LIVENESS_THRESHOLD env.var. to a "
+                            "larger value."
+                        )
+                    else:
+                        no_change_count = 0
+                        old_outputs = outputs
+            if trace_file != "":
+                sim.flush_vcd_trace()
+                sim.stop_vcd_trace()
+        elif rtlsim_backend == "pyxsi":
+            assert False, "pyxsi only supports rtlsim_multi_io for now"
+        else:
+            assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
+
         return outputs
 
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
-
-        # signal name
+        # signal name suffix
         sname = "_" + self.hls_sname() + "_"
-
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file == "default":
-            trace_file = self.onnx_node.name + ".vcd"
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
         num_out_values = self.get_number_output_values()
-        total_cycle_count = rtlsim_multi_io(
-            sim,
-            io_dict,
-            num_out_values,
-            trace_file=trace_file,
-            sname=sname,
-            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
-        )
+        if rtlsim_backend == "pyverilator":
+            trace_file = self.get_nodeattr("rtlsim_trace")
+            if trace_file == "default":
+                trace_file = self.onnx_node.name + ".vcd"
+            total_cycle_count = rtlsim_multi_io(
+                sim,
+                io_dict,
+                num_out_values,
+                trace_file=trace_file,
+                sname=sname,
+                liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            )
+        elif rtlsim_backend == "pyxsi":
+            total_cycle_count = pyxsi_rpcclient.rtlsim_multi_io(
+                sim, io_dict, num_out_values, sname=sname
+            )
+        else:
+            assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
+
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
     def generate_params(self, model, path):
