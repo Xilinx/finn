@@ -130,7 +130,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
             # super().reset_rtlsim(sim)
             # super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
-            pyxsi_rpcclient.close_sim(sim)
+            pyxsi_rpcclient.close_rtlsim(sim)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
