@@ -319,33 +319,19 @@ class InferUpsample(Transformation):
                 )
 
                 # Assumes nhwc layout for scales and input
-                is_scale_square_2d = scales[1] == scales[2]
-                is_scale_1d = scales[1] > 1 and scales[2] == 1
-                assert is_scale_square_2d or is_scale_1d, (
-                    "%s: Upsampling only supported for 1D H, or 2D square scaling" % n.name
-                )
                 assert scales[0] == scales[3] == 1, (
                     n.name + ": Upsampling is only supported for scales with "
                     "the first and last dimensions being 1 in NHWC."
                 )
-                spatial_scale = scales[1]
-                assert spatial_scale == int(spatial_scale), (
-                    "%s: Upsampling is only supported for integer scales." % n.name
-                )
-                is_shape_square_2d = in_shape[1] == in_shape[2]
-                is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
-
-                assert is_shape_square_2d or is_shape_1d, (
-                    "%s: Upsampling is only supported for 1D H or 2D square inputs." % n.name
-                )
 
                 # Extract information for HW node
-                IFMDim = in_shape[1]
-                OFMDim = int(round(in_shape[1] * spatial_scale))
+                HI = in_shape[1]
+                WI = in_shape[2]
+                HO = int(round(HI * scales[1]))
+                WO = int(round(WI * scales[2]))
                 NumChannels = in_shape[-1]
-                numInputVectors = in_shape[0]
+                batchSize = in_shape[0]
                 inputDataType = dt.name
-                dim_mode = 0 if is_shape_square_2d else 1
 
                 # Insert the HWCustomOp node
                 Upsample_HW_node = helper.make_node(
@@ -354,12 +340,14 @@ class InferUpsample(Transformation):
                     [n.output[0]],
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    OFMDim=OFMDim,
-                    IFMDim=IFMDim,
+                    SIMD=1,
+                    HO=HO,
+                    WO=WO,
+                    HI=HI,
+                    WI=WI,
                     NumChannels=NumChannels,
                     inputDataType=inputDataType,
-                    numInputVectors=numInputVectors,
-                    DimMode=dim_mode,
+                    batchSize=batchSize,
                     name="UpsampleNearestNeighbour_" + n.name,
                 )
 
