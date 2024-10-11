@@ -61,7 +61,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
             self.get_nodeattr("executable_path")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
-            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("inputDataTypes")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
@@ -90,7 +90,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
         assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -101,7 +101,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
         inp = context[node.input[1]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
         assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt1 = self.get_input_datatype(1)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -118,12 +118,11 @@ class AddStreams_hls(AddStreams, HLSBackend):
             ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
             rtlsim_inp0 = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_0.npy".format(code_gen_dir), export_idt0, self.get_instream_width(0)
             )
             rtlsim_inp1 = npy_to_rtlsim_input(
-                "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_1.npy".format(code_gen_dir), export_idt1, self.get_instream_width(1)
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
@@ -160,20 +159,15 @@ class AddStreams_hls(AddStreams, HLSBackend):
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         self.code_gen_dict["$READNPYDATA$"] = []
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
             % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
+                "ap_uint<%d>" % self.get_instream_width(0),
+                self.get_input_datatype(0).get_hls_datatype_str(),
+                self.get_input_datatype(0).bitwidth(),
                 npy_type,
                 npy_in,
                 self.hls_sname(),
@@ -183,9 +177,9 @@ class AddStreams_hls(AddStreams, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in1_%s);'
             % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
+                "ap_uint<%d>" % self.get_instream_width(1),
+                self.get_input_datatype(1).get_hls_datatype_str(),
+                self.get_input_datatype(1).bitwidth(),
                 npy_type,
                 npy_in,
                 self.hls_sname(),
@@ -196,12 +190,12 @@ class AddStreams_hls(AddStreams, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+                self.get_instream_width(0), self.hls_sname(), self.hls_sname()
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in1_{} ("in1_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+                self.get_instream_width(1), self.hls_sname(), self.hls_sname()
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
@@ -216,8 +210,8 @@ class AddStreams_hls(AddStreams, HLSBackend):
             """{}<{}, {}, {}, {}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
                 hls_call,
                 self.get_nodeattr("PE"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_input_datatype().get_hls_datatype_str(),
+                self.get_input_datatype(0).get_hls_datatype_str(),
+                self.get_input_datatype(1).get_hls_datatype_str(),
                 self.get_output_datatype().get_hls_datatype_str(),
                 self.get_number_output_values(),
                 self.hls_sname(),
@@ -231,9 +225,9 @@ class AddStreams_hls(AddStreams, HLSBackend):
             """void {}(hls::stream<ap_uint<{}>> &in0_{}, hls::stream<ap_uint<{}>> &in1_{},
                 hls::stream<ap_uint<{}>> &out_{})""".format(
                 self.onnx_node.name,
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
                 self.hls_sname(),
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
                 self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
                 self.hls_sname(),

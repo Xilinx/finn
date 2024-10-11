@@ -460,14 +460,8 @@ class InferAddStreamsLayer(Transformation):
                 idt0 = model.get_tensor_datatype(in0)
                 idt1 = model.get_tensor_datatype(in1)
 
-                # skip if different data types on inputs
-                if idt0 != idt1:
-                    continue
-
-                idt = idt0
-
                 # skip conversion for layers with float input
-                if not idt.is_integer():
+                if not idt0.is_integer() or not idt1.is_integer():
                     continue
 
                 # check layout and convert if necessary
@@ -507,7 +501,7 @@ class InferAddStreamsLayer(Transformation):
                     backend="fpgadataflow",
                     NumChannels=num_channels,
                     PE=pe,
-                    inputDataType=idt.name,
+                    inputDataTypes=[idt0.name, idt1.name],
                     numInputVectors=in0_shape[:-1],
                     name="AddStreams_" + node.name,
                 )
