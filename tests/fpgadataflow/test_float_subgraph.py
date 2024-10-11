@@ -34,9 +34,10 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -110,6 +111,8 @@ def specialize_hls(model: ModelWrapper):
 
 def test_create_matmul_mul_add_subgraph():
     model, tensors = create_matmul_mul_add_subgraph()
+    fpga_part = "xczu7ev-ffvc1156-2-e"
+    target_clk_ns = 10
     inp = gen_finn_dt_tensor(tensors["in0"][1], tensors["in0"][0])
     idict = {"in0": inp}
     golden = execute_onnx(model, idict)["out0"]
@@ -120,8 +123,15 @@ def test_create_matmul_mul_add_subgraph():
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 10))  # noqa
+    model = model.transform(PrepareIP(fpga_part, target_clk_ns))  # noqa
     model = model.transform(HLSSynthIP())
+    # run node-by-node rtlsim and compare outputs
     model = model.transform(PrepareRTLSim())
-    produced = execute_onnx(model, idict)["out0"]
-    assert (golden == produced).all()
+    produced_nodebynode_rtlsim = execute_onnx(model, idict)["out0"]
+    assert (golden == produced_nodebynode_rtlsim).all()
+    # run stitched-IP rtlsim and compare outputs
+    model = model.transform(CreateStitchedIP(fpga_part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
+    produced_stichedip_rtlsim = execute_onnx(model, idict)["out0"]
+    assert (golden == produced_stichedip_rtlsim).all()
