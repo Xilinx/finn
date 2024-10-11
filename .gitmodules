@@ -1,0 +1,3 @@
+[submodule "src/finn/transformation/fpgadataflow/finn-cpp-driver"]
+	path = src/finn/transformation/fpgadataflow/finn-cpp-driver
+	url = https://github.com/eki-project/finn-cpp-driver.git

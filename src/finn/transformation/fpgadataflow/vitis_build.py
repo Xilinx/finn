@@ -189,6 +189,7 @@ class VitisLink(Transformation):
         object_files = []
         idma_idx = 0
         odma_idx = 0
+        mem_idx = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -229,18 +230,20 @@ class VitisLink(Transformation):
             if node_slr != -1:
                 config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
             # assign memory banks
-            if producer is None or consumer is None:
+            if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
                     if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
-                        mem_idx = 0
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        # mem_idx += 1
                     elif "u200" in self.platform:
                         # Use DDR controller in static region of U200
                         mem_type = "DDR"
                         mem_idx = 1
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     elif "u250" in self.platform:
                         # Use DDR controller on the node's SLR if set, otherwise 0
                         mem_type = "DDR"
@@ -248,10 +251,11 @@ class VitisLink(Transformation):
                             mem_idx = 0
                         else:
                             mem_idx = node_slr
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     else:
                         mem_type = "DDR"
                         mem_idx = 1
-                    node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                 config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
