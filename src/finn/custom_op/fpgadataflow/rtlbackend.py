@@ -28,6 +28,13 @@
 
 from abc import ABC, abstractmethod
 
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+
 
 class RTLBackend(ABC):
     """RTLBackend class all custom ops that correspond to a module in finn-rtllib
@@ -45,9 +52,34 @@ class RTLBackend(ABC):
     def generate_hdl(self, model, fpgapart, clk):
         pass
 
-    @abstractmethod
     def prepare_rtlsim(self):
-        pass
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        verilog_files = self.get_rtl_file_list()
+
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_files,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
+
+    # TODO: enable all rtl nodes to use parent function
+    #    @abstractmethod
+    #    def get_rtl_file_list(self):
+    #        pass
 
     @abstractmethod
     def code_generation_ipi(self):
