@@ -213,6 +213,7 @@ def rtlsim_multi_io(
 
         # end sim on timeout
         if no_change_count == liveness_threshold:
+            close_rtlsim(handle)
             raise Exception(
                 "Error in simulation! Takes too long to produce output. "
                 "Consider setting the liveness_threshold parameter to a "
