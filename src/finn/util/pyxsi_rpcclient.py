@@ -27,12 +27,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import pyxsi_utils
 import subprocess
 import xmlrpc.client
 from time import sleep
 
 from finn.util.basic import get_finn_root, get_vivado_root
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def compile_sim_obj(top_module_name, source_list, sim_out_dir):
