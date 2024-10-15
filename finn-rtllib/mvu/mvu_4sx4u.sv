@@ -39,6 +39,7 @@ module mvu_4sx4u #(
 	int unsigned  ACCU_WIDTH,
 
 	int unsigned  VERSION = 1,	// Version 1 (DSP48E1) *must* commit to NARROW_WEIGHTS
+					// Allowed versions - 1: DSP48E1, 2: DSP48E2, 3: DSP58
 	bit  SIGNED_ACTIVATIONS = 0,
 	bit  NARROW_WEIGHTS   = 0,	// Weights from [-7:7] rather than [-8:7]
 	bit  FORCE_BEHAVIORAL = 0
@@ -58,7 +59,8 @@ module mvu_4sx4u #(
 	output	logic  vld,
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
-	// for verilator always use behavioral code
+
+	// For Verilator: always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
 		1 ||
@@ -66,10 +68,15 @@ module mvu_4sx4u #(
 		FORCE_BEHAVIORAL;
 
 	//-----------------------------------------------------------------------
-	// Determine Lane Configuration
+	// Determine version-specific constraints
+	typedef enum { DSP48E1 = 1, DSP48E2 = 2, DSP58 = 3 }  dsp_version_e;
+	localparam int unsigned  A_WIDTH = 25 + 2*(VERSION > 1);     	// Width of A datapath
+	localparam int unsigned  B_WIDTH = 18 + 6*(VERSION > 2);     	// Width of B datapath
+	localparam int unsigned  P_WIDTH = VERSION == DSP58? 58 : 48;	// Width of P datapath
+
 	initial begin
-		if(!NARROW_WEIGHTS && (VERSION == 1)) begin
-			$error("%m: Need NARROW_WEIGHTS for DSP48E1.");
+		if(!NARROW_WEIGHTS && (VERSION == DSP48E1)) begin
+			$error("%m: Need NARROW_WEIGHTS for %s.", DSP48E1.name);
 			$finish;
 		end
 	end
@@ -88,19 +95,19 @@ module mvu_4sx4u #(
 	typedef int unsigned  lane_offset_v[4:0];
 	function lane_offset_v sliceLanes();
 		automatic lane_offset_v  res;
+
 		unique case(VERSION)
-		1: begin
+		DSP48E1: begin
 			res = NARROW_WEIGHTS?
-				lane_offset_v'{ ACCU_WIDTH+21, 21, 14, 7, 0 } :
+				lane_offset_v'{ ACCU_WIDTH+21 > P_WIDTH? P_WIDTH : ACCU_WIDTH+21, 21, 14, 7, 0 } :
 				lane_offset_v'{ 0, 0, 0, 0, 0 };	// not supported
 		end
-		2: begin
+		DSP48E2, DSP58: begin
 			res = NARROW_WEIGHTS?
-				lane_offset_v'{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
-				lane_offset_v'{ ACCU_WIDTH+22, 22, 15, 8, 0 };
+				lane_offset_v'{ ACCU_WIDTH+23 > P_WIDTH? P_WIDTH : ACCU_WIDTH+23, 23, 16, 8, 0 } :
+				lane_offset_v'{ ACCU_WIDTH+22 > P_WIDTH? P_WIDTH : ACCU_WIDTH+22, 22, 15, 8, 0 };
 		end
 		endcase
-		if(res[4] > 48)  res[4] = 48;
 		return  res;
 	endfunction : sliceLanes
 	localparam lane_offset_v  OFFSETS = sliceLanes();
@@ -122,8 +129,6 @@ module mvu_4sx4u #(
 	endfunction : hi_width
 	localparam int unsigned  LO_WIDTH_MAX = lo_width(3);
 	localparam int unsigned  HI_WIDTH_MAX = hi_width(2);
-
-	localparam int unsigned  A_WIDTH = 23 + 2*VERSION;	// Width of A datapath
 
 	// Compute the count of decendents for all nodes in the reduction trees.
 	typedef int unsigned  leave_load_t[2*SIMD-1];
@@ -150,15 +155,15 @@ module mvu_4sx4u #(
 		localparam int unsigned  PE_END = PE < 4*(c+1)? PE : 4*(c+1);
 		localparam int unsigned  PE_REM = 4*(c+1) - PE_END;
 
-		uwire        [47:0]  p3[SIMD];
-		uwire signed [ 1:0]  h3[SIMD][4];
+		uwire        [P_WIDTH-1:0]  p3[SIMD];
+		uwire signed [        1:0]  h3[SIMD][4];
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
-			uwire [17:0]  bb = { {(18-ACTIVATION_WIDTH){SIGNED_ACTIVATIONS && a[s][ACTIVATION_WIDTH-1]}}, a[s] };
-			logic [29:0]  aa;
-			logic [26:0]  dd;
-			logic [ 1:0]  xx[3:1];
+			uwire [B_WIDTH-1:0]  bb = { {(B_WIDTH-ACTIVATION_WIDTH){SIGNED_ACTIVATIONS && a[s][ACTIVATION_WIDTH-1]}}, a[s] };
+			logic [A_WIDTH-1:0]  aa;
+			logic [A_WIDTH-1:0]  dd;
+			logic [1:0]  xx[3:1];
 			if(1) begin : blkVectorize
 				uwire signed [3:0]  ww[PE_END - PE_BEG];
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
@@ -202,7 +207,7 @@ module mvu_4sx4u #(
 				end
 			end : blkVectorize
 
-			uwire [47:0]  pp;
+			uwire [P_WIDTH-1:0]  pp;
 
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
@@ -210,7 +215,7 @@ module mvu_4sx4u #(
 			if(BEHAVIORAL) begin : genBehav
 
 				// Stage #1: Input Refine
-				logic signed [17:0]  B1  = 0;
+				logic signed [B_WIDTH-1:0]  B1  = 0;
 				always_ff @(posedge clk) begin
 					if(zero)     B1  <= 0;
 					else if(en)  B1  <= bb;
@@ -223,7 +228,7 @@ module mvu_4sx4u #(
 				end
 
 				// Stage #2: Multiply
-				logic signed [45:0]  M2 = 0;
+				logic signed [A_WIDTH+B_WIDTH-1:0]  M2 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      M2 <= 0;
 					else if(en)  M2 <=
@@ -234,7 +239,7 @@ module mvu_4sx4u #(
 				end
 
 				// Stage #3: Accumulate
-				logic signed [47:0]  P3 = 0;
+				logic signed [P_WIDTH-1:0]  P3 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      P3 <= 0;
 					else if(en)  P3 <= M2 + (L[3]? 0 : P3);
@@ -247,7 +252,7 @@ module mvu_4sx4u #(
 				localparam logic [6:0]  OPMODE_INVERSION = 7'b010_01_01;
 				uwire [6:0]  opmode = { { 1'b0, L[2], 1'b0 }, 4'b00_00 };
 				case(VERSION)
-				1: DSP48E1 #(
+				DSP48E1: DSP48E1 #(
 					// Feature Control Attributes: Data Path Selection
 					.A_INPUT("DIRECT"),		// Selects A input source, "DIRECT" (A port) or "CASCADE" (ACIN port)
 					.B_INPUT("DIRECT"),		// Selects B input source, "DIRECT" (B port) or "CASCADE" (BCIN port)
@@ -311,7 +316,7 @@ module mvu_4sx4u #(
 					.OPMODE(opmode ^ OPMODE_INVERSION), // 7-bit input: Operation mode input
 
 					// Data: 30-bit (each) input: Data Ports
-					.A(aa),			// 30-bit input: A data input
+					.A({5'b0, aa}),	// 30-bit input: A data input
 					.B(bb),			// 18-bit input: B data input
 					.C('x),			// 48-bit input: C data input
 					.CARRYIN('0),	// 1-bit input: Carry input signal
@@ -352,7 +357,7 @@ module mvu_4sx4u #(
 					.RSTM(rst),			// 1-bit input: Reset for MREG
 					.RSTP(rst)			// 1-bit input: Reset for PREG
 				);
-				2: DSP48E2 #(
+				DSP48E2: DSP48E2 #(
 					// Feature Control Attributes: Data Path Selection
 					.AMULTSEL("AD"),	// Selects A input to multiplier (A, AD)
 					.A_INPUT("DIRECT"),	// Selects A input source, "DIRECT" (A port) or "CASCADE" (ACIN port)
@@ -440,11 +445,11 @@ module mvu_4sx4u #(
 					.OPMODE({ 2'b00, opmode }),	// 9-bit input: Operation mode
 
 					// Data inputs: Data Ports
-					.A(aa),						// 34-bit input: A data
-					.B(bb),						// 24-bit input: B data
-					.C('x),						// 58-bit input: C data
-					.CARRYIN('0),				// 1-bit input: Carry-in
-					.D(dd),						// 27-bit input: D data
+					.A({3'b0, aa}),	// 30-bit input: A data
+					.B(bb),			// 18-bit input: B data
+					.C('x),			// 48-bit input: C data
+					.CARRYIN('0),	// 1-bit input: Carry-in
+					.D(dd),			// 27-bit input: D data
 
 					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
 					.CEA1('0),			// 1-bit input: Clock enable for 1st stage AREG
@@ -481,8 +486,142 @@ module mvu_4sx4u #(
 					.RSTM(rst),			// 1-bit input: Reset for MREG
 					.RSTP(rst)			// 1-bit input: Reset for PREG
 				);
+				DSP58: DSP58 #(
+					// Feature Control Attributes: Data Path Selection
+					.AMULTSEL("AD"),		// Selects A input to multiplier (A, AD)
+					.A_INPUT("DIRECT"),		// Selects A input source, "DIRECT" (A port) or "CASCADE" (ACIN port)
+					.BMULTSEL("B"),			// Selects B input to multiplier (AD, B)
+					.B_INPUT("DIRECT"),		// Selects B input source, "DIRECT" (B port) or "CASCADE" (BCIN port)
+					.DSP_MODE("INT24"),
+					.PREADDINSEL("A"),			// Selects input to pre-adder (A, B)
+					.RND('0),					// Rounding Constant
+					.USE_MULT("MULTIPLY"),		// Select multiplier usage (DYNAMIC, MULTIPLY, NONE)
+					.USE_SIMD("ONE58"),			// SIMD selection (FOUR12, ONE58, TWO24)
+					.USE_WIDEXOR("FALSE"),		// Use the Wide XOR function (FALSE, TRUE)
+					.XORSIMD("XOR24_34_58_116"),// Mode of operation for the Wide XOR (XOR12_22, XOR24_34_58_116)
+
+					// Pattern Detector Attributes: Pattern Detection Configuration
+					.AUTORESET_PATDET("NO_RESET"),		// NO_RESET, RESET_MATCH, RESET_NOT_MATCH
+					.AUTORESET_PRIORITY("RESET"),		// Priority of AUTORESET vs. CEP (CEP, RESET).
+					.MASK('1),							// 58-bit mask value for pattern detect (1=ignore)
+					.PATTERN('0),						// 58-bit pattern match for pattern detect
+					.SEL_MASK("MASK"),					// C, MASK, ROUNDING_MODE1, ROUNDING_MODE2
+					.SEL_PATTERN("PATTERN"),			// Select pattern value (C, PATTERN)
+					.USE_PATTERN_DETECT("NO_PATDET"),	// Enable pattern detect (NO_PATDET, PATDET)
+
+					// Programmable Inversion Attributes: Specifies built-in programmable inversion on specific pins
+					.IS_ALUMODE_INVERTED('0),							// Optional inversion for ALUMODE
+					.IS_CARRYIN_INVERTED('0),							// Optional inversion for CARRYIN
+					.IS_CLK_INVERTED('0),								// Optional inversion for CLK
+					.IS_INMODE_INVERTED('0),							// Optional inversion for INMODE
+					.IS_NEGATE_INVERTES('0),							// Optional inversion for NEGATE
+					.IS_OPMODE_INVERTED({ 2'b00, OPMODE_INVERSION}),	// Optional inversion for OPMODE
+					.IS_RSTALLCARRYIN_INVERTED('0),						// Optional inversion for RSTALLCARRYIN
+					.IS_RSTALUMODE_INVERTED('0),						// Optional inversion for RSTALUMODE
+					.IS_RSTA_INVERTED('0),								// Optional inversion for RSTA
+					.IS_RSTB_INVERTED('0),								// Optional inversion for RSTB
+					.IS_RSTCTRL_INVERTED('0),							// Optional inversion for STCONJUGATE_A
+					.IS_RSTC_INVERTED('0),								// Optional inversion for RSTC
+					.IS_RSTD_INVERTED('0),								// Optional inversion for RSTD
+					.IS_RSTINMODE_INVERTED('0),							// Optional inversion for RSTINMODE
+					.IS_RSTM_INVERTED('0),								// Optional inversion for RSTM
+					.IS_RSTP_INVERTED('0),								// Optional inversion for RSTP
+
+					// Register Control Attributes: Pipeline Register Configuration
+					.ACASCREG(0),		// Number of pipeline stages between A/ACIN and ACOUT (0-2)
+					.ADREG(1),			// Pipeline stages for pre-adder (0-1)
+					.ALUMODEREG(0),		// Pipeline stages for ALUMODE (0-1)
+					.AREG(0),			// Pipeline stages for A (0-2)
+					.BCASCREG(1),		// Number of pipeline stages between B/BCIN and BCOUT (0-2)
+					.BREG(1),			// Pipeline stages for B (0-2)
+					.CARRYINREG(0),		// Pipeline stages for CARRYIN (0-1)
+					.CARRYINSELREG(0),	// Pipeline stages for CARRYINSEL (0-1)
+					.CREG(0),			// Pipeline stages for C (0-1)
+					.DREG(0),			// Pipeline stages for D (0-1)
+					.INMODEREG(0),		// Pipeline stages for INMODE (0-1)
+					.MREG(1),			// Multiplier pipeline stages (0-1)
+					.OPMODEREG(1),		// Pipeline stages for OPMODE (0-1)
+					.PREG(1),			// Number of pipeline stages for P (0-1)
+					.RESET_MODE("SYNC")	// Selection of synchronous or asynchronous reset. (ASYNC, SYNC)
+				) dsp (
+					// Cascade outputs: Cascade Ports
+					.ACOUT(),			// 34-bit output: A port cascade
+					.BCOUT(),			// 24-bit output: B cascade
+					.CARRYCASCOUT(),	// 1-bit output: Cascade carry
+					.MULTSIGNOUT(),		// 1-bit output: Multiplier sign cascade
+					.PCOUT(),			// 58-bit output: Cascade output
+
+					// Control outputs: Control Inputs/Status Bits
+					.OVERFLOW(),		// 1-bit output: Overflow in add/acc
+					.PATTERNBDETECT(),	// 1-bit output: Pattern bar detect
+					.PATTERNDETECT(),	// 1-bit output: Pattern detect
+					.UNDERFLOW(),		// 1-bit output: Underflow in add/acc
+
+					// Data outputs: Data Ports
+					.CARRYOUT(),		// 4-bit output: Carry
+					.P(pp),				// 58-bit output: Primary data
+					.XOROUT(),			// 8-bit output: XOR data
+
+					// Cascade inputs: Cascade Ports
+					.ACIN('x),			// 34-bit input: A cascade data
+					.BCIN('x),			// 24-bit input: B cascade
+					.CARRYCASCIN('x),	// 1-bit input: Cascade carry
+					.MULTSIGNIN('x),	// 1-bit input: Multiplier sign cascade
+					.PCIN('x),			// 58-bit input: P cascade
+
+					// Control inputs: Control Inputs/Status Bits
+					.CLK(clk),					// 1-bit input: Clock
+					.ALUMODE(4'h0),				// 4-bit input: ALU control
+					.CARRYINSEL('0),			// 3-bit input: Carry select
+					.INMODE(5'b01100),			// 5-bit input: INMODE control
+					.NEGATE('0),				// 3-bit input: Negates the input of the multiplier
+					.OPMODE({ 2'b00, opmode }),	// 9-bit input: Operation mode
+
+					// Data inputs: Data Ports
+					.A({7'b0, aa}),				// 34-bit input: A data
+					.B(bb),						// 24-bit input: B data
+					.C('x),						// 58-bit input: C data
+					.CARRYIN('0),				// 1-bit input: Carry-in
+					.D(dd),						// 27-bit input: D data
+
+					// Reset/Clock Enable inputs: Reset/Clock Enable Inputs
+					.ASYNC_RST('0),		// 1-bit input: Asynchronous reset for all registers
+					.CEA1('0),			// 1-bit input: Clock enable for 1st stage AREG
+					.CEA2('0),			// 1-bit input: Clock enable for 2nd stage AREG
+					.CEAD(en),			// 1-bit input: Clock enable for ADREG
+					.CEALUMODE('0),		// 1-bit input: Clock enable for ALUMODE
+					.CEB1('0),			// 1-bit input: Clock enable for 1st stage BREG
+					.CEB2(en),			// 1-bit input: Clock enable for 2nd stage BREG
+					.CEC('0),			// 1-bit input: Clock enable for CREG
+					.CECARRYIN('0),		// 1-bit input: Clock enable for CARRYINREG
+					.CECTRL(en),		// 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
+					.CED('0),			// 1-bit input: Clock enable for DREG
+					.CEINMODE('0),		// 1-bit input: Clock enable for INMODEREG
+					.CEM(en),			// 1-bit input: Clock enable for MREG
+					.CEP(en),			// 1-bit input: Clock enable for PREG
+					.RSTA('0),			// 1-bit input: Reset for AREG
+					.RSTB(				// 1-bit input: Reset for BREG
+// synthesis translate_off
+						rst ||
+// synthesis translate_on
+						zero
+					),
+					.RSTC('0),			// 1-bit input: Reset for CREG
+					.RSTD(				// 1-bit input: Reset for DREG and ADREG
+// synthesis translate_off
+						zero ||
+// synthesis translate_on
+						rst
+					),
+					.RSTALLCARRYIN('0),	// 1-bit input: Reset for CARRYINREG
+					.RSTALUMODE('0),	// 1-bit input: Reset for ALUMODEREG
+					.RSTCTRL('0),		// 1-bit input: Reset for OPMODEREG and CARRYINSELREG
+					.RSTINMODE('0),		// 1-bit input: Reset for INMODE register
+					.RSTM(rst),			// 1-bit input: Reset for MREG
+					.RSTP(rst)			// 1-bit input: Reset for PREG
+				);
 				default: initial begin
-					$error("Unknown version DSP48E%0d.", VERSION);
+					$error("Unknown DSP version.");
 					$finish;
 				end
 				endcase
