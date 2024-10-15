@@ -278,42 +278,36 @@ class ConvolutionInputGenerator(HWCustomOp):
         inst = getCustomOp(im2col_node)
         inst.execute_node(context, model_im2col.graph)
 
-
     def prepare_kwargs_for_characteristic_fx(self):
-
         # key parameters
         IFMDim_x = self.get_nodeattr("IFMDim")[0]
         OFMDim_x = self.get_nodeattr("OFMDim")[0]
         ConvKernelDim_x = self.get_nodeattr("ConvKernelDim")[0]
         Stride_x = self.get_nodeattr("Stride")[0]
 
-        IFMDim_y = self.get_nodeattr("IFMDim")[1]
         OFMDim_y = self.get_nodeattr("OFMDim")[1]
         ConvKernelDim_y = self.get_nodeattr("ConvKernelDim")[1]
         Stride_y = self.get_nodeattr("Stride")[1]
 
         SIMD = self.get_nodeattr("SIMD")
-        
-        IFMChannels = self.get_nodeattr("IFMChannels")
-        
-        
-        dilation = self.get_nodeattr("Dilation")
-        DEPTHWISE = self.get_nodeattr("depthwise")
-        parallel_window = self.get_nodeattr("parallel_window")
-        is1d = self.get_nodeattr("is1D")
-       # m = self.get_nodeattr("m")
-       # flip = self.get_nodeattr("flip")
 
-        SIMD_COUNT  = int(IFMChannels / SIMD)
+        IFMChannels = self.get_nodeattr("IFMChannels")
+
+        DEPTHWISE = self.get_nodeattr("depthwise")
+        is1d = self.get_nodeattr("is1D")
+        # m = self.get_nodeattr("m")
+        # flip = self.get_nodeattr("flip")
+
+        SIMD_COUNT = int(IFMChannels / SIMD)
         OUTPUT_SIZE = OFMDim_x * ConvKernelDim_x * SIMD_COUNT
         INPUT_SIZE = IFMDim_x * SIMD_COUNT
         WINDOW_SIZE = ConvKernelDim_x * SIMD_COUNT
         if DEPTHWISE:
             BUFFER_SIZE = ConvKernelDim_x * SIMD_COUNT
-            READ_CYCLES = SIMD_COUNT * (ConvKernelDim_x-1) - (ConvKernelDim_x-1)
-            FINISH = IFMDim_x-ConvKernelDim_x-2
+            READ_CYCLES = SIMD_COUNT * (ConvKernelDim_x - 1) - (ConvKernelDim_x - 1)
+            FINISH = IFMDim_x - ConvKernelDim_x - 2
         else:
-            BUFFER_SIZE = (ConvKernelDim_x-1) * SIMD_COUNT
+            BUFFER_SIZE = (ConvKernelDim_x - 1) * SIMD_COUNT
             READ_CYCLES = 0
             FINISH = 0
 
@@ -321,42 +315,87 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         DEFAULT_FIFO_DEPTH = 2
 
-        multiplying_factor = int(IFMChannels/SIMD)
-        number_blocks = int(ConvKernelDim_y/Stride_y + 1) 
+        multiplying_factor = int(IFMChannels / SIMD)
+        number_blocks = int(ConvKernelDim_y / Stride_y + 1)
         cycles_write_block = OFMDim_x * ConvKernelDim_x * ConvKernelDim_y * multiplying_factor
         cycles_read_block = Stride_x * IFMDim_x * multiplying_factor
-        max_cycles = max(cycles_write_block,cycles_read_block)
-        baseIter = IFMDim_x * ConvKernelDim_y * multiplying_factor + OFMDim_y * max(cycles_write_block,cycles_read_block)
-        initial_buffer = IFMDim_x * ConvKernelDim_y *multiplying_factor
+        max_cycles = max(cycles_write_block, cycles_read_block)
+        baseIter = IFMDim_x * ConvKernelDim_y * multiplying_factor + OFMDim_y * max(
+            cycles_write_block, cycles_read_block
+        )
+        initial_buffer = IFMDim_x * ConvKernelDim_y * multiplying_factor
 
-        READ_DELAY = number_blocks * ConvKernelDim_x*ConvKernelDim_y*OFMDim_x*OFMDim_y*multiplying_factor - ConvKernelDim_x*ConvKernelDim_y*OFMDim_x
-        READ_ITES = int((baseIter-OFMDim_y) / max(cycles_write_block,cycles_read_block))
+        READ_DELAY = (
+            number_blocks
+            * ConvKernelDim_x
+            * ConvKernelDim_y
+            * OFMDim_x
+            * OFMDim_y
+            * multiplying_factor
+            - ConvKernelDim_x * ConvKernelDim_y * OFMDim_x
+        )
+        READ_ITES = int((baseIter - OFMDim_y) / max(cycles_write_block, cycles_read_block))
 
-       # assert True == False
-        kwargs = (SIMD_COUNT,Stride_x,Stride_y,OUTPUT_SIZE,INPUT_SIZE,
-            WINDOW_SIZE,BUFFER_SIZE,READ_CYCLES,OCNT_INITIAL,
-            DEPTHWISE,DEFAULT_FIFO_DEPTH, is1d,
-            multiplying_factor,number_blocks,cycles_write_block,
-            cycles_read_block,max_cycles,baseIter,initial_buffer,
-            FINISH,OFMDim_y,READ_DELAY,READ_ITES
-            )
+        # assert True == False
+        kwargs = (
+            SIMD_COUNT,
+            Stride_x,
+            Stride_y,
+            OUTPUT_SIZE,
+            INPUT_SIZE,
+            WINDOW_SIZE,
+            BUFFER_SIZE,
+            READ_CYCLES,
+            OCNT_INITIAL,
+            DEPTHWISE,
+            DEFAULT_FIFO_DEPTH,
+            is1d,
+            multiplying_factor,
+            number_blocks,
+            cycles_write_block,
+            cycles_read_block,
+            max_cycles,
+            baseIter,
+            initial_buffer,
+            FINISH,
+            OFMDim_y,
+            READ_DELAY,
+            READ_ITES,
+        )
 
-
-       # assert True==False
+        # assert True==False
 
         return kwargs
 
     def characteristic_fx_input(self, txns, cycles, counter, kwargs):
         # Compute one period of the input characteristic function
 
-        (SIMD_COUNT,Stride_x,Stride_y,OUTPUT_SIZE,INPUT_SIZE,
-         WINDOW_SIZE,BUFFER_SIZE,READ_CYCLES,
-         OCNT_INITIAL, DEPTHWISE,DEFAULT_FIFO_DEPTH,is1d,
-                     multiplying_factor,number_blocks,cycles_write_block,
-            cycles_read_block,max_cycles,baseIter,initial_buffer,FINISH,OFMDim_y,READ_DELAY,
-            READ_ITES) = kwargs
+        (
+            SIMD_COUNT,
+            Stride_x,
+            Stride_y,
+            OUTPUT_SIZE,
+            INPUT_SIZE,
+            WINDOW_SIZE,
+            BUFFER_SIZE,
+            READ_CYCLES,
+            OCNT_INITIAL,
+            DEPTHWISE,
+            DEFAULT_FIFO_DEPTH,
+            is1d,
+            multiplying_factor,
+            number_blocks,
+            cycles_write_block,
+            cycles_read_block,
+            max_cycles,
+            baseIter,
+            initial_buffer,
+            FINISH,
+            OFMDim_y,
+            READ_DELAY,
+            READ_ITES,
+        ) = kwargs
 
-        
         if DEPTHWISE:
             OCNT_MAX = BUFFER_SIZE
             ocnt = SIMD_COUNT
@@ -365,110 +404,119 @@ class ConvolutionInputGenerator(HWCustomOp):
             OCNT_MAX = WINDOW_SIZE
             if OCNT_INITIAL < WINDOW_SIZE:
                 ocnt = OCNT_INITIAL
-            else: ocnt=-1
-        
+            else:
+                ocnt = -1
 
         # fifo filling
-        for i in range(0,DEFAULT_FIFO_DEPTH):
+        for i in range(0, DEFAULT_FIFO_DEPTH):
             txns.append(counter)
-            counter+=1
-            cycles+=1
-
+            counter += 1
+            cycles += 1
 
         # main function
-            
+
         inp_count = 0
 
         if is1d:
-            for i in range(0,OUTPUT_SIZE):
+            for i in range(0, OUTPUT_SIZE):
                 txns.append(counter)
                 we = (i < OCNT_MAX) or (ocnt < (SIMD_COUNT * Stride_x))
                 re = i > 0
 
                 if re:
-                    ocnt+=1
+                    ocnt += 1
                     if ocnt == OCNT_MAX:
                         ocnt = 0
                 if we:
-                    if inp_count < INPUT_SIZE-DEFAULT_FIFO_DEPTH:
-                        counter+=1
-                        inp_count+=1
-                
-                cycles+=1
-        else:
+                    if inp_count < INPUT_SIZE - DEFAULT_FIFO_DEPTH:
+                        counter += 1
+                        inp_count += 1
 
-            for i in range(0,initial_buffer+cycles_read_block-1):
+                cycles += 1
+        else:
+            for i in range(0, initial_buffer + cycles_read_block - 1):
                 txns.append(counter)
-                cycles+=1   
-                counter+=1
+                cycles += 1
+                counter += 1
 
             txns.append(counter)
-            cycles+=1 # one  extra for loop tail
+            cycles += 1  # one  extra for loop tail
 
-            for i in range(0,OFMDim_y-1):
-                for j in range(0,cycles_write_block-cycles_read_block):
+            for i in range(0, OFMDim_y - 1):
+                for j in range(0, cycles_write_block - cycles_read_block):
                     txns.append(counter)
-                    cycles+=1
-                                       
+                    cycles += 1
 
-                for j in range(0,cycles_read_block-1):
-                    if i < OFMDim_y-2:
-                        counter+=1
-                        txns.append(counter) 
-                        cycles+=1
-                 #   else:
-                    #   if j < FINISH:
-                    #        counter+=1
-                    #        txns.append(counter) 
-                     #       cycles+=1
-#
+                for j in range(0, cycles_read_block - 1):
+                    if i < OFMDim_y - 2:
+                        counter += 1
+                        txns.append(counter)
+                        cycles += 1
+                #   else:
+                #   if j < FINISH:
+                #        counter+=1
+                #        txns.append(counter)
+                #       cycles+=1
+        #
         return txns, cycles, counter
 
     def characteristic_fx_output(self, txns, cycles, counter, kwargs):
         # Compute one period of the output characteristic function
 
-        (SIMD_COUNT,Stride_x,Stride_y,OUTPUT_SIZE,INPUT_SIZE,
-         WINDOW_SIZE,BUFFER_SIZE,READ_CYCLES,
-         OCNT_INITIAL, DEPTHWISE,DEFAULT_FIFO_DEPTH, is1d,
-                     multiplying_factor,number_blocks,cycles_write_block,
-            cycles_read_block,max_cycles,baseIter,initial_buffer,FINISH,OFMDim_y,READ_DELAY,
-            READ_ITES) = kwargs
+        (
+            SIMD_COUNT,
+            Stride_x,
+            Stride_y,
+            OUTPUT_SIZE,
+            INPUT_SIZE,
+            WINDOW_SIZE,
+            BUFFER_SIZE,
+            READ_CYCLES,
+            OCNT_INITIAL,
+            DEPTHWISE,
+            DEFAULT_FIFO_DEPTH,
+            is1d,
+            multiplying_factor,
+            number_blocks,
+            cycles_write_block,
+            cycles_read_block,
+            max_cycles,
+            baseIter,
+            initial_buffer,
+            FINISH,
+            OFMDim_y,
+            READ_DELAY,
+            READ_ITES,
+        ) = kwargs
 
         # HYPER PARAMETERS
-        
-
 
         INITIAL_LOOP_CYCLES = 5
 
-
         if is1d:
-            for i in range(0,INITIAL_LOOP_CYCLES):
+            for i in range(0, INITIAL_LOOP_CYCLES):
                 txns.append(counter)
-                cycles+=1   
+                cycles += 1
 
-            for i in range(0,READ_CYCLES):
+            for i in range(0, READ_CYCLES):
                 txns.append(counter)
-                cycles+=1   
+                cycles += 1
 
-
-
-            for i in range(0,OUTPUT_SIZE):
+            for i in range(0, OUTPUT_SIZE):
                 txns.append(counter)
-                counter+=1
-                cycles+=1
+                counter += 1
+                cycles += 1
         else:
- 
-            for i in range(0,initial_buffer+INITIAL_LOOP_CYCLES-1):
+            for i in range(0, initial_buffer + INITIAL_LOOP_CYCLES - 1):
                 txns.append(counter)
-                cycles+=1  
+                cycles += 1
 
-            for i in range(0,baseIter-initial_buffer):
+            for i in range(0, baseIter - initial_buffer):
                 txns.append(counter)
-                counter+=1
-                cycles+=1            
+                counter += 1
+                cycles += 1
 
         return txns, cycles, counter
-
 
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
@@ -480,25 +528,20 @@ class ConvolutionInputGenerator(HWCustomOp):
         }
 
         ignore = self.get_nodeattr("ipgen_ignore")
-        if ignore == 0: # this node is being derived using RTLSIM
+        if ignore is False:  # this node is being derived using RTLSIM
             # RTL-based flow
             super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
             return
-        
 
-        # Analytical flow 
-        
+        # Analytical flow
+
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
 
         all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
         all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
 
-
-        self.set_nodeattr("io_chrc_period",period)
-
-
-
+        self.set_nodeattr("io_chrc_period", period)
 
         txn_in = []
         txn_out = []
@@ -507,54 +550,46 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         counter = 0
         padding = 0
-        
 
         kwargs = self.prepare_kwargs_for_characteristic_fx()
 
-        
         # first period
         cycles = 0
-        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
 
-        txn_in += [counter] * (period-cycles)
-        padding+=(period*-cycles)
-        
+        txn_in += [counter] * (period - cycles)
+        padding += period * -cycles
 
         # second period
         cycles = period
-        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
 
-
-        txn_in += [counter] * (period*2-cycles)
-        padding+=(period*2-cycles)
+        txn_in += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
 
         # final assignments
         all_txns_in[0, :] = np.array(txn_in)
         self.set_nodeattr("io_chrc_in", all_txns_in)
         self.set_nodeattr("io_chrc_pads_in", padding)
 
-
         # OUTPUT
-        
+
         counter = 0
-        cycles = 0  
-        padding = 0          
+        cycles = 0
+        padding = 0
 
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
 
-        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
-
-
-        txn_out += [counter] * (period-cycles)
-        padding += (period*-cycles)
+        txn_out += [counter] * (period - cycles)
+        padding += period * -cycles
 
         cycles = period
 
-        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
 
-        txn_out += [counter] * (period*2-cycles)
-        padding+=(period*2-cycles)
+        txn_out += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
 
-
-        all_txns_out[0, :] = np.array(txn_out)   
+        all_txns_out[0, :] = np.array(txn_out)
         self.set_nodeattr("io_chrc_out", all_txns_out)
         self.set_nodeattr("io_chrc_pads_out", padding)

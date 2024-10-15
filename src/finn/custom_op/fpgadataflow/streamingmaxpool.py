@@ -235,13 +235,7 @@ class StreamingMaxPool(HWCustomOp):
         result = np.transpose(result, (0, 2, 3, 1))
         context[node.output[0]] = result
 
-
     def prepare_kwargs_for_characteristic_fx(self):
-
-
-
-
-        numReps = 1
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
         ceil_mode = self.get_nodeattr("CeilMode")
         output_size = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)
@@ -251,164 +245,179 @@ class StreamingMaxPool(HWCustomOp):
         PoolDim = self.get_nodeattr("PoolDim")[0]
         ImgDim = self.get_nodeattr("ImgDim")[0]
 
-        #SIMD = self.get_nodeattr("SIMD")
+        # SIMD = self.get_nodeattr("SIMD")
         PE = self.get_nodeattr("PE")
-
-       # assert True==False
-        cycles = 0
-        p = 0
-        padding = 0
 
         windup_clocks = 4
         read_delay = 5
-        default_fifo_size = 2 # mini fifo instantiated by HLS
 
-        #for i in range(0,windup_clocks):
+        # for i in range(0,windup_clocks):
         #    txn_out[cycles] = i
         #    cycles+=1
         #    p+=1
 
-        bursts = int(read_delay+ImgDim/PoolDim)
+        bursts = int(read_delay + ImgDim / PoolDim)
         read_tail_latency = 5
         write_tail_latency = 14
 
-        
-        kwargs = (ifm_dim,output_size,is1d, NumChannels,PoolDim,ImgDim,PE,windup_clocks,read_delay,bursts,read_tail_latency,write_tail_latency)
+        kwargs = (
+            ifm_dim,
+            output_size,
+            is1d,
+            NumChannels,
+            PoolDim,
+            ImgDim,
+            PE,
+            windup_clocks,
+            read_delay,
+            bursts,
+            read_tail_latency,
+            write_tail_latency,
+        )
 
         return kwargs
 
-
     def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        (
+            ifm_dim,
+            output_size,
+            is1d,
+            NumChannels,
+            PoolDim,
+            ImgDim,
+            PE,
+            windup_clocks,
+            read_delay,
+            bursts,
+            read_tail_latency,
+            write_tail_latency,
+        ) = kwargs
 
-        (ifm_dim,output_size,is1d,NumChannels,PoolDim,ImgDim,PE,windup_clocks,read_delay,bursts,read_tail_latency,write_tail_latency) = kwargs
-
-
-       # for i in range(0,int(ImgDim/PoolDim)):
         if ImgDim > PoolDim * output_size:
-            REMAINDER_PIXELS = ImgDim - output_size * PoolDim 
+            REMAINDER_PIXELS = ImgDim - output_size * PoolDim
         else:
-            REMAINDER_PIXELS =  0
+            REMAINDER_PIXELS = 0
 
         tracker = 0
-        maximum = int(ImgDim/PoolDim * PoolDim * ImgDim/PoolDim * PoolDim)
-        
+        maximum = int(ImgDim / PoolDim * PoolDim * ImgDim / PoolDim * PoolDim)
+
         if not is1d:
-        # if i == 0:
-            for z in range(0,2):
+            # if i == 0:
+            for z in range(0, 2):
                 txns.append(counter)
-                counter+=1
-                cycles+=1
-                tracker+=1
+                counter += 1
+                cycles += 1
+                tracker += 1
 
-            if int(ImgDim/PoolDim) > 2:
+            if int(ImgDim / PoolDim) > 2:
                 txns.append(counter)
-                cycles+=1
+                cycles += 1
 
-        
-
-            for j in range(0,int(ImgDim/PoolDim)):
-                for k in range(0,int(PoolDim)):
-                    for z in range(0,int(ImgDim/PoolDim)):
-
+            for j in range(0, int(ImgDim / PoolDim)):
+                for k in range(0, int(PoolDim)):
+                    for z in range(0, int(ImgDim / PoolDim)):
                         # actual read loop
-                        for x in range(0,PoolDim):
+                        for x in range(0, PoolDim):
                             if tracker < maximum:
                                 txns.append(counter)
-                                counter+=1
-                                cycles+=1
-                                tracker+=1
+                                counter += 1
+                                cycles += 1
+                                tracker += 1
 
-                for k in range(0,int(PoolDim)):  
+                for k in range(0, int(PoolDim)):
                     # read loop tail end
-                    for z in range(0,read_tail_latency):
+                    for z in range(0, read_tail_latency):
                         txns.append(counter)
-                        cycles+=1
+                        cycles += 1
 
-                
                 # write delay
-                for z in range(0,int(ImgDim/PoolDim)):
+                for z in range(0, int(ImgDim / PoolDim)):
                     txns.append(counter)
-                    cycles+=1
+                    cycles += 1
         else:
-            #1d case
+            # 1d case
             for i in range(output_size):
-                for z in range(0,PoolDim):
-                    for k in range(int(NumChannels/PE)):
+                for z in range(0, PoolDim):
+                    for k in range(int(NumChannels / PE)):
                         txns.append(counter)
-                        counter+=1
-                        cycles+=1    
+                        counter += 1
+                        cycles += 1
 
-                #for z in range(0,PoolDim):
+                # for z in range(0,PoolDim):
                 #    for k in range(0,read_tail_latency):
                 #        txns.append(counter)
                 #        cycles+=1
 
-                for k in range(int(NumChannels/PE)):
+                for k in range(int(NumChannels / PE)):
                     txns.append(counter)
-                    cycles+=1     
-
+                    cycles += 1
 
             for k in range(REMAINDER_PIXELS):
                 txns.append(counter)
-                counter+=1
-                cycles+=1   
-
+                counter += 1
+                cycles += 1
 
         return txns, cycles, counter
 
-
     def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-
-        (ifm_dim,output_size,is1d,NumChannels,PoolDim,ImgDim,PE,windup_clocks,read_delay,bursts,read_tail_latency,write_tail_latency) = kwargs
-
+        (
+            ifm_dim,
+            output_size,
+            is1d,
+            NumChannels,
+            PoolDim,
+            ImgDim,
+            PE,
+            windup_clocks,
+            read_delay,
+            bursts,
+            read_tail_latency,
+            write_tail_latency,
+        ) = kwargs
 
         txns.append(counter)
-        cycles+=1
+        cycles += 1
 
         if not is1d:
-            for j in range(0,int(ImgDim/PoolDim)):
-                for k in range(0,int(PoolDim)):
-                    for z in range(0,int(ImgDim/PoolDim)):
-
+            for j in range(0, int(ImgDim / PoolDim)):
+                for k in range(0, int(PoolDim)):
+                    for z in range(0, int(ImgDim / PoolDim)):
                         # actual read loop
-                        for x in range(0,PoolDim):
+                        for x in range(0, PoolDim):
                             txns.append(counter)
-                            #counter+=1
-                            cycles+=1
-                        
-                for k in range(0,int(PoolDim)):  
+                            # counter+=1
+                            cycles += 1
+
+                for k in range(0, int(PoolDim)):
                     # read loop tail end
-                    for z in range(0,read_tail_latency):
+                    for z in range(0, read_tail_latency):
                         txns.append(counter)
-                        cycles+=1
+                        cycles += 1
 
-                
                 # write delay
-                for z in range(0,int(ImgDim/PoolDim)):
+                for z in range(0, int(ImgDim / PoolDim)):
                     txns.append(counter)
-                    counter+=1
-                    cycles+=1
+                    counter += 1
+                    cycles += 1
         else:
-            #1d case
+            # 1d case
             for i in range(output_size):
-                for z in range(0,PoolDim):
-                    for k in range(int(NumChannels/PE)):
-                        txns.append(counter) 
-                        cycles+=1    
+                for z in range(0, PoolDim):
+                    for k in range(int(NumChannels / PE)):
+                        txns.append(counter)
+                        cycles += 1
 
-                for k in range(int(NumChannels/PE)):
+                for k in range(int(NumChannels / PE)):
                     txns.append(counter)
-                    counter+=1
-                    cycles+=1     
+                    counter += 1
+                    cycles += 1
 
-                #for z in range(0,PoolDim):
+                # for z in range(0,PoolDim):
                 #    for k in range(0,read_tail_latency):
                 #        txns.append(counter)
                 #        cycles+=1
 
-
         return txns, cycles, counter
-
 
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
@@ -419,85 +428,69 @@ class StreamingMaxPool(HWCustomOp):
             "outputs": {"out": []},
         }
 
-
-
         ignore = self.get_nodeattr("ipgen_ignore")
-        if ignore == 0: # this node is being derived using RTLSIM
+        if ignore is False:  # this node is being derived using RTLSIM
             # RTL-based flow
             super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
             return
 
-     
+        # Analytical flow
 
-        # Analytical flow 
-        
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
 
         all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
         all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
 
-
-        self.set_nodeattr("io_chrc_period",period)
-
-
-
+        self.set_nodeattr("io_chrc_period", period)
 
         txn_in = []
         txn_out = []
-
 
         # INPUT
 
         counter = 0
         padding = 0
-        
 
         kwargs = self.prepare_kwargs_for_characteristic_fx()
 
-        
         # first period
         cycles = 0
-        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
 
-        txn_in += [counter] * (period-cycles)
-        padding+=(period*-cycles)
-        
+        txn_in += [counter] * (period - cycles)
+        padding += period * -cycles
 
         # second period
         cycles = period
-        txn_in, cycles, counter = self.characteristic_fx_input(txn_in,cycles,counter,kwargs)
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
 
-        txn_in += [counter] * (period*2-cycles)
-        padding+=(period*2-cycles)
+        txn_in += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
 
         # final assignments
         all_txns_in[0, :] = np.array(txn_in)
         self.set_nodeattr("io_chrc_in", all_txns_in)
         self.set_nodeattr("io_chrc_pads_in", padding)
 
-
         # OUTPUT
-        
+
         counter = 0
-        cycles = 0  
-        padding = 0          
+        cycles = 0
+        padding = 0
 
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
 
-        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
-
-
-        txn_out += [counter] * (period-cycles)
-        padding += (period*-cycles)
+        txn_out += [counter] * (period - cycles)
+        padding += period * -cycles
 
         cycles = period
 
-        txn_out, cycles, counter = self.characteristic_fx_output(txn_out,cycles,counter,kwargs)
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
 
-        txn_out += [counter] * (period*2-cycles)
-        padding+=(period*2-cycles)
+        txn_out += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
 
-
-        all_txns_out[0, :] = np.array(txn_out)   
+        all_txns_out[0, :] = np.array(txn_out)
         self.set_nodeattr("io_chrc_out", all_txns_out)
         self.set_nodeattr("io_chrc_pads_out", padding)

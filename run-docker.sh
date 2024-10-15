@@ -41,10 +41,6 @@ recho () {
   echo -e "${RED}$1${NC}"
 }
 
-: ${FINN_XILINX_PATH="/mnt/labstore/Xilinx"}
-: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
-: ${FINN_XILINX_VERSION="2023.1"}
-
 if [ -z "$FINN_XILINX_PATH" ];then
   recho "Please set the FINN_XILINX_PATH environment variable to the path to your Xilinx tools installation directory (e.g. /opt/Xilinx)."
   recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
@@ -88,10 +84,10 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_USERNAME="alveo_user"}
 : ${ALVEO_PASSWORD=""}
 : ${ALVEO_BOARD="U250"}
-: ${ALVEO_TARGET_DIR="/tmp"}
+: ${ALVEO_TARGET_DIR="/tmp/finn"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
-: ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
+: ${FINN_HOST_BUILD_DIR="/tmp/finn/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --always --tags --dirty).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}

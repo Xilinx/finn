@@ -63,6 +63,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
+                print(inst.get_nodeattr("ipgen_ignore"))
                 inst.derive_characteristic_fxns(period=self.period)
             except KeyError:
                 # exception if op_type is not supported

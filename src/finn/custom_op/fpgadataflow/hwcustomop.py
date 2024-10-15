@@ -98,7 +98,8 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_out": ("i", False, 0),
             "io_chrc_in_concat": ("t", False, np.asarray([], dtype=np.int32)),
             "io_chrc_out_concat": ("t", False, np.asarray([], dtype=np.int32)),
-            "ipgen_ignore": ("i", False, 0)
+            # flag to ignore the ip generation of this node
+            "ipgen_ignore": ("i", False, 0),
         }
 
     def get_verilog_top_module_name(self):
@@ -367,6 +368,7 @@ class HWCustomOp(CustomOp):
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
+
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
         if self.get_nodeattr("io_chrc_period") > 0:
             warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)

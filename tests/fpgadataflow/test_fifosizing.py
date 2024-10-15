@@ -27,74 +27,35 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import numpy as np
-from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-)
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
-
-import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
-    MinimizeWeightBitWidth,
-)
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-
-
 import pytest
 
+import copy
 import json
 import numpy as np
+import os
 import shutil
 import torch
-import copy
-import os
-from qonnx.transformation.infer_datatypes import InferDataTypes
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
-from finn.builder.build_dataflow_steps import step_set_fifo_depths
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from brevitas.export import export_qonnx
-from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from qonnx.transformation.general import GiveUniqueNodeNames
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir
-from finn.util.test import get_trained_network_and_ishape
-from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
-from finn.transformation.fpgadataflow.convert_to_hw_layers import InferStreamingMaxPool
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.im2col import compute_conv_output_dim
+from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+from finn.builder.build_dataflow_steps import step_set_fifo_depths
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferStreamingMaxPool
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import make_build_dir
+from finn.util.test import get_trained_network_and_ishape
 
 
 def generate_random_threshold_values(
@@ -154,6 +115,7 @@ def make_single_fmpadding_modelwrapper(impl_style, idim, padding, num_ch, simd, 
     model.set_tensor_datatype("outp", idt)
 
     return model
+
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
     mw = W.shape[0]
@@ -228,7 +190,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     return model
 
 
-
 def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, labels])
     outp = helper.make_tensor_value_info("outp", TensorProto.INT64, [1, k])
@@ -260,7 +221,6 @@ def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
     model.set_tensor_datatype("outp", odt)
 
     return model
-
 
 
 def _make_single_vvau_modelwrapper(
@@ -390,7 +350,6 @@ def make_single_dw_conv_modelwrapper(conv_config, idt, wdt):
     return model
 
 
-
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
     W_sparse = np.zeros((channels, channels, k_h, k_w), dtype=np.float32)
     for ch in range(channels):
@@ -416,7 +375,6 @@ def _calculate_dot_prod_range(dt_a, dt_b, len):
             if prod > max_prod:
                 max_prod = prod
     return (min_prod, max_prod)
-
 
 
 def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode):
@@ -489,7 +447,6 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilatio
     return model
 
 
-
 def make_channelwise_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     NumChannels = C.shape[0]
 
@@ -558,7 +515,6 @@ def make_single_dwc_modelwrapper(in_shape, out_shape, inWidth, outWidth, finn_dt
     return model
 
 
-
 def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, num_ch):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, n_inp_vecs + [num_ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, n_inp_vecs + [num_ch])
@@ -598,7 +554,6 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
     return model
 
 
-
 def fetch_test_model(topology, wbits=2, abits=2):
     tmp_output_dir = make_build_dir("build_fifosizing_%s_" % topology)
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
@@ -613,7 +568,6 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.parametrize(
     "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
 )
-
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
@@ -671,82 +625,319 @@ def test_fifosizing_linear(method, topology):
     shutil.rmtree(tmp_output_dir_cmp)
 
 
-
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-
 @pytest.mark.parametrize(
-    "node", [
-
-        ("LabelSelect",10,1,1,DataType["UINT8"],"hls"),
-        ("LabelSelect",10,1,3,DataType["UINT8"],"hls"),
-        ("LabelSelect",10,2,3,DataType["UINT8"],"hls"),
-        ("MVAU",5,1,8,1,[1,1],DataType["UINT2"],DataType["UINT2"],DataType["UINT2"],"hls"),
-        ("MVAU",5,1,8,1,[1,4],DataType["UINT2"],DataType["UINT2"],DataType["UINT2"],"hls"),
-        ("MVAU",10,5,20,4,[1,1],DataType["UINT4"],DataType["UINT8"],DataType["UINT4"],"hls"),
-        ("StreamingDataWidthConverter",[1,4,1,40],[1,4,1,40],2,8,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,240],[1,241],12,2,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,36],[1,36],12,12,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,4,1,30],[1,4,1,18],3,9,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,1,1,18],[1,1,1,30],9,3,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,90],[1,90],3,10,DataType["BIPOLAR"],"hls"),
-        ("StreamingDataWidthConverter",[1,40],[1,30],10,3,DataType["BIPOLAR"],"hls"),
-        
-        ("FMPadding",[8,8], [1,1,1,1],2,1,DataType["INT2"],"hls"),
-        ("FMPadding",[8,8], [1,1,1,1],4,1,DataType["INT2"],"hls"),
-        ("FMPadding",[8,8], [1,1,1,1],12,1,DataType["INT2"],"hls"),
-        ("FMPadding",[8,8], [4,0,4,0],12,1,DataType["INT2"],"hls"),
-        ("FMPadding",[8,8], [0,4,0,4],5,1,DataType["INT2"],"hls"),
-        ("FMPadding",[2,3], [0,3,0,4],5,5,DataType["INT2"],"hls"),
+    "node",
+    [
+        ("LabelSelect", 10, 1, 1, DataType["UINT8"], "hls"),
+        ("LabelSelect", 10, 1, 3, DataType["UINT8"], "hls"),
+        ("LabelSelect", 10, 2, 3, DataType["UINT8"], "hls"),
+        (
+            "MVAU",
+            5,
+            1,
+            8,
+            1,
+            [1, 1],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            "hls",
+        ),
+        (
+            "MVAU",
+            5,
+            1,
+            8,
+            1,
+            [1, 4],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            "hls",
+        ),
+        (
+            "MVAU",
+            10,
+            5,
+            20,
+            4,
+            [1, 1],
+            DataType["UINT4"],
+            DataType["UINT8"],
+            DataType["UINT4"],
+            "hls",
+        ),
+        (
+            "MVAU",
+            48,
+            1,
+            4,
+            1,
+            [1, 1],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            DataType["UINT2"],
+            "hls",
+        ),
+        # generalized DWC-variant required
+        # ("StreamingDataWidthConverter",[1,4,1,40],[1,4,1,40],8,2,DataType["BIPOLAR"],"hls"),
+        # ("StreamingDataWidthConverter",[1,240],[1,240],12,2,DataType["BIPOLAR"],"hls"),
+        # ("StreamingDataWidthConverter",[1,36],[1,36],12,12,DataType["BIPOLAR"],"hls"),
+        # ("StreamingDataWidthConverter",[1,4,1,9],[1,4,1,18],3,9,DataType["UINT4"],"hls"),
+        # ("StreamingDataWidthConverter",[1,1,1,18],[1,1,1,30],9,3,DataType["BIPOLAR"],"hls"),
+        # ("StreamingDataWidthConverter",[1,90],[1,90],3,10,DataType["BIPOLAR"],"hls"),
+        # ("StreamingDataWidthConverter",[1,40],[1,30],10,3,DataType["BIPOLAR"],"hls"),
+        ("FMPadding", [8, 8], [1, 1, 1, 1], 2, 1, DataType["INT2"], "hls"),
+        ("FMPadding", [8, 8], [1, 1, 1, 1], 4, 1, DataType["INT2"], "hls"),
+        ("FMPadding", [8, 8], [1, 1, 1, 1], 12, 1, DataType["INT2"], "hls"),
+        ("FMPadding", [8, 8], [4, 0, 4, 0], 12, 1, DataType["INT2"], "hls"),
+        ("FMPadding", [8, 8], [0, 4, 0, 4], 5, 1, DataType["INT2"], "hls"),
+        ("FMPadding", [2, 3], [0, 3, 0, 4], 5, 5, DataType["INT2"], "hls"),
         # idim, pad, num_ch,simd,idt
-        ("ChannelwiseOp",DataType["INT8"], DataType["INT4"],DataType["INT4"] , 4, 16, "add", [1,4,4], "hls")
-        ("ChannelwiseOp",DataType["INT8"], DataType["INT4"],DataType["INT4"] , 2, 16, "add", [1], "hls")
-        ("ChannelwiseOp",DataType["INT8"], DataType["INT4"],DataType["INT4"] , 1, 16, "add", [1, 7 ,7], "hls")
-        #,idt, act, pdt, nf, ich, func, vecs, impl_style
-
-       # (Pdb) (ifm_dim,output_size,is1d, NumChannels,PoolDim,ImgDim,PE)
-        #    ([1, 512], 256, True, 32, 2, 512, 1)
-        ("StreamingMaxPool",DataType["INT4"],True,2,32,4,1 ,0,"hls"),
-        ("StreamingMaxPool",DataType["INT4"],True,1,4,1,1,0,"hls"),
-        ("StreamingMaxPool",DataType["BIPOLAR"],False,1,10,1,1,1),
-        ("StreamingMaxPool",DataType["BIPOLAR"],False,2,10,64,1,1,"hls"),
-        ("StreamingMaxPool",DataType["BIPOLAR"],False,2,28,64,1,0,"hls"),
-       # idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode,impl_style
-        ("StreamingMaxPool",DataType["BIPOLAR"],False,1,10,1,1,1),
-        ("StreamingMaxPool",DataType["INT4"],[True],[4],[10],[3],[3],[1],"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6, 6],[12, 12],8,[4,4],[1,1],2,0,0,1,False,0,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,1],[12,1],16,   [1,1],  [1,1],    2,    0, 0,               1,   False,  1,"hls"),
-      # """                           idt,           k, ifm_dim, ifm_ch,stride, dilation, simd, dw, parallel_window, m,  flip,   is1d"""
-      
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,1],[12,1],16,   [3,1],  [1,1],    2,    0, 0,               1,   False,  1,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,1],[12,1],16,   [1,1],  [1,1],    2,    1, 0,               1,   False,  1,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,1],[12,1],16,   [2,1],  [1,1],    2,    1, 0,               1,   False,  1,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[4,4],[8,8],6,   [4,4],  [1,1],    2,    1, 0,               1,   False,  0,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,6],[10,10],8,   [2,2],  [1,1],    2,    1, 0,               1,   False,  0,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[4,4],[10,10],16,   [2,2],  [1,1],    2,    1, 0,               1,   False,  0,"hls"),
-        ("ConvolutionInputGenerator",DataType["INT2"],[6,1],[8,1],8,[3,1],[1,1],1,0, 0,1,False,  1,"hls"),
-      # """                           idt,           k, ifm_dim, ifm_ch,stride, dilation, simd, dw, parallel_window, m,  flip,   is1d"""
-        ("VVAU",DataType["INT4"], DataType["INT4"], DataType["INT4"], 3, 1, 10, 10, 3, 3, 3, "internal_embedded",0,"hls"),
-        ("VVAU",DataType["INT4"], DataType["INT4"], None, 3, 3, 10, 10, 3, 3, 3, "internal_embedded",1,"rtl"),
-        ("Thresholding",[15,3],True,True,"hls"),
-        ("MVAU",48,1,4,1,[1,1],DataType["UINT2"],DataType["UINT2"],DataType["UINT2"],"hls"),
-    ]
+        (
+            "ChannelwiseOp",
+            DataType["INT8"],
+            DataType["INT4"],
+            DataType["INT4"],
+            4,
+            16,
+            "add",
+            [1, 4, 4],
+            "hls",
+        ),
+        (
+            "ChannelwiseOp",
+            DataType["INT8"],
+            DataType["INT4"],
+            DataType["INT4"],
+            2,
+            16,
+            "add",
+            [1],
+            "hls",
+        ),
+        (
+            "ChannelwiseOp",
+            DataType["INT8"],
+            DataType["INT4"],
+            DataType["INT4"],
+            1,
+            16,
+            "add",
+            [1, 7, 7],
+            "hls",
+        ),
+        # ,idt, act, pdt, nf, ich, func, vecs, impl_style
+        # (Pdb) (ifm_dim,output_size,is1d, NumChannels,PoolDim,ImgDim,PE)
+        ("StreamingMaxPool", DataType["INT4"], True, 2, 32, 4, 1, 0, "hls"),
+        ("StreamingMaxPool", DataType["INT4"], True, 1, 4, 1, 1, 0, "hls"),
+        ("StreamingMaxPool", DataType["BIPOLAR"], False, 1, 10, 1, 1, 1, "hls"),
+        ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 10, 64, 1, 1, "hls"),
+        ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 28, 64, 1, 0, "hls"),
+        # idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode,impl_style
+        ("StreamingMaxPool", DataType["BIPOLAR"], False, 1, 10, 1, 1, 1, "hls"),
+        ("StreamingMaxPool", DataType["INT4"], True, 4, 10, 3, 3, 1, "hls"),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 6],
+            [12, 12],
+            8,
+            [4, 4],
+            [1, 1],
+            2,
+            0,
+            0,
+            1,
+            False,
+            0,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [12, 1],
+            16,
+            [1, 1],
+            [1, 1],
+            2,
+            0,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+        ),
+        # idt,k, ifm_dim, ifm_ch,stride, dilation,
+        # simd, dw, parallel_window, m,  flip,   is1d
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [12, 1],
+            16,
+            [3, 1],
+            [1, 1],
+            2,
+            0,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [12, 1],
+            16,
+            [1, 1],
+            [1, 1],
+            2,
+            1,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [12, 1],
+            16,
+            [2, 1],
+            [1, 1],
+            2,
+            1,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [4, 4],
+            [8, 8],
+            6,
+            [4, 4],
+            [1, 1],
+            2,
+            1,
+            0,
+            1,
+            False,
+            0,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 6],
+            [10, 10],
+            8,
+            [2, 2],
+            [1, 1],
+            2,
+            1,
+            0,
+            1,
+            False,
+            0,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [4, 4],
+            [10, 10],
+            16,
+            [2, 2],
+            [1, 1],
+            2,
+            1,
+            0,
+            1,
+            False,
+            0,
+            "hls",
+        ),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [8, 1],
+            8,
+            [3, 1],
+            [1, 1],
+            1,
+            0,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+        ),
+        # idt,k, ifm_dim, ifm_ch,stride, dilation, simd,
+        # dw, parallel_window, m,  flip,   is1d
+        (
+            "VVAU",
+            DataType["INT4"],
+            DataType["INT4"],
+            DataType["INT4"],
+            3,
+            1,
+            10,
+            10,
+            3,
+            3,
+            3,
+            "internal_embedded",
+            0,
+            "hls",
+        ),
+        (
+            "VVAU",
+            DataType["INT4"],
+            DataType["INT4"],
+            None,
+            3,
+            3,
+            10,
+            10,
+            3,
+            3,
+            3,
+            "internal_embedded",
+            1,
+            "rtl",
+        ),
+        ("Thresholding", [15, 3], True, True, "hls"),
+    ],
 )
 def test_fifosizing_analytical_characterization(node):
-
     test_rtl = True
 
-    build_dir = os.environ["FINN_BUILD_DIR"]
     test_fpga_part = "xc7z020clg400-1"
     target_clk_ns = 4
-   
+
+    # attempt to cache a pre-existing variant of the model
+    # this is to avoid generating RTL multiple times during
+    # test debugging
+    build_dir = os.environ["FINN_BUILD_DIR"]
     model_cache = None
     for x in os.listdir(build_dir):
         if x.startswith(str(node)):
-            print("cached model found")
-            model_cache = f'{build_dir}/{x}/model.onnx'
-    #if model_cache is None:
+            model_cache = f"{build_dir}/{x}/model.onnx"
+
     tmp_output_dir = make_build_dir("build_fifosizing")
 
     if node[0] == "LabelSelect":
@@ -773,7 +964,9 @@ def test_fifosizing_analytical_characterization(node):
         if narrow:
             actval += 1
 
-        model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
+        model = make_single_thresholding_modelwrapper(
+            impl_style, T, idt, odt, actval, n_inp_vecs, ch
+        )
         model = model.transform(SpecializeLayers(test_fpga_part))
 
         # Make sure that specialize layer did not default to HLS implementation
@@ -787,14 +980,13 @@ def test_fifosizing_analytical_characterization(node):
         op_inst.set_nodeattr("runtime_writeable_weights", 1)
         model0 = model
 
-
     elif node[0] == "MVAU":
-        mw,simd,mh,pe,numVectors,wdt,idt,odt,impl_style = node[1:]
+        mw, simd, mh, pe, numVectors, wdt, idt, odt, impl_style = node[1:]
         W = gen_finn_dt_tensor(wdt, (mw, mh))
         model0 = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None)
-        
-        getCustomOp(model0.graph.node[0]).set_nodeattr("numInputVectors",numVectors)
-       # model0 = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+
+        getCustomOp(model0.graph.node[0]).set_nodeattr("numInputVectors", numVectors)
+    # model0 = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
 
     elif node[0] == "ChannelwiseOp":
         idt, act, pdt, nf, ich, func, vecs, impl_style = node[1:]
@@ -803,21 +995,22 @@ def test_fifosizing_analytical_characterization(node):
         odt = act
         pe = ich // nf
         C = gen_finn_dt_tensor(pdt, (ich))
-        
+
         model0 = make_channelwise_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
 
     elif node[0] == "FMPadding":
-        idim,pad,num_ch,simd,idt,impl_style = node[1:]
+        idim, pad, num_ch, simd, idt, impl_style = node[1:]
         model0 = make_single_fmpadding_modelwrapper(impl_style, idim, pad, num_ch, simd, idt)
 
     elif node[0] == "StreamingDataWidthConverter":
         in_shape, out_shape, in_width, out_width, dtype, impl_style = node[1:]
-        model0 = make_single_dwc_modelwrapper(in_shape, out_shape, in_width, out_width,dtype, impl_style)
-       # model0 = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+        model0 = make_single_dwc_modelwrapper(
+            in_shape, out_shape, in_width, out_width, dtype, impl_style
+        )
+    # model0 = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
 
     elif node[0] == "StreamingMaxPool":
-
-        idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode,impl_style = node[1:]
+        idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, impl_style = node[1:]
         ifm_dim_h = ifm_dim
         k_h = k
         if dim_1d:
@@ -834,14 +1027,14 @@ def test_fifosizing_analytical_characterization(node):
         ofm_dim_h = compute_pool_output_dim(ifm_dim_h, k_h, stride_h, 0, ceil_mode)
         ofm_dim_w = compute_pool_output_dim(ifm_dim_w, k_w, stride_w, 0, ceil_mode)
         ofm_dim = (ofm_dim_h, ofm_dim_w)
-        #if idt == DataType["BIPOLAR"] and dim_1d:
+        # if idt == DataType["BIPOLAR"] and dim_1d:
         #    pytest.skip("Skipping binary StreamingMaxPool_1d (not implemented)")
         if (ifm_dim_h % k_h != 0 or ifm_dim_w % k_w != 0) and (not dim_1d):
             pytest.skip("StreamingMaxPool_2d test w/ ImgDim % PoolDim != 0 not implemented")
         if pe > ifm_ch:
             pytest.skip("PE cannot be larger than number of input channels")
-       # if pe > 1 and (not dim_1d):
-       #     pytest.skip("PE>1 only supported for StreamingMaxPool_1d")
+        # if pe > 1 and (not dim_1d):
+        #     pytest.skip("PE>1 only supported for StreamingMaxPool_1d")
 
         golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode)
 
@@ -852,14 +1045,28 @@ def test_fifosizing_analytical_characterization(node):
 
         # Ensure PE value is set
         streamingmaxpool_node = model0.get_nodes_by_op_type("StreamingMaxPool_hls")[0]
-        #assert True == False
+        # assert True == False
         if pe > 1 and (not dim_1d):
             getCustomOp(streamingmaxpool_node).set_nodeattr("PE", 1)
         else:
             getCustomOp(streamingmaxpool_node).set_nodeattr("PE", pe)
 
     elif node[0] == "ConvolutionInputGenerator":
-        idt,k,ifm_dim,ifm_ch,stride,dilation,simd,dw,parallel_window,m,flip,is1d,impl_style = node[1:]
+        (
+            idt,
+            k,
+            ifm_dim,
+            ifm_ch,
+            stride,
+            dilation,
+            simd,
+            dw,
+            parallel_window,
+            m,
+            flip,
+            is1d,
+            impl_style,
+        ) = node[1:]
         if flip:
             if (
                 ifm_dim[0] == ifm_dim[1]
@@ -891,7 +1098,9 @@ def test_fifosizing_analytical_characterization(node):
             pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
         if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
             pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
-        if ((stride_h > k_h) or (stride_w > k_w)) and not (parallel_window or (k_h == 1 and k_w == 1)):
+        if ((stride_h > k_h) or (stride_w > k_w)) and not (
+            parallel_window or (k_h == 1 and k_w == 1)
+        ):
             pytest.skip("Not all combinations for stride > k edge case supported in default mode")
         if parallel_window and simd != ifm_ch and not (dw or (k_h == 1 and k_w == 1)):
             pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
@@ -900,12 +1109,14 @@ def test_fifosizing_analytical_characterization(node):
         ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
         ofm_dim = [ofm_dim_h, ofm_dim_w]
 
-        model = make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw)
+        model = make_single_im2col_modelwrapper(
+            k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw
+        )
         model = model.transform(to_hw.InferConvInpGen())
 
         # set impl_style
         inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
-        inst.set_nodeattr("is1D",is1d)
+        inst.set_nodeattr("is1D", is1d)
         inst.set_nodeattr("preferred_impl_style", impl_style)
         model = model.transform(SpecializeLayers("xc7z020clg400-1"))
         # set simd
@@ -921,11 +1132,24 @@ def test_fifosizing_analytical_characterization(node):
         model0 = model
 
     elif node[0] == "VVAU":
-        idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode, no_act,impl_style = node[1:]
-
+        (
+            idt,
+            wdt,
+            act,
+            pe,
+            simd,
+            dim_h,
+            dim_w,
+            k_h,
+            k_w,
+            channels,
+            mem_mode,
+            no_act,
+            impl_style,
+        ) = node[1:]
 
         if dim_w == 1 and k_w != 1:
-                pytest.skip("1D image requires 1D kernel, skipping.")
+            pytest.skip("1D image requires 1D kernel, skipping.")
 
         if channels % pe != 0:
             pytest.skip("Requirement Channels divisable by PE is violated.")
@@ -935,8 +1159,6 @@ def test_fifosizing_analytical_characterization(node):
 
         # Generate weights in expected shape for ONNX and HLS node
         W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
-        W_onnx = _infer_sparse_weight_tensor(W, k_h, k_w, channels)  # shape: [k*k*channels, channels]
-
         # Generate inputs in expected format for ONNX and HLS node
         x = gen_finn_dt_tensor(idt, (1, dim_h, dim_w, k_h * k_w * channels))
         x_vvau = x.reshape(1, dim_h, dim_w, k_h * k_w, channels // pe, pe)
@@ -965,44 +1187,58 @@ def test_fifosizing_analytical_characterization(node):
                 tdt = DataType["INT32"]
 
         model = _make_single_vvau_modelwrapper(
-            W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode, impl_style
+            W,
+            pe,
+            simd,
+            k_h,
+            k_w,
+            channels,
+            dim_h,
+            dim_w,
+            wdt,
+            idt,
+            odt,
+            T,
+            tdt,
+            mem_mode,
+            impl_style,
         )
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
         inst = getCustomOp(model.graph.node[0])
-        inst.set_nodeattr("noActivation",no_act)
+        inst.set_nodeattr("noActivation", no_act)
         if impl_style == "rtl":
-            inst.set_nodeattr("resType","dsp")
+            inst.set_nodeattr("resType", "dsp")
         inst.set_nodeattr("preferred_impl_style", impl_style)
 
         model0 = model.transform(SpecializeLayers("xcvc"))
         test_fpga_part = "xcvc"
 
-    
-    outputs = [build_cfg.DataflowOutputType.ESTIMATE_REPORTS]  
+    outputs = [build_cfg.DataflowOutputType.ESTIMATE_REPORTS]
     model1 = copy.deepcopy(model0)
-
 
     if model_cache is not None:
         model0 = ModelWrapper(model_cache)
-    
 
     node_inst0 = getCustomOp(model0.graph.node[0])
     node_inst1 = getCustomOp(model1.graph.node[0])
-    node_inst0.set_nodeattr("ipgen_ignore", 0)
-    node_inst1.set_nodeattr("ipgen_ignore", 1)
+
+    # generate ip for node0 (RTL-based characterization)
+    node_inst0.set_nodeattr("ipgen_ignore", False)
+
+    # do not generate ip for node0 (analytical characterization)
+    node_inst1.set_nodeattr("ipgen_ignore", True)
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         synth_clk_period_ns=target_clk_ns,
         generate_outputs=outputs,
         fpga_part=test_fpga_part,
-        auto_fifo_strategy = "characterize",
-        auto_fifo_depths = True,
-        split_large_fifos = False
-        )
-
+        auto_fifo_strategy="characterize_analytic",
+        auto_fifo_depths=True,
+        split_large_fifos=False,
+    )
 
     # analytical
     inst = getCustomOp(model1.graph.node[0])
@@ -1010,20 +1246,22 @@ def test_fifosizing_analytical_characterization(node):
     model1 = model1.transform(SpecializeLayers(test_fpga_part))
     model1 = model1.transform(GiveUniqueNodeNames())
     model1 = model1.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model1 = step_set_fifo_depths(model1,cfg)
+    model1 = step_set_fifo_depths(model1, cfg)
 
     # rtlsim-based
     if test_rtl:
+        cfg.auto_fifo_strategy = "characterize"
         if model_cache is None:
             inst = getCustomOp(model0.graph.node[0])
             model0 = model0.transform(SpecializeLayers(test_fpga_part))
             model0 = model0.transform(GiveUniqueNodeNames())
             model0 = model0.transform(PrepareIP(test_fpga_part, target_clk_ns))
-            model0 = step_set_fifo_depths(model0,cfg)
+            model0 = step_set_fifo_depths(model0, cfg)
 
             tmp_caching_output_dir = make_build_dir(str(node))
-            model0.save(tmp_caching_output_dir+"/model.onnx")
+            model0.save(tmp_caching_output_dir + "/model.onnx")
 
+    # grab the last nodes of the model
     if test_rtl:
         for n in model0.graph.node:
             if n.op_type.startswith(node[0]):
@@ -1036,26 +1274,9 @@ def test_fifosizing_analytical_characterization(node):
             continue
 
     if test_rtl:
-        print("in RTLSIM")
-        print(node_inst0.get_nodeattr("io_chrc_in_concat"))
-    print("in ANALYTICAL")
-    print(node_inst1.get_nodeattr("io_chrc_in_concat"))
-
-    if test_rtl:
-        print("out RTLSIM")
-        print(node_inst0.get_nodeattr("io_chrc_out_concat"))
-    print("out ANALYTICAL")
-    print(node_inst1.get_nodeattr("io_chrc_out_concat"))
-    #assert True==False
-
-    #print("Producer")
-    # print(node_inst1.get_nodeattr("io_chrc_out"))
-
-   # print("Consumer")
-   # print(node_inst1.get_nodeattr("io_chrc_in"))
-
-    #assert True==False
-    #assert node_inst0.get_nodeattr("depth") == node_inst1.get_nodeattr("depth")
-    if test_rtl:
-        assert np.array_equal(node_inst0.get_nodeattr("io_chrc_in"),node_inst1.get_nodeattr("io_chrc_in"))
-        assert np.array_equal(node_inst0.get_nodeattr("io_chrc_out"),node_inst1.get_nodeattr("io_chrc_out"))
+        assert np.array_equal(
+            node_inst0.get_nodeattr("io_chrc_in"), node_inst1.get_nodeattr("io_chrc_in")
+        )
+        assert np.array_equal(
+            node_inst0.get_nodeattr("io_chrc_out"), node_inst1.get_nodeattr("io_chrc_out")
+        )

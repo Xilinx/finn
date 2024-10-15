@@ -82,10 +82,6 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.derive_characteristic import (
-    set_ignore_list_for_ip_gen,
-    unset_ignore_list_for_ip_gen,
-)
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveCharacteristic,
@@ -560,9 +556,19 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
 
             if cfg.auto_fifo_strategy == "characterize_analytic":
-                # should RTL sim only nodes which are not supported right now with
-                # analytic characteristic derivations
-                model = set_ignore_list_for_ip_gen(model)
+                # RTL sim only the nodes which are not supported right now with
+                # analytic characteristic derivations.
+                # To do this, we first check if the characteristic
+                # function exists for each node. If yes, we make sure PrepareIP and HLSSynthIP
+                # do not generate code for them. We unset the flags afterwards
+                # so that a repeat call to SynthIP and PrepareIP will indeed generate the cpp code.
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    prepare_kwargs_for_characteristic_fx = getattr(
+                        node_inst, "prepare_kwargs_for_characteristic_fx", None
+                    )
+                    if callable(prepare_kwargs_for_characteristic_fx):
+                        node_inst.set_nodeattr("ipgen_ignore", True)
 
             model = model.transform(
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
@@ -570,9 +576,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(HLSSynthIP())
             model = model.transform(PrepareRTLSim())
             model = model.transform(AnnotateCycles())
-            
-            period = int(model.analysis(dataflow_performance)["max_cycles"]*3)
-            #assert True==False
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"] * 3)
             model = model.transform(DeriveCharacteristic(period))
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
@@ -637,8 +642,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "depth_trigger_bram",
     ]
 
-    if cfg.extract_hw_config:
-        extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
+    extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
     # perform FIFO splitting and shallow FIFO removal only after the final config
     # json file has been written. otherwise, since these transforms may add/remove
@@ -648,12 +652,14 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(RemoveShallowFIFOs())
 
     # FIFO sizing is done, we can allow all ipgen again
-    model = unset_ignore_list_for_ip_gen(model)
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        node_inst.set_nodeattr("ipgen_ignore", False)
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-   # model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-   # model = model.transform(HLSSynthIP())
+    # model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    # model = model.transform(HLSSynthIP())
     return model
 
 
