@@ -59,6 +59,10 @@ class HLSSynthIP(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
+                # find out if the node should be ignored
+                ignore = inst.get_nodeattr("ipgen_ignore")
+                if ignore:
+                    return (node, False)
                 # ensure that code is generated
                 assert (
                     inst.get_nodeattr("code_gen_dir_ipgen") != ""

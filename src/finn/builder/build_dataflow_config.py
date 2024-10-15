@@ -42,6 +42,7 @@ class AutoFIFOSizingMethod(str, Enum):
     "Select the type of automatic FIFO sizing strategy."
 
     CHARACTERIZE = "characterize"
+    CHARACTERIZE_ANALYTIC = "characterize_analytic"
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
 
 
@@ -116,9 +117,9 @@ default_build_dataflow_steps = [
     "step_apply_folding_config",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
+    "step_set_fifo_depths",
     "step_hw_codegen",
     "step_hw_ipgen",
-    "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
