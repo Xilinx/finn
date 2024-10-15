@@ -822,6 +822,29 @@ class ElementwiseMaximum(ElementwiseBinaryOperation):
             return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
 
 
+# Derive a specialization to implement elementwise minimum of two inputs
+@register_custom_op
+class ElementwiseMinimum(ElementwiseBinaryOperation):
+    _operation = "Minimum", np.minimum, "({0} <= {1} ? {0} : {1})", None
+
+    def _derive_out_dtype(self, model: ModelWrapper):
+        if (not self.lhs_dtype.is_integer()) or (not self.rhs_dtype.is_integer()):
+            # if any of the inputs are float, make the output float as well
+            # TODO better float dtype resolution? (fp16 also possible)
+            return DataType["FLOAT32"]
+        else:
+            # Get the width of the data types of the inputs  # noqa: Duplicate
+            lhs_width = self.lhs_dtype.bitwidth()
+            rhs_width = self.rhs_dtype.bitwidth()
+            # Check whether the addition operation is a signed addition
+            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+            # use the greater of the two input bitwidths for the output
+            out_width = max(lhs_width, rhs_width)
+            # The product is treated as a signed type if either of the operands is
+            # of a signed type.
+            return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+
+
 # TODO: ElementwiseBitShift - Requires extra attribute selecting the direction
 
 
