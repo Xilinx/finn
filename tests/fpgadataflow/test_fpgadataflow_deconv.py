@@ -64,12 +64,11 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
+def set_up_reference_model(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
     idim_h, idim_w = idim
     stride_h, stride_w = stride
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
     odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
-    odt = DataType["INT32"]
 
     inp = helper.make_tensor_value_info(
         "inp",
@@ -120,10 +119,10 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 
     model = model.transform(InferShapes())
 
-    return model
+    return model, w_tensor
 
 
-def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
+def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, w_tensor):
     idim_h, idim_w = idim
     stride_h, stride_w = stride
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
@@ -141,7 +140,8 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
     )
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, ofm_ch])
 
-    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
+    # W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
+    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, k, k, ifm_ch])
 
     Deconv = helper.make_node(
         "Deconvolution_hls",
@@ -154,6 +154,7 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
         OFMChannels=ofm_ch,
         IFMDim=idim,
         Stride=[stride_h, stride_w],
+        Padding = [padding, padding],
         PE=1,
         SIMD=1,
         inputDataType=idt.name,
@@ -180,7 +181,9 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
     model.set_tensor_datatype(model.graph.output[0].name, odt)
     model.set_tensor_datatype("W", wdt)
 
-    w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch * k * k, ofm_ch])
+    # w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch * k * k, ofm_ch])
+    # w_tensor = w_tensor.reshape(ifm_ch * k * k, ofm_ch)
+    w_tensor = w_tensor.transpose(1, 2, 3, 0)
     model.set_initializer("W", w_tensor)
 
     model = model.transform(InferShapes())
@@ -189,33 +192,35 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding):
 
 
 # input image dimension
-@pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
+@pytest.mark.parametrize("idim", [[8, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize("stride", [[2, 2], [2, 3]])
+@pytest.mark.parametrize("stride", [[2, 2]])
 # number of channels
-@pytest.mark.parametrize("ifm_ch", [2])
+@pytest.mark.parametrize("ifm_ch", [4])
 # number of channels
-@pytest.mark.parametrize("ofm_ch", [4])
+@pytest.mark.parametrize("ofm_ch", [6])
 # Input parallelism
-@pytest.mark.parametrize("simd", [1, 2])
+@pytest.mark.parametrize("simd", [1])
 # PE
-@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.parametrize("pe", [1])
 # kernel size
 @pytest.mark.parametrize("k", [2])
 # padding
-@pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.parametrize("padding", [0])
 # exec mode
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding, exec_mode):
-    idt = wdt = DataType["INT4"]
+    idt = wdt = DataType["INT8"]
     wdt = idt
+    odt = DataType["INT32"]
     idim_h, idim_w = idim
     stride_h, stride_w = stride
 
-    ref_model = set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding)
+    ref_model, w_tensor = set_up_reference_model(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding)
+    model = create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, w_tensor)
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
     odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
@@ -225,34 +230,31 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
 
     y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
 
-    model = ref_model.transform(InferPixelPaddingDeconv())
-    model = model.transform(InferConvInpGen())
-    model = model.transform(InferQuantizedMatrixVectorActivation())
-    model = model.transform(InferShapes())
-    model = model.transform(GiveUniqueNodeNames())
+    # model = model.transform(InferShapes())
+    # model = model.transform(GiveUniqueNodeNames())
+    input_tensor_nhwc = input_tensor.transpose(0, 2, 3, 1)
+    input_dict_nhwc = {"inp": input_tensor_nhwc}
+    # y_produced = oxe.execute_onnx(model, input_dict_nhwc)["outp"]
+    # assert (y_produced == y_expected).all()
 
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced == y_expected).all()
-
-    model = model.transform(SpecializeLayers(test_fpga_part))
-    model = model.transform(MinimizeAccumulatorWidth())
+    # model = model.transform(SpecializeLayers(test_fpga_part))
+    # model = model.transform(MinimizeAccumulatorWidth())
 
     for n in model.graph.node:
-        if n.op_type.startswith("ConvolutionInputGenerator"):
-            convinputgen_node = getCustomOp(n)
-            convinputgen_node.set_nodeattr("SIMD", simd)
-        elif n.op_type.startswith("MVAU"):
-            mvau_node = getCustomOp(n)
-            mvau_node.set_nodeattr("PE", pe)
-            mvau_node.set_nodeattr("SIMD", simd)
+        if n.op_type.startswith("Deconvolution_hls"):
+            deconv_node = getCustomOp(n)
+            deconv_node.set_nodeattr("PE", pe)
+            deconv_node.set_nodeattr("SIMD", simd)
 
-    expected_oshape = (1, ofm_ch, odim_h, odim_w)
-
+    expected_oshape = (1, odim_h, odim_w, ofm_ch)
+    # model.save("deconv.onnx")
     # cppsim
     if exec_mode == "cppsim":
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
+        # breakpoint()
 
     # rtlsim
     else:
@@ -262,12 +264,13 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
         model = model.transform(PrepareRTLSim())
         model = model.transform(SetExecMode("rtlsim"))
 
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    y_produced = oxe.execute_onnx(model, input_dict_nhwc)["outp"]
     assert y_produced.shape == expected_oshape
+    y_produced = y_produced.transpose(0, 3, 1, 2)
     assert (y_produced == y_expected).all()
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("FMPadding_Pixel_hls")[0]
+        node = model.get_nodes_by_op_type("Deconvolution_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

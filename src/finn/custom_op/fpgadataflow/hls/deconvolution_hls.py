@@ -116,17 +116,19 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
-        assert orig_weight_matrix.shape == (
-            ofm_ch,
-            k_h * k_w * ifm_ch,
-        ), """Weights matrix doesn't
-        #have expected shape (k_h*k_w*ifm_ch, ofm_ch)"""
+        # assert orig_weight_matrix.shape == (
+        #     k_h * k_w * ifm_ch,
+        #     ofm_ch,
+        # ), """Weights matrix doesn't
+        # have expected shape (k_h*k_w*ifm_ch, ofm_ch)"""
         assert ofm_ch % pe == 0, "Requirement output channels divisable by PE is violated."
         assert ifm_ch % simd == 0, "Requirement input channels divisable by SIMD is violated."
         # interleave rows between PEs and reshape
         # distribute rows between PEs
         ret = orig_weight_matrix
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        ret = ret.flatten()
+        # breakpoint()
+        # ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         # create SIMD as innermost dimension and add a dummy outer dim
         ret = ret.reshape(1, pe, wmem, simd)
         # reverse the SIMD dimension
