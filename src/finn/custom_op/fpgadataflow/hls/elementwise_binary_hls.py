@@ -751,6 +751,16 @@ class ElementwiseBitwiseXor_hls(  # noqa: Class name does not follow
 ):
     pass
 
+
+# Derive a specialization to implement elementwise bitwise xor of two inputs
+@register_custom_op
+class ElementwiseMaximum_hls(  # noqa: Class name does not follow
+    # CapWords convention
+    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseMaximum
+):
+    pass
+
+
 # TODO: ElementwiseBitShift_hls - Requires extra attribute selecting the
 #  direction
 
