@@ -76,7 +76,7 @@ module mvu_4sx4u #(
 
 	initial begin
 		if(!NARROW_WEIGHTS && (VERSION == DSP48E1)) begin
-			$error("%m: Need NARROW_WEIGHTS for %s.", DSP48E1.name);
+			$error("%m: Need NARROW_WEIGHTS for DSP48E1.");
 			$finish;
 		end
 	end
@@ -92,31 +92,31 @@ module mvu_4sx4u #(
 	 *	 - The one but leftmost lane (#2) has the minimum internal width and, hence,
 	 *	   the macimum external high extension.
 	 */
-	typedef int unsigned  lane_offset_v[4:0];
-	function lane_offset_v sliceLanes();
-		automatic lane_offset_v  res;
-
-		unique case(VERSION)
-		DSP48E1: begin
-			res = NARROW_WEIGHTS?
-				lane_offset_v'{ ACCU_WIDTH+21 > P_WIDTH? P_WIDTH : ACCU_WIDTH+21, 21, 14, 7, 0 } :
-				lane_offset_v'{ 0, 0, 0, 0, 0 };	// not supported
-		end
-		DSP48E2, DSP58: begin
-			res = NARROW_WEIGHTS?
-				lane_offset_v'{ ACCU_WIDTH+23 > P_WIDTH? P_WIDTH : ACCU_WIDTH+23, 23, 16, 8, 0 } :
-				lane_offset_v'{ ACCU_WIDTH+22 > P_WIDTH? P_WIDTH : ACCU_WIDTH+22, 22, 15, 8, 0 };
-		end
-		endcase
-		return  res;
-	endfunction : sliceLanes
-	localparam lane_offset_v  OFFSETS = sliceLanes();
-
 	function int unsigned sum_width(input int unsigned  n, input int unsigned  w);
 		return  w <= 16? $clog2(1 + n*(2**w - 1)) : w + $clog2(n);
 	endfunction : sum_width
+	typedef int unsigned  lane_offset_v[4:0];
+	function int unsigned lane_offset(input int unsigned  i);
+		automatic lane_offset_v  offsets;
+		automatic int unsigned   res;
+		unique case(VERSION)
+		DSP48E1: begin
+			offsets = NARROW_WEIGHTS?
+				lane_offset_v'{ ACCU_WIDTH+21, 21, 14, 7, 0 } :
+				lane_offset_v'{ 0, 0, 0, 0, 0 };	// not supported
+		end
+		DSP48E2, DSP58: begin
+			offsets = NARROW_WEIGHTS?
+				lane_offset_v'{ ACCU_WIDTH+23, 23, 16, 8, 0 } :
+				lane_offset_v'{ ACCU_WIDTH+22, 22, 15, 8, 0 };
+		end
+		endcase
+		res = offsets[i];
+		if(res > P_WIDTH)  res = P_WIDTH;
+		return  res;
+	endfunction : lane_offset
 	function int unsigned lo_width(input int unsigned  i);
-		return  OFFSETS[i+1] - OFFSETS[i];
+		return  lane_offset(i+1) - lane_offset(i);
 	endfunction : lo_width
 	function int unsigned hi_width(input int unsigned  i);
 		automatic int unsigned  lw = lo_width(i);
@@ -140,7 +140,9 @@ module mvu_4sx4u #(
 	endfunction : init_leave_loads
 
 	// Pipeline for last indicator flag
+/* verilator lint_off LITENDIAN */
 	logic [1:5] L = '0;
+/* verilator lint_on LITENDIAN */
 	always_ff @(posedge clk) begin
 		if(rst)      L <= '0;
 		else if(en)  L <= { last, L[1:4] };
@@ -190,8 +192,8 @@ module mvu_4sx4u #(
 					dd = '0;
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-						automatic int unsigned  ofs = OFFSETS[pe + PE_REM];
-						dd[ofs+:3] = ww[pe];
+						automatic int unsigned  ofs = lane_offset(pe + PE_REM);
+						dd[ofs+:3] = ww[pe][2:0];
 						assert(!NARROW_WEIGHTS || rst || !en || zero || (ww[pe] != -8)) else begin
 							$warning("%m: Weight of -8 violates NARROW_WEIGHTS commitment.");
 						end
@@ -228,7 +230,8 @@ module mvu_4sx4u #(
 				end
 
 				// Stage #2: Multiply
-				logic signed [A_WIDTH+B_WIDTH-1:0]  M2 = 0;
+				localparam int unsigned  M_WIDTH = A_WIDTH + B_WIDTH;
+				logic signed [M_WIDTH-1:0]  M2 = 0;
 				always_ff @(posedge clk) begin
 					if(rst)      M2 <= 0;
 					else if(en)  M2 <=
@@ -642,14 +645,14 @@ module mvu_4sx4u #(
 					X1 <= xx;
 					X2 <= X1;
 					foreach(X3[i]) begin
-						X3[i] <= X2[i] + (L[3]? 2'h0 : pp[OFFSETS[i]+:2]);
+						X3[i] <= X2[i] + (L[3]? 2'h0 : pp[lane_offset(i)+:2]);
 					end
 				end
 			end
 
 			// Derive actual cross-lane overflows
 			for(genvar  i = 0; i < 3; i++) begin
-				assign	h3[s][i] = pp[OFFSETS[i+1]+:2] - X3[i+1];
+				assign	h3[s][i] = pp[lane_offset(i+1)+:2] - X3[i+1];
 			end
 			// Overflow out of high lane
 			logic  PZ = 0;
@@ -694,12 +697,12 @@ module mvu_4sx4u #(
 					always_ff @(posedge clk) begin
 						if(rst)      Hi4 <= 0;
 						else if(en) begin
-							automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
+							automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? {(HI_WIDTH+1){1'b0}} : {Hi4[$left(Hi4)], Hi4}) + $signed(tree[0]);
 							assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
 								$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
 								$stop;
 							end
-							Hi4 <= h;
+							Hi4 <= h[HI_WIDTH-1:0];
 						end
 					end
 					assign	hi4[i] = Hi4;
@@ -714,7 +717,10 @@ module mvu_4sx4u #(
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = sum_width(SIMD, LO_WIDTH);
 				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
-				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][OFFSETS[i]+:LO_WIDTH];
+				for(genvar  s = 0; s < SIMD;   s++) begin
+					uwire [P_WIDTH-1:0]  p = p3[s];
+					assign  tree[SIMD-1+s] = p[lane_offset(i)+:LO_WIDTH];
+				end
 				for(genvar  n = 0; n < SIMD-1; n++) begin
 					// Sum truncated to actual maximum bit width at this node
 					localparam int unsigned  NODE_WIDTH = sum_width(LEAVE_LOAD[n], LO_WIDTH);
