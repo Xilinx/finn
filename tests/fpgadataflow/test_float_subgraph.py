@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 import onnx.parser as oprs
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -59,9 +60,17 @@ def create_matmul_mul_add_subgraph():
         "param_mm": [(4, 8), DataType["INT4"], True],
         "param_mul": [(1, 8), DataType["FLOAT32"], True],
         "param_add": [(1, 8), DataType["FLOAT32"], True],
+        "param_qscale": [
+            (1, 1),
+            DataType["FLOAT32"],
+            True,
+        ],
+        "param_qzeropt": [(1, 1), DataType["FLOAT32"], True],
+        "param_qbitwidth": [(1, 1), DataType["FLOAT32"], True],
         "matmul0_out0": [(1, 8), DataType["FLOAT32"], False],
         "mul0_out0": [(1, 8), DataType["FLOAT32"], False],
         "add0_out0": [(1, 8), DataType["FLOAT32"], False],
+        "relu0_out0": [(1, 8), DataType["FLOAT32"], False],
         "out0": [(1, 8), DataType["FLOAT32"], False],
     }
     t_decl_list = [
@@ -83,7 +92,10 @@ def create_matmul_mul_add_subgraph():
         matmul0_out0 = MatMul(in0, param_mm)
         mul0_out0 = Mul(matmul0_out0, param_mul)
         add0_out0 = Add(mul0_out0, param_add)
-        out0 = Relu(add0_out0)
+        relu0_out0 = Relu(add0_out0)
+        out0 = qonnx.custom_op.general.Quant<signed=0, narrow=0>(
+            relu0_out0, param_qscale, param_qzeropt, param_qbitwidth
+        )
     }}
     """
     model = oprs.parse_model(input_str)
@@ -93,6 +105,10 @@ def create_matmul_mul_add_subgraph():
         model.set_tensor_datatype(tname, spec[1])
         if spec[-1]:
             model.set_initializer(tname, gen_finn_dt_tensor(spec[1], spec[0]))
+    # override initializers for quantizer parameters
+    model.set_initializer("param_qscale", np.asarray([1.0], dtype=np.float32))
+    model.set_initializer("param_qzeropt", np.asarray([0.0], dtype=np.float32))
+    model.set_initializer("param_qbitwidth", np.asarray([4.0], dtype=np.float32))
     model = model.transform(InferDataTypes())
     return model, tensors
 
@@ -123,6 +139,7 @@ def test_create_matmul_mul_add_subgraph():
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
+    model = model.transform(to_hw.InferQuantAsFloat2Int())
     model = specialize_hls(model)
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
