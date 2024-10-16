@@ -1895,3 +1895,107 @@ class InferElementwiseBinaryOperation(Transformation):
         # Return the transformed model and indicate whether the graph actually
         # has been transformed
         return model, graph_modified
+
+
+# Converts ReLU into ElementwiseMaximum(in, 0)
+class InferReLUAsElementwiseMax(Transformation):
+    # Filter function to filter out any operation involving any floating-point
+    # tensor
+    @staticmethod
+    def reject_unsupported_dtypes(model: ModelWrapper, node: NodeProto):
+        def dtype_ok(tname):
+            dt = model.get_tensor_datatype()
+            if dt is None:
+                return False
+            if dt.is_integer() or dt == DataType["FLOAT32"]:
+                return True
+            else:
+                return False
+
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=reject_unsupported_dtypes):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            if node.op_type == "Relu":
+                # Transplant this operator into our FINN domain
+                node.domain = "finn.custom_op.fpgadataflow"
+                node.op_type = "ElementwiseMaximum"
+                # add a second 0-valued input for ReLU
+                new_tname = model.make_new_valueinfo_name()
+                model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
+                idt = model.get_tensor_datatype(node.input[0])
+                model.set_tensor_datatype(new_tname, idt)
+                node.input.append(new_tname)
+                # Now we can get the CustomOp wrapper instance providing easier
+                # attribute access
+                inst: HWCustomOp = getCustomOp(node)
+                # Set the backend attribute to mark this an operation supported
+                # to be implemented on an FPGA by FINN
+                inst.set_nodeattr("backend", "fpgadataflow")
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(node.input[0], model)
+                lift_to_rank1(node.input[1], model)
+
+                # fmt: off
+                # Disable formatter. This is deliberately formatted to stay
+                # within 80 characters per line. Black, however, formats some
+                # lines going beyond this.
+
+                # Insert data type attributes from "context" into the CustomOp
+                # node
+                # TODO: Find a way to handle this via data type inference?
+                inst.set_nodeattr(
+                    "lhs_dtype", str(idt)
+                )
+                inst.set_nodeattr(
+                    "rhs_dtype", str(idt)
+                )
+                odt_name = str(model.get_tensor_datatype(node.output[0]))
+                inst.set_nodeattr(
+                    "out_dtype", odt_name
+                )
+                # need to use pyxsi as rtlsim backend for float ops
+                if "FLOAT" in odt_name:
+                    inst.set_nodeattr("rtlsim_backend", "pyxsi")
+                # Insert shape attributes from "context" into the CustomOp node
+                # TODO: Find a way to handle this via shape inference?
+                inst.set_nodeattr(
+                    "lhs_shape", model.get_tensor_shape(node.input[0])
+                )
+                inst.set_nodeattr(
+                    "rhs_shape", model.get_tensor_shape(node.input[1])
+                )
+                inst.set_nodeattr(
+                    "out_shape", model.get_tensor_shape(node.output[0])
+                )
+
+                # fmt: on
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
