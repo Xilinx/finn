@@ -1904,13 +1904,15 @@ class InferReLUAsElementwiseMax(Transformation):
     @staticmethod
     def reject_unsupported_dtypes(model: ModelWrapper, node: NodeProto):
         def dtype_ok(tname):
-            dt = model.get_tensor_datatype()
+            dt = model.get_tensor_datatype(tname)
             if dt is None:
                 return False
             if dt.is_integer() or dt == DataType["FLOAT32"]:
                 return True
             else:
                 return False
+
+        return all([dtype_ok(tname) for tname in list(node.input) + list(node.output)])
 
     # Initializes the transformation method with an optional filter function
     def __init__(self, _filter=reject_unsupported_dtypes):
