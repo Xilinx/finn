@@ -59,6 +59,9 @@ def create_matmul_mul_add_subgraph():
         "param_mm": [(4, 8), DataType["INT4"], True],
         "param_mul": [(1, 8), DataType["FLOAT32"], True],
         "param_add": [(1, 8), DataType["FLOAT32"], True],
+        "matmul0_out0": [(1, 8), DataType["FLOAT32"], False],
+        "mul0_out0": [(1, 8), DataType["FLOAT32"], False],
+        "add0_out0": [(1, 8), DataType["FLOAT32"], False],
         "out0": [(1, 8), DataType["FLOAT32"], False],
     }
     t_decl_list = [
@@ -79,7 +82,8 @@ def create_matmul_mul_add_subgraph():
     {{
         matmul0_out0 = MatMul(in0, param_mm)
         mul0_out0 = Mul(matmul0_out0, param_mul)
-        out0 = Add(mul0_out0, param_add)
+        add0_out0 = Add(mul0_out0, param_add)
+        out0 = Relu(add0_out0)
     }}
     """
     model = oprs.parse_model(input_str)
@@ -118,6 +122,7 @@ def test_create_matmul_mul_add_subgraph():
     golden = execute_onnx(model, idict)["out0"]
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = specialize_hls(model)
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
