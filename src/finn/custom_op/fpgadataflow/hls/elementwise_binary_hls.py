@@ -980,15 +980,15 @@ class ElementwiseBitShift_hls(
 @register_custom_op
 class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
     # CapWords convention
-    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseFloat2Int
+    ElementwiseBinaryOperation_hls,
+    elementwise_binary.ElementwiseFloat2Int,
 ):
-
     # Generates list of C++ includes to be placed at the top of the generated
     # code
     def global_includes(self):
         super(ElementwiseBinaryOperation_hls).global_includes()
         # additional hls_math include to get hls::round()
-        self.code_gen_dict["$GLOBALS$"] += ['#include <hls_math.h>']
+        self.code_gen_dict["$GLOBALS$"] += ["#include <hls_math.h>"]
 
     # Generates C++ code of type alias, global constant and macro definitions
     def defines(self, var):
@@ -1000,7 +1000,6 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
             "#define clip_max(x, maxval) (x <= maxval ? x : maxval)",
             "#define clip(x, y, z) clip_max(clip_min(x, y), z)",
         ]
-
 
 
 # # Derive a specialization to implement elementwise power of two inputs
