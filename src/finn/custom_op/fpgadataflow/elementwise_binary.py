@@ -438,9 +438,13 @@ class ElementwiseBinaryOperation(HWCustomOp):
     def minimize_weight_bit_width(self, model: ModelWrapper):
         # Check for an initializer providing the left hand side input
         lhs = model.get_initializer(self.onnx_node.input[0])
+        # weight bitwidth minimization doesn't make sense for float inputs
+        # so we'll skip those (at least until we have minifloat support)
+        old_lhs_dt = model.get_tensor_datatype(self.onnx_node.input[0])
+        # TODO move const bitwidth minimization to a utility function + reuse
         # If the left hand side input is provided as initializer, minimize the
         # bits used for storing this
-        if lhs is not None:
+        if lhs is not None and old_lhs_dt != DataType["FLOAT32"]:
             # Remember the "style" of receiving the input for further code
             # generation
             self.set_nodeattr("lhs_style", "const")
@@ -461,9 +465,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
         # Check for an initializer providing the right hand side input
         rhs = model.get_initializer(self.onnx_node.input[1])
+        old_rhs_dt = model.get_tensor_datatype(self.onnx_node.input[1])
         # If the right hand side input is provided as initializer, minimize the
         # bits used for storing this
-        if rhs is not None:
+        if rhs is not None and old_rhs_dt != DataType["FLOAT32"]:
             # Remember the "style" of receiving the input for further code
             # generation
             self.set_nodeattr("rhs_style", "const")
