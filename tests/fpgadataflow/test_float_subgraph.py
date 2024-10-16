@@ -129,7 +129,7 @@ def specialize_hls(model: ModelWrapper):
     return model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
 
-def test_create_matmul_mul_add_subgraph():
+def test_float_subgraph():
     model, tensors = create_matmul_mul_add_subgraph()
     fpga_part = "xczu7ev-ffvc1156-2-e"
     target_clk_ns = 10
@@ -140,7 +140,23 @@ def test_create_matmul_mul_add_subgraph():
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    posthwconv_optypes = [x.op_type for x in model.graph.node]
+    assert posthwconv_optypes == [
+        "MVAU",
+        "ElementwiseMul",
+        "ElementwiseAdd",
+        "ElementwiseMaximum",
+        "ElementwiseFloat2Int",
+    ]
     model = specialize_hls(model)
+    posthlsconv_optypes = [x.op_type for x in model.graph.node]
+    assert posthlsconv_optypes == [
+        "MVAU_hls",
+        "ElementwiseMul_hls",
+        "ElementwiseAdd_hls",
+        "ElementwiseMaximum_hls",
+        "ElementwiseFloat2Int_hls",
+    ]
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
