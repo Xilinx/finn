@@ -2031,7 +2031,7 @@ class InferQuantAsFloat2Int(Transformation):
                 if bitwidth is None:
                     # dynamic bitwidth not supported
                     continue
-                if bitwidth.ndim != 0:
+                if bitwidth.size != 1:
                     # non-scalar bitwidth not supported
                     continue
                 bitwidth = bitwidth.item()
@@ -2049,13 +2049,16 @@ class InferQuantAsFloat2Int(Transformation):
                 # Transplant this operator into our FINN domain
                 node.domain = "finn.custom_op.fpgadataflow"
                 node.op_type = "ElementwiseFloat2Int"
-                # add a second 0-valued input (unused but
+
+                # produce a second 0-valued input (unused but
                 # needed to keep appearance as binary eltwise op)
                 new_tname = model.make_new_valueinfo_name()
                 model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
                 idt = model.get_tensor_datatype(node.input[0])
                 model.set_tensor_datatype(new_tname, idt)
-                node.input.append(new_tname)
+                # remove all inputs excepts first, and a dummy 2nd input
+                node.input[:] = [node.input[0], new_tname]
+
                 # Now we can get the CustomOp wrapper instance providing easier
                 # attribute access
                 inst: HWCustomOp = getCustomOp(node)
