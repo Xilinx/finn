@@ -769,6 +769,33 @@ class ElementwiseMinimum_hls(  # noqa: Class name does not follow
 ):
     pass
 
+
+# Derive a specialization to implement elementwise minimum of two inputs
+@register_custom_op
+class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
+    # CapWords convention
+    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseFloat2Int
+):
+
+    # Generates list of C++ includes to be placed at the top of the generated
+    # code
+    def global_includes(self):
+        super(ElementwiseBinaryOperation_hls).global_includes()
+        # additional hls_math include to get hls::round()
+        self.code_gen_dict["$GLOBALS$"] += ['#include <hls_math.h>']
+
+    # Generates C++ code of type alias, global constant and macro definitions
+    def defines(self, var):
+        super(ElementwiseBinaryOperation_hls).defines(var)
+
+        # Define macro for clipping/saturating values
+        self.code_gen_dict["$DEFINES$"] += [
+            "#define clip_min(x, minval) (x >= minval ? x : minval)",
+            "#define clip_max(x, maxval) (x <= maxval ? x : maxval)",
+            "#define clip(x, y, z) clip_max(clip_min(x, y), z)",
+        ]
+
+
 # TODO: ElementwiseBitShift_hls - Requires extra attribute selecting the
 #  direction
 
