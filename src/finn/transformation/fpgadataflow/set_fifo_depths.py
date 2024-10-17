@@ -324,6 +324,8 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
+        # TODO: needs to check if pyxsi necessary
+        model.set_metadata_prop("rtlsim_backend", "pyverilator")
 
         if self.force_python_sim:
             # do rtlsim in Python for FIFO sizing
