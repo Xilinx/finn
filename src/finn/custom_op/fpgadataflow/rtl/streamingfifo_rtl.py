@@ -33,13 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
@@ -254,30 +248,16 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
                 "FIFO implementation style %s not supported, please use rtl or vivado" % impl_style
             )
 
+    def get_rtl_file_list(self):
+        verilog_files = [
+            "Q_srl.v",
+            self.get_nodeattr("gen_top_module") + ".v",
+        ]
+        return verilog_files
+
     def prepare_rtlsim(self):
         assert self.get_nodeattr("impl_style") != "vivado", (
             "StreamingFIFO impl_style "
             "cannot be vivado for rtlsim. Only impl_style=rtl supported."
         )
-        # Modified to use generated (System-)Verilog instead of HLS output products
-
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
-        verilog_files = [
-            "Q_srl.v",
-            self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+        return super().prepare_rtlsim()

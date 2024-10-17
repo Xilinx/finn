@@ -157,6 +157,7 @@ def test_fpgadataflow_concat_stitchedip():
         )
     )
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyverilator")
     model.set_metadata_prop("rtlsim_trace", "trace.vcd")
     ret_sim = execute_onnx(model, inp_dict)
     assert (exp_out == ret_sim[oname]).all()

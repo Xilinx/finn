@@ -272,6 +272,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     ]
     assert sorted(dir(sim.io)) == sorted(exp_io)
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyverilator")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
     x = gen_finn_dt_tensor(idt, ishape)

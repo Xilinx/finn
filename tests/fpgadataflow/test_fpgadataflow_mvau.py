@@ -723,8 +723,8 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    model.set_metadata_prop("rtlsim_so", "")
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyverilator")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
 
     assert (

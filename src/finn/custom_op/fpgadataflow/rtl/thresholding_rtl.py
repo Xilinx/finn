@@ -38,8 +38,6 @@ from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.util.basic import (
     get_memutil_alternatives,
-    get_rtlsim_trace_depth,
-    make_build_dir,
     mem_primitives_versal,
     pyverilate_get_liveness_threshold_cycles,
 )
@@ -295,40 +293,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             "axilite_if.v",
             "thresholding.sv",
             "thresholding_axi.sv",
-            "thresholding_template_wrapper.v",
+            self.get_nodeattr("gen_top_module") + ".v",
         ]
-
-    def get_rtl_file_paths(self):
-        """Get full path of all RTL files"""
-        rtl_root_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl/"
-        rtl_file_list = self.get_rtl_file_list()
-        rtl_file_paths = [rtl_root_dir + file for file in rtl_file_list]
-        return rtl_file_paths
-
-    def get_rtl_template_data(self, path):
-        """Return RTL file contents as a template"""
-        with open(path, "r") as f:
-            template = f.read()
-        return template
-
-    def fill_in_rtl_template_data(self, replace_dict, template_data):
-        """Use attribute values to finn in RTL template placeholders"""
-        template_data_cp = template_data
-        for key in replace_dict:
-            replacement_line = "\n".join(replace_dict[key])
-            template_data_cp = template_data_cp.replace(key, replacement_line)
-        return template_data_cp
-
-    def dump_rtl_data(self, dest_dir, filename, data):
-        """Dump filled-in-template RTL files for future synthesis step"""
-        # when generating template files, handle a special case:
-        # if the filename contains the word "template", replace that
-        # with the node name to distinguish between instances
-        if "template" in filename:
-            filename = self.get_nodeattr("gen_top_module") + ".v"
-        with open(os.path.join(dest_dir, filename), "w") as f:
-            f.write(data)
-        return
 
     def generate_hdl(self, model, fpgapart, clk):
         """Prepare HDL files from templates for synthesis"""
@@ -342,14 +308,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # by PyVerilator and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
 
-        for rtl_file_path in self.get_rtl_file_paths():
-            # read in original RTL template file
-            template_data = self.get_rtl_template_data(rtl_file_path)
-            # apply code generation to templates
-            data = self.fill_in_rtl_template_data(code_gen_dict, template_data)
-            # dump filled-in template to destination directory for compilation
-            file_only_path = rtl_file_path.split("/")[-1]
-            self.dump_rtl_data(code_gen_dir, file_only_path, data)
+        rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl"
+        template_path = rtlsrc + "/thresholding_template_wrapper.v"
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + ".v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+
+        sv_files = ["axilite_if.v", "thresholding.sv", "thresholding_axi.sv"]
+        for sv_file in sv_files:
+            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -357,39 +332,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
         return
-
-    def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
-
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
-        verilog_files = [
-            x.replace("thresholding_template_wrapper", self.get_nodeattr("gen_top_module"))
-            for x in self.get_rtl_file_list()
-        ]
-        dat_files = self.get_all_meminit_filenames(abspath=True)
-        single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
-        for dat_file in dat_files:
-            shutil.copy(dat_file, single_src_dir)
-
-        # build the Verilator emulation library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=single_src_dir,
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_nodeattr("gen_top_module"),
-            auto_eval=False,
-        )
-
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -489,10 +431,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        rtl_file_list = [
-            x.replace("thresholding_template_wrapper", self.get_nodeattr("gen_top_module"))
-            for x in self.get_rtl_file_list()
-        ]
+        rtl_file_list = self.get_rtl_file_list()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
