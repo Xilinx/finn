@@ -178,10 +178,11 @@ inline void toggle_clk() {
 void reset() {
     clear_bool("ap_clk");
     clear_bool("ap_rst_n");
-    for(unsigned i = 0; i < 2; i++) {
-        toggle_clk();
-    }
+    toggle_clk();
+    toggle_clk();
     set_bool("ap_rst_n");
+    toggle_clk();
+    toggle_clk();
 }
 
 int main(int argc, char *argv[]) {
@@ -209,6 +210,7 @@ int main(int argc, char *argv[]) {
 
     unsigned n_in_txns = 0, n_out_txns = 0, iters = 0, last_output_at = 0;
     unsigned latency = 0;
+    unsigned cycles_since_last_output = 0;
 
     bool exit_criterion = false;
 
@@ -219,13 +221,48 @@ int main(int argc, char *argv[]) {
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
+    bool input_done = false;
+    bool output_done = false;
+    bool timeout = false;
+
+    set_bool("m_axis_0_tready");
+
     while(!exit_criterion) {
+        map<string, bool> signals_to_write;
         toggle_clk_0();
 
-        set_bool("m_axis_0_tready");
-        set_bool("s_axis_0_tvalid");
+        if(chk_bool("s_axis_0_tready") && chk_bool("s_axis_0_tvalid")) {
+            n_in_txns++;
+        }
 
-        toggle_clk();
+        if(chk_bool("m_axis_0_tready") && chk_bool("m_axis_0_tvalid")) {
+            n_out_txns++;
+        } else {
+            cycles_since_last_output++;
+        }
+
+        if(n_in_txns == n_iters_per_input * n_inputs) {
+            cout << "All inputs written at cycle " << iters << endl;
+            signals_to_write["s_axis_0_tvalid"] = false;
+        } else if(n_in_txns < n_iters_per_input * n_inputs) {
+            signals_to_write["s_axis_0_tvalid"] = true;
+        } else {
+            cout << "Unknown stream condition for input!" << endl;
+            signals_to_write["s_axis_0_tvalid"] = false;
+        }
+
+        toggle_clk_1();
+        // actuall write the desired signals from the map
+        for (auto const& x : signals_to_write)
+        {
+            if(x.second) {
+                set_bool(x.first);
+            } else {
+                clear_bool(x.first);
+
+            }
+        }
+
         iters++;
         if(iters % 1000 == 0) {
             cout << "Elapsed iters " << iters << " inps " << n_in_txns << " outs " << n_out_txns << endl;
@@ -233,28 +270,21 @@ int main(int argc, char *argv[]) {
             cout << "Elapsed since last report = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
             begin = end;
         }
-        if(chk_bool("s_axis_0_tready") && chk_bool("s_axis_0_tvalid")) {
-            n_in_txns++;
-            if(n_in_txns == n_iters_per_input * n_inputs) {
-                clear_bool("s_axis_0_tvalid");
-                cout << "All inputs written at cycle " << iters << endl;
-            }
-        }
-        if(chk_bool("m_axis_0_tvalid")) {
-            n_out_txns++;
-            last_output_at = iters;
-            if(n_out_txns == n_iters_per_output) {
-                latency = iters;
-            }
-        }
 
-        exit_criterion = ((n_in_txns >= n_iters_per_input * n_inputs) && (n_out_txns >= n_iters_per_output * n_inputs)) || ((iters-last_output_at) > max_iters);
+        input_done = (n_in_txns >= n_iters_per_input * n_inputs);
+        output_done = (n_out_txns >= n_iters_per_output * n_inputs);
+        timeout = (cycles_since_last_output > max_iters);
+
+        exit_criterion = (input_done && output_done) || timeout;
     }
 
     cout << "Simulation finished" << endl;
     cout << "Number of inputs consumed " << n_in_txns << endl;
     cout << "Number of outputs produced " << n_out_txns << endl;
     cout << "Number of clock cycles " << iters << endl;
+    cout << "Input done? " << input_done << endl;
+    cout << "Output done? " << output_done << endl;
+    cout << "Timeout? " << timeout << endl;
 
     ofstream results_file;
     results_file.open("results.txt", ios::out | ios::trunc);
@@ -266,7 +296,6 @@ int main(int argc, char *argv[]) {
     //@FIFO_DEPTH_LOGGING@
     results_file.close();
     top->close();
-    delete top;
 
     return 0;
 }
