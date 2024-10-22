@@ -60,8 +60,7 @@ class RTLBackend(ABC):
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
 
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
+        verilog_paths = self.get_verilog_paths()
         verilog_files = self.get_rtl_file_list()
 
         # build the Verilator emu library
@@ -76,10 +75,13 @@ class RTLBackend(ABC):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
         return sim
 
-    # TODO: enable all rtl nodes to use parent function
-    #    @abstractmethod
-    #    def get_rtl_file_list(self):
-    #        pass
+    def get_verilog_paths(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        return [code_gen_dir]
+
+    @abstractmethod
+    def get_rtl_file_list(self):
+        pass
 
     @abstractmethod
     def code_generation_ipi(self):
