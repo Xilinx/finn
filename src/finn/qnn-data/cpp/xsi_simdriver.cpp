@@ -224,11 +224,9 @@ int main(int argc, char *argv[]) {
     s_xsi_setup_info info;
     memset(&info, 0, sizeof(info));
     info.logFileName = NULL;
-    char wdbName[] = "@TRACE_FILE@";
-    info.wdbFileName = wdbName;
+    info.wdbFileName = @TRACE_FILE@;
     top->open(&info);
-    // TODO add option to enable/disable tracing for faster sim?
-    top->trace_all();
+    @TRACE_CMD@
 
     populate_port_map();
 
