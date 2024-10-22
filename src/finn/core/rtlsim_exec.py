@@ -212,8 +212,9 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         "OUTSTREAM_NAME": "m_axis_0",
         "CLK_NAME": "ap_clk",
         "NRST_NAME": "ap_rst_n",
-        # TODO control tracing and trace filename
-        "TRACE_FILE": top_module_name + ".wdb",
+        # control tracing and trace filename
+        "TRACE_FILE": "NULL" if trace_file is None else f'"{trace_file}"',
+        "TRACE_CMD": "" if trace_file is None else "top->trace_all();",
         # code to post-process final sim status to extract more data
         "POSTPROC_CPP": postproc_cpp,
     }
