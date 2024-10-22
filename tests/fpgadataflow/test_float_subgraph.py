@@ -192,5 +192,7 @@ def test_float_subgraph():
     # run stitched-IP rtlsim and compare outputs
     model = model.transform(CreateStitchedIP(fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    produced_stichedip_rtlsim = execute_onnx(model, idict)["global_out"]
+    idict_rtl = {"global_in": inp}
+    model.set_metadata_prop("rtlsim_trace", "stitchedip_rtlsim_trace.wdb")
+    produced_stichedip_rtlsim = execute_onnx(model, idict_rtl)["global_out"]
     assert (golden == produced_stichedip_rtlsim).all()
