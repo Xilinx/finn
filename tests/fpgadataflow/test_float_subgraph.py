@@ -49,6 +49,7 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
@@ -167,9 +168,29 @@ def test_float_subgraph():
     model = model.transform(PrepareRTLSim())
     produced_nodebynode_rtlsim = execute_onnx(model, idict)["out0"]
     assert (golden == produced_nodebynode_rtlsim).all()
+    # skip ahead to FIFO sizing, no DWCs etc needed since all PE=1
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
+    model = model.transform(InsertAndSetFIFODepths(fpga_part, target_clk_ns))
+    postfifo_optypes = [x.op_type for x in model.graph.node]
+    assert postfifo_optypes == [
+        "StreamingFIFO_rtl",
+        "MVAU_hls",
+        "StreamingFIFO_rtl",
+        "ElementwiseMul_hls",
+        "StreamingFIFO_rtl",
+        "ElementwiseAdd_hls",
+        "StreamingFIFO_rtl",
+        "ElementwiseMaximum_hls",
+        "StreamingFIFO_rtl",
+        "ElementwiseFloat2Int_hls",
+        "StreamingFIFO_rtl",
+    ]
+    # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
+    # this will only run for the new nodes (e.g. FIFOs and DWCs)
+    model = model.transform(PrepareIP(fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
     # run stitched-IP rtlsim and compare outputs
     model = model.transform(CreateStitchedIP(fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
-    produced_stichedip_rtlsim = execute_onnx(model, idict)["out0"]
+    produced_stichedip_rtlsim = execute_onnx(model, idict)["global_out"]
     assert (golden == produced_stichedip_rtlsim).all()
