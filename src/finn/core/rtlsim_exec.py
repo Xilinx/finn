@@ -213,6 +213,8 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         "NRST_NAME": "ap_rst_n",
         # TODO control tracing and trace filename
         "TRACE_FILE": top_module_name + ".wdb",
+        # code to post-process final sim status to extract more data
+        "POSTPROC_CPP": postproc_cpp,
     }
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
@@ -249,6 +251,15 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     with open(sim_base + "/run_rtlsim.sh", "w") as f:
         f.write(f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi")
     launch_process_helper(runsim_cmd, proc_env=runsim_env, cwd=sim_base)
+
+    # parse results file and return dict
+    with open(sim_base + "/results.txt", "r") as f:
+        results = f.read().strip().split("\n")
+    ret_dict = {}
+    for result_line in results:
+        key, val = result_line.split("\t")
+        ret_dict[key] = int(val)
+    return ret_dict
 
 
 def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
