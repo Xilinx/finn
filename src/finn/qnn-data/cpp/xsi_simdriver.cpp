@@ -155,6 +155,21 @@ void populate_port_map() {
     }
 }
 
+string read_signal_binstr(string name) {
+    int port_id = port_map[name];
+    int n_bits = top->get_int_property_port(port_id, xsiHDLValueSize);
+    size_t n_logicvals = roundup_int_div(n_bits, 32);
+    s_xsi_vlog_logicval *buf = new s_xsi_vlog_logicval[n_logicvals];
+    top->get_value(port_id, buf);
+    string ret = logic_val_to_string(buf, n_bits);
+    delete [] buf;
+    return ret;
+}
+
+unsigned int read_signal_uint(string name) {
+    return stoi(read_signal_binstr(name), 0, 2);
+}
+
 // set the 1-bit signal with given name to 1
 void set_bool(string name) {
     top->put_value(port_map[name], &one_val);
