@@ -122,11 +122,9 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
             "inputs" : {"<name_of_input_stream>" : <number_of_transactions>},
             "outputs" : {"<name_of_output_stream>" : <number_of_transactions>},
         }
-    Example with dummy_data = False
+    Example with dummy_data = False:
         execution_context = {
-            "inputs" : {"<name_of_input_stream>" : [list_of_input_data] },
-            # output lists will be filled with actual data on return
-            "outputs" : {"<name_of_output_stream>" : [] },
+            "<tensor_name>" : <np.ndarray>
         }
 
     The postproc_cpp optional argument can be used to inject C++ code to retrieve
@@ -151,7 +149,10 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     ), """The
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
-    io_dict, if_dict, num_out_values, o_tensor_info = prep_rtlsim_io_dict(model, execution_context)
+    if not dummy_data_mode:
+        io_dict, if_dict, num_out_values, o_tensor_info = prep_rtlsim_io_dict(
+            model, execution_context
+        )
 
     # prepare rtlsim compiled object (unless it already exists)
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
