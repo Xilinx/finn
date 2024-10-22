@@ -69,6 +69,7 @@ class HWCustomOp(CustomOp):
             "res_estimate": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            "rtlsim_backend": ("s", False, "pyverilator", {"pyverilator", "pyxsi"}),
             # partitioning info
             # ID of SLR to which the Op is attached in Vitis builds
             # Set to -1 as 'don't care'
@@ -98,8 +99,6 @@ class HWCustomOp(CustomOp):
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
-            # experimental: rtlsim backend
-            "rtlsim_backend": ("s", False, "pyverilator", {"pyverilator", "pyxsi"}),
         }
 
     def get_verilog_top_module_name(self):

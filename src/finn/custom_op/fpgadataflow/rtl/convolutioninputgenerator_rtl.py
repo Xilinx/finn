@@ -331,7 +331,12 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            io_dict = {
+                "inputs": {"in0": rtlsim_inp},
+                "outputs": {"out": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            rtlsim_output = io_dict["outputs"]["out"]
             odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

@@ -147,7 +147,12 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            output = self.rtlsim(sim, inp)
+            io_dict = {
+                "inputs": {"in0": inp},
+                "outputs": {"out": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            output = io_dict["outputs"]["out"]
             odt = DataType[self.get_nodeattr("dataType")]
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
