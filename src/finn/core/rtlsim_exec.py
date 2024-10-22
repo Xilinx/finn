@@ -112,12 +112,34 @@ def file_to_basename(x):
     return os.path.basename(os.path.realpath(x))
 
 
-def rtlsim_exec_cppxsi(model, execution_context):
-    """Use XSI to execute given model with stitched IP. The execution
-    context contains the input values.
+def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc_cpp=""):
+    """Use XSI C++ rtl simulation to execute given model with stitched IP.
+    The dummy_data_mode flag controls whether the simulation is driven by
+    dummy data or real data. The execution_context parameter must be formatted
+    according to whether dummy or real data is used.
+    Example with dummy_data = True:
+        execution_context = {
+            "inputs" : {"<name_of_input_stream>" : <number_of_transactions>},
+            "outputs" : {"<name_of_output_stream>" : <number_of_transactions>},
+        }
+    Example with dummy_data = False
+        execution_context = {
+            "inputs" : {"<name_of_input_stream>" : [list_of_input_data] },
+            # output lists will be filled with actual data on return
+            "outputs" : {"<name_of_output_stream>" : [] },
+        }
+
+    The postproc_cpp optional argument can be used to inject C++ code to retrieve
+    extra data when the simulation is finished. See the @POSTPROC_CPP@ template argument
+    in the xsi_simdriver.cpp file to see what context and functions are available.
+
     """
-    n_inputs = 1
-    max_iters = 1000
+    # TODO: support running functional rtlsim with real I/O data
+    # TODO: support running with multiple inputs/outputs
+    # TODO: rename utility fxn to remove "pyverilate", used for other backends too
+    timeout_cycles = pyverilate_get_liveness_threshold_cycles()
+
+    assert dummy_data_mode, "Only dummy_data_mode=True is supported for now"
 
     # ensure stitched ip project already exists
     assert os.path.isfile(
@@ -131,7 +153,7 @@ def rtlsim_exec_cppxsi(model, execution_context):
     trace_file = model.get_metadata_prop("rtlsim_trace")
     io_dict, if_dict, num_out_values, o_tensor_info = prep_rtlsim_io_dict(model, execution_context)
 
-    # prepare rtlsim model
+    # prepare rtlsim compiled object (unless it already exists)
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
     top_module_name = top_module_file_name.strip(".v")
@@ -153,7 +175,7 @@ def rtlsim_exec_cppxsi(model, execution_context):
     else:
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
-
+    # prepare the C++ sim driver template
     fifosim_cpp_fname = get_finn_root() + "/src/finn/qnn-data/cpp/xsi_simdriver.cpp"
     with open(fifosim_cpp_fname, "r") as f:
         fifosim_cpp_template = f.read()
@@ -168,24 +190,38 @@ def rtlsim_exec_cppxsi(model, execution_context):
     lnode_inst = getCustomOp(last_node)
     ishape_folded = fnode_inst.get_folded_input_shape()
     oshape_folded = lnode_inst.get_folded_output_shape()
+    # TODO: retrieve the number of inputs from execution_context
+    n_inputs = 1
 
+    # fill in the template arguments for sim driver
     template_dict = {
+        # number of input transactions per inference
         "ITERS_PER_INPUT": np.prod(ishape_folded[:-1]),
+        # number of output transactions per inference
         "ITERS_PER_OUTPUT": np.prod(oshape_folded[:-1]),
+        # number of inferences
         "N_INPUTS": n_inputs,
-        "MAX_ITERS": max_iters,
+        # max number of cycles to wait for output activity before timeout
+        "MAX_ITERS": timeout_cycles,
+        # name of the top-level HDL module
         "TOP_MODULE_NAME": top_module_name,
+        # names of the top-level AXI streams and signals
+        # TODO retrieve stream and signal names from model
+        "INSTREAM_NAME": "s_axis_0",
+        "OUTSTREAM_NAME": "m_axis_0",
+        "CLK_NAME": "ap_clk",
+        "NRST_NAME": "ap_rst_n",
+        # TODO control tracing and trace filename
+        "TRACE_FILE": top_module_name + ".wdb",
     }
-
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
-
     with open(sim_base + "/rtlsim_xsi.cpp", "w") as f:
         f.write(fifosim_cpp_template)
 
     vivado_incl_dir = get_vivado_root() + "/data/xsim/include"
     xsi_include_dir = get_finn_root() + "/deps/pyxsi/src"
-
+    # launch g++ to compile the rtlsim executable
     build_cmd = [
         "g++",
         f"-I{xsi_include_dir}",
@@ -199,19 +235,19 @@ def rtlsim_exec_cppxsi(model, execution_context):
         "-ldl",
         "-lrt",
     ]
+    # write compilation command to a file for easy re-running/debugging
     with open(sim_base + "/compile_rtlsim.sh", "w") as f:
         f.write(" ".join(build_cmd))
-
     launch_process_helper(build_cmd, cwd=sim_base)
-
     assert os.path.isfile(sim_base + "/rtlsim_xsi"), "Failed to compile rtlsim executable"
+
+    # launch the rtlsim executable
+    # important to specify LD_LIBRARY_PATH here for XSI to work correctly
     runsim_env = os.environ.copy()
     runsim_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
     runsim_cmd = ["./rtlsim_xsi"]
-
     with open(sim_base + "/run_rtlsim.sh", "w") as f:
         f.write(f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi")
-
     launch_process_helper(runsim_cmd, proc_env=runsim_env, cwd=sim_base)
 
 
