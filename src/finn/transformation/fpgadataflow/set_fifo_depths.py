@@ -363,7 +363,6 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-
         if self.force_python_sim:
             # do rtlsim in Python for FIFO sizing
             # calculate input frequency (number of cycles for each input word)
@@ -437,6 +436,8 @@ class InsertAndSetFIFODepths(Transformation):
                 sim = verilator_fifosim(model, n_inferences)
             elif backend in ["xsi", "pyxsi"]:
                 sim = xsi_fifosim(model, n_inferences)
+            else:
+                assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
@@ -491,6 +492,15 @@ class InsertAndSetFIFODepths(Transformation):
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+        # clean up references to stitched IP and rtlsim objects
+        # (the stitched IP needs to be re-done after FIFO sizing)
+        model.set_metadata_prop("rtlsim_trace", "")
+        model.set_metadata_prop("rtlsim_so", "")
+        model.set_metadata_prop("vivado_stitch_proj", "")
+        model.set_metadata_prop("wrapper_filename", "")
+        model.set_metadata_prop("vivado_stitch_vlnv", "")
+        model.set_metadata_prop("vivado_stitch_ifnames", "")
 
         # reflect final values in attributes
         for node in model.graph.node:
