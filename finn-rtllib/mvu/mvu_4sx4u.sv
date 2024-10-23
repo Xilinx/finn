@@ -533,9 +533,9 @@ module mvu_4sx4u #(
 						typedef logic signed [$clog2(1+LEAVE_LOAD[n]):0]  sum_t;
 						uwire sum_t  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
 						if((0 < n) && (n <= HI_NODE_REGISTERED)) begin
-							sum_t  S = 'x;
+							sum_t  S = 0;
 							always_ff @(posedge clk) begin
-								if(rst)  S <= 'x;
+								if(rst)  S <= 0;
 								else     S <= s;
 							end
 							assign	tree[n] = S;
@@ -550,7 +550,7 @@ module mvu_4sx4u #(
 						else if(en) begin
 							automatic logic signed [HI_WIDTH:0]  h = $signed(L[PIPELINE_DEPTH-1]? 0 : Hi4) + $signed(tree[0]);
 							assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
-								$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
+								$error("%m [%0d:%0d]: Accumulation overflow for ACCU_WIDTH=%0d", c, i, ACCU_WIDTH);
 								$stop;
 							end
 							Hi4 <= h;
