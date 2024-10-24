@@ -34,7 +34,10 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, List, Optional
 
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
+from finn.transformation.fpgadataflow.vitis_build import (
+    VitisOptStrategy,
+    VivadoImplStrategy,
+)
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
@@ -74,6 +77,15 @@ class VitisOptStrategyCfg(str, Enum):
     PERFORMANCE_BEST = "performance_best"
     SIZE = "size"
     BUILD_SPEED = "quick"
+
+
+class VivadoImplStrategyCfg(str, Enum):
+    "Values applicable to VitisBuild Vivado implementation strategy"
+
+    ALL = "ALL"
+    DEFAULT = "'Vivado Implementation Defaults'"
+    PERFORMANCE_BALANCESLR = "Performance_BalanceSLRs"
+    PERFORMANCE_HIGHUTILSLR = "Performance_HighUtilSLRs"
 
 
 class LargeFIFOMemStyle(str, Enum):
@@ -306,6 +318,10 @@ class DataflowBuildConfig:
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
 
+    #: Vivado implementation strategy
+    #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    vivado_impl_strategy: Optional[VivadoImplStrategy] = VivadoImplStrategy.DEFAULT
+
     #: Whether intermediate ONNX files will be saved during the build process.
     #: These can be useful for debugging if the build fails.
     save_intermediate_models: Optional[bool] = True
@@ -399,6 +415,16 @@ class DataflowBuildConfig:
             VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
         }
         return name_to_strategy[self.vitis_opt_strategy]
+
+    def _resolve_vivado_impl_strategy(self):
+        # convert human-readable enum to value expected by v++
+        name_to_strategy = {
+            VivadoImplStrategyCfg.ALL: VivadoImplStrategy.ALL,
+            VivadoImplStrategyCfg.DEFAULT: VivadoImplStrategy.DEFAULT,
+            VivadoImplStrategyCfg.PERFORMANCE_BALANCESLR: VivadoImplStrategy.PERFORMANCE_BALANCESLR,
+            VivadoImplStrategyCfg.PERFORMANCE_HIGHUTILSLR: VivadoImplStrategy.PERFORMANCE_HIGHUTILSLR,  # noqa
+        }
+        return name_to_strategy[self.vivado_impl_strategy]
 
     def _resolve_vitis_platform(self):
         if self.vitis_platform is not None:
