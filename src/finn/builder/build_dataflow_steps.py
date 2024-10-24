@@ -121,6 +121,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
@@ -503,6 +504,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth())
         model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(RoundAndClipThresholds())
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes())
     return model
