@@ -28,6 +28,7 @@
 
 import numpy as np
 import os
+import shutil
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
@@ -145,38 +146,17 @@ class MVAU_rtl(MVAU, RTLBackend):
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
+    def code_generation_ipi(self):
+        return MVAU.code_generation_ipi(self)
+
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-            rtllib_dir + "mvu_vvu_axi.sv",
-            rtllib_dir + "replay_buffer.sv",
-            rtllib_dir + "mvu_4sx4u.sv",
-            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
-            rtllib_dir + "mvu_8sx8u_dsp48.sv",
-        ]
-        for f in sourcefiles:
-            cmd.append("add_files -norecurse %s" % (f))
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled":
-            cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s"
-                % (
-                    self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                    self.onnx_node.name,
-                )
-            )
+        vlnv = self.get_nodeattr("ip_vlnv")
+        node_name = self.onnx_node.name
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
-            cmd.append(
-                "create_bd_cell -type hier -reference %s %s"
-                % (
-                    self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                )
-            )
+            cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
@@ -256,10 +236,16 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        sourcefiles = [
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
+        for f in sourcefiles:
+            shutil.copy(f, code_gen_dir)
 
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
