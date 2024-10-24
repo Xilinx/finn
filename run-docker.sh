@@ -102,6 +102,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SINGULARITY=""}
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
+: ${FINN_DOCKER_NO_CACHE="0"}
 
 DOCKER_INTERACTIVE=""
 
@@ -190,12 +191,18 @@ if [ -d "$FINN_XRT_PATH" ];then
   export LOCAL_XRT=1
 fi
 
+if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
+  export NO_CACHE_STRING="--no-cache"
+else
+  export NO_CACHE_STRING=""
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA $NO_CACHE_STRING .
   cd $OLD_PWD
 fi
 
