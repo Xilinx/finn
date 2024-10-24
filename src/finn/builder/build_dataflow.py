@@ -41,26 +41,8 @@ from finn.builder.build_dataflow_config import (
     default_build_dataflow_steps,
 )
 from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
-
-
-# adapted from https://stackoverflow.com/a/39215961
-class StreamToLogger(object):
-    """
-    Fake file-like stream object that redirects writes to a logger instance.
-    """
-
-    def __init__(self, logger, level):
-        self.logger = logger
-        self.level = level
-        self.linebuf = ""
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.level, line.rstrip())
-
-    def flush(self):
-        pass
-
+from finn.util.logger import finn_logger
+logger = finn_logger.get_logger(__name__)
 
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
     steps = cfg.steps
@@ -110,56 +92,31 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     """
     # if start_step is specified, override the input model
     if cfg.start_step is None:
-        print("Building dataflow accelerator from " + model_filename)
+        logger.info("Building dataflow accelerator from " + model_filename)
         model = ModelWrapper(model_filename)
     else:
         intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
-        print(
+        logger.info(
             "Building dataflow accelerator from intermediate checkpoint"
             + intermediate_model_filename
         )
         model = ModelWrapper(intermediate_model_filename)
     assert type(model) is ModelWrapper
-    finn_build_dir = os.environ["FINN_BUILD_DIR"]
-
-    print("Intermediate outputs will be generated in " + finn_build_dir)
-    print("Final outputs will be generated in " + cfg.output_dir)
-    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
     step_num = 1
     time_per_step = dict()
     build_dataflow_steps = resolve_build_steps(cfg)
-    # set up logger
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(asctime)s] %(message)s",
-        filename=cfg.output_dir + "/build_dataflow.log",
-        filemode="a",
-    )
-    log = logging.getLogger("build_dataflow")
-    stdout_logger = StreamToLogger(log, logging.INFO)
-    stderr_logger = StreamToLogger(log, logging.ERROR)
-    stdout_orig = sys.stdout
-    stderr_orig = sys.stderr
+
     for transform_step in build_dataflow_steps:
         try:
             step_name = transform_step.__name__
-            print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
-            # redirect output to logfile
-            if not cfg.verbose:
-                sys.stdout = stdout_logger
-                sys.stderr = stderr_logger
-                # also log current step name to logfile
-                print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
+            logger.info("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
             # run the step
             step_start = time.time()
             model = transform_step(model, cfg)
             step_end = time.time()
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
             time_per_step[step_name] = step_end - step_start
             chkpt_name = "%s.onnx" % (step_name)
             if cfg.save_intermediate_models:
@@ -168,24 +125,21 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
                     os.makedirs(intermediate_model_dir)
                 model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
             step_num += 1
-        except:  # noqa
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
+        except Exception as e:  # noqa
             # print exception info and traceback
-            extype, value, tb = sys.exc_info()
-            traceback.print_exc()
+            logger.error(f"Exception in {__name__} after {elapsed_time:.4f} seconds: {e}", exc_info=True)
+
             # start postmortem debug if configured
             if cfg.enable_build_pdb_debug:
                 pdb.post_mortem(tb)
             else:
-                print("enable_build_pdb_debug not set in build config, exiting...")
-            print("Build failed")
+                logger.error("enable_build_pdb_debug not set in build config, exiting...")
+            logger.error("Build failed")
             return -1
 
     with open(cfg.output_dir + "/time_per_step.json", "w") as f:
         json.dump(time_per_step, f, indent=2)
-    print("Completed successfully")
+    logger.info("Completed successfully")
     return 0
 
 
