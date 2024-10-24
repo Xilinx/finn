@@ -94,16 +94,16 @@ class InsertDWC(Transformation):
                                     in_idx = idx
                             assert in_idx is not None, "Malformed model"
                             n1_in_shape = n1.get_folded_input_shape(in_idx)
+                            dwc_out_width = n1.get_instream_width(in_idx)
                         else:
                             # use default folded input shape
                             n1_in_shape = n1.get_folded_input_shape()
+                            dwc_out_width = n1.get_instream_width()
 
                         if n0_out_shape[-1] != n1_in_shape[-1]:
                             graph_modified = True
                             # determine dwc inwidth
                             dwc_in_width = n0.get_outstream_width()
-                            # determine dwc outwidth
-                            dwc_out_width = n1.get_instream_width()
                             node_optype = "StreamingDataWidthConverter"
 
                             # determine shape for dwc
