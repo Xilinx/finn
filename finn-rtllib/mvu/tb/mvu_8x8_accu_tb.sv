@@ -31,7 +31,7 @@
  * @brief	Testbench for MVU core compute kernel.
  *****************************************************************************/
 
-module mvu_accu_tb;
+module mvu_8x8_accu_tb;
 
 	localparam	IS_MVU = 1;
 	localparam	COMPUTE_CORE = "mvu_8sx8u_dsp48";
@@ -61,7 +61,7 @@ module mvu_accu_tb;
 	end
 
 	logic [WEIGHT_WIDTH-1:0]  WeightMem[MH*MW];
-	initial  $readmemh("mvu_accu_tb.dat", WeightMem);
+	initial  $readmemh("mvu_8x8_accu_tb.dat", WeightMem);
 
 	// Shared Input Feed
 	logic [INPUT_STREAM_WIDTH_BA-1:0]  in_TDATA;
@@ -159,4 +159,4 @@ module mvu_accu_tb;
 		end
 	end
 
-endmodule : mvu_accu_tb
+endmodule : mvu_8x8_accu_tb
