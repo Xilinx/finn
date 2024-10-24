@@ -80,7 +80,14 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                     steps = T.shape[-1]
                     new_min = bias
                     new_max = steps + bias
-                    odt = DataType.get_smallest_possible(steps).name.replace("UINT", "INT")
+
+                    # Allows the signedness to change depending on the new
+                    # output range [new_min,new_max]
+                    if abs(new_min) > abs(new_max):
+                        odt = DataType.get_smallest_possible(new_min).name
+                    else:
+                        odt = DataType.get_smallest_possible(new_max).name
+
                     odt = DataType[odt]
                     assert odt.allowed(new_max) and odt.allowed(
                         new_min
