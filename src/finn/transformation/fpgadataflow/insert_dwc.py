@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -110,12 +109,15 @@ class InsertDWC(Transformation):
                             # determine shape for dwc
                             dwc_shape = n0.get_normal_output_shape()
 
-                            # determine dtype for dwc
+                            # determine FINN dtype for dwc
                             dtype = n0.get_output_datatype()
+                            # determine onnx tensor dtype for dwc
+                            n0_otensor = model.get_tensor_valueinfo(output_name)
+                            n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
 
                             dwc_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
-                                TensorProto.FLOAT,
+                                n0_tensor_dtype,
                                 dwc_shape,
                             )
                             graph.value_info.append(dwc_output_tensor)
