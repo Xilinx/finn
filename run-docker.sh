@@ -192,7 +192,7 @@ if [ -d "$FINN_XRT_PATH" ];then
 fi
 
 if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
-  FINN_DOCKER_BUILD_EXTRA+="--no-cache"
+  FINN_DOCKER_BUILD_EXTRA+="--no-cache "
 fi
 
 # Build the FINN Docker image
