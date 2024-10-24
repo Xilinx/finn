@@ -165,6 +165,7 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyverilator")
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (

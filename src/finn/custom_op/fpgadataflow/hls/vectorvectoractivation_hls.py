@@ -208,10 +208,13 @@ class VVAU_hls(VVAU, HLSBackend):
                     "inputs": {"in0": inp, "weights": wei * num_w_reps},
                     "outputs": {"out": []},
                 }
-                self.rtlsim_multi_io(sim, io_dict)
-                output = io_dict["outputs"]["out"]
             else:
-                output = self.rtlsim(sim, inp)
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

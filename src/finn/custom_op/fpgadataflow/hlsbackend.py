@@ -32,6 +32,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
+import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 from finn.util.hls import CallHLS
@@ -65,8 +66,15 @@ class HLSBackend(ABC):
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
-        # default impl only returns the HLS verilog codegen dir
-        return [verilog_path]
+        subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+        # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir
+        # if it exists
+        ret = [verilog_path]
+        if os.path.isdir(subcore_verilog_path):
+            ret += [subcore_verilog_path]
+        return ret
 
     def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
@@ -87,25 +95,39 @@ class HLSBackend(ABC):
         for this node, sets the rtlsim_so attribute to its path and returns
         a PyVerilator wrapper around it."""
 
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
-        tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
-        target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
-        make_single_source_file(verilog_files, target_file)
+        if rtlsim_backend == "pyverilator":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+            tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
+            target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
+            make_single_source_file(verilog_files, target_file)
 
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            self.get_verilog_top_module_name() + ".v",
-            build_dir=tmp_build_dir,
-            verilog_path=[single_src_dir],
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
+            # build the Verilator emu library
+            sim = PyVerilator.build(
+                self.get_verilog_top_module_name() + ".v",
+                build_dir=tmp_build_dir,
+                verilog_path=[single_src_dir],
+                trace_depth=get_rtlsim_trace_depth(),
+                top_module_name=self.get_verilog_top_module_name(),
+            )
+            # save generated lib filename in attribute
+            self.set_nodeattr("rtlsim_so", sim.lib._name)
+        elif rtlsim_backend == "pyxsi":
+            ret = pyxsi_rpcclient.compile_sim_obj(
+                self.get_verilog_top_module_name(), verilog_files, single_src_dir
+            )
+            # save generated lib filename in attribute
+            self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
+            # TODO return val of this function is never used
+            # refactor s.t. it does not return anything at all,
+            # consistently between pyverilator and pyxsi
+            sim = None
+        else:
+            assert False, "Unknown rtlsim_backend"
+
         return sim
 
     def code_generation_ipgen(self, model, fpgapart, clk):

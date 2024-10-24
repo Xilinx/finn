@@ -457,6 +457,7 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     partitioned_model = partitioned_model.transform(CreateStitchedIP(part, 5))
     # set top-level prop for stitched-ip rtlsim and launch
     partitioned_model.set_metadata_prop("exec_mode", "rtlsim")
+    partitioned_model.set_metadata_prop("rtlsim_backend", "pyverilator")
     # transpose input since we're now simulating HW layers (NCHW --> NHWC)
     input_dict["global_in"] = np.transpose(input_dict["global_in"], (0, 2, 3, 1))
     output_vvau_stitched = oxe.execute_onnx(

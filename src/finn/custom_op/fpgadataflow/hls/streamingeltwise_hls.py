@@ -130,7 +130,12 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp0, rtlsim_inp1)
+            io_dict = {
+                "inputs": {"in0": rtlsim_inp0, "in1": rtlsim_inp1},
+                "outputs": {"out": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            rtlsim_output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

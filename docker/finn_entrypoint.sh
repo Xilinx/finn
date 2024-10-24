@@ -105,6 +105,21 @@ else
   fi
 fi
 
+if [ -z "${XILINX_VIVADO}" ]; then
+  yecho "pyxsi will be unavailable since Vivado was not found"
+else
+  if [ -f "${FINN_ROOT}/deps/pyxsi/pyxsi.so" ]; then
+    gecho "Found pyxsi at ${FINN_ROOT}/deps/pyxsi/pyxsi.so"
+  else
+    OLDPWD=$(pwd)
+    cd ${FINN_ROOT}/deps/pyxsi
+    touch .dockerenv
+    make
+    cd $OLDPWD
+  fi
+  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi:${FINN_ROOT}/deps/pyxsi/py
+fi
+
 if [ -f "$HLS_PATH/settings64.sh" ];then
   # source Vitis HLS env.vars
   source $HLS_PATH/settings64.sh
@@ -129,6 +144,7 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
     mkdir "$HOME/.Xilinx/Vivado/"
     cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
     gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+
   else
     yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
   fi
