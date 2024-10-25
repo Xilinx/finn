@@ -76,11 +76,14 @@ class RTLBackend(ABC):
         return sim
 
     def get_verilog_paths(self):
+        """Returns path to code gen directory. Can be overwritten to
+        return additional paths to relevant verilog files"""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         return [code_gen_dir]
 
     @abstractmethod
     def get_rtl_file_list(self):
+        """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
     @abstractmethod

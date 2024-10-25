@@ -290,6 +290,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         return verilog_files
 
     def get_verilog_paths(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
+        verilog_paths = super().get_verilog_paths()
+        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
         return verilog_paths
