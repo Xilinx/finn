@@ -646,6 +646,8 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
             CreateStitchedIP(
@@ -658,6 +660,16 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         # TODO copy all ip sources into output dir? as zip?
         copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
+
+        if cfg.stitched_ip_gen_dcp:
+            copy(
+                model.get_metadata_prop("vivado_synth_rpt"),
+                report_dir + "/post_synth_resources_dcp.xml",
+            )
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources_dcp.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
+
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -671,8 +683,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )
         if cfg.verify_save_rtlsim_waveforms:
-            report_dir = cfg.output_dir + "/report"
-            os.makedirs(report_dir, exist_ok=True)
             verify_model.set_metadata_prop("rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir))
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
@@ -816,7 +826,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
 
             post_synth_resources = model.analysis(post_synth_res)
-            with open(report_dir + "/post_synth_resources.json", "w") as f:
+            with open(report_dir + "/post_synth_resources_oocimpl.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
 
             vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
