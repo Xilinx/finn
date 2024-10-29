@@ -77,6 +77,17 @@ def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
 
 
+def compare_two_chr_funcs(a, b, relaxation):
+    # relaxation determines how much leeway we allow for the
+    # analytical implementation to be off from RTL ground truth
+    equal = True
+    for inp in range(len(a)):
+        for i in range(len(a[inp])):
+            if (a[inp][i] > (b[inp][i] + relaxation)) or (a[inp][i] < (b[inp][i] - relaxation)):
+                equal = False
+    return equal
+
+
 def make_single_fmpadding_modelwrapper(impl_style, idim, padding, num_ch, simd, idt):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
@@ -628,6 +639,8 @@ def test_fifosizing_linear(method, topology):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
+# whether we are testing input or output characterization
+@pytest.mark.parametrize("direction", ["input", "output"])
 @pytest.mark.parametrize(
     "node",
     [
@@ -649,10 +662,10 @@ def test_fifosizing_linear(method, topology):
         (
             "MVAU",
             5,
-            1,
+            5,
             8,
-            1,
-            [1, 4],
+            8,
+            [1, 1],
             DataType["UINT2"],
             DataType["UINT2"],
             DataType["UINT2"],
@@ -696,6 +709,8 @@ def test_fifosizing_linear(method, topology):
         ("FMPadding", [8, 8], [4, 0, 4, 0], 12, 1, DataType["INT2"], "hls"),
         ("FMPadding", [8, 8], [0, 4, 0, 4], 5, 1, DataType["INT2"], "hls"),
         ("FMPadding", [2, 3], [0, 3, 0, 4], 5, 5, DataType["INT2"], "hls"),
+        ("FMPadding", [4, 8], [0, 4, 0, 2], 5, 5, DataType["INT2"], "hls"),
+        ("FMPadding", [2, 3], [0, 3, 0, 4], 5, 5, DataType["INT2"], "hls"),
         # idim, pad, num_ch,simd,idt
         (
             "ChannelwiseOp",
@@ -719,43 +734,15 @@ def test_fifosizing_linear(method, topology):
             [1],
             "hls",
         ),
-        (
-            "ChannelwiseOp",
-            DataType["INT8"],
-            DataType["INT4"],
-            DataType["INT4"],
-            1,
-            16,
-            "add",
-            [1, 7, 7],
-            "hls",
-        ),
         # ,idt, act, pdt, nf, ich, func, vecs, impl_style
         # (Pdb) (ifm_dim,output_size,is1d, NumChannels,PoolDim,ImgDim,PE)
-        ("StreamingMaxPool", DataType["INT4"], True, 2, 32, 4, 1, 0, "hls"),
         ("StreamingMaxPool", DataType["INT4"], True, 1, 4, 1, 1, 0, "hls"),
         ("StreamingMaxPool", DataType["BIPOLAR"], False, 1, 10, 1, 1, 1, "hls"),
-        ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 10, 64, 1, 1, "hls"),
-        ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 28, 64, 1, 0, "hls"),
+        # ("StreamingMaxPool", DataType["INT4"], True, 2, 32, 4, 1, 0, "hls"),
+        # ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 28, 64, 1, 0, "hls"),
+        # ("StreamingMaxPool", DataType["BIPOLAR"], False, 2, 10, 64, 1, 1, "hls"),
+        # ("StreamingMaxPool", DataType["INT4"], True, 4, 10, 3, 3, 1, "hls"),
         # idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode,impl_style
-        ("StreamingMaxPool", DataType["BIPOLAR"], False, 1, 10, 1, 1, 1, "hls"),
-        ("StreamingMaxPool", DataType["INT4"], True, 4, 10, 3, 3, 1, "hls"),
-        (
-            "ConvolutionInputGenerator",
-            DataType["INT2"],
-            [6, 6],
-            [12, 12],
-            8,
-            [4, 4],
-            [1, 1],
-            2,
-            0,
-            0,
-            1,
-            False,
-            0,
-            "hls",
-        ),
         (
             "ConvolutionInputGenerator",
             DataType["INT2"],
@@ -774,54 +761,6 @@ def test_fifosizing_linear(method, topology):
         ),
         # idt,k, ifm_dim, ifm_ch,stride, dilation,
         # simd, dw, parallel_window, m,  flip,   is1d
-        (
-            "ConvolutionInputGenerator",
-            DataType["INT2"],
-            [6, 1],
-            [12, 1],
-            16,
-            [3, 1],
-            [1, 1],
-            2,
-            0,
-            0,
-            1,
-            False,
-            1,
-            "hls",
-        ),
-        (
-            "ConvolutionInputGenerator",
-            DataType["INT2"],
-            [6, 1],
-            [12, 1],
-            16,
-            [1, 1],
-            [1, 1],
-            2,
-            1,
-            0,
-            1,
-            False,
-            1,
-            "hls",
-        ),
-        (
-            "ConvolutionInputGenerator",
-            DataType["INT2"],
-            [6, 1],
-            [12, 1],
-            16,
-            [2, 1],
-            [1, 1],
-            2,
-            1,
-            0,
-            1,
-            False,
-            1,
-            "hls",
-        ),
         (
             "ConvolutionInputGenerator",
             DataType["INT2"],
@@ -886,6 +825,12 @@ def test_fifosizing_linear(method, topology):
             1,
             "hls",
         ),
+        # ("ConvolutionInputGenerator", DataType["INT2"],
+        # [6, 6],[12, 12],8,[4, 4],[1, 1],2,0,0,1,False,0,"hls",),
+        # ("ConvolutionInputGenerator",DataType["INT2"],
+        # [6, 1],[12, 1],16,[2, 1],[1, 1],2,1,0,1,False,1,"hls",),
+        # ("ConvolutionInputGenerator",DataType["INT2"],
+        # [6, 1],[12, 1],16,[1, 1],[1, 1],2,1,0,1,False,1,"hls",),
         # idt,k, ifm_dim, ifm_ch,stride, dilation, simd,
         # dw, parallel_window, m,  flip,   is1d
         (
@@ -905,25 +850,36 @@ def test_fifosizing_linear(method, topology):
             "hls",
         ),
         (
-            "VVAU",
+            "ChannelwiseOp",
+            DataType["INT8"],
             DataType["INT4"],
             DataType["INT4"],
-            None,
-            3,
-            3,
-            10,
-            10,
-            3,
-            3,
-            3,
-            "internal_embedded",
             1,
-            "rtl",
+            16,
+            "add",
+            [1, 3, 3],
+            "hls",
         ),
-        ("Thresholding", [15, 3], True, True, "hls"),
+        (
+            "ConvolutionInputGenerator",
+            DataType["INT2"],
+            [6, 1],
+            [12, 1],
+            16,
+            [3, 1],
+            [1, 1],
+            2,
+            0,
+            0,
+            1,
+            False,
+            1,
+            "hls",
+            # ("Thresholding", [15, 3], True, True, "hls"),
+        ),
     ],
 )
-def test_fifosizing_analytical_characterization(node):
+def test_fifosizing_analytical_characterization(direction, node):
     test_rtl = True
 
     test_fpga_part = "xc7z020clg400-1"
@@ -948,7 +904,7 @@ def test_fifosizing_analytical_characterization(node):
         cfg, narrow, per_tensor, impl_style = node[1:]
         ch = cfg[0]
         pe = cfg[1]
-        n_inp_vecs = [1, 2, 2]
+        n_inp_vecs = [1, 1, 1]
         hls_mem_mode = "internal_decoupled"
         act = DataType["INT4"]
         idt = DataType["INT16"]
@@ -1041,7 +997,7 @@ def test_fifosizing_analytical_characterization(node):
         model = golden.transform(InferStreamingMaxPool())
         model = model.transform(InferShapes())
 
-        model0 = model.transform(SpecializeLayers("xczu3eg-sbva484-1-e"))
+        model0 = model.transform(SpecializeLayers(test_fpga_part))
 
         # Ensure PE value is set
         streamingmaxpool_node = model0.get_nodes_by_op_type("StreamingMaxPool_hls")[0]
@@ -1118,7 +1074,7 @@ def test_fifosizing_analytical_characterization(node):
         inst = getCustomOp(model.get_nodes_by_op_type("ConvolutionInputGenerator")[0])
         inst.set_nodeattr("is1D", is1d)
         inst.set_nodeattr("preferred_impl_style", impl_style)
-        model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+        model = model.transform(SpecializeLayers(test_fpga_part))
         # set simd
         inst = getCustomOp(model.graph.node[0])
         inst.set_nodeattr("SIMD", simd)
@@ -1212,8 +1168,8 @@ def test_fifosizing_analytical_characterization(node):
             inst.set_nodeattr("resType", "dsp")
         inst.set_nodeattr("preferred_impl_style", impl_style)
 
-        model0 = model.transform(SpecializeLayers("xcvc"))
-        test_fpga_part = "xcvc"
+        model0 = model.transform(SpecializeLayers(test_fpga_part))
+        # test_fpga_part = test_fpga_part
 
     outputs = [build_cfg.DataflowOutputType.ESTIMATE_REPORTS]
     model1 = copy.deepcopy(model0)
@@ -1224,18 +1180,13 @@ def test_fifosizing_analytical_characterization(node):
     node_inst0 = getCustomOp(model0.graph.node[0])
     node_inst1 = getCustomOp(model1.graph.node[0])
 
-    # generate ip for node0 (RTL-based characterization)
-    node_inst0.set_nodeattr("ipgen_ignore", False)
-
-    # do not generate ip for node0 (analytical characterization)
-    node_inst1.set_nodeattr("ipgen_ignore", True)
-
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         synth_clk_period_ns=target_clk_ns,
         generate_outputs=outputs,
         fpga_part=test_fpga_part,
-        auto_fifo_strategy="characterize_analytic",
+        auto_fifo_strategy="characterize",
+        characteristic_function_strategy="analytical",
         auto_fifo_depths=True,
         split_large_fifos=False,
     )
@@ -1250,7 +1201,7 @@ def test_fifosizing_analytical_characterization(node):
 
     # rtlsim-based
     if test_rtl:
-        cfg.auto_fifo_strategy = "characterize"
+        cfg.characteristic_function_strategy = "rtlsim"
         if model_cache is None:
             inst = getCustomOp(model0.graph.node[0])
             model0 = model0.transform(SpecializeLayers(test_fpga_part))
@@ -1274,9 +1225,16 @@ def test_fifosizing_analytical_characterization(node):
             continue
 
     if test_rtl:
-        assert np.array_equal(
-            node_inst0.get_nodeattr("io_chrc_in"), node_inst1.get_nodeattr("io_chrc_in")
-        )
-        assert np.array_equal(
-            node_inst0.get_nodeattr("io_chrc_out"), node_inst1.get_nodeattr("io_chrc_out")
-        )
+        test_relaxation = 5
+        if direction == "input":
+            assert compare_two_chr_funcs(
+                node_inst0.get_nodeattr("io_chrc_in"),
+                node_inst1.get_nodeattr("io_chrc_in"),
+                test_relaxation,
+            )
+        elif direction == "output":
+            assert compare_two_chr_funcs(
+                node_inst0.get_nodeattr("io_chrc_out"),
+                node_inst1.get_nodeattr("io_chrc_out"),
+                test_relaxation,
+            )

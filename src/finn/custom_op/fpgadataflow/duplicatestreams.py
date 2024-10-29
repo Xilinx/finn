@@ -166,7 +166,9 @@ class DuplicateStreams(HWCustomOp):
             )
         return intf_names
 
-    def derive_characteristic_fxns(self, period):
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -174,4 +176,7 @@ class DuplicateStreams(HWCustomOp):
             },
             "outputs": {"out0": [], "out1": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

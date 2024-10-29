@@ -68,10 +68,6 @@ class PrepareRTLSim(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                # find out if the node should be ignored
-                ignore = inst.get_nodeattr("ipgen_ignore")
-                if ignore:
-                    return (node, False)
                 inst.prepare_rtlsim()
                 # ensure that executable path is now set
                 assert (

@@ -34,7 +34,8 @@ from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import make_build_dir, pyverilate_get_liveness_threshold_cycles
+from finn.util.fpgadataflow import is_hls_node
 
 try:
     from pyverilator import PyVerilator
@@ -98,8 +99,6 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_out": ("i", False, 0),
             "io_chrc_in_concat": ("t", False, np.asarray([], dtype=np.int32)),
             "io_chrc_out_concat": ("t", False, np.asarray([], dtype=np.int32)),
-            # flag to ignore the ip generation of this node
-            "ipgen_ignore": ("i", False, 0),
         }
 
     def get_verilog_top_module_name(self):
@@ -365,11 +364,155 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        print("deriving characteristic func")
+        if override_dict is None:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict = {
+                "inputs": {
+                    "in0": [0 for i in range(n_inps)],
+                },
+                "outputs": {"out": []},
+            }
+        else:
+            io_dict = override_dict
+
+        if strategy == "analytical":
+            # check for override function
+            prepare_kwargs_for_characteristic_fx = getattr(
+                self, "prepare_kwargs_for_characteristic_fx", None
+            )
+            if callable(prepare_kwargs_for_characteristic_fx):
+                # Analytical flow
+                self.derive_characteristic_fxns_analytically(period, io_dict=io_dict)
+                return
+
+        # RTL-based flow
+        self.derive_characteristic_fxns_rtlsim(
+            model, period, fpga_part, clk_period, io_dict=io_dict
+        )
+
+    def derive_characteristic_fxns_analytically(self, period, io_dict):
+        # Analytical flow
+
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+
+        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+
+        self.set_nodeattr("io_chrc_period", period)
+
+        txn_in = []
+        txn_out = []
+
+        # INPUT
+
+        counter = 0
+        padding = 0
+
+        kwargs = self.prepare_kwargs_for_characteristic_fx()
+
+        # first period
+        cycles = 0
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
+
+        txn_in += [counter] * (period - cycles)
+        padding += period - cycles
+
+        # second period
+        cycles = period
+        txn_in, cycles, counter = self.characteristic_fx_input(txn_in, cycles, counter, kwargs)
+
+        txn_in += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
+
+        # final assignments
+        all_txns_in[0, :] = np.array(txn_in[: period * 2])
+        self.set_nodeattr("io_chrc_in", all_txns_in)
+        self.set_nodeattr("io_chrc_pads_in", padding)
+
+        # OUTPUT
+
+        counter = 0
+        cycles = 0
+        padding = 0
+
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
+
+        txn_out += [counter] * (period - cycles)
+        padding += period - cycles
+
+        cycles = period
+
+        txn_out, cycles, counter = self.characteristic_fx_output(txn_out, cycles, counter, kwargs)
+
+        txn_out += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
+
+        all_txns_out[0, :] = np.array(txn_out[: period * 2])
+        self.set_nodeattr("io_chrc_out", all_txns_out)
+        self.set_nodeattr("io_chrc_pads_out", padding)
+
+    def derive_characteristic_fxns_rtlsim(self, model, period, fpga_part, clk_period, io_dict=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
+        if self.get_nodeattr("rtlsim_so") == "":
+            # generate the IP for this node
 
-        assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
+            # lazy construction of prepare_ip step
+            node = self.onnx_node
+            op_type = node.op_type
+            # get the path of the code generation directory
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            # ensure that there is a directory
+            if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
+                code_gen_dir = make_build_dir(prefix="code_gen_ipgen_" + str(self.name) + "_")
+                self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
+                # ensure that there is generated code inside the dir
+                self.code_generation_ipgen(model, fpga_part, clk_period)
+
+            # lazy construction of hlssynthip step
+            if is_hls_node(node):
+                # ensure that code is generated
+                try:
+                    assert (
+                        self.get_nodeattr("code_gen_dir_ipgen") != ""
+                    ), """Node
+                    attribute "code_gen_dir_ipgen" is empty. Please run
+                    transformation PrepareIP first."""
+                    if not os.path.isdir(self.get_nodeattr("ipgen_path")) or not self.get_nodeattr(
+                        "code_gen_dir_ipgen"
+                    ) in self.get_nodeattr("ipgen_path"):
+                        # call the compilation function for this node
+                        self.ipgen_singlenode_code()
+                    else:
+                        warnings.warn("Using pre-existing IP for %s" % self.name)
+                    # ensure that executable path is now set
+                    assert (
+                        self.get_nodeattr("ipgen_path") != ""
+                    ), """Transformation
+                    HLSSynthIP was not successful. Node attribute "ipgen_path"
+                    is empty."""
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+                # lazy construction of prepare rtlsim step
+
+                try:
+                    self.prepare_rtlsim()
+                    # ensure that executable path is now set
+                    assert (
+                        self.get_nodeattr("rtlsim_so") != ""
+                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        # assert , "rtlsim not ready for " + self.onnx_node.name
         if self.get_nodeattr("io_chrc_period") > 0:
             warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
             return
@@ -389,15 +532,6 @@ class HWCustomOp(CustomOp):
         sim = self.get_rtlsim()
         # signal name
         sname = "_" + self.hls_sname() + "_"
-        if override_rtlsim_dict is not None:
-            io_dict = override_rtlsim_dict
-        else:
-            io_dict = {
-                "inputs": {
-                    "in0": [0 for i in range(n_inps)],
-                },
-                "outputs": {"out": []},
-            }
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
@@ -452,6 +586,8 @@ class HWCustomOp(CustomOp):
         all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
         all_pad_in = []
         all_pad_out = []
+        pad_in = 0
+        pad_out = 0
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
             if len(txn_in) < period:

@@ -52,9 +52,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None, manual_bypass=False):
+    def __init__(
+        self, model, period, strategy, fpga_part, clk_period, num_workers=None, manual_bypass=False
+    ):
         super().__init__(num_workers=num_workers)
+        self.model = model
         self.period = period
+        self.strategy = strategy
+        self.fpga_part = fpga_part
+        self.clk_period = clk_period
         self.manual_bypass = manual_bypass
 
     def applyNodeLocal(self, node):
@@ -63,8 +69,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                print(inst.get_nodeattr("ipgen_ignore"))
-                inst.derive_characteristic_fxns(period=self.period)
+
+                inst.derive_characteristic_fxns(
+                    model=self.model,
+                    period=self.period,
+                    strategy=self.strategy,
+                    fpga_part=self.fpga_part,
+                    clk_period=self.clk_period,
+                    op_type=op_type,
+                )
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)

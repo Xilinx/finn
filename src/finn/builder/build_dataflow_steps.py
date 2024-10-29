@@ -550,12 +550,13 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     print("ENTERED STEP FIFO DEPTHS")
     if cfg.auto_fifo_depths:
-        if cfg.auto_fifo_strategy in ["characterize_analytic", "characterize"]:
+        if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
 
-            if cfg.auto_fifo_strategy == "characterize_analytic":
+            """
+            if cfg.characteristic_function_strategy == :
                 # RTL sim only the nodes which are not supported right now with
                 # analytic characteristic derivations.
                 # To do this, we first check if the characteristic
@@ -575,10 +576,20 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             model = model.transform(HLSSynthIP())
             model = model.transform(PrepareRTLSim())
+
+            """
             model = model.transform(AnnotateCycles())
 
-            period = int(model.analysis(dataflow_performance)["max_cycles"] * 3)
-            model = model.transform(DeriveCharacteristic(period))
+            period = int(model.analysis(dataflow_performance)["max_cycles"] * 3 + 10)
+            model = model.transform(
+                DeriveCharacteristic(
+                    model,
+                    period,
+                    cfg.characteristic_function_strategy,
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                )
+            )
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
@@ -650,11 +661,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.split_large_fifos:
         model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
-
-    # FIFO sizing is done, we can allow all ipgen again
-    for node in model.graph.node:
-        node_inst = getCustomOp(node)
-        node_inst.set_nodeattr("ipgen_ignore", False)
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)

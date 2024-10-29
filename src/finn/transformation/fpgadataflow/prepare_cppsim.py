@@ -47,10 +47,6 @@ def _codegen_single_node(node, model):
         # lookup op_type in registry of CustomOps
         inst = registry.getCustomOp(node)
 
-        # find out if the node should be ignored
-        ignore = inst.get_nodeattr("ipgen_ignore")
-        if ignore:
-            return
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory
