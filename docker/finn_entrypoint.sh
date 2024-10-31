@@ -59,12 +59,13 @@ recho () {
 mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
 pip install --user -e ${FINN_ROOT}/deps/qonnx
 mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
-# finn-experimental
-pip install --user -e ${FINN_ROOT}/deps/finn-experimental
-# brevitas
-pip install --user -e ${FINN_ROOT}/deps/brevitas
-# pyverilator
-pip install --user -e ${FINN_ROOT}/deps/pyverilator
+
+cat <(tail -n +3 python_repos.txt) | while IFS=',' read -a arr ; do
+    # extract line to $arr as array separated by ','
+    pip install --user -e ${FINN_ROOT}/deps/"${arr[0]}"
+done
+
+
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
