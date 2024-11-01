@@ -789,21 +789,6 @@ class VVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -922,3 +907,90 @@ class VVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        if "hls" in self.onnx_node.name:
+            impl_style = "hls"
+        else:
+            impl_style = "rtl"
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        Channels = self.get_nodeattr("Channels")
+        Kernel_2 = np.prod(self.get_nodeattr("Kernel"))
+        NF = int(Channels / PE)
+        SF = Kernel_2
+        numReps = np.prod(self.get_nodeattr("Dim"))
+        TOTAL_FOLD = NF * SF * numReps
+
+        if impl_style == "rtl":
+            TOTAL_FOLD = int(TOTAL_FOLD / SIMD)
+
+        kwargs = (NF, SF, SIMD, TOTAL_FOLD, impl_style)
+
+        # assert True==False
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        # Compute one period of the input characteristic function
+
+        (NF, SF, SIMD, TOTAL_FOLD, impl_style) = kwargs
+
+        # input
+        for i in range(0, TOTAL_FOLD):
+            txns.append(counter)
+            counter += 1
+            cycles += 1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        # Compute one period of the output characteristic function
+
+        (NF, SF, SIMD, TOTAL_FOLD, impl_style) = kwargs
+        sf = 0
+        if impl_style == "hls":
+            windup = 5
+        else:
+            windup = 7
+
+        for i in range(0, windup):
+            txns.append(counter)
+            cycles += 1
+
+        # first input period
+        # txn_in[0:bursts] = np.arange(0,bursts)
+        for i in range(0, TOTAL_FOLD + 1):
+            if sf == SF:
+                counter += 1
+                sf = 0
+            sf += 1
+            # txn_in[cycles] = p_in
+            txns.append(counter)
+            cycles += 1
+        # p = bursts
+
+        return txns, cycles, counter
+
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            # num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [0 for i in range(1 * n_weight_inps)]
+
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

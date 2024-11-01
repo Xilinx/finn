@@ -184,3 +184,52 @@ class LabelSelect(HWCustomOp):
         pe = self.get_nodeattr("PE")
         exp_cycles = nlabels / pe
         return int(exp_cycles)
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+
+        num_in_words = self.get_nodeattr("Labels")
+        PE = self.get_nodeattr("PE")
+        K = self.get_nodeattr("K")
+
+        kwargs = (num_in_words, PE, K)
+
+        # assert True==False
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        # Compute one period of the input characteristic function
+
+        (num_in_words, PE, K) = kwargs
+
+        # input
+        for i in range(0, int(num_in_words / PE) + 1):
+            txns.append(counter)
+            counter += 1
+            cycles += 1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        # Compute one period of the output characteristic function
+
+        (num_in_words, PE, K) = kwargs
+
+        windup_clocks = 4
+        for i in range(0, windup_clocks):
+            txns.append(counter)
+            cycles += 1
+
+        # first output period, computing Labels
+        for i in range(0, int(num_in_words / PE + K)):
+            txns.append(counter)
+            cycles += 1
+
+        # output the K labels which got selected
+        for j in range(0, K):
+            txns.append(counter)
+            cycles += 1
+            counter += 1
+
+        return txns, cycles, counter

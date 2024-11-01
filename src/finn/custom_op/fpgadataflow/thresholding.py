@@ -264,3 +264,40 @@ class Thresholding(HWCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        NumChannels = self.get_nodeattr("NumChannels")
+        PE = self.get_nodeattr("PE")
+        reps = 1
+        ImgDim = int(np.prod(list(self.get_nodeattr("numInputVectors"))))
+        NF = int(NumChannels / PE)
+
+        TOTAL_ITERATIONS = reps * ImgDim * NF
+
+        kwargs = (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF)
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF) = kwargs
+        for i in range(0, TOTAL_ITERATIONS):
+            txns.append(counter)
+            counter += 1
+            cycles += 1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF) = kwargs
+
+        windup = 6
+        for i in range(0, windup):
+            txns.append(counter)
+            cycles += 1
+        # first input period
+        for i in range(0, TOTAL_ITERATIONS):
+            txns.append(counter)
+            counter += 1
+            cycles += 1
+
+        return txns, cycles, counter

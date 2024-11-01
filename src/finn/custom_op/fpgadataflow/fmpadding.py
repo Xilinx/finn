@@ -170,3 +170,59 @@ class FMPadding(HWCustomOp):
             inp_values, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
         )
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        ImgDim = self.get_nodeattr("ImgDim")
+        Padding = self.get_nodeattr("Padding")
+        NewDim = [ImgDim[0] + Padding[0] + Padding[2], ImgDim[1] + Padding[1] + Padding[3]]
+        NumChannels = self.get_nodeattr("NumChannels")
+        SIMD = self.get_nodeattr("SIMD")
+        TOTAL_ELS = np.prod(NewDim)
+        NF = int(NumChannels / SIMD)
+
+        # assert True == False
+        kwargs = (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF)
+
+        # assert True==False
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        # Compute one period of the input characteristic function
+
+        (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF) = kwargs
+
+        for y in range(0, NewDim[0]):
+            for x in range(0, NewDim[1]):
+                for k in range(NF):
+                    txns.append(counter)
+                    if (
+                        Padding[0] <= y
+                        and (y < (NewDim[0] - Padding[2]))
+                        and Padding[1] <= x
+                        and (x < (NewDim[1] - Padding[3]))
+                    ):
+                        counter += 1
+                    cycles += 1
+                if NF == 1:  # loop end delay when fully unrolled
+                    txns.append(counter)
+                    cycles += 1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        # Compute one period of the output characteristic function
+
+        (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF) = kwargs
+
+        for i in range(0, TOTAL_ELS):
+            for j in range(NF):
+                txns.append(counter)
+                counter += 1
+                cycles += 1
+            if NF == 1:  # loop end delay when fully unrolled
+                txns.append(counter)
+                cycles += 1
+
+        return txns, cycles, counter

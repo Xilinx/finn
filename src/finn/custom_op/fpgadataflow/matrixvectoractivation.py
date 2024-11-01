@@ -840,21 +840,6 @@ class MVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -973,3 +958,84 @@ class MVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        MW = self.get_nodeattr("MW")
+        MH = self.get_nodeattr("MH")
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        numVectors = np.prod(self.get_nodeattr("numInputVectors"))
+        BURST_SIZE = int(MW / SIMD)
+        BURST_COUNT = int(MH / PE)
+
+        kwargs = (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors)
+
+        return kwargs
+
+    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+        (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors) = kwargs
+
+        tracker = 0
+        maximum = numVectors * BURST_SIZE
+
+        if numVectors > 1:
+            for i in range(2):
+                txns.append(counter)
+                counter += 1
+                cycles += 1
+                tracker += 1
+
+        for k in range(numVectors):
+            for j in range(BURST_SIZE):
+                if tracker < maximum:
+                    txns.append(counter)
+                    counter += 1
+                    cycles += 1
+                    tracker += 1
+
+            for i in range(BURST_COUNT - 1):
+                for j in range(BURST_SIZE):
+                    txns.append(counter)
+                    cycles += 1
+
+        return txns, cycles, counter
+
+    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+        (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors) = kwargs
+
+        windup_clocks = 3
+
+        for i in range(0, windup_clocks):
+            txns.append(counter)
+            cycles += 1
+
+        for k in range(numVectors):
+            for i in range(BURST_COUNT):
+                for j in range(BURST_SIZE):
+                    txns.append(counter)
+                    cycles += 1
+                counter += 1
+
+        return txns, cycles, counter
+
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            # num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [0 for i in range(1 * n_weight_inps)]
+
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
