@@ -208,7 +208,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         weight_width = self.get_input_datatype(1).bitwidth()
 
         if dsp_block == "DSP58":
-            return "mvu_vvu_8sx9_dsp58"
+            if act_width <= 4 and weight_width <= 4:
+                return "mvu_4sx4u_dsp48e2"
+            else:
+                return "mvu_vvu_8sx9_dsp58"
         else:
             if act_width <= 4 and weight_width <= 4:
                 if dsp_block == "DSP48E1":
