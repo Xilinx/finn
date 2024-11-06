@@ -89,7 +89,7 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
         if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code1(weight_tensor, export_wdt, "weights", True, True)
+            weight_hls_code = numpy_to_hls_code1(weight_tensor, export_wdt, "weights", False, True)
             # write weights into C++ header file as dictated by finn-hlslib
             f_weights = open(weight_file_name, "w")
             f_weights.write(
@@ -116,23 +116,20 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
-        # assert orig_weight_matrix.shape == (
-        #     k_h * k_w * ifm_ch,
-        #     ofm_ch,
-        # ), """Weights matrix doesn't
-        # have expected shape (k_h*k_w*ifm_ch, ofm_ch)"""
+        assert orig_weight_matrix.shape == (
+            ofm_ch, k_h, k_w, ifm_ch
+        ), """Weights matrix doesn't
+        have expected shape (ofm_ch, k_h, k_w, ifm_ch)"""
         assert ofm_ch % pe == 0, "Requirement output channels divisable by PE is violated."
         assert ifm_ch % simd == 0, "Requirement input channels divisable by SIMD is violated."
         # interleave rows between PEs and reshape
         # distribute rows between PEs
         ret = orig_weight_matrix
-        ret = ret.flatten()
-        # breakpoint()
-        # ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        # create SIMD as innermost dimension and add a dummy outer dim
+        ret = ret.reshape(ofm_ch, k_h * k_w * ifm_ch)
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        # create SIMD as innermost dimension
         ret = ret.reshape(1, pe, wmem, simd)
-        # reverse the SIMD dimension
-        ret = np.flip(ret, axis=-1)
+        ret = ret.transpose(0, 2, 1, 3)
         return ret
 
     def global_includes(self):
@@ -199,11 +196,12 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         odtype = self.get_output_datatype()
         pe = self.get_nodeattr("PE")
         ishape = self.get_normal_input_shape()
+        oshape = self.get_normal_output_shape()
         self.code_gen_dict["$DOCOMPUTE$"] = [
             "hls::stream<hls::vector<{},{}>> strm;".format(odtype.get_hls_datatype_str(), pe)
         ]
         self.code_gen_dict["$DOCOMPUTE$"].append("unsigned  timeout = 0;")
-        self.code_gen_dict["$DOCOMPUTE$"].append("while(timeout < %s) {" % np.prod(ishape))
+        self.code_gen_dict["$DOCOMPUTE$"].append("while(timeout < %s) {" % (2 * np.prod(oshape)))
         self.code_gen_dict["$DOCOMPUTE$"].append(
             """deconv<Kernel, Stride, Padding, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
             (weights, in0_{}, out_{});""".format(

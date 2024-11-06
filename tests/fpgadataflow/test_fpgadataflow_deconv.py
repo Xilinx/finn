@@ -41,22 +41,11 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hw_layers import (
-    InferConvInpGen,
-    InferQuantizedMatrixVectorActivation,
-)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
-    InferPixelPaddingDeconv,
-)
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -139,8 +128,6 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
         ],
     )
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, ofm_ch])
-
-    # W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch * k * k, ofm_ch])
     W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, k, k, ifm_ch])
 
     Deconv = helper.make_node(
@@ -181,8 +168,6 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
     model.set_tensor_datatype(model.graph.output[0].name, odt)
     model.set_tensor_datatype("W", wdt)
 
-    # w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch * k * k, ofm_ch])
-    # w_tensor = w_tensor.reshape(ifm_ch * k * k, ofm_ch)
     w_tensor = w_tensor.transpose(1, 2, 3, 0)
     model.set_initializer("W", w_tensor)
 
@@ -200,13 +185,13 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
 # number of channels
 @pytest.mark.parametrize("ofm_ch", [6])
 # Input parallelism
-@pytest.mark.parametrize("simd", [1])
+@pytest.mark.parametrize("simd", [1,2,4])
 # PE
-@pytest.mark.parametrize("pe", [1])
+@pytest.mark.parametrize("pe", [1,3,6])
 # kernel size
-@pytest.mark.parametrize("k", [2])
+@pytest.mark.parametrize("k", [2,4])
 # padding
-@pytest.mark.parametrize("padding", [0])
+@pytest.mark.parametrize("padding", [0,1,2])
 # exec mode
 @pytest.mark.parametrize("exec_mode", ["cppsim"])
 @pytest.mark.fpgadataflow
