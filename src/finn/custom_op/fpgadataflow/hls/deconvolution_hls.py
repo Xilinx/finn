@@ -198,7 +198,7 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
     def docompute(self):
         odtype = self.get_output_datatype()
         pe = self.get_nodeattr("PE")
-        ishape = self.get_normal_input_shape()
+        # ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         self.code_gen_dict["$DOCOMPUTE$"] = [
             "hls::stream<hls::vector<{},{}>> strm;".format(odtype.get_hls_datatype_str(), pe)
