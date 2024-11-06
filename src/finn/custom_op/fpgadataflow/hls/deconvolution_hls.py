@@ -117,7 +117,10 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
         assert orig_weight_matrix.shape == (
-            ofm_ch, k_h, k_w, ifm_ch
+            ofm_ch,
+            k_h,
+            k_w,
+            ifm_ch,
         ), """Weights matrix doesn't
         have expected shape (ofm_ch, k_h, k_w, ifm_ch)"""
         assert ofm_ch % pe == 0, "Requirement output channels divisable by PE is violated."

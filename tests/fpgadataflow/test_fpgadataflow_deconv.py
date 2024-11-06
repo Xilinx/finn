@@ -141,7 +141,7 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
         OFMChannels=ofm_ch,
         IFMDim=idim,
         Stride=[stride_h, stride_w],
-        Padding = [padding, padding],
+        Padding=[padding, padding],
         PE=1,
         SIMD=1,
         inputDataType=idt.name,
@@ -185,13 +185,13 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
 # number of channels
 @pytest.mark.parametrize("ofm_ch", [6])
 # Input parallelism
-@pytest.mark.parametrize("simd", [1,2,4])
+@pytest.mark.parametrize("simd", [1, 2, 4])
 # PE
-@pytest.mark.parametrize("pe", [1,3,6])
+@pytest.mark.parametrize("pe", [1, 3, 6])
 # kernel size
-@pytest.mark.parametrize("k", [2,4])
+@pytest.mark.parametrize("k", [2, 4])
 # padding
-@pytest.mark.parametrize("padding", [0,1,2])
+@pytest.mark.parametrize("padding", [0, 1, 2])
 # exec mode
 @pytest.mark.parametrize("exec_mode", ["cppsim"])
 @pytest.mark.fpgadataflow
@@ -204,7 +204,9 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     idim_h, idim_w = idim
     stride_h, stride_w = stride
 
-    ref_model, w_tensor = set_up_reference_model(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding)
+    ref_model, w_tensor = set_up_reference_model(
+        idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding
+    )
     model = create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, w_tensor)
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
