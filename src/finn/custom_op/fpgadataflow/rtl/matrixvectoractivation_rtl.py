@@ -285,8 +285,21 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         return template_path, code_gen_dict
 
-    def get_rtl_file_list(self):
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+        verilog_files = [
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper.v",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
         return verilog_files
 
     def get_verilog_paths(self):
