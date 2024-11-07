@@ -109,24 +109,26 @@ def write_signal(handle, signal_name, signal_value):
     rpc_proxy.write_signal(sim_id, signal_name, signal_value_str)
 
 
-def reset_rtlsim(handle, rst_name="ap_rst_n", active_low=True, clk_name="ap_clk"):
+def reset_rtlsim(
+    handle, rst_name="ap_rst_n", active_low=True, clk_name="ap_clk", clk2x_name="ap_clk2x"
+):
     (sim_id, rpc_proxy, _, _) = handle
-    rpc_proxy.reset_rtlsim(sim_id, rst_name, active_low, clk_name)
+    rpc_proxy.reset_rtlsim(sim_id, rst_name, active_low, clk_name, clk2x_name)
 
 
-def toggle_clk(handle, clk_name="ap_clk"):
+def toggle_clk(handle, clk_name="ap_clk", clk2x_name="ap_clk2x"):
     (sim_id, rpc_proxy, _, _) = handle
-    rpc_proxy.toggle_clk(sim_id, clk_name)
+    rpc_proxy.toggle_clk(sim_id, clk_name, clk2x_name)
 
 
-def toggle_neg_edge(handle, clk_name="ap_clk"):
+def toggle_neg_edge(handle, clk_name="ap_clk", clk2x_name="ap_clk2x"):
     (sim_id, rpc_proxy, _, _) = handle
-    rpc_proxy.toggle_neg_edge(sim_id, clk_name)
+    rpc_proxy.toggle_neg_edge(sim_id, clk_name, clk2x_name)
 
 
-def toggle_pos_edge(handle, clk_name="ap_clk"):
+def toggle_pos_edge(handle, clk_name="ap_clk", clk2x_name="ap_clk2x"):
     (sim_id, rpc_proxy, _, _) = handle
-    rpc_proxy.toggle_pos_edge(sim_id, clk_name)
+    rpc_proxy.toggle_pos_edge(sim_id, clk_name, clk2x_name)
 
 
 def rtlsim_multi_io(
@@ -137,6 +139,8 @@ def rtlsim_multi_io(
     liveness_threshold=10000,
     hook_preclk=None,
     hook_postclk=None,
+    clk_name="ap_clk",
+    clk2x_name="ap_clk2x",
 ):
     for outp in io_dict["outputs"]:
         write_signal(handle, outp + sname + "TREADY", 1)
@@ -157,7 +161,7 @@ def rtlsim_multi_io(
         if hook_preclk:
             hook_preclk(handle)
         # Toggle falling edge to arrive at a delta cycle before the rising edge
-        toggle_neg_edge(handle)
+        toggle_neg_edge(handle, clk_name=clk_name, clk2x_name=clk2x_name)
 
         # examine signals, decide how to act based on that but don't update yet
         # so only read_signal access in this block, no _write_signal
@@ -191,7 +195,7 @@ def rtlsim_multi_io(
             signals_to_write[signal_name + "TDATA"] = inputs[0] if len(inputs) > 0 else 0
 
         # Toggle rising edge to arrive at a delta cycle before the falling edge
-        toggle_pos_edge(handle)
+        toggle_pos_edge(handle, clk_name=clk_name, clk2x_name=clk2x_name)
 
         for k, v in signals_to_write.items():
             write_signal(handle, k, v)

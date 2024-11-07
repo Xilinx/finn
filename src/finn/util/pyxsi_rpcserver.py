@@ -86,24 +86,24 @@ def write_signal(sim_id, signal_name, signal_value_str):
     pyxsi_utils._write_signal(sim, signal_name, signal_value)
 
 
-def reset_rtlsim(sim_id, rst_name, active_low, clk_name):
+def reset_rtlsim(sim_id, rst_name, active_low, clk_name, clk2x_name):
     sim = sim_id_to_obj[sim_id]
-    pyxsi_utils.reset_rtlsim(sim, rst_name, active_low, clk_name)
+    pyxsi_utils.reset_rtlsim(sim, rst_name, active_low, clk_name, clk2x_name)
 
 
-def toggle_clk(sim_id, clk_name):
+def toggle_clk(sim_id, clk_name, clk2x_name):
     sim = sim_id_to_obj[sim_id]
-    pyxsi_utils.toggle_clk(sim, clk_name)
+    pyxsi_utils.toggle_clk(sim, clk_name, clk2x_name)
 
 
-def toggle_neg_edge(sim_id, clk_name):
+def toggle_neg_edge(sim_id, clk_name, clk2x_name):
     sim = sim_id_to_obj[sim_id]
-    pyxsi_utils.toggle_neg_edge(sim, clk_name)
+    pyxsi_utils.toggle_neg_edge(sim, clk_name, clk2x_name)
 
 
-def toggle_pos_edge(sim_id, clk_name):
+def toggle_pos_edge(sim_id, clk_name, clk2x_name):
     sim = sim_id_to_obj[sim_id]
-    pyxsi_utils.toggle_pos_edge(sim, clk_name)
+    pyxsi_utils.toggle_pos_edge(sim, clk_name, clk2x_name)
 
 
 def close_rtlsim(sim_id):
