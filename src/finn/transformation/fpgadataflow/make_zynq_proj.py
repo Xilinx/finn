@@ -322,7 +322,7 @@ class ZynqBuild(Transformation):
         prep_transforms = [
             InsertIODMA(self.axi_port_width),
             InsertDWC(),
-            SpecializeLayers(),
+            SpecializeLayers(self.fpga_part),
             Floorplan(),
             CreateDataflowPartition(partition_model_dir=self.partition_model_dir),
         ]
@@ -338,7 +338,7 @@ class ZynqBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(SpecializeLayers())
+            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
             kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))

@@ -69,11 +69,3 @@ def is_rtl_node(node):
                     is_node = True
 
     return is_node
-
-
-def is_versal(fpgapart):
-    """Returns whether board is part of the Versal family"""
-    return (
-        fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
-        or fpgapart[0:5] == "xqrvc"
-    )

@@ -34,3 +34,6 @@ Contributors
 * Shashwat Khandelwal (@shashwat1198)
 * Ian Colbert (@i-colbert)
 * Rachit Garg (@rstar900)
+* Christoph Berganski (@iksnagreb)
+* Jonas Kuehle (@vopade)
+* Aditya S (@Adityasrinivas24)
