@@ -42,9 +42,17 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import (
+    GiveRandomTensorNames,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
+)
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.builder.build_dataflow as build
@@ -361,6 +369,199 @@ def make_single_dw_conv_modelwrapper(conv_config, idt, wdt):
     return model
 
 
+def make_conv_building_block(ifm_dim, ch, kernel_size, simd, pe, parallel_window=0):
+    # hardcoded parameters
+    idt = DataType["UINT4"]
+    wdt = DataType["UINT4"]
+    odt = DataType["UINT4"]
+    tdt = DataType["UINT32"]
+    stride = 1
+    in_ch = out_ch = ch  # input channel = output channel for stacking
+    pad = int(np.floor(kernel_size / 2))  # pad so that input dim = output dim for stacking
+
+    total_pad = 2 * pad
+    out_feature_dim = compute_conv_output_dim(ifm_dim, kernel_size, stride, total_pad)
+    weights_shape = [in_ch * kernel_size * kernel_size, out_ch]
+    thresholds_shape = [1, odt.get_num_possible_values() - 1]
+    input_shape = [1, ifm_dim, ifm_dim, in_ch]
+    padding_out_shape = [1, ifm_dim + total_pad, ifm_dim + total_pad, in_ch]
+    inpgen_out_shape = [1, out_feature_dim, out_feature_dim, in_ch * kernel_size * kernel_size]
+    output_shape = [1, out_feature_dim, out_feature_dim, out_ch]
+
+    padding_config = {}
+    padding_config["domain"] = "finn.custom_op.fpgadataflow.rtl"
+    padding_config["backend"] = "fpgadataflow"
+    padding_config["ImgDim"] = [ifm_dim, ifm_dim]
+    padding_config["NumChannels"] = in_ch
+    padding_config["SIMD"] = simd
+    padding_config["Padding"] = [pad, pad, pad, pad]
+    padding_config["inputDataType"] = idt.name
+
+    inpgen_config = {}
+    inpgen_config["domain"] = "finn.custom_op.fpgadataflow.rtl"
+    inpgen_config["backend"] = "fpgadataflow"
+    inpgen_config["ConvKernelDim"] = [kernel_size, kernel_size]
+    inpgen_config["IFMChannels"] = in_ch
+    inpgen_config["IFMDim"] = [ifm_dim + total_pad, ifm_dim + total_pad]
+    inpgen_config["OFMDim"] = [ifm_dim, ifm_dim]
+    inpgen_config["inputDataType"] = idt.name
+    inpgen_config["outputDataType"] = idt.name
+    inpgen_config["SIMD"] = simd
+    inpgen_config["parallel_window"] = parallel_window
+    inpgen_config["Stride"] = [stride, stride]
+    inpgen_config["Dilation"] = [1, 1]
+
+    mvau_config = {}
+    mvau_config["domain"] = "finn.custom_op.fpgadataflow.hls"
+    mvau_config["backend"] = "fpgadataflow"
+    mvau_config["numInputVectors"] = [1, ifm_dim, ifm_dim]
+    mvau_config["MW"] = in_ch * kernel_size * kernel_size
+    mvau_config["MH"] = in_ch
+    mvau_config["SIMD"] = simd if parallel_window == 0 else simd * kernel_size * kernel_size
+    mvau_config["PE"] = pe
+    mvau_config["resType"] = "lut"
+    mvau_config["inputDataType"] = idt.name
+    mvau_config["weightDataType"] = wdt.name
+    mvau_config["outputDataType"] = odt.name
+
+    top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+    value_info = [
+        helper.make_tensor_value_info("weights", TensorProto.FLOAT, weights_shape),
+        helper.make_tensor_value_info("thresholds", TensorProto.FLOAT, thresholds_shape),
+        helper.make_tensor_value_info("padding_out", TensorProto.FLOAT, padding_out_shape),
+        helper.make_tensor_value_info("inpgen_out", TensorProto.FLOAT, inpgen_out_shape),
+    ]
+
+    modelproto = qonnx_make_model(
+        helper.make_graph(
+            name="building_block",
+            inputs=[top_in],
+            outputs=[top_out],
+            value_info=value_info,
+            nodes=[
+                helper.make_node("FMPadding_rtl", ["top_in"], ["padding_out"], **padding_config),
+                helper.make_node(
+                    "ConvolutionInputGenerator_rtl",
+                    ["padding_out"],
+                    ["inpgen_out"],
+                    **inpgen_config,
+                ),
+                helper.make_node(
+                    "MVAU_hls", ["inpgen_out", "weights", "thresholds"], ["top_out"], **mvau_config
+                ),
+            ],
+        )
+    )
+
+    model = ModelWrapper(modelproto)
+    model.set_tensor_datatype("top_in", idt)
+    model.set_tensor_layout("top_in", ["N", "H", "W", "C"])
+    model.set_tensor_datatype("top_out", odt)
+    model.set_tensor_datatype("weights", wdt)
+    model.set_tensor_datatype("thresholds", tdt)
+
+    weights = gen_finn_dt_tensor(wdt, weights_shape)
+    # TODO: thresholds are all the same
+    thresholds = generate_random_threshold_values(
+        tdt, out_ch, odt.get_num_possible_values() - 1, False, True
+    )
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    model.set_initializer("weights", weights)
+    model.set_initializer("thresholds", thresholds)
+
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    return model
+
+
+def combine_blocks(lb, rb, ifm_dim, ch, pe):
+    # assumes left branch (lb) and right branch (rb) each have a single (dynamic) input/output with the same shape
+    # to avoid mix-ups, start by giving all tensors random names
+    lb = lb.transform(GiveRandomTensorNames())
+    rb = rb.transform(GiveRandomTensorNames())
+    # erase all node names to avoid conflict
+    for n in lb.graph.node:
+        n.name = ""
+    for n in rb.graph.node:
+        n.name = ""
+
+    lb_input = lb.graph.input[0]
+    lb_output = lb.graph.output[0]
+    rb_input = rb.graph.input[0]
+    rb_output = rb.graph.output[0]
+
+    top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ch])
+    top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ch])
+
+    dup_config = {}
+    dup_config["domain"] = "finn.custom_op.fpgadataflow.hls"
+    dup_config["backend"] = "fpgadataflow"
+    dup_config["numInputVectors"] = [1, ifm_dim, ifm_dim]
+    dup_config["NumChannels"] = ch
+    dup_config["PE"] = pe
+    dup_config["NumOutputStreams"] = 2
+    dup_config["inputDataType"] = lb.get_tensor_datatype(lb_input.name).name
+
+    add_config = {}
+    add_config["domain"] = "finn.custom_op.fpgadataflow.hls"
+    add_config["backend"] = "fpgadataflow"
+    add_config["numInputVectors"] = [1, ifm_dim, ifm_dim]
+    add_config["NumChannels"] = ch
+    add_config["PE"] = pe
+    add_config["inputDataType"] = lb.get_tensor_datatype(lb_output.name).name
+
+    nodes_lb = [node for node in lb.graph.node]
+    nodes_rb = [node for node in rb.graph.node]
+    nodes_new = (
+        nodes_lb
+        + nodes_rb
+        + [
+            helper.make_node(
+                "DuplicateStreams_hls", ["top_in"], [lb_input.name, rb_input.name], **dup_config
+            ),
+            helper.make_node(
+                "AddStreams_hls", [lb_output.name, rb_output.name], ["top_out"], **add_config
+            ),
+        ]
+    )
+
+    value_info_lb = [x for x in lb.graph.value_info]
+    value_info_rb = [x for x in rb.graph.value_info]
+    value_info_new = value_info_lb + value_info_rb + [lb_input, lb_output, rb_input, rb_output]
+
+    initializer_lb = [x for x in lb.graph.initializer]
+    initializer_rb = [x for x in rb.graph.initializer]
+    initializer_new = initializer_lb + initializer_rb
+    modelproto = qonnx_make_model(
+        helper.make_graph(
+            name="branching_model",
+            inputs=[top_in],
+            outputs=[top_out],
+            value_info=value_info_new,
+            nodes=nodes_new,
+        )
+    )
+
+    model = ModelWrapper(modelproto)
+    model.set_tensor_datatype("top_in", lb.get_tensor_datatype(lb_input.name))
+    model.set_tensor_layout("top_in", lb.get_tensor_layout(lb_input.name))
+    for i in initializer_new:
+        model.graph.initializer.append(i)
+
+    # tidy-up
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
+    model = model.transform(GiveReadableTensorNames())
+    return model
+
+
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
     W_sparse = np.zeros((channels, channels, k_h, k_w), dtype=np.float32)
     for ch in range(channels):
@@ -634,6 +835,92 @@ def test_fifosizing_linear(method, topology):
 
     shutil.rmtree(tmp_output_dir)
     shutil.rmtree(tmp_output_dir_cmp)
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.parametrize("strategy", ["rtlsim"])  # rtlsim #analytical
+@pytest.mark.parametrize("lb_num_layers", [1])
+@pytest.mark.parametrize("rb_num_layers", [4])
+def test_fifosizing_nonlinear(strategy, lb_num_layers, rb_num_layers):
+    np.random.seed(0)
+    tmp_output_dir = make_build_dir(
+        "build_fifosizing_nonlinear_%s_%s" % (lb_num_layers, rb_num_layers)
+    )
+
+    rtlsim_n = 10
+
+    dim = 16
+    ch = 4
+
+    lb = None
+    for i in range(lb_num_layers):
+        new_block = make_conv_building_block(
+            dim, ch, kernel_size=3, simd=4, pe=4, parallel_window=1
+        )
+        lb = new_block if lb is None else lb.transform(MergeONNXModels(new_block))
+    lb.save(tmp_output_dir + "/lb.onnx")
+
+    rb = None
+    for i in range(rb_num_layers):
+        new_block = make_conv_building_block(
+            dim, ch, kernel_size=3, simd=4, pe=4, parallel_window=1
+        )
+        rb = new_block if rb is None else rb.transform(MergeONNXModels(new_block))
+    rb.save(tmp_output_dir + "/rb.onnx")
+
+    model = combine_blocks(lb, rb, dim, ch, pe=4)
+    model.save(tmp_output_dir + "/model.onnx")
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        # only works with characterization-based FIFO-sizing
+        auto_fifo_depths=True,
+        auto_fifo_strategy="characterize",
+        characteristic_function_strategy=strategy,
+        split_large_fifos=False,
+        # manual folding
+        target_fps=None,
+        # general rtlsim settings
+        force_python_rtlsim=False,
+        rtlsim_batch_size=rtlsim_n,
+        synth_clk_period_ns=10.0,
+        board="Pynq-Z1",
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+        ],
+    )
+
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+
+    with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:
+        est_data = json.load(f)
+    with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
+        sim_data = json.load(f)
+
+    # check for deadlock
+    model_final = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    first_node = getCustomOp(model_final.find_consumer(model_final.graph.input[0].name))
+    last_node = getCustomOp(model_final.find_producer(model_final.graph.output[0].name))
+    input_txns_expected = np.prod(first_node.get_folded_input_shape()[:-1]) * rtlsim_n
+    output_txns_expected = np.prod(last_node.get_folded_output_shape()[:-1]) * rtlsim_n
+    assert sim_data["N_IN_TXNS"] == input_txns_expected
+    assert sim_data["N_OUT_TXNS"] == output_txns_expected
+
+    # check rtlsim throughput
+    # TODO: how to determine N? Take throughput or stable_throughput?
+    # sim_data["stable_throughput[images/s]"]
+    assert (
+        float(sim_data["throughput[images/s]"]) / float(est_data["estimated_throughput_fps"]) > 0.9
+    )
+
+    # TODO:
+    # reduce (individual) FIFO sizes by x % and observe throughput drop or deadlock appear
+    # shutil.rmtree(tmp_output_dir)
 
 
 @pytest.mark.slow

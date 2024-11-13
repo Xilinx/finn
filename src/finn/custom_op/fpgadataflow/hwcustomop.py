@@ -469,7 +469,9 @@ class HWCustomOp(CustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # ensure that there is a directory
             if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-                code_gen_dir = make_build_dir(prefix="code_gen_ipgen_" + str(self.name) + "_")
+                code_gen_dir = make_build_dir(
+                    prefix="code_gen_ipgen_" + str(self.onnx_node.name) + "_"
+                )
                 self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
                 # ensure that there is generated code inside the dir
                 self.code_generation_ipgen(model, fpga_part, clk_period)
@@ -489,7 +491,7 @@ class HWCustomOp(CustomOp):
                         # call the compilation function for this node
                         self.ipgen_singlenode_code()
                     else:
-                        warnings.warn("Using pre-existing IP for %s" % self.name)
+                        warnings.warn("Using pre-existing IP for %s" % self.onnx_node.name)
                     # ensure that executable path is now set
                     assert (
                         self.get_nodeattr("ipgen_path") != ""
