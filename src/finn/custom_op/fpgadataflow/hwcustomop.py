@@ -41,7 +41,7 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
+import pyxsi_utils
 
 
 class HWCustomOp(CustomOp):
@@ -141,14 +141,13 @@ class HWCustomOp(CustomOp):
             # create PyVerilator wrapper
             sim = PyVerilator(rtlsim_so)
         elif rtlsim_backend == "pyxsi":
-            # load up pyXSI sim using pyxsi_rpcclient
             sim_base, sim_rel = rtlsim_so.split("xsim.dir")
             sim_rel = "xsim.dir" + sim_rel
             # pass in correct tracefile from attribute
             tracefile = self.get_nodeattr("rtlsim_trace")
             if tracefile == "default":
                 tracefile = self.onnx_node.name + ".wdb"
-            sim = pyxsi_rpcclient.load_sim_obj(sim_base, sim_rel, tracefile)
+            sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, tracefile)
         else:
             assert False, "Unknown rtlsim_backend"
 
@@ -162,7 +161,7 @@ class HWCustomOp(CustomOp):
             # no action needed
             pass
         elif rtlsim_backend == "pyxsi":
-            pyxsi_rpcclient.close_rtlsim(sim)
+            pyxsi_utils.close_rtlsim(sim)
         else:
             assert False, "Unknown rtlsim_backend"
 
@@ -231,7 +230,7 @@ class HWCustomOp(CustomOp):
             sim.io.ap_clk = 0
             sim.io.ap_rst_n = 1
         elif rtlsim_backend == "pyxsi":
-            pyxsi_rpcclient.reset_rtlsim(sim)
+            pyxsi_utils.reset_rtlsim(sim)
         else:
             assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
 
@@ -242,7 +241,7 @@ class HWCustomOp(CustomOp):
             sim.io.ap_clk = 1
             sim.io.ap_clk = 0
         elif rtlsim_backend == "pyxsi":
-            pyxsi_rpcclient.toggle_clk(sim)
+            pyxsi_utils.toggle_clk(sim)
         else:
             assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
 
@@ -265,7 +264,7 @@ class HWCustomOp(CustomOp):
                 liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
             )
         elif rtlsim_backend == "pyxsi":
-            total_cycle_count = pyxsi_rpcclient.rtlsim_multi_io(
+            total_cycle_count = pyxsi_utils.rtlsim_multi_io(
                 sim, io_dict, num_out_values, sname=sname
             )
         else:
