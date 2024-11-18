@@ -29,6 +29,7 @@
 
 import pytest
 
+import copy
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -44,7 +45,11 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import soft_verify_topk
+from finn.util.test import (
+    compare_two_chr_funcs,
+    get_characteristic_fnc,
+    soft_verify_topk,
+)
 
 
 def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
@@ -136,3 +141,53 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert soft_verify_topk(x, y, k), exec_mode + " failed"
+
+
+# which port to test
+@pytest.mark.parametrize("direction", ["input", "output"])
+@pytest.mark.parametrize("idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]])
+# labels
+@pytest.mark.parametrize("labels", [10, 100])
+# folding
+@pytest.mark.parametrize("fold", [-1, 2, 10])
+# number of top labels to select
+@pytest.mark.parametrize("k", [1, 5])
+# impl style
+@pytest.mark.parametrize("impl_style", ["hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_analytical_characterization_labelselect(
+    direction, idt, labels, fold, k, impl_style
+):
+    np.random.seed(0)
+    if fold == -1:
+        pe = 1
+    else:
+        pe = labels // fold
+    assert labels % pe == 0
+
+    if k == -1:
+        k = labels
+
+    model = make_labelselect_modelwrapper(labels, pe, k, idt, impl_style)
+    node_details = ("LabelSelect", idt, labels, fold, k, impl_style)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    allowed_chr_offset_positions = 5
+
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(model, node_details, part, target_clk_ns, "analytical")
+    node_rtlsim = get_characteristic_fnc(model_rtl, node_details, part, target_clk_ns, "rtlsim")
+    if direction == "input":
+        assert compare_two_chr_funcs(
+            node_analytical.get_nodeattr("io_chrc_in"),
+            node_rtlsim.get_nodeattr("io_chrc_in"),
+            allowed_chr_offset_positions,
+        )
+    elif direction == "output":
+        assert compare_two_chr_funcs(
+            node_analytical.get_nodeattr("io_chrc_out"),
+            node_rtlsim.get_nodeattr("io_chrc_out"),
+            allowed_chr_offset_positions,
+        )
