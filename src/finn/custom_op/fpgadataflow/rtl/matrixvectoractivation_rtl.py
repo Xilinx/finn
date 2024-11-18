@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -95,8 +94,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                 sim = self.get_rtlsim()
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                reset_rtlsim(sim)
-                toggle_clk(sim)
+                self.reset_rtlsim(sim)
+                self.toggle_clk(sim)
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()
                     export_wdt = self.get_weight_datatype()
