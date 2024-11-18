@@ -31,6 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util import pyxsi_rpcclient
 from finn.util.basic import get_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -116,6 +117,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                     }
                 self.rtlsim_multi_io(sim, io_dict)
                 output = io_dict["outputs"]["out"]
+                if self.get_nodeattr("rtlsim_backend") == "pyxsi":
+                    pyxsi_rpcclient.close_rtlsim(sim)
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
