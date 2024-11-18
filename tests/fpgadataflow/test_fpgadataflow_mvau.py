@@ -696,6 +696,7 @@ def test_fpgadataflow_rtl_mvau(
             "resType": "dsp",
             "pumpedMemory": pumpedMemory,
             "pumpedCompute": pumpedCompute,
+            "rtlsim_backend": "pyxsi",
         },
     }
     model = model.transform(ApplyConfig(folding_config))
