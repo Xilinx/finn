@@ -72,7 +72,7 @@ class HWCustomOp(CustomOp):
             "res_estimate": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
-            "rtlsim_backend": ("s", False, "pyverilator", {"pyverilator", "pyxsi"}),
+            "rtlsim_backend": ("s", False, "pyxsi", {"pyverilator", "pyxsi"}),
             # partitioning info
             # ID of SLR to which the Op is attached in Vitis builds
             # Set to -1 as 'don't care'

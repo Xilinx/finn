@@ -33,11 +33,6 @@ from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
-
 
 class AddStreams_hls(AddStreams, HLSBackend):
     """Class that corresponds to finn-hlslib AddStreams_Batch function."""
@@ -122,7 +117,6 @@ class AddStreams_hls(AddStreams, HLSBackend):
                 context[node.output[0]].shape == exp_oshape
             ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
-            rtlsim_backend = self.get_nodeattr("rtlsim_backend")
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             rtlsim_inp0 = npy_to_rtlsim_input(
@@ -131,16 +125,13 @@ class AddStreams_hls(AddStreams, HLSBackend):
             rtlsim_inp1 = npy_to_rtlsim_input(
                 "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
             )
-            if rtlsim_backend == "pyverilator":
-                super().reset_rtlsim(sim)
+            super().reset_rtlsim(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
                 super().toggle_clk(sim)
-            else:
-                pyxsi_utils.reset_rtlsim(sim)
             io_dict = {"inputs": {"in0": rtlsim_inp0, "in1": rtlsim_inp1}, "outputs": {"out": []}}
             self.rtlsim_multi_io(sim, io_dict)
             rtlsim_output = io_dict["outputs"]["out"]
-            if rtlsim_backend == "pyxsi":
-                pyxsi_utils.close_rtlsim(sim)
+            super().close_rtlsim(sim)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
