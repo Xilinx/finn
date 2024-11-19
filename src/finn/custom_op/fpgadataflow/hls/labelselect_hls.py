@@ -120,12 +120,14 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {"out": []},
             }
             self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
             rtlsim_output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()

@@ -146,12 +146,14 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": inp},
                 "outputs": {"out": []},
             }
             self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
             output = io_dict["outputs"]["out"]
             odt = DataType[self.get_nodeattr("dataType")]
             target_bits = odt.bitwidth()
@@ -253,10 +255,17 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
                 "FIFO implementation style %s not supported, please use rtl or vivado" % impl_style
             )
 
-    def get_rtl_file_list(self):
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+
         verilog_files = [
-            "Q_srl.v",
-            self.get_nodeattr("gen_top_module") + ".v",
+            rtllib_dir + "Q_srl.v",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
         return verilog_files
 
