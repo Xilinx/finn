@@ -46,7 +46,10 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-import pyxsi_utils
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def prep_rtlsim_io_dict(model, execution_context):

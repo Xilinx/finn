@@ -28,11 +28,15 @@
 
 import numpy as np
 import os
-import pyxsi_utils
 
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 class AddStreams_hls(AddStreams, HLSBackend):

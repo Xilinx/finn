@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-import pyxsi_utils
 import subprocess
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
@@ -42,6 +41,11 @@ try:
     from pyverilator import PyVerilator
 except ModuleNotFoundError:
     PyVerilator = None
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 class HLSBackend(ABC):
