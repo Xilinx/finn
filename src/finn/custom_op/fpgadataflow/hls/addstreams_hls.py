@@ -29,7 +29,7 @@
 import numpy as np
 import os
 
-import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
+import pyxsi_utils
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -131,12 +131,12 @@ class AddStreams_hls(AddStreams, HLSBackend):
                 super().reset_rtlsim(sim)
                 super().toggle_clk(sim)
             else:
-                pyxsi_rpcclient.reset_rtlsim(sim)
+                pyxsi_utils.reset_rtlsim(sim)
             io_dict = {"inputs": {"in0": rtlsim_inp0, "in1": rtlsim_inp1}, "outputs": {"out": []}}
             self.rtlsim_multi_io(sim, io_dict)
             rtlsim_output = io_dict["outputs"]["out"]
             if rtlsim_backend == "pyxsi":
-                pyxsi_rpcclient.close_rtlsim(sim)
+                pyxsi_utils.close_rtlsim(sim)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

@@ -46,7 +46,7 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
+import pyxsi_utils
 
 
 def prep_rtlsim_io_dict(model, execution_context):
@@ -164,9 +164,7 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
 
-        rtlsim_so = pyxsi_rpcclient.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir
-        )
+        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
@@ -294,26 +292,24 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
 
-        rtlsim_so = pyxsi_rpcclient.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir
-        )
+        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
         # pass in correct tracefile from attribute
         if trace_file == "default":
             trace_file = top_module_file_name + ".wdb"
-        sim = pyxsi_rpcclient.load_sim_obj(sim_base, sim_rel, trace_file)
+        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, trace_file)
     else:
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
-        sim = pyxsi_rpcclient.load_sim_obj(sim_base, sim_rel, trace_file)
+        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, trace_file)
 
     # reset and call rtlsim, including any pre/post hooks
-    pyxsi_rpcclient.reset_rtlsim(sim)
+    pyxsi_utils.reset_rtlsim(sim)
     if pre_hook is not None:
         pre_hook(sim)
-    n_cycles = pyxsi_rpcclient.rtlsim_multi_io(
+    n_cycles = pyxsi_utils.rtlsim_multi_io(
         sim,
         io_dict,
         num_out_values,
@@ -324,7 +320,7 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         post_hook(sim)
     # important to call close_rtlsim for pyxsi to flush traces and stop
     # the RPC server process
-    pyxsi_rpcclient.close_rtlsim(sim)
+    pyxsi_utils.close_rtlsim(sim)
 
     # unpack outputs and put back into execution context
     for o, o_vi in enumerate(model.graph.output):

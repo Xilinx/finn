@@ -32,7 +32,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
-import finn.util.pyxsi_rpcclient as pyxsi_rpcclient
+import pyxsi_utils
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 from finn.util.hls import CallHLS
@@ -116,7 +116,7 @@ class HLSBackend(ABC):
             # save generated lib filename in attribute
             self.set_nodeattr("rtlsim_so", sim.lib._name)
         elif rtlsim_backend == "pyxsi":
-            ret = pyxsi_rpcclient.compile_sim_obj(
+            ret = pyxsi_utils.compile_sim_obj(
                 self.get_verilog_top_module_name(), verilog_files, single_src_dir
             )
             # save generated lib filename in attribute
