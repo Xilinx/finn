@@ -28,7 +28,6 @@
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -95,8 +94,9 @@ class VVAU_rtl(VVAU, RTLBackend):
                 sim = self.get_rtlsim()
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                reset_rtlsim(sim)
-                toggle_clk(sim)
+                super().reset_rtlsim(sim)
+                if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                    super().toggle_clk(sim)
 
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()
@@ -121,6 +121,7 @@ class VVAU_rtl(VVAU, RTLBackend):
                         "outputs": {"out": []},
                     }
                 self.rtlsim_multi_io(sim, io_dict)
+                super().close_rtlsim(sim)
                 output = io_dict["outputs"]["out"]
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
@@ -277,8 +278,22 @@ class VVAU_rtl(VVAU, RTLBackend):
 
         return template_path, code_gen_dict
 
-    def get_rtl_file_list(self):
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+
+        verilog_files = [
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
         return verilog_files
 
     def get_verilog_paths(self):
