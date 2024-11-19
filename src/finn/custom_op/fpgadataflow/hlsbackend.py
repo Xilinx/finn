@@ -28,11 +28,11 @@
 
 import numpy as np
 import os
+import pyxsi_utils
 import subprocess
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
-import pyxsi_utils
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 from finn.util.hls import CallHLS
