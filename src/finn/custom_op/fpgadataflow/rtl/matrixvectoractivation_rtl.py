@@ -94,8 +94,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                 sim = self.get_rtlsim()
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                self.reset_rtlsim(sim)
-                self.toggle_clk(sim)
+                super().reset_rtlsim(sim)
+                if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                    super().toggle_clk(sim)
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()
                     export_wdt = self.get_weight_datatype()
@@ -113,6 +114,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                         "outputs": {"out": []},
                     }
                 self.rtlsim_multi_io(sim, io_dict)
+                super().close_rtlsim(sim)
                 output = io_dict["outputs"]["out"]
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
@@ -292,7 +294,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
         verilog_files = [
-            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper.v",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
             rtllib_dir + "mvu_vvu_axi.sv",
             rtllib_dir + "replay_buffer.sv",
             rtllib_dir + "mvu_4sx4u.sv",
