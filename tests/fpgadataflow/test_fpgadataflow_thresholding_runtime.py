@@ -121,6 +121,8 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
     return model
 
 
+# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
+@pytest.mark.xfail
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.parametrize(
     "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
@@ -186,7 +188,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while
     # we read/write new ones and reads seem to cause a disturbance too)
@@ -222,6 +224,8 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     assert (y == expected).all()
 
 
+# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
+@pytest.mark.xfail
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.parametrize(
     "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
@@ -300,7 +304,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while
     # we read/write new ones and reads seem to cause a disturbance too)
