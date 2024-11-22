@@ -194,8 +194,9 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     oshape_folded = lnode_inst.get_folded_output_shape()
     # TODO: retrieve the number of inputs from execution_context
     n_inputs = 1
-    # TODO determine according to presence of clk2x
-    clknames = "clk"
+    # determine according to presence of clk2x
+    is_double_pumped = eval(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] != []
+    clknames = "clk_and_clk2x" if is_double_pumped else "clk"
     # fill in the template arguments for sim driver
     template_dict = {
         # number of input transactions per inference
