@@ -363,8 +363,6 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        # TODO: needs to check if pyxsi necessary
-        model.set_metadata_prop("rtlsim_backend", "pyverilator")
 
         if self.force_python_sim:
             # do rtlsim in Python for FIFO sizing
@@ -435,9 +433,9 @@ class InsertAndSetFIFODepths(Transformation):
                 # layer pipeline due to overlaps
                 n_inferences = 2
 
-            if backend is None or backend in ["verilator", "pyverilator"]:
+            if backend in ["verilator", "pyverilator"]:
                 sim = verilator_fifosim(model, n_inferences)
-            elif backend in ["xsi", "pyxsi"]:
+            elif backend is None or backend in ["xsi", "pyxsi"]:
                 sim = xsi_fifosim(model, n_inferences)
             else:
                 assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
