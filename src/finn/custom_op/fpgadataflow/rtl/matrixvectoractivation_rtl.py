@@ -253,7 +253,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
         with open(
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
             "w",

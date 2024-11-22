@@ -193,9 +193,25 @@ inline void toggle_clk_1() {
     top->run(5);
 }
 
+inline void toggle_clk_and_clk2x_1() {
+    set_bool("@CLK_NAME@");
+    set_bool("@CLK2X_NAME@");
+    top->run(5);
+    clear_bool("@CLK2X_NAME@");
+    top->run(5);
+}
+
 // falling clock edge + low clock
 inline void toggle_clk_0() {
     clear_bool("@CLK_NAME@");
+    top->run(5);
+}
+
+inline void toggle_clk_and_clk2x_0() {
+    clear_bool("@CLK_NAME@");
+    set_bool("@CLK2X_NAME@");
+    top->run(5);
+    clear_bool("@CLK2X_NAME@");
     top->run(5);
 }
 
@@ -205,15 +221,20 @@ inline void toggle_clk() {
     toggle_clk_1();
 }
 
+inline void toggle_clk_and_clk2x() {
+    toggle_clk_and_clk2x_0();
+    toggle_clk_and_clk2x_1();
+}
+
 // apply reset to the simulation
 void reset() {
     clear_bool("@CLK_NAME@");
     clear_bool("@NRST_NAME@");
-    toggle_clk();
-    toggle_clk();
+    toggle_@CLKNAMES@();
+    toggle_@CLKNAMES@();
     set_bool("@NRST_NAME@");
-    toggle_clk();
-    toggle_clk();
+    toggle_@CLKNAMES@();
+    toggle_@CLKNAMES@();
 }
 
 int main(int argc, char *argv[]) {
@@ -264,7 +285,7 @@ int main(int argc, char *argv[]) {
         // TODO needs to be extended to non-bool signals for actual input data
         map<string, bool> signals_to_write;
         // toggle falling clock edge and drive low clock
-        toggle_clk_0();
+        toggle_@CLKNAMES@_0();
         // check for transactions on the input stream
         if(chk_bool("@INSTREAM_NAME@_tready") && chk_bool("@INSTREAM_NAME@_tvalid")) {
             n_in_txns++;
@@ -290,7 +311,7 @@ int main(int argc, char *argv[]) {
             signals_to_write["@INSTREAM_NAME@_tvalid"] = false;
         }
         // toggle rising clock edge and drive high clock
-        toggle_clk_1();
+        toggle_@CLKNAMES@_1();
         // actually write the desired signals from the map
         for (auto const& x : signals_to_write)
         {
