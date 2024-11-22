@@ -194,7 +194,8 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     oshape_folded = lnode_inst.get_folded_output_shape()
     # TODO: retrieve the number of inputs from execution_context
     n_inputs = 1
-
+    # TODO determine according to presence of clk2x
+    clknames = "clk"
     # fill in the template arguments for sim driver
     template_dict = {
         # number of input transactions per inference
@@ -212,6 +213,8 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         "INSTREAM_NAME": "s_axis_0",
         "OUTSTREAM_NAME": "m_axis_0",
         "CLK_NAME": "ap_clk",
+        "CLK2X_NAME": "ap_clk2x",
+        "CLKNAMES": clknames,
         "NRST_NAME": "ap_rst_n",
         # control tracing and trace filename
         "TRACE_FILE": "NULL" if trace_file is None else f'"{trace_file}"',
