@@ -195,7 +195,15 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     # TODO: retrieve the number of inputs from execution_context
     n_inputs = 1
     # determine according to presence of clk2x
-    is_double_pumped = eval(model.get_metadata_prop("vivado_stitch_ifnames"))["clk2x"] != []
+    ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
+    assert not (
+        ifnames is None
+    ), "Couldn't find stitched-IP interface names, did you run IP stitching first?"
+    ifnames = eval(ifnames)
+    if "clk2x" in ifnames.keys():
+        is_double_pumped = ifnames["clk2x"] != []
+    else:
+        is_double_pumped = False
     clknames = "clk_and_clk2x" if is_double_pumped else "clk"
     # fill in the template arguments for sim driver
     template_dict = {
