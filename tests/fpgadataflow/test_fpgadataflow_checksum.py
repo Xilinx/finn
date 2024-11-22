@@ -135,8 +135,6 @@ def create_two_fc_model():
     return model
 
 
-# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
-@pytest.mark.xfail
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_checksum():
