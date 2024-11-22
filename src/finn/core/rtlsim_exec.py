@@ -181,19 +181,28 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     fifosim_cpp_fname = get_finn_root() + "/src/finn/qnn-data/cpp/xsi_simdriver.cpp"
     with open(fifosim_cpp_fname, "r") as f:
         fifosim_cpp_template = f.read()
-    assert len(model.graph.input) == 1, "Only a single input stream is supported"
-    assert len(model.graph.output) == 1, "Only a single output stream is supported"
-    iname = model.graph.input[0].name
-    first_node = model.find_consumer(iname)
-    oname = model.graph.output[0].name
-    last_node = model.find_producer(oname)
-    assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
-    fnode_inst = getCustomOp(first_node)
-    lnode_inst = getCustomOp(last_node)
-    ishape_folded = fnode_inst.get_folded_input_shape()
-    oshape_folded = lnode_inst.get_folded_output_shape()
-    # TODO: retrieve the number of inputs from execution_context
-    n_inputs = 1
+
+    instream_iters = []
+    outstream_iters = []
+    for top_inp in model.graph.input:
+        iname = top_inp.name
+        first_node = model.find_consumer(iname)
+        assert first_node is not None, "Failed to find consumer for " + iname
+        fnode_inst = getCustomOp(first_node)
+        top_ind = list(first_node.input).index(iname)
+        ishape_folded = fnode_inst.get_folded_input_shape(ind=top_ind)
+        instream_iters.append(np.prod(ishape_folded[:-1]))
+    for top_out in model.graph.output:
+        oname = top_out.name
+        last_node = model.find_producer(oname)
+        assert last_node is not None, "Failed to find producer for " + oname
+        lnode_inst = getCustomOp(last_node)
+        top_ind = list(last_node.output).index(oname)
+        oshape_folded = lnode_inst.get_folded_output_shape(ind=top_ind)
+        outstream_iters.append(np.prod(oshape_folded[:-1]))
+
+    # retrieve the number of inputs from execution_context
+    n_inferences = execution_context[model.graph.input[0].name]
     # determine according to presence of clk2x
     ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
     assert not (
@@ -205,22 +214,27 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     else:
         is_double_pumped = False
     clknames = "clk_and_clk2x" if is_double_pumped else "clk"
+    instream_names = [x[0] for x in ifnames["s_axis"]]
+    instream_names_str = "{" + ", ".join(['"' + x + '"' for x in instream_names]) + "}"
+    outstream_names = [x[0] for x in ifnames["m_axis"]]
+    outstream_names_str = "{" + ", ".join(['"' + x + '"' for x in outstream_names]) + "}"
+    instream_iters_str = "{" + ", ".join([str(x) for x in instream_iters]) + "}"
+    outstream_iters_str = "{" + ", ".join([str(x) for x in outstream_iters]) + "}"
     # fill in the template arguments for sim driver
     template_dict = {
         # number of input transactions per inference
-        "ITERS_PER_INPUT": np.prod(ishape_folded[:-1]),
+        "ITERS_PER_INPUT": instream_iters_str,
         # number of output transactions per inference
-        "ITERS_PER_OUTPUT": np.prod(oshape_folded[:-1]),
+        "ITERS_PER_OUTPUT": outstream_iters_str,
         # number of inferences
-        "N_INPUTS": n_inputs,
+        "N_INFERENCES": n_inferences,
         # max number of cycles to wait for output activity before timeout
         "MAX_ITERS": timeout_cycles,
         # name of the top-level HDL module
         "TOP_MODULE_NAME": top_module_name,
         # names of the top-level AXI streams and signals
-        # TODO retrieve stream and signal names from model
-        "INSTREAM_NAME": "s_axis_0",
-        "OUTSTREAM_NAME": "m_axis_0",
+        "INSTREAM_NAME": instream_names_str,
+        "OUTSTREAM_NAME": outstream_names_str,
         "CLK_NAME": "ap_clk",
         "CLK2X_NAME": "ap_clk2x",
         "CLKNAMES": clknames,
