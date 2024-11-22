@@ -191,7 +191,10 @@ module thresholding_axi #(
 		.cfg_rack, .cfg_q,
 
 		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat,
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata)
+		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
 	);
+	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
+		assign	m_axis_tdata[$left(m_axis_tdata):PE*O_BITS] = '0;
+	end : genPadOut
 
 endmodule : thresholding_axi
