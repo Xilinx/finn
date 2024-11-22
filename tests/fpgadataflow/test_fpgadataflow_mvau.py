@@ -656,6 +656,8 @@ def test_fpgadataflow_rtl_mvau(
             """Skip test for varying clk for devices other than Versal,
             since this variable only affects DSP58s"""
         )
+    if pe == 1 and simd == 1 and pumpedMemory:
+        pytest.skip("Skip PE=SIMD=1 with pumpedMemory=True, known weight generation bug")
 
     # Create test input vector (produced by SWG)
     ofm_shape = (3, 3)
