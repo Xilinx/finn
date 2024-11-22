@@ -205,6 +205,8 @@ cfg2 = {
 }
 
 
+# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
+@pytest.mark.xfail
 @pytest.mark.parametrize("cfg", [cfg0, cfg1, cfg2])
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -290,7 +292,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # loop through experiment configurations
     for exp_cfg in exp_cfgs:
@@ -451,6 +453,8 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 
+# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
+@pytest.mark.xfail
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # kernel size
@@ -536,7 +540,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # Simulate 1 FM for each dimension in the series
     for i, ifm_dim in enumerate(ifm_dim_series):
