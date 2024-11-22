@@ -31,7 +31,7 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
+from pyxsi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -182,7 +182,7 @@ def test_fpgadataflow_checksum():
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # define function to read out the checksums from axilite
     checksums = []
