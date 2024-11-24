@@ -129,25 +129,29 @@ class MVAU(HWCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
-        in_act = context[node.input[0]]
+        # Get the input tensors
+        inp_A = context[node.input[0]]
         # ensure that shape is compatible
-        in_act = in_act.reshape(self.get_normal_input_shape())
-        mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
-        mvau_w = np_helper.to_array(mvau_w_init)
+        inp_A = inp_A.reshape(self.get_normal_input_shape())
+        if "weights" in node.input[1]:
+            mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
+            inp_B = np_helper.to_array(mvau_w_init)
+        else:
+            inp_B = context[node.input[1]]
         # Matrix multiplication
         if self.get_nodeattr("binaryXnorMode"):
             # Note: activation/weights are expected to be binary
             # (by design coming from the transformation inferring this operation mode)
-            result = xp.xnorpopcountmatmul(in_act, mvau_w)
+            result = xp.xnorpopcountmatmul(inp_A, inp_B)
         elif (
             self.get_nodeattr("inputDataType") == "BIPOLAR"
             and self.get_nodeattr("weightDataType") == "BIPOLAR"
         ):
             # Convert to binary and use xnorpopcountmatmul function
-            result = xp.xnorpopcountmatmul((in_act + 1) / 2, (mvau_w + 1) / 2)
+            result = xp.xnorpopcountmatmul((inp_A + 1) / 2, (inp_B + 1) / 2)
         else:
             # Regular matrix multiplication
-            result = np.matmul(in_act, mvau_w)
+            result = np.matmul(inp_A, inp_B)
         if self.get_nodeattr("noActivation") == 0:
             mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
             mvau_thr = np_helper.to_array(mvau_thr_init)
