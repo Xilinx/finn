@@ -131,13 +131,17 @@ class MVAU(HWCustomOp):
         node = self.onnx_node
         # Get the input tensors
         inp_A = context[node.input[0]]
-        # ensure that shape is compatible
         inp_A = inp_A.reshape(self.get_normal_input_shape())
-        if "weights" in node.input[1]:
-            mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
-            inp_B = np_helper.to_array(mvau_w_init)
+
+        if self.get_nodeattr("weightDataType") is not "":
+            if "weights" in node.input[1]:
+                mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
+                inp_B = np_helper.to_array(mvau_w_init)
+            else:
+                raise Exception("Weights tensor not found in the input")
         else:
             inp_B = context[node.input[1]]
+
         # Matrix multiplication
         if self.get_nodeattr("binaryXnorMode"):
             # Note: activation/weights are expected to be binary
