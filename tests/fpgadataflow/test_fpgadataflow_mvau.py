@@ -91,6 +91,13 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         binary_xnor_mode = 0
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+    inp_A = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, [1, mw])
+    inp_B = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, [mw, mh])
+    if wdt is None:
+        graph_inp_list = [inp_A, inp_B]
+    else:
+        graph_inp_list = [inp]
+
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     if T is not None:
         no_act = 0
@@ -99,6 +106,11 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
             actval = 0
         else:
             actval = odt.min()
+    elif wdt is None:
+        # dynamic matmul
+        node_inp_list = ["inp_A", "inp_B"]
+        actval = 0
+        no_act = 1
     else:
         # no thresholds
         node_inp_list = ["inp", "weights"]
@@ -115,30 +127,39 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         SIMD=simd,
         PE=pe,
         inputDataType=export_idt.name,
-        weightDataType=export_wdt.name,
+        weightDataType=export_wdt.name if export_wdt is not None else "",
         outputDataType=odt.name,
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
     )
     graph = helper.make_graph(
-        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
+        nodes=[FCLayer_node], name="fclayer_graph", inputs=graph_inp_list, outputs=[outp]
     )
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
-    model.set_tensor_datatype("weights", wdt)
-    if binary_xnor_mode:
-        # convert bipolar to binary
-        model.set_initializer("weights", (W + 1) / 2)
+    # Set IO Datatypes and Initializers
+    if wdt is None:
+        model.set_tensor_datatype("inp_A", idt)
+        model.set_tensor_datatype("inp_B", idt)
     else:
-        model.set_initializer("weights", W)
-    if T is not None:
-        model.set_tensor_datatype("thresh", tdt)
-        model.set_initializer("thresh", T)
+        model.set_tensor_datatype("inp", idt)
+        model.set_tensor_datatype("weights", wdt)
+        # Set Initializers
+        if binary_xnor_mode:
+            # convert bipolar to binary
+            model.set_initializer("weights", (W + 1) / 2)
+        else:
+            model.set_initializer("weights", W)
+
+        if T is not None:
+            model.set_tensor_datatype("thresh", tdt)
+            model.set_initializer("thresh", T)
+
+    model.set_tensor_datatype("outp", odt)
+
     return model
 
 
@@ -160,10 +181,16 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     return model
 
 
-def prepare_inputs(input_tensor, idt, wdt, inp_name="inp"):
+def prepare_inputs(input_tensor, idt, wdt, inp_name="inp", inp_B=None):
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert bipolar to binary
         return {inp_name: (input_tensor + 1) / 2}
+    elif wdt is None:
+        # dynamic matmul
+        if inp_B is None:
+            raise Exception("inp_B not provided for dynamic matmul")
+        else:
+            return {"inp_A": input_tensor, "inp_B": inp_B}
     else:
         return {inp_name: input_tensor}
 
