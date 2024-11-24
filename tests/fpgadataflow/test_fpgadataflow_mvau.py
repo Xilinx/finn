@@ -516,10 +516,14 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     simd = mw // sf
     assert mh % pe == 0
     assert mw % sf == 0
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-    # generate input data
-    x = gen_finn_dt_tensor(idt, (1, mw))
+    # generate inputs
+    inp_A = gen_finn_dt_tensor(idt, (1, mw))
+    if wdt is None:
+        # dynamic matmul second input
+        inp_B = gen_finn_dt_tensor(idt, (mw, mh))
+    else:
+        # This is the weight matrix
+        inp_B = gen_finn_dt_tensor(wdt, (mw, mh))
     if act is None:
         # no activation, produce accumulators
         T = None
@@ -529,6 +533,8 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         else:
             odt = DataType["INT32"]
     else:
+        if wdt is None:
+            pytest.skip("Dynamic matmul not supported")
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
         n_steps = act.get_num_possible_values() - 1
@@ -543,7 +549,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             assert (T >= 0).all()
         else:
             tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
@@ -552,12 +558,12 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
 
     # prepare input data
-    input_dict = prepare_inputs(x, idt, wdt)
+    input_dict = prepare_inputs(inp_A, idt, wdt)
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert inputs to binary and use xnorpopcountmatmul
-        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+        y = xp.xnorpopcountmatmul((inp_A + 1) / 2, (inp_B + 1) / 2)
     else:
-        y = np.matmul(x, W)
+        y = np.matmul(inp_A, inp_B)
     if T is not None:
         y = multithreshold(y, T)
         if act == DataType["BIPOLAR"]:
@@ -630,8 +636,13 @@ def test_mvau_fifocharacterize_rtlsim(
     simd = mw // sf
     assert mh % pe == 0
     assert mw % sf == 0
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    # generate inputs
+    if wdt is None:
+        # dynamic matmul second input
+        inp_B = gen_finn_dt_tensor(idt, (mw, mh))
+    else:
+        # This is the weight matrix
+        inp_B = gen_finn_dt_tensor(wdt, (mw, mh))
 
     # no activation, produce accumulators
     T = None
@@ -641,7 +652,7 @@ def test_mvau_fifocharacterize_rtlsim(
     else:
         odt = DataType["INT32"]
 
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
