@@ -258,8 +258,11 @@ class MVAU(HWCustomOp):
             raise Exception("Undefined input ind for this layer type")
 
     def get_weight_datatype(self):
-        """Returns FINN DataType of weights."""
-        return DataType[self.get_nodeattr("weightDataType")]
+        """Returns FINN DataType of weights.""" 
+        dtype = self.get_nodeattr("weightDataType")
+        if dtype is not "":
+            return DataType[dtype]
+        return ""
 
     def get_accumulator_datatype(self):
         """Returns FINN DataType of accumulator"""
