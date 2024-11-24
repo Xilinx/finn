@@ -179,6 +179,17 @@ def _determine_impl_style(node, fpgapart, model):
             )
         )
 
+def _determine_hw_op_type(node, fpgapart, model):
+    impl_style = _determine_impl_style(node, fpgapart, model)
+
+    # There are some variants of MVAU that are only supported in RTL
+    if impl_style == "rtl" and node.op_type == "MVAU":
+        inst = getCustomOp(node)
+        weight = inst.get_weight_datatype()
+        if weight is "":
+            return "DynMVAU_rtl", impl_style
+
+    return node.op_type + "_" + impl_style, impl_style
 
 def _dwc_determine_impl_style(node):
     # when possible use rtl variant
@@ -244,25 +255,28 @@ def _mvu_rtl_possible(n, fpgapart, model):
     if no_activation or not_binaryxnor_mode:
         return False
 
-    # check if weights are signed, if not return False
+    # if there are weights, make sure they are supported
     wdt = node_inst.get_weight_datatype()
-    if not wdt.signed():
-        return False
+    if wdt is not "":
+        if not wdt.signed():
+            return False
+        # check which dsp block is available on fpga
+        dsp_block = get_dsp_block(fpgapart)
+        # check if weights are narrow
+        weights = model.get_initializer(n.input[1])
+        narrow_weights = False if np.min(weights) == wdt.min() else True
+        # if non narrow weights and only DSP48E1 available return False
+        if not narrow_weights and dsp_block == "DSP48E1":
+            return False
 
-    # check which dsp block is available on fpga
-    dsp_block = get_dsp_block(fpgapart)
-    # check if weights are narrow
-    weights = model.get_initializer(n.input[1])
-    narrow_weights = False if np.min(weights) == wdt.min() else True
-    # if non narrow weights and only DSP48E1 available return False
-    if not narrow_weights and dsp_block == "DSP48E1":
-        return False
-
-    # if none of the above constraints have been triggered
-    # we now check if input and weight data types are in range
-    idt = node_inst.get_input_datatype()
-    inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
-    weight_width_in_range = wdt.bitwidth() <= 8
+        # if none of the above constraints have been triggered
+        # we now check if input and weight data types are in range
+        idt = node_inst.get_input_datatype()
+        inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
+        weight_width_in_range = wdt.bitwidth() <= 8
+    else:
+        # TODO: AB: if no weights are available, do we check the input data type?
+        return True
 
     return inp_width_in_range and weight_width_in_range
 
@@ -303,8 +317,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node, self.fpgapart, model)
-            optype = node.op_type + "_" + impl_style
+            optype, impl_style = _determine_hw_op_type(node, self.fpgapart, model)
 
             new_node = helper.make_node(
                 optype,
