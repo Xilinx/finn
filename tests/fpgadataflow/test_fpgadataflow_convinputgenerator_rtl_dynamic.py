@@ -33,7 +33,6 @@ import numpy as np
 import onnx.parser as oprs
 import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -64,6 +63,11 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
@@ -159,13 +163,13 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        reset_rtlsim(sim)
+        pyxsi_utils.reset_rtlsim(sim)
         for axi_name, config in configs:
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-        reset_rtlsim(sim)
+                pyxsi_utils.axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
+        pyxsi_utils.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -205,8 +209,6 @@ cfg2 = {
 }
 
 
-# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
-@pytest.mark.xfail
 @pytest.mark.parametrize("cfg", [cfg0, cfg1, cfg2])
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -453,8 +455,6 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 
-# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
-@pytest.mark.xfail
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # kernel size

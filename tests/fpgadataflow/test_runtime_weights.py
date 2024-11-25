@@ -31,7 +31,6 @@ import pytest
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -45,12 +44,16 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.create import hls_random_mlp_maker
 
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
+
+
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-# Temporarily set to xfail because axilite read and write not enabled yet for pyxsi
-@pytest.mark.xfail
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
@@ -103,7 +106,9 @@ def test_runtime_weights_single_layer():
     def read_weights(sim):
         addr = 0
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            extracted_weight_stream.append(
+                pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_")
+            )
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
@@ -124,7 +129,7 @@ def test_runtime_weights_single_layer():
     def write_weights(sim):
         addr = 0
         for nw in new_weight_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            pyxsi_utils.axilite_write(sim, addr, nw, basename="s_axilite_0_")
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
