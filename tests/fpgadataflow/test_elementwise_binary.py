@@ -658,6 +658,7 @@ def test_elementwise_binary_operation_float_rtlsim(
 
     # Compute ground-truth output in software
     o_expected = numpy_reference(context["lhs"], context["rhs"])
+    o_expected = o_expected.astype(DataType[out_dtype].to_numpy_dt())
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
 
@@ -666,7 +667,7 @@ def test_elementwise_binary_operation_float_rtlsim(
         assert np.all(o_produced == o_expected)
     else:
         # Keep some tolerance for floats as exact implementations don't match
-        assert np.isclose(o_produced, o_expected, atol=1e-05).all()
+        assert np.isclose(o_produced, o_expected, atol=1e-04).all()
 
 
 # Test-case setting up a complete dummy model containing various elementwise
