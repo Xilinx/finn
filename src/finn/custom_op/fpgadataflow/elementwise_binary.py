@@ -223,7 +223,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # integers (actually floats as the container type)
         # Note: This is relevant for logical ops, ==, <=, >=, etc.
         # Note: Somehow QONNX does not like boolean tensors
-        context[node.output[0]] = out.astype(np.float32)
+        context[node.output[0]] = out.astype(self.out_dtype.to_numpy_dt())
 
     # Executes elementwise operation in C++ simulation
     def _execute_node_cppsim(self, context, graph):  # noqa: graph unused

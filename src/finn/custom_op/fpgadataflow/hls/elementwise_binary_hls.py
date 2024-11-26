@@ -12,6 +12,7 @@ import os
 import textwrap
 
 # QONNX wrapper to ONNX model graphs
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 
 # Specializations of the generic HW operator
@@ -261,12 +262,12 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         # If the left-hand-side is provided as runtime input, read code needs
         # to be generated
         if self.lhs_style == "input":
+            lhs_carrier_dtype = "half" if self.lhs_dtype == DataType["FLOAT16"] else "float"
             # Generate function calls for reading the input files into the input
             # streams
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
-                #   Note: Inputs are always represented as numpy floats
-                'npy2apintstream<LhsPacked, LhsType, LhsWidth, float>(',
+                f'npy2apintstream<LhsPacked, LhsType, LhsWidth, {lhs_carrier_dtype}>(',
                 f'"{code_gen_dir}/lhs.npy", lhs_{self.hls_sname()}, false',
                 ');'
             ]
@@ -275,10 +276,11 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         if self.rhs_style == "input":
             # Generate function calls for reading the input files into the input
             # streams
+            rhs_carrier_dtype = "half" if self.rhs_dtype == DataType["FLOAT16"] else "float"
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs are always represented as numpy floats
-                'npy2apintstream<RhsPacked, RhsType, RhsWidth, float>(',
+                f'npy2apintstream<RhsPacked, RhsType, RhsWidth, {rhs_carrier_dtype}>(',
                 f'"{code_gen_dir}/rhs.npy", rhs_{self.hls_sname()}, false',
                 ');'
             ]
@@ -514,10 +516,11 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         }}}"""
         # Generate function call for reading from the output stream into the
         # output file
+        out_carrier_dtype = "half" if self.out_dtype == DataType["FLOAT16"] else "float"
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             # Generate function call reading from stream into the output file
             #   Note: Outputs are always represented as numpy floats
-            'apintstream2npy<OutPacked, OutType, OutWidth, float>(',
+            f'apintstream2npy<OutPacked, OutType, OutWidth, {out_carrier_dtype}>(',
             f'out_{self.hls_sname()}, {shape}, "{code_gen_dir}/out.npy", false',
             ');',
         ]
