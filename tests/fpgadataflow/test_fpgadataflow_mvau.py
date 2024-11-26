@@ -69,7 +69,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None, inp_A=None):
+def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None, inp_A=None, mvau="Weight"):
     """
     Create a graph with a single MVAU Node.
 
@@ -109,7 +109,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
     inp_A = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, [1, mw])
     inp_B = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, [mw, mh])
-    if wdt is None:
+    if mvau == "dynamic":
         graph_inp_list = [inp_A, inp_B]
     else:
         graph_inp_list = [inp]
@@ -122,7 +122,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
             actval = 0
         else:
             actval = odt.min()
-    elif wdt is None:
+    elif mvau == "dynamic":
         # dynamic matmul
         node_inp_list = ["inp_A", "inp_B"]
         actval = 0
@@ -144,7 +144,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         PE=pe,
         N_VECTORS=n_vectors, # Height of Input Matrix A
         inputDataType=export_idt.name,
-        weightDataType=export_wdt.name if export_wdt is not None else "",
+        weightDataType=export_wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
@@ -571,7 +571,8 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             assert (T >= 0).all()
         else:
             tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt, inp_A)
+    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt, inp_A, mvau)
+    model.save("mvau_large_depth.onnx")
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
@@ -600,7 +601,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     # works for parametrized tests...
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model.save("mvau_large_depth.onnx")
-    if mvau == "dynamic":
+    if mvau == "weight":
         model = model.transform(MinimizeWeightBitWidth())
         model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
