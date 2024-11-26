@@ -446,7 +446,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # TODO move const bitwidth minimization to a utility function + reuse
         # If the left hand side input is provided as initializer, minimize the
         # bits used for storing this
-        if lhs is not None and old_lhs_dt != DataType["FLOAT32"]:
+        if lhs is not None and old_lhs_dt.is_integer():
             # Remember the "style" of receiving the input for further code
             # generation
             self.set_nodeattr("lhs_style", "const")
@@ -470,7 +470,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         old_rhs_dt = model.get_tensor_datatype(self.onnx_node.input[1])
         # If the right hand side input is provided as initializer, minimize the
         # bits used for storing this
-        if rhs is not None and old_rhs_dt != DataType["FLOAT32"]:
+        if rhs is not None and old_rhs_dt.is_integer():
             # Remember the "style" of receiving the input for further code
             # generation
             self.set_nodeattr("rhs_style", "const")
