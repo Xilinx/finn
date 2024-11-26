@@ -193,9 +193,25 @@ inline void toggle_clk_1() {
     top->run(5);
 }
 
+inline void toggle_clk_and_clk2x_1() {
+    set_bool("@CLK_NAME@");
+    set_bool("@CLK2X_NAME@");
+    top->run(5);
+    clear_bool("@CLK2X_NAME@");
+    top->run(5);
+}
+
 // falling clock edge + low clock
 inline void toggle_clk_0() {
     clear_bool("@CLK_NAME@");
+    top->run(5);
+}
+
+inline void toggle_clk_and_clk2x_0() {
+    clear_bool("@CLK_NAME@");
+    set_bool("@CLK2X_NAME@");
+    top->run(5);
+    clear_bool("@CLK2X_NAME@");
     top->run(5);
 }
 
@@ -205,15 +221,20 @@ inline void toggle_clk() {
     toggle_clk_1();
 }
 
+inline void toggle_clk_and_clk2x() {
+    toggle_clk_and_clk2x_0();
+    toggle_clk_and_clk2x_1();
+}
+
 // apply reset to the simulation
 void reset() {
     clear_bool("@CLK_NAME@");
     clear_bool("@NRST_NAME@");
-    toggle_clk();
-    toggle_clk();
+    toggle_@CLKNAMES@();
+    toggle_@CLKNAMES@();
     set_bool("@NRST_NAME@");
-    toggle_clk();
-    toggle_clk();
+    toggle_@CLKNAMES@();
+    toggle_@CLKNAMES@();
 }
 
 int main(int argc, char *argv[]) {
@@ -230,23 +251,28 @@ int main(int argc, char *argv[]) {
 
     populate_port_map();
 
+    vector<string> instream_names = @INSTREAM_NAME@;
+    vector<string> outstream_names = @OUTSTREAM_NAME@;
     // how much data to push into/pull out of sim
-    unsigned n_iters_per_input = @ITERS_PER_INPUT@;
-    unsigned n_iters_per_output = @ITERS_PER_OUTPUT@;
-    unsigned n_inputs = @N_INPUTS@;
+    vector<unsigned> n_iters_per_input = @ITERS_PER_INPUT@;
+    vector<unsigned> n_iters_per_output = @ITERS_PER_OUTPUT@;
+    unsigned n_inferences = @N_INFERENCES@;
     unsigned max_iters = @MAX_ITERS@;
 
     reset();
 
-    unsigned n_in_txns = 0, n_out_txns = 0, iters = 0, last_output_at = 0;
+    vector<unsigned> n_in_txns(instream_names.size(), 0), n_out_txns(outstream_names.size(), 0);
+    size_t total_n_in_txns = 0, total_n_out_txns = 0;
+    unsigned iters = 0, last_output_at = 0;
     unsigned latency = 0;
     unsigned cycles_since_last_output = 0;
+    size_t n_finished_instreams = 0, n_finished_outstreams = 0;
 
     bool exit_criterion = false;
 
     cout << "Simulation starting" << endl;
-    cout << "Number of inputs to write " << n_iters_per_input * n_inputs << endl;
-    cout << "Number of outputs to expect " << n_iters_per_output * n_inputs << endl;
+    //cout << "Number of inputs to write " << n_iters_per_input * n_inputs << endl;
+    //cout << "Number of outputs to expect " << n_iters_per_output * n_inputs << endl;
     cout << "No-output timeout clock cycles " << max_iters << endl;
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
@@ -255,8 +281,10 @@ int main(int argc, char *argv[]) {
     bool output_done = false;
     bool timeout = false;
 
-    // enable reception on the output stream
-    set_bool("@OUTSTREAM_NAME@_tready");
+    // enable reception on the output streams
+    for (auto & outstream_name : outstream_names) {
+        set_bool(outstream_name + "_tready");
+    }
 
     while(!exit_criterion) {
         // keep track of which signals to write
@@ -264,33 +292,63 @@ int main(int argc, char *argv[]) {
         // TODO needs to be extended to non-bool signals for actual input data
         map<string, bool> signals_to_write;
         // toggle falling clock edge and drive low clock
-        toggle_clk_0();
-        // check for transactions on the input stream
-        if(chk_bool("@INSTREAM_NAME@_tready") && chk_bool("@INSTREAM_NAME@_tvalid")) {
-            n_in_txns++;
+        toggle_@CLKNAMES@_0();
+        // check for transactions on the input streams
+        for(size_t i = 0; i < instream_names.size(); i++) {
+            string instream_name = instream_names[i];
+            if(chk_bool(instream_name+"_tready") && chk_bool(instream_name + "_tvalid")) {
+                n_in_txns[i]++;
+                total_n_in_txns++;
+                // determine whether we have more inputs to feed
+                if(n_in_txns[i] == n_iters_per_input[i] * n_inferences) {
+                    signals_to_write[instream_name + "_tvalid"] = false;
+                    n_finished_instreams++;
+                }
+            }
+
+            if(n_in_txns[i] < n_iters_per_input[i] * n_inferences) {
+                signals_to_write[instream_name + "_tvalid"] = true;
+            } else if(n_in_txns[i] > n_iters_per_input[i] * n_inferences) {
+                // more input transactions than specified, should never happen
+                // most likely a bug in the C++ driver code if this happens
+                cout << "WARNING: Unknown stream condition for input " << instream_name << endl;
+                signals_to_write[instream_name + "_tvalid"] = false;
+            }
         }
-        // check for transactions on the output stream
-        if(chk_bool("@OUTSTREAM_NAME@_tready") && chk_bool("@OUTSTREAM_NAME@_tvalid")) {
-            n_out_txns++;
-            // TODO add output data capture to file here
-            // (unless we are in dummy data mode)
-        } else {
+
+        // check for transactions on the output streams
+        size_t n_outstreams_with_no_txn = 0;
+        for(size_t i = 0; i < outstream_names.size(); i++) {
+            string outstream_name = outstream_names[i];
+            if(chk_bool(outstream_name+"_tready") && chk_bool(outstream_name + "_tvalid")) {
+                // TODO add output data capture to file here
+                // (unless we are in dummy data mode)
+                n_out_txns[i]++;
+                total_n_out_txns++;
+                // determine whether we have more outputs to consume
+                if(n_out_txns[i] == n_iters_per_output[i] * n_inferences) {
+                    signals_to_write[outstream_name + "_tready"] = false;
+                    n_finished_outstreams++;
+                }
+            } else {
+                n_outstreams_with_no_txn++;
+            }
+            if(n_out_txns[i] < n_iters_per_output[i] * n_inferences) {
+                signals_to_write[outstream_name + "_tready"] = true;
+            } else if(n_out_txns[i] > n_iters_per_output[i] * n_inferences) {
+                // more output transactions than specified
+                cout << "WARNING: Unknown stream condition for output " << outstream_name << endl;
+                signals_to_write[outstream_name + "_tready"] = false;
+            }
+        }
+        if(n_outstreams_with_no_txn == outstream_names.size()) {
+            // if none of the output streams had any activity:
             // keep track of no-activity cycles for timeout
             cycles_since_last_output++;
         }
-        // determine whether we have more inputs to feed
-        if(n_in_txns == n_iters_per_input * n_inputs) {
-            signals_to_write["@INSTREAM_NAME@_tvalid"] = false;
-        } else if(n_in_txns < n_iters_per_input * n_inputs) {
-            signals_to_write["@INSTREAM_NAME@_tvalid"] = true;
-        } else {
-            // more input transactions than specified, should never happen
-            // most likely a bug in the C++ driver code if this happens
-            cout << "Unknown stream condition for input!" << endl;
-            signals_to_write["@INSTREAM_NAME@_tvalid"] = false;
-        }
+
         // toggle rising clock edge and drive high clock
-        toggle_clk_1();
+        toggle_@CLKNAMES@_1();
         // actually write the desired signals from the map
         for (auto const& x : signals_to_write)
         {
@@ -301,22 +359,22 @@ int main(int argc, char *argv[]) {
         iters++;
         // show a progress message once in a while
         if(iters % 1000 == 0) {
-            cout << "Elapsed iters " << iters << " inps " << n_in_txns << " outs " << n_out_txns << endl;
+            cout << "Elapsed iters " << iters << " inps " << total_n_in_txns << " outs " << total_n_out_txns << endl;
             chrono::steady_clock::time_point end = chrono::steady_clock::now();
             cout << "Elapsed since last report = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
             begin = end;
         }
         // check whether the exit criteria are reached
-        input_done = (n_in_txns >= n_iters_per_input * n_inputs);
-        output_done = (n_out_txns >= n_iters_per_output * n_inputs);
+        input_done = (n_finished_instreams == instream_names.size());
+        output_done = (n_finished_outstreams == outstream_names.size());
         timeout = (cycles_since_last_output > max_iters);
         exit_criterion = (input_done && output_done) || timeout;
     }
 
     // dump final simulation statistics to stdout and file
     cout << "Simulation finished" << endl;
-    cout << "Number of inputs consumed " << n_in_txns << endl;
-    cout << "Number of outputs produced " << n_out_txns << endl;
+    cout << "Number of inputs consumed " << total_n_in_txns << endl;
+    cout << "Number of outputs produced " << total_n_out_txns << endl;
     cout << "Number of clock cycles " << iters << endl;
     cout << "Input done? " << input_done << endl;
     cout << "Output done? " << output_done << endl;
@@ -324,10 +382,10 @@ int main(int argc, char *argv[]) {
 
     ofstream results_file;
     results_file.open("results.txt", ios::out | ios::trunc);
-    results_file << "N_IN_TXNS" << "\t" << n_in_txns << endl;
-    results_file << "N_OUT_TXNS" << "\t" << n_out_txns << endl;
+    results_file << "N_IN_TXNS" << "\t" << total_n_in_txns << endl;
+    results_file << "N_OUT_TXNS" << "\t" << total_n_out_txns << endl;
     results_file << "cycles" << "\t" << iters << endl;
-    results_file << "N" << "\t" << n_inputs << endl;
+    results_file << "N" << "\t" << n_inferences << endl;
     results_file << "latency_cycles" << "\t" << latency << endl;
     // optionally, extract more data from final status
     @POSTPROC_CPP@

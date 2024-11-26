@@ -28,6 +28,18 @@
 
 from abc import ABC, abstractmethod
 
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
+
 
 class RTLBackend(ABC):
     """RTLBackend class all custom ops that correspond to a module in finn-rtllib
@@ -45,8 +57,56 @@ class RTLBackend(ABC):
     def generate_hdl(self, model, fpgapart, clk):
         pass
 
-    @abstractmethod
     def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        verilog_paths = self.get_verilog_paths()
+        rtlsim_backend = self.get_nodeattr("rtlsim_backend")
+        if rtlsim_backend == "pyverilator":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+            verilog_files = self.get_rtl_file_list(abspath=False)
+
+            # build the Verilator emu library
+            sim = PyVerilator.build(
+                verilog_files,
+                build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+                verilog_path=verilog_paths,
+                trace_depth=get_rtlsim_trace_depth(),
+                top_module_name=self.get_nodeattr("gen_top_module"),
+            )
+            # save generated lib filename in attribute
+            self.set_nodeattr("rtlsim_so", sim.lib._name)
+        elif rtlsim_backend == "pyxsi":
+            verilog_files = self.get_rtl_file_list(abspath=True)
+            single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
+            ret = pyxsi_utils.compile_sim_obj(
+                self.get_verilog_top_module_name(), verilog_files, single_src_dir
+            )
+            # save generated lib filename in attribute
+            self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
+            # TODO return val of this function is never used
+            # refactor s.t. it does not return anything at all,
+            # consistently between pyverilator and pyxsi
+            sim = None
+        else:
+            assert False, "Unknown rtlsim_backend"
+        return sim
+
+    def get_verilog_paths(self):
+        """Returns path to code gen directory. Can be overwritten to
+        return additional paths to relevant verilog files"""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        return [code_gen_dir]
+
+    @abstractmethod
+    def get_rtl_file_list(self, abspath=False):
+        """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
     @abstractmethod

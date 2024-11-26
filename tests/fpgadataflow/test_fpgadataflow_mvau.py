@@ -643,15 +643,21 @@ def test_mvau_fifocharacterize_rtlsim(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
 )
 @pytest.mark.parametrize("clk_ns", [1.66, 4])
+@pytest.mark.parametrize("pumpedMemory", [False, True])
+@pytest.mark.parametrize("pumpedCompute", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
+def test_fpgadataflow_rtl_mvau(
+    mh, mw, pe, simd, idt, wdt, part, clk_ns, pumpedMemory, pumpedCompute
+):
     if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
             since this variable only affects DSP58s"""
         )
+    if pe == 1 and simd == 1 and pumpedMemory:
+        pytest.skip("Skip PE=SIMD=1 with pumpedMemory=True, known weight generation bug")
 
     # Create test input vector (produced by SWG)
     ofm_shape = (3, 3)
@@ -690,6 +696,9 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
             "PE": pe,
             "SIMD": simd,
             "resType": "dsp",
+            "pumpedMemory": pumpedMemory,
+            "pumpedCompute": pumpedCompute,
+            "rtlsim_backend": "pyxsi",
         },
     }
     model = model.transform(ApplyConfig(folding_config))
@@ -723,8 +732,8 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    model.set_metadata_prop("rtlsim_so", "")
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
 
     assert (

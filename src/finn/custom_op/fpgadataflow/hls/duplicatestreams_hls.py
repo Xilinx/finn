@@ -148,7 +148,8 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim)
             rtlsim_dict = {
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {},
@@ -156,6 +157,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
             for i in range(n_outputs):
                 rtlsim_dict["outputs"]["out%d" % i] = []
             self.rtlsim_multi_io(sim, rtlsim_dict)
+            super().close_rtlsim(sim)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
