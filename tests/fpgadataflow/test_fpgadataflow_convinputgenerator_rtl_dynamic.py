@@ -32,6 +32,7 @@ import copy
 import numpy as np
 import onnx.parser as oprs
 import os
+from bitstring import BitArray
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -168,7 +169,12 @@ def config_hook(configs):
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                pyxsi_utils.axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
+                addr, val = config_entry
+                if val < 0:
+                    # ensure any negative vals are expressed as two's complement,
+                    # SWG control regs are currently always 32 bits
+                    val = BitArray(int=val, length=32).uint
+                pyxsi_utils.axilite_write(sim, addr, val, basename=axi_name)
         pyxsi_utils.reset_rtlsim(sim)
 
     return write_swg_config
