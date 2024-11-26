@@ -26,10 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
 from qonnx.core.datatype import DataType
-import math
+
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
@@ -60,30 +61,19 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         # so we use numReps to represent the first 2 dimensions
         # + batching if shape[0] != 1
         numReps = int(np.prod(self.get_folded_input_shape()[:-2]))
-        # numReps = 1
 
         # assuming folded shapes are at least 2 dim-long
         numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
         numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
 
-        # numInWords = int(np.prod(self.get_folded_input_shape()[-2:]))
-        # numOutWords = int(np.prod(self.get_folded_output_shape()[-2:]))
-
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
-        totalIters = max(numInWords, numOutWords)
-
-        # if we are building up a word, the overall loop count is longer
-        if outWidth > inWidth:
-            totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
-
 
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
             "#define NumInWords %d " % numInWords,
             "#define NumOutWords %d " % numOutWords,
-            "#define totalIters %d " % totalIters,
             "#define numReps %d" % numReps,
         ]
 
@@ -106,8 +96,8 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         op = "StreamingDataWidthConverterGeneralized_Batch"
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "%s<InWidth, OutWidth, NumInWords,NumOutWords," % op
-            + " totalIters>(in0_%s, out_%s, numReps);" % (self.hls_sname(), self.hls_sname())
+            "%s<InWidth, OutWidth, NumInWords,NumOutWords" % op
+            + ">(in0_%s, out_%s, numReps);" % (self.hls_sname(), self.hls_sname())
         ]
 
     def blackboxfunction(self):
@@ -243,7 +233,6 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         ), """Output
         shape doesn't match expected shape, should be same as input shape"""
 
-
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
 
@@ -270,6 +259,6 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         cset_luts += intw + outw
 
         # generalized DWC cost penalty, this value is temporary
-        cnt_luts *=8
+        cnt_luts *= 8
 
         return int(cnt_luts + cset_luts)

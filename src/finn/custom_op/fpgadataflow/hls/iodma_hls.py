@@ -224,7 +224,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
     def docompute(self):
         direction = self.get_nodeattr("direction")
         mode = self.get_nodeattr("burstMode")
-        dwc_func = "StreamingDataWidthConverter_Batch"
+        dwc_func = "StreamingDataWidthConverterGeneralized_Batch"
         if direction == "in":
             if mode == "wrap":
                 func = "Mem2Stream_Batch_external_wmem"
@@ -236,7 +236,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             raise ValueError("Invalid IODMA direction, please set to in or out")
         # define templates for instantiation
         dma_inst_template = func + "<DataWidth1, NumBytes1>(%s, %s, numReps);"
-        dwc_inst_template = dwc_func + "<%d, %d, %d, %d, %d>(%s, %s, numReps);"
+        dwc_inst_template = dwc_func + "<%d, %d, %d, %d>(%s, %s, numReps);"
         # do stream infrastructure and instantiations
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")
@@ -252,10 +252,10 @@ class IODMA_hls(HWCustomOp, HLSBackend):
 
             numInWords = total_bits // inWidth
             numOutWords = total_bits // outWidth
-            totalIters = max(numInWords, numOutWords)
+            # totalIters = max(numInWords, numOutWords)
 
-            if outWidth > inWidth:
-                totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
+            # if outWidth > inWidth:
+            #    totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
 
             # AXI MM -> IODMA -> (DWCs) -> out
             # DWCs depend on AXI MM and out interface width
@@ -277,7 +277,6 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                         outWidth,
                         numInWords,
                         numOutWords,
-                        totalIters,
                         "dma2dwc",
                         "out_" + self.hls_sname(),
                     ),
@@ -289,10 +288,10 @@ class IODMA_hls(HWCustomOp, HLSBackend):
 
             numInWords = total_bits // inWidth
             numOutWords = total_bits // outWidth
-            totalIters = max(numInWords, numOutWords)
+            # totalIters = max(numInWords, numOutWords)
 
-            if outWidth > inWidth:
-                totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
+            # if outWidth > inWidth:
+            #    totalIters += int(np.floor(outWidth / inWidth) + 1) - 1
 
             # in0 -> (DWCs) -> IODMA -> AXI MM
             # DWCs depend on AXI MM and out interface width
@@ -313,7 +312,6 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                         outWidth,
                         numInWords,
                         numOutWords,
-                        totalIters,
                         "in0_" + self.hls_sname(),
                         "dwc2dma",
                     ),
