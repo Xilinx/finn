@@ -185,8 +185,10 @@ def _determine_hw_op_type(node, fpgapart, model):
     # There are some variants of MVAU that are only supported in RTL
     if impl_style == "rtl" and node.op_type == "MVAU":
         inst = getCustomOp(node)
-        weight = inst.get_weight_datatype()
-        if weight is "":
+        # TODO: AB: Dont use the initializer to determine mvau type
+        if model.get_initializer(node.input[1]) is not None:
+            return "MVAU_rtl", impl_style
+        else:
             return "DynMVAU_rtl", impl_style
 
     return node.op_type + "_" + impl_style, impl_style
