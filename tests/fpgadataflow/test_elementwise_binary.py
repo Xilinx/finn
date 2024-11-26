@@ -595,11 +595,11 @@ def test_elementwise_binary_operation_rtlsim(
     *sorted((NUMPY_REFERENCES.keys() - BITWISE)),
 ])
 # Data type of the left-hand-side input elements
-@pytest.mark.parametrize("lhs_dtype", ["FLOAT32"])
+@pytest.mark.parametrize("lhs_dtype", ["FLOAT16", "FLOAT32"])
 # Data type of the right-hand-side input elements
-@pytest.mark.parametrize("rhs_dtype", ["FLOAT32"])
+@pytest.mark.parametrize("rhs_dtype", ["FLOAT16", "FLOAT32"])
 # Data type of the output elements
-@pytest.mark.parametrize("out_dtype", ["FLOAT32"])
+@pytest.mark.parametrize("out_dtype", ["FLOAT16", "FLOAT32"])
 # Shape of the left-hand-side input
 @pytest.mark.parametrize("lhs_shape", [
     [3, 1, 7, 1], [1]
@@ -613,7 +613,7 @@ def test_elementwise_binary_operation_rtlsim(
     [], ["lhs"], ["rhs"], ["lhs", "rhs"]
 ])
 # Number of elements to process in parallel
-@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.parametrize("pe", [1, 16])
 # This is a slow running fpgadataflow type of test which requires vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
@@ -661,8 +661,12 @@ def test_elementwise_binary_operation_float_rtlsim(
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
 
-    # Compare the expected to the produced for exact equality
-    assert np.all(o_produced == o_expected)
+    if DataType[out_dtype].is_integer():
+        # Compare the expected to the produced for exact equality for ints
+        assert np.all(o_produced == o_expected)
+    else:
+        # Keep some tolerance for floats as exact implementations don't match
+        assert np.isclose(o_produced, o_expected, atol=1e-05).all()
 
 
 # Test-case setting up a complete dummy model containing various elementwise
