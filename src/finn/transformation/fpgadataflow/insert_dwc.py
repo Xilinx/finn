@@ -128,8 +128,11 @@ class InsertDWC(Transformation):
                             # determine dtype for dwc
                             dtype = n0.get_output_datatype()
                             n1_dtype = n1.get_input_datatype()
-                            assert dtype == n1_dtype, f"Neighboring node datatypes are Incompatible ({dtype}) != ({n1_dtype})"
-                            
+                            assert dtype == n1_dtype, (
+                                "Neighboring node datatypes are Incompatible"
+                                + f" ({dtype}) != ({n1_dtype})"
+                            )
+
                             # determine shapes for dwc
                             # generalized version allows them to differ
                             # and will either pad or crop depending
@@ -145,10 +148,6 @@ class InsertDWC(Transformation):
                             )
                             graph.value_info.append(dwc_output_tensor)
 
-                            print(f"inserting DWC_{style}, in_shape={in_shape},out_shape={out_shape},inWidth={dwc_in_width}, outWidth={dwc_out_width}, dtype={str(dtype.name)}")
-                            #if str(dtype.name) == "UINT32":
-                            #    assert True == False
-                            
                             dwc_node = oh.make_node(
                                 node_optype,
                                 [output_name],
