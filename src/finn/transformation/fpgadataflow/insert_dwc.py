@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -125,8 +124,10 @@ class InsertDWC(Transformation):
                                 # either complex width conversion or padding/cropping
                                 # are involved, so we use the generalized HLS variant
                                 style = "hls"
-                            # determine dtype for dwc
+                            # determine FINN dtype for dwc
                             dtype = n0.get_output_datatype()
+                            n0_otensor = model.get_tensor_valueinfo(output_name)
+                            n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
                             n1_dtype = n1.get_input_datatype()
                             assert dtype == n1_dtype, (
                                 "Neighboring node datatypes are Incompatible"
@@ -143,7 +144,7 @@ class InsertDWC(Transformation):
 
                             dwc_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
-                                TensorProto.FLOAT,
+                                n0_tensor_dtype,
                                 out_shape,
                             )
                             graph.value_info.append(dwc_output_tensor)
