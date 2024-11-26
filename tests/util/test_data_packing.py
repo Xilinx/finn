@@ -41,18 +41,20 @@ from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code
 
 @pytest.mark.util
 @pytest.mark.parametrize(
-    "dtype",
+    "dtype_name",
     [
-        DataType["BINARY"],
-        DataType["INT2"],
-        DataType["INT32"],
-        DataType["FIXED<9,6>"],
-        DataType["FLOAT32"],
+        "BINARY",
+        "INT2",
+        "INT32",
+        "FIXED<9,6>",
+        "FLOAT32",
+        "FLOAT16",
     ],
 )
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
 @pytest.mark.vivado
-def test_npy2apintstream(test_shape, dtype):
+def test_npy2apintstream(test_shape, dtype_name):
+    dtype = DataType[dtype_name]
     ndarray = gen_finn_dt_tensor(dtype, test_shape)
     test_dir = make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
@@ -64,6 +66,7 @@ def test_npy2apintstream(test_shape, dtype):
     npy_out = test_dir + "/out.npy"
     # restrict the np datatypes we can handle
     npyt_to_ct = {
+        "float16": "half",
         "float32": "float",
         "float64": "double",
         "int8": "int8_t",
@@ -145,24 +148,26 @@ def test_numpy_to_hls_code():
 
 @pytest.mark.util
 @pytest.mark.parametrize(
-    "dtype",
+    "dtype_name",
     [
-        DataType["BINARY"],
-        DataType["BIPOLAR"],
-        DataType["TERNARY"],
-        DataType["INT2"],
-        DataType["INT7"],
-        DataType["INT8"],
-        DataType["INT22"],
-        DataType["INT32"],
-        DataType["UINT7"],
-        DataType["UINT8"],
-        DataType["UINT15"],
-        DataType["FIXED<9,6>"],
-        DataType["FLOAT32"],
+        "BINARY",
+        "BIPOLAR",
+        "TERNARY",
+        "INT2",
+        "INT7",
+        "INT8",
+        "INT22",
+        "INT32",
+        "UINT7",
+        "UINT8",
+        "UINT15",
+        "FIXED<9,6>",
+        "FLOAT32",
+        "FLOAT16",
     ],
 )
-def test_npy_to_rtlsim_input(dtype):
+def test_npy_to_rtlsim_input(dtype_name):
+    dtype = DataType[dtype_name]
     # check if slow and fast data packing produce the same non-sign-extended input for rtlsim
     # fast mode is triggered for certain data types if last (SIMD) dim = 1
     inp_fast = gen_finn_dt_tensor(dtype, (1, 8, 8, 8 // 1, 1))  # N H W FOLD SIMD
