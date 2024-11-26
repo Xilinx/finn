@@ -69,9 +69,25 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
-    mw = W.shape[0]
-    mh = W.shape[1]
+def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None, inp_A=None):
+    """
+    Create a graph with a single MVAU Node.
+
+    TODO: AB:   Currently reusing the old implementation of MVAU, update to use the new implementation.
+                assume weight input is input matrix B and derive matrix shape using weight matrix shape.
+
+                for matrix of size [MxN] * [NxK],
+                    MAT A dimension variables:
+                        M = N_VECTORS
+                        N = MH
+
+                    MAT B dimensions:
+                        N = MH
+                        K = MW
+    """
+    mw = W.shape[0]  # TODO: AB: Are these swapped for DynMM?
+    mh = W.shape[1]  # TODO: AB: Are these swapped for DynMM?
+    n_vectors = inp_A.shape[0] if inp_A is not None else 1
     assert mh % pe == 0
     assert mw % simd == 0
 
@@ -126,6 +142,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
+        N_VECTORS=n_vectors, # Height of Input Matrix A
         inputDataType=export_idt.name,
         weightDataType=export_wdt.name if export_wdt is not None else "",
         outputDataType=odt.name,
@@ -194,11 +211,12 @@ def prepare_inputs(input_tensor, idt, wdt, inp_name="inp", inp_B=None):
     else:
         return {inp_name: input_tensor}
 
-
+# MMVU Type
+@pytest.mark.parametrize("mvau", ["dynamic", "Weight"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype, if None then this is a dynamic matmul with two inputs
-@pytest.mark.parametrize("wdt", [None, DataType["BIPOLAR"], DataType["INT4"]])
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
 # neuron folding, -1 is maximum possible
@@ -212,7 +230,7 @@ def prepare_inputs(input_tensor, idt, wdt, inp_name="inp", inp_B=None):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh,mvau):
     """
     Test the HWOP execution of the MVAU operation.
     For Dynamic matmul with two input matrices, set wdt to None and provide inp_B as the second input matrix.
@@ -228,7 +246,7 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
 
     # generate inputs
     inp_A = gen_finn_dt_tensor(idt, (1, mw))
-    if wdt is None:
+    if mvau == "dynamic":
         # dynamic matmul second input
         inp_B = gen_finn_dt_tensor(idt, (mw, mh))
     else:
@@ -244,7 +262,7 @@ def test_fpgadataflow_mvau_hwop(idt, wdt, act, nf, sf, mw, mh):
         else:
             odt = DataType["INT32"]
     else:
-        if wdt is None:
+        if mvau == "dynamic":
             pytest.skip("Dynamic matmul not supported")
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
@@ -483,12 +501,14 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert exp_cycles != 0
 
 
+# MMVU Type
+@pytest.mark.parametrize("mvau", ["dynamic", "Weight"])
 # mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_decoupled"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["INT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
+@pytest.mark.parametrize("wdt", [None, DataType["INT4"]])
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
 # neuron folding, -1 is maximum possible
@@ -504,10 +524,12 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, mvau
 ):
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
+    if preferred_impl_style == "hls" and mvau == "dynamic":
+        pytest.skip("HLS-MVAU doesn't support dynamic matmul")
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -518,7 +540,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     assert mw % sf == 0
     # generate inputs
     inp_A = gen_finn_dt_tensor(idt, (1, mw))
-    if wdt is None:
+    if mvau == "dynamic":
         # dynamic matmul second input
         inp_B = gen_finn_dt_tensor(idt, (mw, mh))
     else:
@@ -533,7 +555,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         else:
             odt = DataType["INT32"]
     else:
-        if wdt is None:
+        if mvau == "dynamic":
             pytest.skip("Dynamic matmul not supported")
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
@@ -549,7 +571,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             assert (T >= 0).all()
         else:
             tdt = DataType["INT32"]
-    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt)
+    model = make_single_fclayer_modelwrapper(inp_B, pe, simd, wdt, idt, odt, T, tdt, inp_A)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
@@ -558,7 +580,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
 
     # prepare input data
-    input_dict = prepare_inputs(inp_A, idt, wdt)
+    input_dict = prepare_inputs(inp_A, idt, wdt, inp_B=inp_B)
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((inp_A + 1) / 2, (inp_B + 1) / 2)
@@ -577,8 +599,10 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
+    model.save("mvau_large_depth.onnx")
+    if mvau == "dynamic":
+        model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
