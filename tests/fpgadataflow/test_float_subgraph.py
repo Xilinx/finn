@@ -75,7 +75,7 @@ def create_matmul_mul_add_subgraph(use_fp16):
         "mul0_out0": [(1, 8), fp_dtype, False],
         "add0_out0": [(1, 8), fp_dtype, False],
         "relu0_out0": [(1, 8), fp_dtype, False],
-        "out0": [(1, 8), fp_dtype, False],
+        "out0": [(1, 8), DataType["UINT4"], False],
     }
     t_decl_list = [
         f"float{str(list(spec[0]))} {tname}" for tname, spec in tensors.items() if spec[-1] is True
