@@ -478,8 +478,6 @@ class ElementwiseBinaryOperation(HWCustomOp):
             # the range of values which needs to be represented
             _min = rhs.min()
             _max = rhs.max()
-            assert _min != 0
-            assert _max != 0
             # Determine whether signed or unsigned type is required for
             # representing the weights and select the largest "signed magnitude"
             _mag = _max if _min > 0 else \
