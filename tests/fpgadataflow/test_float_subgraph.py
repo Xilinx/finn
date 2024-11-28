@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
 import numpy as np
 import onnx.parser as oprs
 from qonnx.core.datatype import DataType
@@ -54,13 +55,14 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def create_matmul_mul_add_subgraph():
+def create_matmul_mul_add_subgraph(use_fp16):
+    fp_dtype = DataType["FLOAT16"] if use_fp16 else DataType["FLOAT32"]
     tensors = {
         # tensor_name : [shape, dtype, needs_init]
         "in0": [(1, 4), DataType["UINT4"], False],
         "param_mm": [(4, 8), DataType["INT4"], True],
-        "param_mul": [(1, 8), DataType["FLOAT32"], True],
-        "param_add": [(1, 8), DataType["FLOAT32"], True],
+        "param_mul": [(1, 8), fp_dtype, True],
+        "param_add": [(1, 8), fp_dtype, True],
         "param_qscale": [
             (1, 1),
             DataType["FLOAT32"],
@@ -69,16 +71,23 @@ def create_matmul_mul_add_subgraph():
         "param_qzeropt": [(1, 1), DataType["FLOAT32"], True],
         "param_qbitwidth": [(1, 1), DataType["FLOAT32"], True],
         "matmul0_out0": [(1, 8), DataType["FLOAT32"], False],
-        "mul0_out0": [(1, 8), DataType["FLOAT32"], False],
-        "add0_out0": [(1, 8), DataType["FLOAT32"], False],
-        "relu0_out0": [(1, 8), DataType["FLOAT32"], False],
-        "out0": [(1, 8), DataType["FLOAT32"], False],
+        "cast0_out0": [(1, 8), fp_dtype, False],
+        "mul0_out0": [(1, 8), fp_dtype, False],
+        "add0_out0": [(1, 8), fp_dtype, False],
+        "relu0_out0": [(1, 8), fp_dtype, False],
+        "out0": [(1, 8), fp_dtype, False],
     }
     t_decl_list = [
         f"float{str(list(spec[0]))} {tname}" for tname, spec in tensors.items() if spec[-1] is True
     ]
     ishp_str = str(list(tensors["in0"][0]))
     oshp_str = str(list(tensors["out0"][0]))
+    if use_fp16:
+        cast_and_mul = """
+        cast0_out0 = Cast<to=10>(matmul0_out0)
+        mul0_out0 = Mul(cast0_out0, param_mul)"""
+    else:
+        cast_and_mul = "mul0_out0 = Mul(matmul0_out0, param_mul)"
 
     input_str = f"""
     <
@@ -91,7 +100,7 @@ def create_matmul_mul_add_subgraph():
     >
     {{
         matmul0_out0 = MatMul(in0, param_mm)
-        mul0_out0 = Mul(matmul0_out0, param_mul)
+        {cast_and_mul}
         add0_out0 = Add(mul0_out0, param_add)
         relu0_out0 = Relu(add0_out0)
         out0 = qonnx.custom_op.general.Quant<signed=0, narrow=0>(
@@ -130,8 +139,9 @@ def specialize_hls(model: ModelWrapper):
     return model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
 
-def test_float_subgraph():
-    model, tensors = create_matmul_mul_add_subgraph()
+@pytest.mark.parametrize("use_fp16", [True, False])
+def test_float_subgraph(use_fp16):
+    model, tensors = create_matmul_mul_add_subgraph(use_fp16)
     fpga_part = "xczu7ev-ffvc1156-2-e"
     target_clk_ns = 10
     inp = gen_finn_dt_tensor(tensors["in0"][1], tensors["in0"][0])
@@ -141,23 +151,22 @@ def test_float_subgraph():
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    if use_fp16:
+        model = model.transform(to_hw.InferFP32ToFP16Cast())
     posthwconv_optypes = [x.op_type for x in model.graph.node]
-    assert posthwconv_optypes == [
+    exp_posthwconv_optypes = [
         "MVAU",
         "ElementwiseMul",
         "ElementwiseAdd",
         "ElementwiseMaximum",
         "ElementwiseFloat2Int",
     ]
+    if use_fp16:
+        exp_posthwconv_optypes.insert(1, "ElementwiseFloatCast")
+    assert posthwconv_optypes == exp_posthwconv_optypes
     model = specialize_hls(model)
     posthlsconv_optypes = [x.op_type for x in model.graph.node]
-    assert posthlsconv_optypes == [
-        "MVAU_hls",
-        "ElementwiseMul_hls",
-        "ElementwiseAdd_hls",
-        "ElementwiseMaximum_hls",
-        "ElementwiseFloat2Int_hls",
-    ]
+    assert posthlsconv_optypes == [x + "_hls" for x in exp_posthwconv_optypes]
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
@@ -172,7 +181,7 @@ def test_float_subgraph():
     model.set_metadata_prop("rtlsim_backend", "pyxsi")
     model = model.transform(InsertAndSetFIFODepths(fpga_part, target_clk_ns))
     postfifo_optypes = [x.op_type for x in model.graph.node]
-    assert postfifo_optypes == [
+    exp_postfifo_optypes = [
         "StreamingFIFO_rtl",
         "MVAU_hls",
         "StreamingFIFO_rtl",
@@ -185,6 +194,10 @@ def test_float_subgraph():
         "ElementwiseFloat2Int_hls",
         "StreamingFIFO_rtl",
     ]
+    if use_fp16:
+        exp_postfifo_optypes.insert(3, "ElementwiseFloatCast_hls")
+        exp_postfifo_optypes.insert(4, "StreamingFIFO_rtl")
+    assert postfifo_optypes == exp_postfifo_optypes
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(PrepareIP(fpga_part, target_clk_ns))
