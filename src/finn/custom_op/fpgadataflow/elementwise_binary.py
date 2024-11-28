@@ -921,6 +921,48 @@ class ElementwiseFloat2Int(ElementwiseBinaryOperation):
         return DataType[f"INT{bitwidth}"] if signed else DataType[f"UINT{bitwidth}"]
 
 
+# TODO this is not really a binary op: it is unary
+# Derive a specialization to implement elementwise dtype casting
+@register_custom_op
+class ElementwiseFloatCast(ElementwiseBinaryOperation):
+
+    # Defines attributes which must be present on this node
+    def get_nodeattr_types(self):
+        # Start from parent operator class attributes
+        attrs = ElementwiseBinaryOperation.get_nodeattr_types(self)
+        # Update attributes dictionary for new custom operator
+        attrs.update({
+            # Target datatype for the cast
+            "target_dtype": ("s", True, ""),
+        })
+        # Return updated attribute dictionary
+        return attrs
+
+    # since we use attributes to drive part of the function inputs,
+    # we cannot statically assign _operation like other subclasses
+    # instead, we override the properties accessed for codegen
+
+    @property
+    def npy_op(self) -> np.ufunc:
+        target_dtype = DataType[self.get_nodeattr("target_dtype")]
+        return partial(np.cast, dtype=target_dtype.to_numpy_dt())
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        target_dtype = DataType[self.get_nodeattr("target_dtype")]
+        return "((%s) {0})" % (target_dtype.get_hls_datatype_str())
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # the attributes decide the output datatype
+        target_dtype = DataType[self.get_nodeattr("target_dtype")]
+        return target_dtype
+
 # TODO: ElementwiseBitShift - Requires extra attribute selecting the direction
 
 

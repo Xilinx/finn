@@ -809,6 +809,24 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
         ]
 
 
+# Derive a specialization to implement elementwise casting
+@register_custom_op
+class ElementwiseFloatCast_hls(  # noqa: Class name does not follow
+    # CapWords convention
+    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseFloatCast
+):
+
+    # we need to resolve the attribute types due to multiple inheritence
+    def get_nodeattr_types(self):
+        # start with attributes from ElementwiseBinaryOperation
+        attrs = super(ElementwiseBinaryOperation_hls, self).get_nodeattr_types()
+        # add attributes from ElementwiseFloatCast
+        attrs_cast = super(elementwise_binary.ElementwiseFloatCast, self).get_nodeattr_types()
+        attrs.update(attrs_cast)
+        # Return updated attribute dictionary
+        return attrs
+
+
 # TODO: ElementwiseBitShift_hls - Requires extra attribute selecting the
 #  direction
 
