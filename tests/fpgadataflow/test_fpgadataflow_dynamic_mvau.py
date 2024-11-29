@@ -68,6 +68,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+def save_model(model, name):
+    model.save("dynMM_debug_" + name + ".onnx")
 
 
 def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
@@ -112,7 +114,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
     """
-
+    part = "xcvc1902-vsva2197-2MP-e-S"
     if nf == -1:
         nf = K
     if sf == -1:
@@ -141,13 +143,20 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
 
     assert np.allclose(output_matmul, output_mvau), "Output of ONNX model not matching output of MVAU!"
 
-
-    return 0
     model = model.transform(GiveUniqueNodeNames())
 
+    for node in model.graph.node:
+            # lookup op_type in registry of CustomOps
+            inst = getCustomOp(node)
+            inst.set_nodeattr("preferred_impl_style", "rtl")
+            inst.set_nodeattr("mem_mode", "external")
     # Apply convert-to-rtl step
+    save_model(model, "InferQuantizedMatrixVectorActivation")
+
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
+    save_model(model, "SpecializeLayers")
+
 
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
@@ -159,8 +168,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
         },
     }
     model = model.transform(ApplyConfig(folding_config))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
+    # model = model.transform(MinimizeWeightBitWidth())
+    # model = model.transform(MinimizeAccumulatorWidth())
+    save_model(model, "ApplyConfig")
     # make sure the changed datatypes are propagated through the network
     model = model.transform(InferDataTypes())
 
@@ -168,21 +178,23 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["global_out"]
+    save_model(model, "PrepareCppSim")
+    output_mvau_cppsim = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
-        output_matmul == output_mvau_hls
+        output_matmul == output_mvau_cppsim
     ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
 
     # Run node-by-node RTLsim
     model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(PrepareIP(part, 1.66))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
         output_matmul == output_mvau_rtl
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
+    return 0
     # Run stitched-ip RTLsim
     model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(PrepareIP(part, clk_ns))
