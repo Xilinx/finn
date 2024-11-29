@@ -133,9 +133,10 @@ class MVAU(HWCustomOp):
         inp_A = context[node.input[0]]
         # ensure that shape is compatible
         inp_A = inp_A.reshape(self.get_normal_input_shape())
-        mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
+        # TODO: AB: This is a hack to determin MVAU type
+        mvau_w_init_list = [x for x in graph.initializer if x.name == node.input[1]]
+        mvau_w_init = mvau_w_init_list[0] if mvau_w_init_list else None
         if mvau_w_init is not None:
-            # TODO: AB: This is a hack to determin MVAU type
             inp_B = np_helper.to_array(mvau_w_init)
         else:
             inp_B = context[node.input[1]]

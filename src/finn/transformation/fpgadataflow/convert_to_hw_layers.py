@@ -1504,7 +1504,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                     if model.get_initializer(mm_weight) is None:
                         # TODO: AB: Hack for dynamic MM
                         #           Assume that the weight tensor is the same as the input tensor B
-                        inp_B = model.get_tensor_shape(mm_input)
+                        inp_B = model.get_tensor_shape(mm_weight)
                         mh = int(inp_B[1])
                         mw = int(inp_B[0])
                     else:

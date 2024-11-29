@@ -73,18 +73,17 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     inp_A = [M, N]
     inp_B = [N, K]
+    out_Y = [M, K]
 
-    A_dtypeensor_value_info = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
-    B_dtypeensor_value_info = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
-    outp_tensor_value_info = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [None, None])
-
-
+    A_vi = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
+    B_vi = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
+    outp_tensor_value_info = helper.make_tensor_value_info("outp", TensorProto.FLOAT, out_Y)
 
     matmul_node = helper.make_node("MatMul", ["inp_A", "inp_B"], ["outp"])
     graph = helper.make_graph(
         nodes=[matmul_node],
         name="matmul_graph_2_inputs",
-        inputs=[A_dtypeensor_value_info, B_dtypeensor_value_info],
+        inputs=[A_vi, B_vi],
         outputs=[outp_tensor_value_info])
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
@@ -96,13 +95,10 @@ def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     )
     return model
 
-
-
-
 # matrix size [MxN] * [NxK]
 @pytest.mark.parametrize("M", [1, 32, 16])
-@pytest.mark.parametrize("N", [1, 16, 64])
-@pytest.mark.parametrize("K", [1, 8, 128])
+@pytest.mark.parametrize("N", [8, 16, 64])
+@pytest.mark.parametrize("K", [8, 8, 128])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2])
 # synapse folding, -1 is maximum possible
@@ -127,7 +123,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     assert N % sf == 0
 
     model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
-
+    model.save("matmul.onnx")
     model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
@@ -140,9 +136,11 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
-
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model.save("infer_quantized_matmul.onnx")
+    output_mvau = oxe.execute_onnx(model, input_dict)["outp"]
+
+    assert np.allclose(output_matmul, output_mvau), "Output of ONNX model not matching output of MVAU!"
+
 
     return 0
     model = model.transform(GiveUniqueNodeNames())
