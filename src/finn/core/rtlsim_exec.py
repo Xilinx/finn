@@ -218,6 +218,8 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         "TRACE_CMD": "" if trace_file is None else "top->trace_all();",
         # code to post-process final sim status to extract more data
         "POSTPROC_CPP": postproc_cpp,
+        # sim kernel .so to use (depends on Vivado version)
+        "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
     }
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))

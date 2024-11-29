@@ -218,7 +218,7 @@ void reset() {
 
 int main(int argc, char *argv[]) {
     // load pre-compiled rtl simulation
-    std::string simengine_libname = "librdi_simulator_kernel.so";
+    std::string simengine_libname = "@SIMKERNEL_SO@";
     std::string design_libname = "xsim.dir/@TOP_MODULE_NAME@/xsimk.so";
     top = new Xsi::Loader(design_libname, simengine_libname);
     s_xsi_setup_info info;
