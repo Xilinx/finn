@@ -70,37 +70,36 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
 
-def make_dynamic_matmul_modelwrapper(M, N, K, inp_A_t, inp_B_t):
+def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     inp_A = [M, N]
     inp_B = [N, K]
 
-    inp_A_tensor_value_info = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
-    inp_B_tensor_value_info = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
+    A_dtypeensor_value_info = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
+    B_dtypeensor_value_info = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
     outp_tensor_value_info = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [None, None])
-    
-    
-    
+
+
+
     matmul_node = helper.make_node("MatMul", ["inp_A", "inp_B"], ["outp"])
     graph = helper.make_graph(
-        nodes=[matmul_node], 
-        name="matmul_graph_2_inputs", 
-        inputs=[inp_A_tensor_value_info, inp_B_tensor_value_info], 
+        nodes=[matmul_node],
+        name="matmul_graph_2_inputs",
+        inputs=[A_dtypeensor_value_info, B_dtypeensor_value_info],
         outputs=[outp_tensor_value_info])
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp_A", inp_A_t)
-    model.set_tensor_datatype("inp_B", inp_B_t)
+    model.set_tensor_datatype("inp_A", A_dtype)
+    model.set_tensor_datatype("inp_B", B_dtype)
     model.set_tensor_datatype(
         "outp", DataType["INT32"]
-    ) 
+    )
     return model
 
 
 
 
-# matrix size [MxN] * [NxK]  
+# matrix size [MxN] * [NxK]
 @pytest.mark.parametrize("M", [1, 32, 16])
 @pytest.mark.parametrize("N", [1, 16, 64])
 @pytest.mark.parametrize("K", [1, 8, 128])
@@ -108,12 +107,16 @@ def make_dynamic_matmul_modelwrapper(M, N, K, inp_A_t, inp_B_t):
 @pytest.mark.parametrize("nf", [-1, 2])
 # synapse folding, -1 is maximum possible
 @pytest.mark.parametrize("sf", [-1, 2])
-@pytest.mark.parametrize("inp_A_t", [ DataType["UINT8"]])
-@pytest.mark.parametrize("inp_B_t", [DataType["INT8"]])
+@pytest.mark.parametrize("A_dtype", [DataType["UINT8"]])
+@pytest.mark.parametrize("B_dtype", [DataType["UINT8"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, inp_A_t, inp_B_t):
+def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
+    """
+    This test generates a MatMul Onnx graph, and then applies transformations
+    """
+
     if nf == -1:
         nf = K
     if sf == -1:
@@ -123,23 +126,25 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, inp_A_t, inp_B_t):
     assert K % pe == 0
     assert N % sf == 0
 
-    model = make_dynamic_matmul_modelwrapper(M, N, K, inp_A_t, inp_B_t)
-    model.save("dynmvau.onnx")
-    return 0
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
+    model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
 
+    model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
-    A = gen_finn_dt_tensor(
+    inpTensor_A = gen_finn_dt_tensor(
         model.get_tensor_datatype("inp_A"), model.get_tensor_shape("inp_A")
     )
-    input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
-
+    inpTensor_B = gen_finn_dt_tensor(
+        model.get_tensor_datatype("inp_B"), model.get_tensor_shape("inp_B")
+    )
+    input_dict = {"inp_A": inpTensor_A, "inp_B": inpTensor_B}
     # Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
+    output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
-    # Create MVAU (HLS)
+
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model.save("infer_quantized_matmul.onnx")
+
+    return 0
     model = model.transform(GiveUniqueNodeNames())
 
     # Apply convert-to-rtl step
