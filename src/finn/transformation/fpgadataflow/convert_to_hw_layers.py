@@ -1493,9 +1493,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
             if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
-                # if mm_weight is not constant, skip node
-                if model.get_initializer(n.input[1]) is None:
-                    continue
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
@@ -1503,13 +1500,21 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                 wdt = model.get_tensor_datatype(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
                     mm_output = n.output[0]
-                    W = model.get_initializer(mm_weight)
-                    # extract weight shape, note that ONNX and finn-hlslib
-                    # make different assumptions about dim order here
-                    # ONNX assumes W has (in, out) shape
-                    # finn-hlslib assumes W has (out, in) shape
-                    mh = int(W.shape[1])
-                    mw = int(W.shape[0])
+                                    # if mm_weight is not constant, skip node
+                    if model.get_initializer(mm_weight) is None:
+                        # TODO: AB: Hack for dynamic MM
+                        #           Assume that the weight tensor is the same as the input tensor B
+                        inp_B = model.get_tensor_shape(mm_input)
+                        mh = int(inp_B[1])
+                        mw = int(inp_B[0])
+                    else:
+                        W = model.get_initializer(mm_weight)
+                        # extract weight shape, note that ONNX and finn-hlslib
+                        # make different assumptions about dim order here
+                        # ONNX assumes W has (in, out) shape
+                        # finn-hlslib assumes W has (out, in) shape
+                        mh = int(W.shape[1])
+                        mw = int(W.shape[0])
                     # create node with no parallelization first
                     pe = 1
                     simd = 1
