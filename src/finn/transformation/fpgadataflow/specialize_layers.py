@@ -259,26 +259,24 @@ def _mvu_rtl_possible(n, fpgapart, model):
 
     # if there are weights, make sure they are supported
     wdt = node_inst.get_weight_datatype()
-    if wdt is not "":
+    # check which dsp block is available on fpga
+    dsp_block = get_dsp_block(fpgapart)
+    # check if weights are narrow
+    weights = model.get_initializer(n.input[1])
+    if weights is not None:
         if not wdt.signed():
             return False
-        # check which dsp block is available on fpga
-        dsp_block = get_dsp_block(fpgapart)
-        # check if weights are narrow
-        weights = model.get_initializer(n.input[1])
-        narrow_weights = False if np.min(weights) == wdt.min() else True
-        # if non narrow weights and only DSP48E1 available return False
-        if not narrow_weights and dsp_block == "DSP48E1":
-            return False
+    narrow_weights = False if np.min(weights) == wdt.min() else True
+    # if non narrow weights and only DSP48E1 available return False
+    if not narrow_weights and dsp_block == "DSP48E1":
+        return False
 
-        # if none of the above constraints have been triggered
-        # we now check if input and weight data types are in range
-        idt = node_inst.get_input_datatype()
-        inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
-        weight_width_in_range = wdt.bitwidth() <= 8
-    else:
-        # TODO: AB: if no weights are available, do we check the input data type?
-        return True
+    # if none of the above constraints have been triggered
+    # we now check if input and weight data types are in range
+    idt = node_inst.get_input_datatype()
+    inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
+    weight_width_in_range = wdt.bitwidth() <= 8
+
 
     return inp_width_in_range and weight_width_in_range
 
