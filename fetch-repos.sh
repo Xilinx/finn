@@ -39,7 +39,7 @@ XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
-PYXSI_COMMIT="d22c9b1a6b16d8c2513d266d5cdcf1490a1a075f"
+PYXSI_COMMIT="28051f8dad7644614fc50dc755d1def9e45fc97b"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
