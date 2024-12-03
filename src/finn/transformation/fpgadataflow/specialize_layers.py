@@ -36,13 +36,27 @@ from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 from finn.util.basic import get_dsp_block, is_versal
 
+import importlib
+
 
 def _determine_impl_style(node, fpgapart, model):
     optype = node.op_type
 
+    try:
+        domain_module = importlib.import_module(f"{node.domain}.hls")
+        hls_variant_registry = hls_variants | domain_module.custom_op 
+    except:
+        hls_variant_registry = hls_variants
+
+    try:
+        domain_module = importlib.import_module(f"{node.domain}.rtl")
+        rtl_variant_registry = rtl_variants | domain_module.custom_op 
+    except:
+        rtl_variant_registry = rtl_variants
+
     # check if there is an HLS or RTL variant or both
-    hls_variant = optype + "_hls" in hls_variants.keys()
-    rtl_variant = optype + "_rtl" in rtl_variants.keys()
+    hls_variant = optype + "_hls" in hls_variant_registry.keys()
+    rtl_variant = optype + "_rtl" in rtl_variant_registry.keys()
 
     # check if user has specified a preferred_impl_style
     node_inst = getCustomOp(node)
@@ -300,7 +314,7 @@ class SpecializeLayers(Transformation):
         graph_modified = False
         for node in graph.node:
             # Skip nodes that are not hw layers
-            if not node.domain == "finn.custom_op.fpgadataflow":
+            if not node.domain.endswith(".custom_op.fpgadataflow"):
                 continue
             node_ind += 1
             impl_style = _determine_impl_style(node, self.fpgapart, model)
@@ -310,7 +324,7 @@ class SpecializeLayers(Transformation):
                 optype,
                 node.input,
                 node.output,
-                domain="finn.custom_op.fpgadataflow." + impl_style,
+                domain=f"{node.domain}.{impl_style}",
             )
             # add all attributes
             for attribute in node.attribute:
