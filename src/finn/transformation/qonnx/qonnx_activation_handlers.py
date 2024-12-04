@@ -474,10 +474,6 @@ class QuantIdentityHandler(QuantActBaseHandler):
     def _check_compatibility(self):
         # Gather parameters to check
         if self._q_node.op_type == "Quant":
-            q_inst = getCustomOp(self._q_node)
-            signed = q_inst.get_nodeattr("signed")
-            if not signed:
-                raise ValueError("FINN only supports signed Quant nodes for identity activations.")
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
                 raise ValueError(
                     "Only Quant nodes with zero-point == 0 "
@@ -499,6 +495,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -509,10 +506,13 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width == 1.0:
             bias = np.array([-0.5], dtype=np_default_dtype)
         else:
-            if narrow:
-                min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+            if not signed:
+                min_non_scaled_val = 0
             else:
-                min_non_scaled_val = -(2 ** (bit_width - 1))
+                if narrow:
+                    min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+                else:
+                    min_non_scaled_val = -(2 ** (bit_width - 1))
             bias = np.array([min_non_scaled_val], dtype=np_default_dtype)
         return bias
 
@@ -523,6 +523,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
         elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
@@ -552,6 +553,8 @@ class QuantIdentityHandler(QuantActBaseHandler):
             min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
             if not narrow:
                 min_threshold -= step
+            if not signed:
+                min_threshold = half_step
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
