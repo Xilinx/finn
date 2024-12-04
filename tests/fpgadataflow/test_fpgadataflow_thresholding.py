@@ -62,12 +62,16 @@ def generate_random_threshold_values(
         num_input_channels = 1
     if narrow:
         num_steps -= 1
-
-    return np.random.randint(
-        data_type.min(),
-        data_type.max() + 1,
-        (num_input_channels, num_steps),
-    ).astype(np.float32)
+    if data_type.is_integer():
+        return np.random.randint(
+            data_type.min(),
+            data_type.max() + 1,
+            (num_input_channels, num_steps),
+        ).astype(np.float32)
+    else:
+        return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
+            data_type.to_numpy_dt()
+        )
 
 
 def sort_thresholds_increasing(thresholds):
@@ -83,8 +87,18 @@ def make_single_multithresholding_modelwrapper(
     num_input_vecs,
     num_channels,
 ):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
-    thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
+    if input_data_type == DataType["FLOAT16"]:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT16, num_input_vecs + [num_channels]
+        )
+    else:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT, num_input_vecs + [num_channels]
+        )
+    if threshold_data_type == DataType["FLOAT16"]:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT16, thresholds.shape)
+    else:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
     node_inp_list = ["inp", "thresh"]
@@ -136,6 +150,8 @@ def make_single_multithresholding_modelwrapper(
     [
         (DataType["INT8"], DataType["INT25"]),
         (DataType["UINT5"], DataType["UINT8"]),
+        (DataType["FLOAT32"], DataType["FLOAT32"]),
+        (DataType["FLOAT16"], DataType["FLOAT16"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
