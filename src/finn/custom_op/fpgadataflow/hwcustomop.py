@@ -513,6 +513,12 @@ class HWCustomOp(CustomOp):
                 except KeyError:
                     # exception if op_type is not supported
                     raise Exception("Custom op_type %s is currently not supported." % op_type)
+            else:
+                self.prepare_rtlsim()
+                # ensure that executable path is now set
+                assert (
+                    self.get_nodeattr("rtlsim_so") != ""
+                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
 
         # assert , "rtlsim not ready for " + self.onnx_node.name
         if self.get_nodeattr("io_chrc_period") > 0:

@@ -1034,6 +1034,7 @@ class MVAU(HWCustomOp):
         if mem_mode in ["internal_decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
             # num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            # TODO: Why is num_w_reps not considered here?
             io_dict["inputs"]["weights"] = [0 for i in range(1 * n_weight_inps)]
 
         super().derive_characteristic_fxns(

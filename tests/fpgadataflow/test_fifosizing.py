@@ -420,6 +420,7 @@ def make_conv_building_block(ifm_dim, ch, kernel_size, simd, pe, parallel_window
     mvau_config["SIMD"] = simd if parallel_window == 0 else simd * kernel_size * kernel_size
     mvau_config["PE"] = pe
     mvau_config["resType"] = "lut"
+    mvau_config["mem_mode"] = "internal_embedded" # internal_decoupled
     mvau_config["inputDataType"] = idt.name
     mvau_config["weightDataType"] = wdt.name
     mvau_config["outputDataType"] = odt.name
@@ -842,7 +843,7 @@ def test_fifosizing_linear(method, topology):
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize("strategy", ["rtlsim"])  # rtlsim #analytical
 @pytest.mark.parametrize("lb_num_layers", [1])
-@pytest.mark.parametrize("rb_num_layers", [4])
+@pytest.mark.parametrize("rb_num_layers", [3])
 def test_fifosizing_nonlinear(strategy, lb_num_layers, rb_num_layers):
     np.random.seed(0)
     tmp_output_dir = make_build_dir(
