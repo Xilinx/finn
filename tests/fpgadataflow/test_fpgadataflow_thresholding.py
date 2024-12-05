@@ -53,6 +53,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
+EXPAND_FLOAT_RANGE = 100
 
 
 def generate_random_threshold_values(
@@ -69,7 +70,7 @@ def generate_random_threshold_values(
             (num_input_channels, num_steps),
         ).astype(np.float32)
     else:
-        return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
+        return (np.random.randn(num_input_channels, num_steps) * EXPAND_FLOAT_RANGE).astype(
             data_type.to_numpy_dt()
         )
 
@@ -225,6 +226,8 @@ def test_fpgadataflow_thresholding(
 
     # calculate reference output
     x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    if not input_data_type.is_integer():
+        x = (x * EXPAND_FLOAT_RANGE).astype(input_data_type.to_numpy_dt())
 
     input_dict = {model.graph.input[0].name: x}
     y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
