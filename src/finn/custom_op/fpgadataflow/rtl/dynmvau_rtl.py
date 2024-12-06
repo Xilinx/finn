@@ -79,7 +79,7 @@ class DynMVAU_rtl(MVAU_rtl):
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
-        code_gen_dict["$N_VECTORS$"] = [str(self.get_output_datatype().bitwidth())]
+        code_gen_dict["$N_VECTORS$"] = [str(self.get_nodeattr("N_VECTORS"))]
         code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
@@ -185,6 +185,22 @@ class DynMVAU_rtl(MVAU_rtl):
                 )
             )
 
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
+        if mem_mode == "external":
+            # find the weights_V interface and rename it to in1_V
+            for i, (name, width) in enumerate(intf_names["s_axis"]):
+                if name == "weights_V":
+                    intf_names["s_axis"][i] = ("in1_" + sname, self.get_weightstream_width_padded())
+            # intf_names["s_axis"].append(("in1_" + sname, self.get_weightstream_width_padded()))
+        if mem_mode == "internal_decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
 
     def get_folded_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
@@ -193,15 +209,54 @@ class DynMVAU_rtl(MVAU_rtl):
         pe = self.get_nodeattr("PE")
         sf = mw // simd
         nf = mh // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-
         if ind == 0:
             # calculate shape of input 0
+            vecs = list(self.get_nodeattr("numInputVectors"))
             folded_input_shape = tuple(vecs + [sf, simd])
         elif ind == 1:
-            # calculate shape of input 1 (weights)
-            folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
+            # calculate shape of input 1
+            vecs = [self.get_nodeattr("MW")]
+            folded_input_shape = tuple(vecs + [nf, pe])
         else:
             raise Exception("Undefined input shape for requested input")
 
         return folded_input_shape
+
+    def instantiate_ip(self, cmd):
+        # instantiate the RTL IP
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        sourcefiles = [
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+            rtllib_dir + "mv_matrix_load.sv",
+            rtllib_dir + "mv_matrix_load_wide.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            rtllib_dir + "mvu_dyn_axi.sv",
+            # rtllib_dir + "mvu_dyn_axi_wrapper.v",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            # rtllib_dir + "mvu_vvu_axi_wrapper.v",
+            rtllib_dir + "ram_p_c.sv",
+            rtllib_dir + "replay_buffer.sv"
+        ]
+        for f in sourcefiles:
+            cmd.append("add_files -norecurse %s" % (f))
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            cmd.append(
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                    self.onnx_node.name,
+                )
+            )
+        else:
+            cmd.append(
+                "create_bd_cell -type hier -reference %s %s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                )
+            )
