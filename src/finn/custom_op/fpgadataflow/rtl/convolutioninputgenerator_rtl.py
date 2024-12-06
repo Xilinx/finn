@@ -330,12 +330,14 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {"out": []},
             }
             self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
             rtlsim_output = io_dict["outputs"]["out"]
             odt = export_idt
             target_bits = odt.bitwidth()
@@ -931,15 +933,21 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def get_rtl_file_list(self):
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/swg/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
         verilog_files = [
-            "swg_pkg.sv",
-            self.get_nodeattr("gen_top_module") + "_wrapper.v",
-            self.get_nodeattr("gen_top_module") + "_impl.sv",
-            "swg_common.sv",
+            rtllib_dir + "swg_pkg.sv",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper.v",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_impl.sv",
+            rtllib_dir + "swg_common.sv",
         ]
         if self.get_nodeattr("dynamic_mode"):
-            verilog_files.append(self.get_nodeattr("gen_top_module") + "_axilite.v")
+            verilog_files.append(code_gen_dir + self.get_nodeattr("gen_top_module") + "_axilite.v")
 
         return verilog_files
 
