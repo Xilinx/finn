@@ -488,7 +488,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             """,
             # Write the PE group into the output stream
             f"""
-            out_{self.hls_sname()}.write(flatten<{self.pe}>(out));
+            out_{self.hls_sname()}.write(flatten(out));
             """,
             # Close all for-loop bodies of the generated nest
             *["}" for _ in enumerate(out_shape)]
