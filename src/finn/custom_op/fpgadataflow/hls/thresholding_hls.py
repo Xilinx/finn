@@ -675,6 +675,12 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
+            # 2x clock is not used for decoupled thresholds
+            # simply connect input to the 1x clock for now
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)
