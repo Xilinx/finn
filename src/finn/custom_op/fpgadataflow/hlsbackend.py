@@ -379,24 +379,40 @@ compilation transformations?
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
+
+        cpp_interface = self.get_nodeattr("cpp_interface")
+
+        if cpp_interface == "packed":
+            elem_bits = dtype.bitwidth()
+            packed_bits = self.get_instream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+                % (
+                    packed_hls_type,
+                    elem_hls_type,
+                    elem_bits,
+                    npy_type,
+                    npy_in,
+                    self.hls_sname(),
+                )
             )
-        )
+        else:
+            folded_shape = self.get_folded_input_shape()
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2vectorstream<%s, %s, %d>("%s", in0_%s, false);'
+                % (
+                    elem_hls_type,
+                    npy_type,
+                    folded_shape[-1],
+                    npy_in,
+                    self.hls_sname(),
+                )
+            )
 
     def strm_decl(self):
         """Function to generate the commands for the stream declaration in c++,
@@ -456,12 +472,13 @@ compilation transformations?
                 )
             ]
         else:
+            folded_shape = self.get_folded_output_shape()
             self.code_gen_dict["$DATAOUTSTREAM$"] = [
-                'vectorstream2npy<%s, %s, SIMD>(debug_out_%s, %s, "%s");'
+                'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
                 % (
                     elem_hls_type,
                     npy_type,
-                    self.hls_sname(),
+                    folded_shape[-1],
                     oshape_cpp_str,
                     npy_out,
                 )
@@ -509,5 +526,5 @@ compilation transformations?
     def timeout_read_stream(self):
         """Set reading output stream procedure for HLS functions defined for one clock cycle"""
         self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = [
-            "debug_out_{} << out_{}.read();".format(self.hls_sname(), self.hls_sname())
+            "strm << out_{}.read();".format(self.hls_sname())
         ]
