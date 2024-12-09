@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import importlib
 import numpy as np
 import warnings
 from onnx import helper
@@ -36,22 +37,20 @@ from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
 from finn.util.basic import get_dsp_block, is_versal
 
-import importlib
-
 
 def _determine_impl_style(node, fpgapart, model):
     optype = node.op_type
 
     try:
         domain_module = importlib.import_module(f"{node.domain}.hls")
-        hls_variant_registry = hls_variants | domain_module.custom_op 
-    except:
+        hls_variant_registry = hls_variants | domain_module.custom_op
+    except ModuleNotFoundError:
         hls_variant_registry = hls_variants
 
     try:
         domain_module = importlib.import_module(f"{node.domain}.rtl")
-        rtl_variant_registry = rtl_variants | domain_module.custom_op 
-    except:
+        rtl_variant_registry = rtl_variants | domain_module.custom_op
+    except ModuleNotFoundError:
         rtl_variant_registry = rtl_variants
 
     # check if there is an HLS or RTL variant or both

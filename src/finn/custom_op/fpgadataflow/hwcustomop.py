@@ -268,7 +268,10 @@ class HWCustomOp(CustomOp):
             )
         elif rtlsim_backend == "pyxsi":
             total_cycle_count = pyxsi_utils.rtlsim_multi_io(
-                sim, io_dict, num_out_values, sname=sname,
+                sim,
+                io_dict,
+                num_out_values,
+                sname=sname,
                 liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
             )
         else:
