@@ -517,7 +517,7 @@ compilation transformations?
 
     def timeout_value(self):
         """Set timeout value for HLS functions defined for one clock cycle"""
-        self.code_gen_dict["$TIMEOUT_VALUE$"] = ["100"]
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = ["1000"]
 
     def timeout_condition(self):
         """Set timeout condition for HLS functions defined for one clock cycle"""
