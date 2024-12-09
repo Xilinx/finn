@@ -59,6 +59,8 @@ class HLSBackend(ABC):
             "code_gen_dir_cppsim": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "res_hls": ("s", False, ""),
+            # temporary node attribute to keep track of interface style of hls ops
+            "cpp_interface": ("s", False, "packed", {"packed", "hls_vector"}),
         }
 
     def get_all_verilog_paths(self):
@@ -232,7 +234,13 @@ class HLSBackend(ABC):
         self.dataoutstrm()
         self.save_as_npy()
 
-        template = templates.docompute_template
+        if self.get_nodeattr("cpp_interface") == "hls_vector":
+            self.timeout_value()
+            self.timeout_condition()
+            self.timeout_read_stream()
+            template = templates.docompute_template_timeout
+        else:
+            template = templates.docompute_template
 
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -397,24 +405,40 @@ compilation transformations?
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
+
+        cpp_interface = self.get_nodeattr("cpp_interface")
+
+        if cpp_interface == "packed":
+            elem_bits = dtype.bitwidth()
+            packed_bits = self.get_instream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+                % (
+                    packed_hls_type,
+                    elem_hls_type,
+                    elem_bits,
+                    npy_type,
+                    npy_in,
+                    self.hls_sname(),
+                )
             )
-        )
+        else:
+            folded_shape = self.get_folded_input_shape()
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2vectorstream<%s, %s, %d>("%s", in0_%s, false);'
+                % (
+                    elem_hls_type,
+                    npy_type,
+                    folded_shape[-1],
+                    npy_in,
+                    self.hls_sname(),
+                )
+            )
 
     def strm_decl(self):
         """Function to generate the commands for the stream declaration in c++,
@@ -448,27 +472,43 @@ compilation transformations?
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
-            )
-        ]
+        cpp_interface = self.get_nodeattr("cpp_interface")
+
+        if cpp_interface == "packed":
+            elem_bits = dtype.bitwidth()
+            packed_bits = self.get_outstream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+
+            self.code_gen_dict["$DATAOUTSTREAM$"] = [
+                'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
+                % (
+                    packed_hls_type,
+                    elem_hls_type,
+                    elem_bits,
+                    npy_type,
+                    self.hls_sname(),
+                    oshape_cpp_str,
+                    npy_out,
+                )
+            ]
+        else:
+            folded_shape = self.get_folded_output_shape()
+            self.code_gen_dict["$DATAOUTSTREAM$"] = [
+                'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
+                % (
+                    elem_hls_type,
+                    npy_type,
+                    folded_shape[-1],
+                    oshape_cpp_str,
+                    npy_out,
+                )
+            ]
 
     def save_as_npy(self):
         """Function to generate the commands for saving data in .npy file in c++"""
@@ -500,3 +540,17 @@ compilation transformations?
         ret = max([instream, outstream])
         assert ret <= 8191, "AP_INT_MAX_W=%d is larger than allowed maximum of 8191" % ret
         return ret
+
+    def timeout_value(self):
+        """Set timeout value for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = ["1000"]
+
+    def timeout_condition(self):
+        """Set timeout condition for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out_{}.empty()".format(self.hls_sname())]
+
+    def timeout_read_stream(self):
+        """Set reading output stream procedure for HLS functions defined for one clock cycle"""
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = [
+            "strm << out_{}.read();".format(self.hls_sname())
+        ]
