@@ -88,7 +88,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     gecho "Found XRT at $XILINX_XRT"
   else
     recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    exit -1
+    #exit -1
   fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"
@@ -155,6 +155,9 @@ else
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HLS_PATH/lnx64/tools/fpo_v7_1"
+
 export PATH=$PATH:$HOME/.local/bin
+
 # execute the provided command(s) as root
 exec "$@"
