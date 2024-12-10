@@ -1,14 +1,13 @@
-bitstring==3.1.7
+bitstring==4.2.3
 clize==5.0.1
 dataclasses-json==0.5.7
 gspread==3.6.0
 importlib-resources==6.1.0
 ipython==8.12.2
 numpy==1.24.1
-onnx==1.17.0
+onnx==1.16.0
 onnxoptimizer
 onnxruntime==1.18.1
-onnxsim==0.4.36
 pre-commit==3.3.2
 protobuf==3.20.3
 psutil==5.9.4
@@ -17,6 +16,5 @@ scipy==1.10.1
 setupext-janitor>=1.1.2
 sigtools==4.0.1
 toposort==1.7.0
-transformers==4.46.3
 vcdvcd==1.0.5
 wget==3.2
