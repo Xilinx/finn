@@ -1,4 +1,4 @@
-bitstring==3.1.7
+bitstring==4.2.3
 clize==5.0.1
 dataclasses-json==0.5.7
 gspread==3.6.0
