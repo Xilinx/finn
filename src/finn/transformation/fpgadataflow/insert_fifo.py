@@ -184,6 +184,7 @@ class InsertFIFO(Transformation):
         if graph_modified is False:
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
+                
                 first_node = model.find_consumer(graph_in_name)
                 # insert FIFO as first node, except when first node is DMA
                 if (

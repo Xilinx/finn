@@ -70,14 +70,19 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+import pdb
+
 def save_model(model, name):
     model.save("dynMM_debug_" + name + ".onnx")
 
+#
+# Init
+#
 
 def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
-    inp_A = [M, N]
-    inp_B = [N, K]
-    out_Y = [M, K]
+    inp_A = [1, M, N] 
+    inp_B = [1, N, K]
+    out_Y = [1, M, K]
 
     A_vi = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
     B_vi = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
@@ -97,16 +102,23 @@ def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     model.set_tensor_datatype(
         "outp", DataType["INT32"]
     )
+
+    #import pdb; pdb.set_trace()
+
     return model
 
+#
+# Run 
+#
+
 # matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("M", [4])
-@pytest.mark.parametrize("N", [4])
-@pytest.mark.parametrize("K", [4])
+@pytest.mark.parametrize("M", [128])
+@pytest.mark.parametrize("N", [32])
+@pytest.mark.parametrize("K", [128])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [2])
+@pytest.mark.parametrize("nf", [1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [2])
+@pytest.mark.parametrize("sf", [1])
 @pytest.mark.parametrize("A_dtype", [DataType["UINT8"]])
 @pytest.mark.parametrize("B_dtype", [DataType["UINT8"]])
 @pytest.mark.fpgadataflow
@@ -117,8 +129,11 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     This test generates a MatMul Onnx graph, and then applies transformations
     test_fpgadataflow_rtl_dynamic_mvau[B_dtype0-A_dtype0--1--1-4-4-4]
     """
+    # Why is this needed?
     part = "xcvc1902-vsva2197-2MP-e-S"
     clk_ns = 4
+
+    # Folding
     if nf == -1:
         nf = K
     if sf == -1:
@@ -128,9 +143,11 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     assert K % pe == 0
     assert N % sf == 0
 
+    # I guess just return the ONNX model?
     model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
     model.save("matmul.onnx")
     model = model.transform(GiveUniqueNodeNames())
+
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
         model.get_tensor_datatype("inp_A"), model.get_tensor_shape("inp_A")
@@ -139,6 +156,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
         model.get_tensor_datatype("inp_B"), model.get_tensor_shape("inp_B")
     )
     input_dict = {"inp_A": inpTensor_A, "inp_B": inpTensor_B}
+
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
@@ -150,19 +168,18 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     model = model.transform(GiveUniqueNodeNames())
 
     for node in model.graph.node:
-            # lookup op_type in registry of CustomOps
-            inst = getCustomOp(node)
-            inst.set_nodeattr("preferred_impl_style", "rtl")
-            inst.set_nodeattr("mem_mode", "external")
-            inst.set_nodeattr("rtlsim_trace", "MVAU_dyn.vcd")
-            inst.set_nodeattr("inFIFODepths", [16,16])
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", "rtl")
+        inst.set_nodeattr("mem_mode", "external")
+        inst.set_nodeattr("rtlsim_trace", "MVAU_dyn.vcd")
+        inst.set_nodeattr("inFIFODepths", [16,16])
     # Apply convert-to-rtl step
     save_model(model, "InferQuantizedMatrixVectorActivation")
 
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     save_model(model, "SpecializeLayers")
-
 
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
@@ -221,15 +238,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
     model.set_metadata_prop("exec_mode", "rtlsim")
     model.set_metadata_prop("rtlsim_trace", "MVAU_dyn_rtlsim.vcd")
     save_model(model, "CreateStitchedIP.onnx")
+
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["outp"]
     return 0
-    return 0
-
-
-
-
-
-
 
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())

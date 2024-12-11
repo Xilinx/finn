@@ -1505,8 +1505,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         # TODO: AB: Hack for dynamic MM
                         #           Assume that the weight tensor is the same as the input tensor B
                         inp_B = model.get_tensor_shape(mm_weight)
-                        mh = int(inp_B[1])
-                        mw = int(inp_B[0])
+                        mh = int(inp_B[2])
+                        mw = int(inp_B[1])
                     else:
                         W = model.get_initializer(mm_weight)
                         # extract weight shape, note that ONNX and finn-hlslib
@@ -1599,7 +1599,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             MW=mw,
                             MH=mh,
                             SIMD=simd,
-                            N_VECTORS=mm_in_shape[0], # Height of the input tensor A for dynamic MVAU
+                            N_VECTORS=mm_in_shape[1], # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
                             weightDataType=wdt.name,

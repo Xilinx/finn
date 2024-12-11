@@ -72,6 +72,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     io_dict = {"inputs": {}, "outputs": {}}
     if_dict = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
     # go over and prepare inputs
+
     for i, i_vi in enumerate(model.graph.input):
         i_name = i_vi.name
         i_tensor = execution_context[i_name]
@@ -79,6 +80,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         first_node_onnx = model.find_consumer(i_name)
         first_node = getCustomOp(first_node_onnx)
         node_inp_ind = list(first_node_onnx.input).index(i_name)
+
         if node_inp_ind == 0:
             # default node input (input 0)
             i_stream_w = first_node.get_instream_width()
@@ -122,6 +124,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         o_folded_shape = tuple(o_folded_shape)
         o_stream_w = last_node.get_outstream_width()
         o_tensor_info.append((o_stream_w, o_dt, o_folded_shape, o_shape))
+        import pdb; pdb.set_trace()
         num_out_values += batchsize * last_node.get_number_output_values()
 
     # prepare pyverilator model

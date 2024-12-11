@@ -75,7 +75,7 @@
 // liability.
 //
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
-module mv_matrix_load #(
+module mv_matrix_load_tmp #(
     int unsigned  PE,
     int unsigned  SIMD,
     int unsigned  ACTIVATION_WIDTH,
@@ -115,11 +115,6 @@ logic [NF-1:0][WGT_ADDR_BITS-1:0] offsets;
 
 typedef enum logic  {ST_WR_0, ST_WR_1} state_wr_t;
 typedef enum logic  {ST_RD_0, ST_RD_1} state_rd_t;
-typedef logic [NF_BITS-1:0] nf_t;
-typedef logic [SF_BITS-1:0] sf_t;
-typedef logic [SIMD_BITS-1:0] simd_t;
-typedef logic [SF_NF_BITS-1:0] sf_rd_t;
-typedef logic [N_REPS_BITS-1:0] reps_t;
 
 // ----------------------------------------------------------------------------
 // Writer
@@ -128,23 +123,18 @@ typedef logic [N_REPS_BITS-1:0] reps_t;
 // -- Regs
 state_wr_t state_wr_C, state_wr_N;
 
-simd_t curr_simd_C, curr_simd_N;
-nf_t curr_nf_C, curr_nf_N;
-sf_t curr_sf_C, curr_sf_N;
+logic[NF_BITS-1:0] curr_nf_C, curr_nf_N;
+logic[SF_BITS-1:0] curr_sf_C, curr_sf_N;
+logic[SIMD_BITS-1:0] curr_simd_C, curr_simd_N;
 
-logic rd_0_C, rd_0_N;
-logic rd_1_C, rd_1_N;
+logic [1:0] rd_C, rd_N;
 
 // -- Signals
-logic [PE-1:0][SIMD-1:0][WGT_EN_BITS-1:0] a_we_0; // Bank enables
-logic [WGT_ADDR_BITS-1:0] a_addr_0;
-logic [PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] a_data_in_0;
+logic [1:0][PE-1:0][SIMD-1:0][WGT_EN_BITS-1:0] a_we; // Bank enables
+logic [1:0][WGT_ADDR_BITS-1:0] a_addr;
+logic [1:0][PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] a_data_in;
 
-logic [PE-1:0][SIMD-1:0][WGT_EN_BITS-1:0] a_we_1; // Bank enables
-logic [WGT_ADDR_BITS-1:0] a_addr_1;
-logic [PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] a_data_in_1;
-
-logic done_0, done_1; // Completion
+logic [1:0] done; // Completion
 
 // -- Offsets
 for(genvar i = 0; i < NF; i++) begin
@@ -160,8 +150,7 @@ always_ff @( posedge clk ) begin : REG_PROC_WR
         curr_sf_C <= 0;
         curr_simd_C <= 0;
 
-        rd_0_C <= 1'b0;
-        rd_1_C <= 1'b0;
+        rd_C <= 0;
     end
     else begin
         state_wr_C <= state_wr_N;
@@ -170,8 +159,8 @@ always_ff @( posedge clk ) begin : REG_PROC_WR
         curr_sf_C <= curr_sf_N;
         curr_simd_C <= curr_simd_N;
 
-        rd_0_C <= rd_0_N;
-        rd_1_C <= rd_1_N;
+        for(int i = 0; i < 1; i++)
+            rd_C[i] <= rd_N[i];
     end
 end
 
@@ -181,10 +170,10 @@ always_comb begin : NSL_PROC_WR
 
     case (state_wr_C)
         ST_WR_0:
-            state_wr_N = ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld && ~rd_0_C) ? ST_WR_1 : ST_WR_0;
+            state_wr_N = ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld && ~rd_C[0]) ? ST_WR_1 : ST_WR_0;
 
         ST_WR_1:
-            state_wr_N = ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld && ~rd_1_C) ? ST_WR_0 : ST_WR_1;
+            state_wr_N = ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld && ~rd_C[1]) ? ST_WR_0 : ST_WR_1;
 
     endcase
 end
@@ -195,76 +184,44 @@ always_comb begin : DP_PROC_WR
     curr_sf_N = curr_sf_C;
     curr_simd_N = curr_simd_C;
 
-    rd_0_N = done_0 ? 1'b0 : rd_0_C;
-    rd_1_N = done_1 ? 1'b0 : rd_1_C;
+    for(int i = 0; i < 2; i++)
+        rd_N[i] = done[i] ? 1'b0 : rd_C[i]; 
 
+    // Input
     irdy = 1'b0;
 
-    a_we_0 = 0;
-    a_addr_0 = offsets[curr_nf_C] + curr_sf_C;
-    for(int i = 0; i < PE; i++)
-        for(int j = 0; j < SIMD; j++)
-            a_data_in_0[i][j] = idat[i];
+    // Buffers
+    a_we = 0;
+    for(int i = 0; i < 2; i++) begin
+        a_addr[i] = offsets[curr_nf_C] + curr_sf_C;   
+        for(int j = 0; j < PE; j++)
+            for(int k = 0; k < SIMD; k++)
+                a_data_in[i][j][k] = idat[j];
+    end
 
-    a_we_1 = 0;
-    a_addr_1 = offsets[curr_nf_C] + curr_sf_C;
-    for(int i = 0; i < PE; i++)
-        for(int j = 0; j < SIMD; j++)
-            a_data_in_1[i][j] = idat[i];
+    // Write and count
+    if(~rd_C[state_wr_C]) begin
+        irdy = 1'b1;
 
-    case (state_wr_C)
-        ST_WR_0: begin
-            if(~rd_0_C) begin
-                irdy = 1'b1;
-
-                if(ivld) begin
-                    for(int i = 0; i < PE; i++) begin
-                        for(int j = 0; j < SIMD; j++) begin
-                            if(curr_simd_C == j) begin
-                                a_we_0[i][j] = '1;
-                            end
-                        end
-                    end
-
-                    curr_nf_N   = (curr_nf_C == NF-1) ? 0 : curr_nf_C + 1;
-                    curr_simd_N = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? 0 : curr_simd_C + 1) : curr_simd_C;
-                    curr_sf_N   = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? ((curr_sf_C == SF-1) ? 0 : curr_sf_C + 1) : curr_sf_C) : curr_sf_C;
-
-                    if((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1)) begin
-                        rd_0_N = 1'b1;
+        if(ivld) begin
+            for(int i = 0; i < PE; i++) begin
+                for(int j = 0; j < SIMD; j++) begin
+                    if(curr_simd_C == j) begin
+                        a_we[state_wr_C][i][j] = '1;
                     end
                 end
             end
-        end
 
-        ST_WR_1: begin
-            if(~rd_1_C) begin
-                irdy = 1'b1;
+            curr_nf_N   = (curr_nf_C == NF-1) ? 0 : curr_nf_C + 1;
+            curr_simd_N = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? 0 : curr_simd_C + 1) : curr_simd_C;
+            curr_sf_N   = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? ((curr_sf_C == SF-1) ? 0 : curr_sf_C + 1) : curr_sf_C) : curr_sf_C;
 
-                if(ivld && ~rd_1_C) begin
-                    for(int i = 0; i < PE; i++) begin
-                        for(int j = 0; j < SIMD; j++) begin
-                            if(curr_simd_C == j) begin
-                                a_we_1[i][j] = '1;
-                            end
-                        end
-                    end
-
-                    curr_nf_N   = (curr_nf_C == NF-1) ? 0 : curr_nf_C + 1;
-                    curr_simd_N = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? 0 : curr_simd_C + 1) : curr_simd_C;
-                    curr_sf_N   = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? ((curr_sf_C == SF-1) ? 0 : curr_sf_C + 1) : curr_sf_C) : curr_sf_C;
-
-                    if((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1)) begin
-                        rd_1_N = 1'b1;
-
-                        curr_nf_N = 0;
-                        curr_sf_N = 0;
-                    end
-                end
+            if((curr_simd_C == SIMD-1) && (curr_sf_C == SF-1) && (curr_nf_C == NF-1)) begin
+                rd_N[state_wr_C] = 1'b1;
             end
         end
-        
-    endcase
+    end
+
 end
 
 // ----------------------------------------------------------------------------
@@ -274,47 +231,40 @@ end
 // -- Regs
 state_rd_t state_rd_C, state_rd_N;
 
-sf_rd_t cons_sf_C, cons_sf_N;
-reps_t cons_r_C, cons_r_N;
+logic [SF_NF_BITS-1:0] cons_sfnf_C, cons_sfnf_N;
+logic [N_REPS_BITS-1:0] cons_r_C, cons_r_N;
 
-logic vld_0_s0_C, vld_0_s0_N;
-logic vld_0_s1_C, vld_0_s1_N;
-
-logic vld_1_s0_C, vld_1_s0_N;
-logic vld_1_s1_C, vld_1_s1_N;
+logic [1:0] vld_s0_C, vld_s0_N;
+logic [1:0] vld_s1_C, vld_s1_N;
 
 logic vld_C, vld_N;
-logic  [PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] odat_C, odat_N;
+logic [PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] odat_C, odat_N;
 
 // -- Signals
-logic [WGT_ADDR_BITS-1:0] b_addr_0, b_addr_1;
-logic  [PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] odat_0, odat_1;
+logic [1:0][WGT_ADDR_BITS-1:0] b_addr;
+logic [1:0][PE-1:0][SIMD-1:0][ACTIVATION_WIDTH-1:0] odat_ram;
 
 // -- REG
 always_ff @( posedge clk ) begin : REG_PROC_RD
     if(rst) begin
         state_rd_C <= ST_RD_0;
 
-        cons_sf_C <= 0;
+        cons_sfnf_C <= 0;
         cons_r_C  <= 0;
 
-        vld_0_s0_C <= 0;
-        vld_0_s1_C <= 0;
-        vld_1_s0_C <= 0;
-        vld_1_s1_C <= 0;
+        vld_s0_C <= 0;
+        vld_s1_C <= 0;
         vld_C <= 0;
         odat_C <= 0;
     end
     else begin
         state_rd_C <= state_rd_N;
 
-        cons_sf_C <= cons_sf_N;
+        cons_sfnf_C <= cons_sfnf_N;
         cons_r_C  <= cons_r_N;
 
-        vld_0_s0_C <= vld_0_s0_N;
-        vld_0_s1_C <= vld_0_s1_N;
-        vld_1_s0_C <= vld_1_s0_N;
-        vld_1_s1_C <= vld_1_s1_N;
+        vld_s0_C <= vld_s0_N;
+        vld_s1_C <= vld_s1_N;
         vld_C <= vld_N;
         odat_C <= odat_N;
     end
@@ -326,77 +276,54 @@ always_comb begin : NSL_PROC_RD
 
     case (state_rd_C)
         ST_RD_0:
-            if(rd_0_C) begin
-                if(ordy) begin
-                    if((cons_sf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
-                        state_rd_N = ST_RD_1;
-                    end
+            if(rd_C[1] & ordy) begin
+                if((cons_sfnf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
+                    state_rd_N = ST_RD_1;
                 end
             end
 
         ST_RD_1:
-            if(rd_1_C) begin
-                if(ordy) begin
-                    if((cons_sf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
-                        state_rd_N = ST_RD_0;
-                    end
+            if(rd_C[1] & ordy) begin
+                if((cons_sfnf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
+                    state_rd_N = ST_RD_0;
                 end
             end
-        
+
     endcase
 end
 
 // -- DP
 always_comb begin : DP_PROC_RD
-    cons_sf_N = cons_sf_C;
+    cons_sfnf_N = cons_sfnf_C;
     cons_r_N = cons_r_C;
 
-    vld_0_s0_N = ordy ? 1'b0 : vld_0_s0_C;
-    vld_0_s1_N = ordy ? vld_0_s0_C : vld_0_s1_C;
-    vld_1_s0_N = ordy ? 1'b0 : vld_1_s0_C;
-    vld_1_s1_N = ordy ? vld_1_s0_C : vld_1_s1_C;
-    vld_N = ordy ? (vld_0_s1_C | vld_1_s1_C) : vld_C;
-    odat_N = ordy ? (vld_0_s1_C ? odat_0 : odat_1) : odat_C;
+    for(int i = 0; i < 2; i++) begin
+        vld_s0_N[i] = ordy ? 1'b0 : vld_s0_C[i];
+        vld_s1_N[i] = ordy ? vld_s0_C[i] : vld_s1_C[i];
+    end
 
-    b_addr_0 = cons_sf_C;
-    b_addr_1 = cons_sf_C;
+    vld_N = ordy ? |vld_s1_C : vld_C;
+    odat_N = ordy ? (vld_s1_C[0] ? odat_ram[0] : odat_ram[1]) : odat_C;
 
-    done_0 = 1'b0;
-    done_1 = 1'b0;
+    for(int i = 0; i < 2; i++) begin
+        b_addr[i] = cons_sfnf_C;
+        done[i] = 1'b0;
+    end
 
-    case (state_rd_C)
-        ST_RD_0: begin
-            if(rd_0_C) begin
-                if(ordy) begin
-                    vld_0_s0_N = 1'b1;
+    if(rd_C[state_rd_C]) begin
+        if(ordy) begin
+            vld_s0_N[state_rd_C] = 1'b1; 
 
-                    cons_sf_N = (cons_sf_C == NF*SF-1) ? 0 : cons_sf_C + 1;
-                    cons_r_N = (cons_sf_C == NF*SF-1) ? cons_r_C + 1 : cons_r_C;
+            cons_sfnf_N = (cons_sfnf_C == NF*SF-1) ? 0 : cons_sfnf_C + 1;
+            cons_r_N = (cons_sfnf_C == NF*SF-1) ? cons_r_C + 1 : cons_r_C;
 
-                    if((cons_sf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
-                        done_0 = 1'b1;
-                        cons_r_N = 0;
-                    end
-                end
+            if((cons_sfnf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
+                done[state_rd_C] = 1'b1;
+                cons_r_N = 0;
             end
         end
+    end 
 
-        ST_RD_1: begin
-            if(rd_1_C) begin
-                if(ordy) begin
-                    vld_1_s0_N = 1'b1;
-
-                    cons_sf_N = (cons_sf_C == NF*SF-1) ? 0 : cons_sf_C + 1;
-                    cons_r_N = (cons_sf_C == NF*SF-1) ? cons_r_C + 1 : cons_r_C;
-
-                    if((cons_sf_C == NF*SF-1) && (cons_r_C == N_REPS-1)) begin
-                        done_1 = 1'b1;
-                        cons_r_N = 0;
-                    end
-                end
-            end
-        end
-    endcase
 end
 
 assign ovld = vld_C;
@@ -406,43 +333,25 @@ assign odat = odat_C;
 // Matrix
 // ----------------------------------------------------------------------------
 
-for(genvar i = 0; i < PE; i++) begin
-    for(genvar j = 0; j < SIMD; j++) begin
-        ram_p_c #( 
-            .ADDR_BITS($clog2(NF*SF)),
-            .DATA_BITS(RAM_BITS),
-            .RAM_TYPE("distributed")
-        ) inst_ram_tp_c_0 (
-            .clk(clk),
-            .a_en(1'b1),
-            .a_we(a_we_0[i][j]),
-            .a_addr(a_addr_0),
-            .b_en(ordy),
-            .b_addr(b_addr_0),
-            .a_data_in(a_data_in_0[i][j]),
-            .a_data_out(),
-            .b_data_out(odat_0[i][j])
-        );
-    end
-end
-
-for(genvar i = 0; i < PE; i++) begin
-    for(genvar j = 0; j < SIMD; j++) begin
-        ram_p_c #( 
-            .ADDR_BITS($clog2(NF*SF)),
-            .DATA_BITS(RAM_BITS),
-            .RAM_TYPE("distributed")
-        ) inst_ram_tp_c_1 (
-            .clk(clk),
-            .a_en(1'b1),
-            .a_we(a_we_1[i][j]),
-            .a_addr(a_addr_1),
-            .b_en(ordy),
-            .b_addr(b_addr_1),
-            .a_data_in(a_data_in_1[i][j]),
-            .a_data_out(),
-            .b_data_out(odat_1[i][j])
-        );
+for(genvar i = 0; i < 2; i++) begin
+    for(genvar j = 0; j < PE; j++) begin
+        for(genvar k = 0; k < CU_SIMD; k++) begin
+            ram_p_c #( 
+                .ADDR_BITS(WGT_ADDR_BITS),
+                .DATA_BITS(RAM_BITS),
+                .RAM_TYPE("distributed")
+            ) inst_ram_tp_c (
+                .clk(clk),
+                .a_en(1'b1),
+                .a_we(a_we[i][j][k]),
+                .a_addr(a_addr[i]),
+                .b_en(ordy),
+                .b_addr(b_addr[i]),
+                .a_data_in(a_data_in[i][j][k]),
+                .a_data_out(),
+                .b_data_out(odat_ram[i][j][k])
+            );
+        end
     end
 end
 
