@@ -113,18 +113,10 @@ class MoveScalarMulPastMatMul(Transformation):
             node_ind += 1
             if n.op_type == "Mul" and not model.is_fork_node(n) and not model.is_join_node(n):
                 consumer = model.find_consumer(n.output[0])
-                if (
-                    consumer is not None
-                    and consumer.op_type == "MatMul"
-                    and not model.is_join_node(consumer)
-                ):
+                if consumer is not None and consumer.op_type == "MatMul":
                     mul_weight_name = n.input[1]
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    W = model.get_initializer(matmul_weight_name)
-                    if (A is None) or (W is None):
-                        warnings.warn("MatMul or Mul params are not constant, skipping")
-                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
