@@ -220,7 +220,7 @@ class DynMVAU_rtl(MVAU_rtl):
             folded_input_shape = tuple(vecs + [nf, pe])
         else:
             raise Exception("Undefined input shape for requested input")
-    
+
         return folded_input_shape
 
     def instantiate_ip(self, cmd):
