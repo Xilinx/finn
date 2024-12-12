@@ -80,7 +80,7 @@ def save_model(model, name):
 #
 
 def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
-    inp_A = [1, M, N] 
+    inp_A = [1, M, N]
     inp_B = [1, N, K]
     out_Y = [1, M, K]
 
@@ -108,7 +108,7 @@ def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     return model
 
 #
-# Run 
+# Run
 #
 
 # matrix size [MxN] * [NxK]
@@ -116,38 +116,28 @@ def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
 @pytest.mark.parametrize("N", [32])
 @pytest.mark.parametrize("K", [128])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [1])
+@pytest.mark.parametrize("pe", [1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [1])
-@pytest.mark.parametrize("A_dtype", [DataType["UINT8"]])
-@pytest.mark.parametrize("B_dtype", [DataType["UINT8"]])
+@pytest.mark.parametrize("simd", [1])
+@pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
+@pytest.mark.parametrize("B_dtype", [DataType["INT8"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
+def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, pe, simd, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
-    test_fpgadataflow_rtl_dynamic_mvau[B_dtype0-A_dtype0--1--1-4-4-4]
     """
-    # Why is this needed?
     part = "xcvc1902-vsva2197-2MP-e-S"
     clk_ns = 4
 
     # Folding
-    if nf == -1:
-        nf = K
-    if sf == -1:
-        sf = N
-    pe = K // nf    # Number of PEs fold columns
-    simd = N // sf  # Number of SIMD lanes fold rows
     assert K % pe == 0
-    assert N % sf == 0
+    assert N % simd == 0
 
     # I guess just return the ONNX model?
     model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
-    model.save("matmul.onnx")
     model = model.transform(GiveUniqueNodeNames())
-
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
         model.get_tensor_datatype("inp_A"), model.get_tensor_shape("inp_A")
@@ -156,7 +146,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
         model.get_tensor_datatype("inp_B"), model.get_tensor_shape("inp_B")
     )
     input_dict = {"inp_A": inpTensor_A, "inp_B": inpTensor_B}
-
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
@@ -191,65 +180,46 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, nf, sf, A_dtype, B_dtype):
         },
     }
     model = model.transform(ApplyConfig(folding_config))
-    # model = model.transform(MinimizeWeightBitWidth())
-    # model = model.transform(MinimizeAccumulatorWidth())
     save_model(model, "ApplyConfig")
     # make sure the changed datatypes are propagated through the network
     model = model.transform(InferDataTypes())
 
     # Run CPPsim
-    # model = model.transform(SetExecMode("cppsim"))
-    # model = model.transform(PrepareCppSim())
-    # model = model.transform(CompileCppSim())
-    # save_model(model, "PrepareCppSim")
-    # output_mvau_cppsim = oxe.execute_onnx(model, input_dict)["outp"]
-    # assert (
-    #     output_matmul == output_mvau_cppsim
-    # ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    save_model(model, "PrepareCppSim")
+    output_mvau_cppsim = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (
+        output_matmul == output_mvau_cppsim
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
     # Run node-by-node RTLsim
-    # model = model.transform(SetExecMode("rtlsim"))
-    # model = model.transform(PrepareIP(part, clk_ns))
-    # model = model.transform(HLSSynthIP())
-    # model = model.transform(PrepareRTLSim())
-    # output_mvau_rtl = oxe.execute_onnx(model, input_dict)["outp"]
-    # assert (
-    #     output_matmul == output_mvau_rtl
-    # ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (
+        output_matmul == output_mvau_rtl
+    ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
-
-    '''
-    >       assert len(model.graph.input) == 1, "Only a single input stream is supported"
-        E       AssertionError: Only a single input stream is supported
-    '''
-    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
-
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(part))
 
     model = model.transform(GiveUniqueNodeNames())
 
-    save_model(model, "InsertFIFO.onnx")
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
-    save_model(model, "HLSSynthIP.onnx")
     model = model.transform(CreateStitchedIP(part, clk_ns))
     model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
     model.set_metadata_prop("rtlsim_trace", "MVAU_dyn_rtlsim.vcd")
-    save_model(model, "CreateStitchedIP.onnx")
 
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["outp"]
-    return 0
-
-    model = model.transform(PrepareIP(part, clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(part, clk_ns))
-    save_model(model, "CreateStitchedIP")
-    # model.set_metadata_prop("rtlsim_so", "")
-    model.set_metadata_prop("exec_mode", "rtlsim")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+    return 0
