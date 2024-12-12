@@ -591,10 +591,6 @@ class InferDuplicateStreamsLayer(Transformation):
 
                     dt = model.get_tensor_datatype(output_tensor)
 
-                    # skip conversion for layers with float input
-                    if not dt.is_integer():
-                        continue
-
                     # create clone tensors
                     out_shape = model.get_tensor_shape(output_tensor)
                     out_tensor_clones = []
