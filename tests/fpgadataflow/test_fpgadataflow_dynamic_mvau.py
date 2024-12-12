@@ -214,7 +214,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, pe, simd, A_dtype, B_dtype):
     model = model.transform(CreateStitchedIP(part, clk_ns))
     model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "MVAU_dyn_rtlsim.vcd")
 
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["outp"]
 

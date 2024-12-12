@@ -202,22 +202,6 @@ class DynMVAU_rtl(MVAU_rtl):
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-
-    #def get_folded_input_shape(self, ind=0):
-    #    shape = self.get_normal_input_shape(ind)
-    #    simd = self.get_nodeattr("SIMD")
-    #    pe = self.get_nodeattr("PE")
-    #    if ind == 0:
-    #        # calculate shape of input 0
-    #        folded_input_shape = tuple(shape[0:-2] + [shape[-1]/simd, simd])
-    #    elif ind == 1:
-    #        # calculate shape of input 1
-    #        folded_input_shape = tuple(shape[0:-2] + [shape[-1]/pe, pe])
-    #    else:
-    #        raise Exception("Undefined input shape for requested input")
-    #
-    #    return folded_input_shape
-
     def get_folded_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
@@ -230,8 +214,8 @@ class DynMVAU_rtl(MVAU_rtl):
             vecs = list(self.get_nodeattr("numInputVectors"))
             folded_input_shape = tuple(vecs + [sf, simd])
         elif ind == 1:
-            #vecs = list(self.get_nodeattr("numInputVectors"))
             # calculate shape of input 1
+            # TODO: AB: Assume batch size is 1
             vecs = [1, self.get_nodeattr("MW")]
             folded_input_shape = tuple(vecs + [nf, pe])
         else:
