@@ -219,7 +219,6 @@ class DynMVAU_rtl(MVAU_rtl):
     #    return folded_input_shape
 
     def get_folded_input_shape(self, ind=0):
-        import pdb; pdb.set_trace()
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
         simd = self.get_nodeattr("SIMD")

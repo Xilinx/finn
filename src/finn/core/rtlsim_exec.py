@@ -124,7 +124,6 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         o_folded_shape = tuple(o_folded_shape)
         o_stream_w = last_node.get_outstream_width()
         o_tensor_info.append((o_stream_w, o_dt, o_folded_shape, o_shape))
-        import pdb; pdb.set_trace()
         num_out_values += batchsize * last_node.get_number_output_values()
 
     # prepare pyverilator model
