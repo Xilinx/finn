@@ -531,8 +531,7 @@ class InferDuplicateStreamsLayer(Transformation):
         graph_modified = False
         # check first if global input is split
         successors = model.find_consumers(graph.input[0].name)
-        dt = model.get_tensor_datatype(graph.input[0].name)
-        if successors is not None and len(successors) >= 2 and dt.is_integer():
+        if successors is not None and len(successors) >= 2:
             output_tensor = graph.input[0].name
             n_outputs = len(successors)
             dt = model.get_tensor_datatype(output_tensor)
