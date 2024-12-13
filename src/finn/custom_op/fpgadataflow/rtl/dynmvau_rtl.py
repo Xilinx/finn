@@ -316,3 +316,24 @@ class DynMVAU_rtl(MVAU, RTLBackend):
                     return "mvu_4sx4u_dsp48e2"
             else:
                 return "mvu_8sx8u_dsp48"
+
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+        verilog_files = [
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
+            rtllib_dir + "mv_matrix_load.sv",
+            rtllib_dir + "mv_matrix_load_wide.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            rtllib_dir + "mvu_dyn_axi.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "ram_p_c.sv",
+            rtllib_dir + "replay_buffer.sv",
+        ]
+        return verilog_files
