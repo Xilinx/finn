@@ -42,6 +42,7 @@ from qonnx.transformation.general import (
 )
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -194,6 +195,44 @@ class CapConvolutionFIFODepths(Transformation):
                     op_inst.set_nodeattr("impl_style", "rtl")
 
         return (model, False)
+
+
+def xsi_fifosim(model, n_inferences, max_iters=100000000):
+    """Create a XSI model of stitched IP and use a simple C++
+    driver to drive the input stream. Useful for FIFO sizing, latency
+    and throughput measurement."""
+
+    assert len(model.graph.input) == 1, "Only a single input stream is supported"
+    assert len(model.graph.output) == 1, "Only a single output stream is supported"
+    iname = model.graph.input[0].name
+    first_node = model.find_consumer(iname)
+    oname = model.graph.output[0].name
+    last_node = model.find_producer(oname)
+    assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
+    # define execution context for dummy data mode:
+    # only number of transactions, no real data
+    # TODO add support for multiple I/O streams
+    ctx = {
+        "global_in": n_inferences,
+    }
+    # create C++ code snippet for postprocessing:
+    # grab maxcount values from FIFOs, dump into existing results file
+    fifo_log = []
+    fifo_log_templ = '    results_file << "maxcount%s" << "\\t" '
+    fifo_log_templ += '<< to_string(read_signal_uint("maxcount%s")) << endl;'
+    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
+    fifo_ind = 0
+    for fifo_node in fifo_nodes:
+        fifo_node = getCustomOp(fifo_node)
+        if fifo_node.get_nodeattr("depth_monitor") == 1:
+            suffix = "" if fifo_ind == 0 else "_%d" % fifo_ind
+            fifo_log.append(fifo_log_templ % (suffix, suffix))
+            fifo_ind += 1
+    fifo_log = "\n".join(fifo_log)
+    # run XSI sim with postproc
+    ret_dict = rtlsim_exec_cppxsi(model, ctx, dummy_data_mode=True, postproc_cpp=fifo_log)
+
+    return ret_dict
 
 
 class InsertAndSetFIFODepths(Transformation):
@@ -378,6 +417,8 @@ class InsertAndSetFIFODepths(Transformation):
                 warnings.warn("No output detected, calculated FIFO depths may not be correct")
         else:
             # do rtlsim in C++ for FIFO sizing
+            # use the rtlsim_backend metadata_prop to decide which backend to use
+            backend = model.get_metadata_prop("rtlsim_backend")
             # determine # inputs for FIFO sizing according to topology type
             swg_nodes = [
                 x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
@@ -385,13 +426,19 @@ class InsertAndSetFIFODepths(Transformation):
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
-                # nodes as # inputs to drive the imulation
-                n_inputs = int(len(model.graph.node) / 2)
+                # nodes as # inputs to drive the simulation
+                n_inferences = int(len(model.graph.node) / 2)
             else:
                 # convnet, two inputs are typically enough to fill entire
                 # layer pipeline due to overlaps
-                n_inputs = 2
-            sim = verilator_fifosim(model, n_inputs)
+                n_inferences = 2
+
+            if backend in ["verilator", "pyverilator"]:
+                sim = verilator_fifosim(model, n_inferences)
+            elif backend is None or backend in ["xsi", "pyxsi"]:
+                sim = xsi_fifosim(model, n_inferences)
+            else:
+                assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
@@ -446,6 +493,15 @@ class InsertAndSetFIFODepths(Transformation):
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+        # clean up references to stitched IP and rtlsim objects
+        # (the stitched IP needs to be re-done after FIFO sizing)
+        model.set_metadata_prop("rtlsim_trace", "")
+        model.set_metadata_prop("rtlsim_so", "")
+        model.set_metadata_prop("vivado_stitch_proj", "")
+        model.set_metadata_prop("wrapper_filename", "")
+        model.set_metadata_prop("vivado_stitch_vlnv", "")
+        model.set_metadata_prop("vivado_stitch_ifnames", "")
 
         # reflect final values in attributes
         for node in model.graph.node:

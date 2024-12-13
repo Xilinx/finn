@@ -44,6 +44,12 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -53,6 +59,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
+EXPAND_FLOAT_RANGE = 100
 
 
 def generate_random_threshold_values(
@@ -62,12 +69,16 @@ def generate_random_threshold_values(
         num_input_channels = 1
     if narrow:
         num_steps -= 1
-
-    return np.random.randint(
-        data_type.min(),
-        data_type.max() + 1,
-        (num_input_channels, num_steps),
-    ).astype(np.float32)
+    if data_type.is_integer():
+        return np.random.randint(
+            data_type.min(),
+            data_type.max() + 1,
+            (num_input_channels, num_steps),
+        ).astype(np.float32)
+    else:
+        return (np.random.randn(num_input_channels, num_steps) * EXPAND_FLOAT_RANGE).astype(
+            data_type.to_numpy_dt()
+        )
 
 
 def sort_thresholds_increasing(thresholds):
@@ -83,8 +94,18 @@ def make_single_multithresholding_modelwrapper(
     num_input_vecs,
     num_channels,
 ):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
-    thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
+    if input_data_type == DataType["FLOAT16"]:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT16, num_input_vecs + [num_channels]
+        )
+    else:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT, num_input_vecs + [num_channels]
+        )
+    if threshold_data_type == DataType["FLOAT16"]:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT16, thresholds.shape)
+    else:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
     node_inp_list = ["inp", "thresh"]
@@ -136,6 +157,8 @@ def make_single_multithresholding_modelwrapper(
     [
         (DataType["INT8"], DataType["INT25"]),
         (DataType["UINT5"], DataType["UINT8"]),
+        (DataType["FLOAT32"], DataType["FLOAT32"]),
+        (DataType["FLOAT16"], DataType["FLOAT16"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -209,6 +232,8 @@ def test_fpgadataflow_thresholding(
 
     # calculate reference output
     x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    if not input_data_type.is_integer():
+        x = (x * EXPAND_FLOAT_RANGE).astype(input_data_type.to_numpy_dt())
 
     input_dict = {model.graph.input[0].name: x}
     y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
@@ -238,6 +263,8 @@ def test_fpgadataflow_thresholding(
     if round_thresh is True:
         model = model.transform(RoundAndClipThresholds())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
 
     if impl_style == "hls":
         inst.set_nodeattr("mem_mode", mem_mode)

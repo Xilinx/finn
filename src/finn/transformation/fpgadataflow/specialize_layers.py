@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import importlib
 import numpy as np
 import warnings
 from onnx import helper
@@ -40,9 +41,21 @@ from finn.util.basic import get_dsp_block, is_versal
 def _determine_impl_style(node, fpgapart, model):
     optype = node.op_type
 
+    try:
+        domain_module = importlib.import_module(f"{node.domain}.hls")
+        hls_variant_registry = hls_variants | domain_module.custom_op
+    except ModuleNotFoundError:
+        hls_variant_registry = hls_variants
+
+    try:
+        domain_module = importlib.import_module(f"{node.domain}.rtl")
+        rtl_variant_registry = rtl_variants | domain_module.custom_op
+    except ModuleNotFoundError:
+        rtl_variant_registry = rtl_variants
+
     # check if there is an HLS or RTL variant or both
-    hls_variant = optype + "_hls" in hls_variants.keys()
-    rtl_variant = optype + "_rtl" in rtl_variants.keys()
+    hls_variant = optype + "_hls" in hls_variant_registry.keys()
+    rtl_variant = optype + "_rtl" in rtl_variant_registry.keys()
 
     # check if user has specified a preferred_impl_style
     node_inst = getCustomOp(node)
@@ -314,7 +327,7 @@ class SpecializeLayers(Transformation):
         graph_modified = False
         for node in graph.node:
             # Skip nodes that are not hw layers
-            if not node.domain == "finn.custom_op.fpgadataflow":
+            if not node.domain.endswith(".custom_op.fpgadataflow"):
                 continue
             node_ind += 1
             optype, impl_style = _determine_hw_op_type(node, self.fpgapart, model)
@@ -323,7 +336,7 @@ class SpecializeLayers(Transformation):
                 optype,
                 node.input,
                 node.output,
-                domain="finn.custom_op.fpgadataflow." + impl_style,
+                domain=f"{node.domain}.{impl_style}",
             )
             # add all attributes
             for attribute in node.attribute:

@@ -746,6 +746,7 @@ class TestEnd2End:
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
+        model.set_metadata_prop("rtlsim_backend", "pyxsi")
         os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
         if rtlsim_trace:
             model.set_metadata_prop("rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits))

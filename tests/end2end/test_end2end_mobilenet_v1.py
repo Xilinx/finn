@@ -60,6 +60,7 @@ import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.reorder as reorder
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
+from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -89,7 +90,6 @@ from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_finn_root
 from finn.util.pytorch import NormalizePreProc
-from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import (
     crop_center,
     get_test_model_trained,
@@ -502,6 +502,7 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
 
     # set top-level prop for stitched-ip rtlsim and launch
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     ret_rtlsim_ip = execute_onnx(model, inp_dict, True)
     res_rtlsim_ip = ret_rtlsim_ip[out_name]
     np.save(build_dir + "/end2end_mobilenet_result_rtlsim_ip.npy", res_rtlsim_ip)
@@ -527,7 +528,7 @@ def test_end2end_mobilenet_rtlsim_performance():
     # multi-in/out streams currently not supported in our C++ verilator driver
     rtlsim_bs = 1
 
-    rtlsim_perf_dict = verilator_fifosim(model, rtlsim_bs)
+    rtlsim_perf_dict = throughput_test_rtlsim(model, batchsize=rtlsim_bs)
     # keep keys consistent between the Python and C++-styles
     cycles = rtlsim_perf_dict["cycles"]
     clk_ns = float(model.get_metadata_prop("clk_ns"))

@@ -32,8 +32,8 @@ import copy
 import numpy as np
 import onnx.parser as oprs
 import os
+from bitstring import BitArray
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -64,6 +64,11 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
@@ -159,13 +164,18 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        reset_rtlsim(sim)
+        pyxsi_utils.reset_rtlsim(sim)
         for axi_name, config in configs:
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-        reset_rtlsim(sim)
+                addr, val = config_entry
+                if val < 0:
+                    # ensure any negative vals are expressed as two's complement,
+                    # SWG control regs are currently always 32 bits
+                    val = BitArray(int=val, length=32).uint
+                pyxsi_utils.axilite_write(sim, addr, val, basename=axi_name)
+        pyxsi_utils.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -290,6 +300,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # loop through experiment configurations
     for exp_cfg in exp_cfgs:
@@ -535,6 +546,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # Simulate 1 FM for each dimension in the series
     for i, ifm_dim in enumerate(ifm_dim_series):

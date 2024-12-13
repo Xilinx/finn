@@ -297,10 +297,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
+                assert str(context[inputs].dtype) in [
+                    "float32",
+                    "float16",
+                ], """Input datatype is
+                not float32 or float16 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype() == DataType["BIPOLAR"]:
@@ -336,7 +337,8 @@ class Thresholding_hls(Thresholding, HLSBackend):
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim)
             if self.get_nodeattr("mem_mode") == "internal_decoupled":
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
@@ -348,12 +350,16 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     "inputs": {"in0": inp, "weights": wei * num_w_reps},
                     "outputs": {"out": []},
                 }
-                self.rtlsim_multi_io(sim, io_dict)
-                output = io_dict["outputs"]["out"]
             elif self.get_nodeattr("mem_mode") == "internal_embedded":
-                output = self.rtlsim(sim, inp)
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out": []},
+                }
             else:
                 raise Exception("Unrecognized mem_mode")
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -412,7 +418,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
+        npy_type = "half" if dtype == DataType["FLOAT16"] else "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
@@ -434,7 +440,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             packed_bits = self.get_weightstream_width()
             packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = tdt.get_hls_datatype_str()
-            npy_type = "float"
+            npy_type = "half" if tdt == DataType["FLOAT16"] else "float"
             npy_in = "%s/thresholds.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
@@ -668,6 +674,12 @@ class Thresholding_hls(Thresholding, HLSBackend):
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            # 2x clock is not used for decoupled thresholds
+            # simply connect input to the 1x clock for now
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
             cmd.append(

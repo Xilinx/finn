@@ -31,7 +31,6 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -50,6 +49,11 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -182,6 +186,7 @@ def test_fpgadataflow_checksum():
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # define function to read out the checksums from axilite
     checksums = []
@@ -192,8 +197,8 @@ def test_fpgadataflow_checksum():
         drain_addr = 32
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
-            checksums.append(axilite_read(sim, chk_addr, basename=axi_name))
-            drain.append(axilite_read(sim, drain_addr, basename=axi_name))
+            checksums.append(pyxsi_utils.axilite_read(sim, chk_addr, basename=axi_name))
+            drain.append(pyxsi_utils.axilite_read(sim, drain_addr, basename=axi_name))
 
     drain_value = False
 
@@ -201,7 +206,7 @@ def test_fpgadataflow_checksum():
         addr = 32
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
             axi_name = "s_axi_checksum_{}_".format(i)
-            axilite_write(sim, addr, drain_value, basename=axi_name)
+            pyxsi_utils.axilite_write(sim, addr, drain_value, basename=axi_name)
 
     rtlsim_exec(model, inp, pre_hook=write_drain, post_hook=read_checksum_and_drain)
     checksum0_rtlsim = int(checksums[0])
