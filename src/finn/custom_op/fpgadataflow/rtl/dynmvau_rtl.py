@@ -1,6 +1,7 @@
 import numpy as np
 import os
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
+from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -337,3 +338,11 @@ class DynMVAU_rtl(MVAU, RTLBackend):
             rtllib_dir + "replay_buffer.sv",
         ]
         return verilog_files
+
+    def minimize_weight_bit_width(self, model):
+        # TODO: AB: is this correct?
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def minimize_accumulator_width(self, model):
+        # TODO: AB: is this correct?
+        return DataType[self.get_nodeattr("outputDataType")]
