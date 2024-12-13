@@ -1,27 +1,27 @@
-from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 import numpy as np
 import os
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
-from qonnx.core.datatype import DataType
+
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block, get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
 try:
     from pyverilator import PyVerilator
 except ModuleNotFoundError:
     PyVerilator = None
-class DynMVAU_rtl(MVAU_rtl):
+
+
+class DynMVAU_rtl(MVAU, RTLBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
+        my_attrs = {"N_VECTORS": ("i", True, 0)}  # Height of Matrix A
 
-        my_attrs = {
-            "N_VECTORS": ("i", True, 0) # Height of Matrix A
-        }
-
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs.update(MVAU.get_nodeattr_types(self))
+        my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
     def generate_params(self, model, path):
@@ -64,7 +64,6 @@ class DynMVAU_rtl(MVAU_rtl):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_dyn_axi_wrapper.v"
 
@@ -86,7 +85,6 @@ class DynMVAU_rtl(MVAU_rtl):
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
 
         return template_path, code_gen_dict
-
 
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
@@ -165,7 +163,7 @@ class DynMVAU_rtl(MVAU_rtl):
                 self.rtlsim_multi_io(sim, io_dict)
                 output = io_dict["outputs"]["out"]
             else:
-                output = self.rtlsim(sim, inp)
+                output = self.rtlsim(sim, inp_0)
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -239,7 +237,7 @@ class DynMVAU_rtl(MVAU_rtl):
             rtllib_dir + "mvu_vvu_axi.sv",
             # rtllib_dir + "mvu_vvu_axi_wrapper.v",
             rtllib_dir + "ram_p_c.sv",
-            rtllib_dir + "replay_buffer.sv"
+            rtllib_dir + "replay_buffer.sv",
         ]
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
@@ -261,3 +259,60 @@ class DynMVAU_rtl(MVAU_rtl):
                     self.onnx_node.name,
                 )
             )
+
+    def dsp_estimation(self, fpgapart):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        dsp_block = get_dsp_block(fpgapart)
+        if dsp_block == "DSP58":
+            mult_dsp = P * np.ceil(Q / 3)
+        else:
+            mult_dsp = np.ceil(P / 4) * Q
+        return int(mult_dsp)
+
+    def lut_estimation(self):
+        return 0
+
+    def _resolve_segment_len(self, clk):
+        # Insert pipeline registers in the DSP58 chain to meet target clock frequency
+        # ~0.741 ns seems the worst-case delay through first DSP
+        # ~0.605 ns seems to be (on average) delay for all subsequent DSPs
+        # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        assert (
+            clk > 0.741
+        ), """Infeasible clk target of {} ns has been set,
+        consider lowering the targeted clock frequency!""".format(
+            clk
+        )
+        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
+        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
+        dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
+        return dsp_chain_len
+
+    def _resolve_impl_style(self, dsp_block):
+        # Based on target device and activation/weight-width, choose the
+        # supported RTL compute core
+        assert (
+            self.get_nodeattr("resType") != "lut"
+        ), """LUT-based RTL-MVU implementation currently not supported!
+        Please change resType for {} to 'dsp' or consider switching to HLS-based MVAU!""".format(
+            self.onnx_node.name
+        )
+
+        act_width = self.get_input_datatype(0).bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+
+        if dsp_block == "DSP58":
+            if act_width <= 4 and weight_width <= 4:
+                return "mvu_4sx4u_dsp48e2"
+            else:
+                return "mvu_vvu_8sx9_dsp58"
+        else:
+            if act_width <= 4 and weight_width <= 4:
+                if dsp_block == "DSP48E1":
+                    return "mvu_4sx4u_dsp48e1"
+                elif dsp_block == "DSP48E2":
+                    return "mvu_4sx4u_dsp48e2"
+            else:
+                return "mvu_8sx8u_dsp48"
