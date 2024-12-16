@@ -1495,13 +1495,13 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                 wdt = model.get_tensor_datatype(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
                     mm_output = n.output[0]
-                                    # if mm_weight is not constant, skip node
+                    # if mm_weight is not constant, skip node
                     if model.get_initializer(mm_weight) is None:
                         # TODO: AB: Hack for dynamic MM
                         #           Assume that the weight tensor is the same as the input tensor B
                         inp_B = model.get_tensor_shape(mm_weight)
-                        mh = int(inp_B[2])
-                        mw = int(inp_B[1])
+                        mh = int(inp_B[-1])
+                        mw = int(inp_B[-2])
                     else:
                         W = model.get_initializer(mm_weight)
                         # extract weight shape, note that ONNX and finn-hlslib
@@ -1594,7 +1594,9 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             MW=mw,
                             MH=mh,
                             SIMD=simd,
-                            N_VECTORS=mm_in_shape[1], # Height of the input tensor A for dynamic MVAU
+                            N_VECTORS=mm_in_shape[
+                                1
+                            ],  # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
                             weightDataType=wdt.name,
