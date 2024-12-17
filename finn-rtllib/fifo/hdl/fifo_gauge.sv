@@ -77,7 +77,10 @@ module fifo_gauge #(
 
 			// Offer output when available
 			if(!OVld || ordy) begin
-				if(Q.size == 0)  OVld <= 0;
+				if(Q.size == 0) begin
+					OVld <= 0;
+					ODat <= 'x;
+				end
 				else begin
 					OVld <= 1;
 					ODat <= Q.pop_front();
