@@ -63,7 +63,8 @@ class MVAU(HWCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "N_VECTORS": ("i", True, 0), # Height of Matrix A
+            # Height of Matrix A
+            "N_VECTORS": ("i", True, 0),
             "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
@@ -259,11 +260,8 @@ class MVAU(HWCustomOp):
             raise Exception("Undefined input ind for this layer type")
 
     def get_weight_datatype(self):
-        """Returns FINN DataType of weights.""" 
-        dtype = self.get_nodeattr("weightDataType")
-        if dtype is not "":
-            return DataType[dtype]
-        return ""
+        """Returns FINN DataType of weights."""
+        return DataType[self.get_nodeattr("weightDataType")]
 
     def get_accumulator_datatype(self):
         """Returns FINN DataType of accumulator"""

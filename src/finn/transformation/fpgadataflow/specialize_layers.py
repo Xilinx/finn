@@ -192,12 +192,12 @@ def _determine_impl_style(node, fpgapart, model):
             )
         )
 
+
 def _determine_hw_op_type(node, fpgapart, model):
     impl_style = _determine_impl_style(node, fpgapart, model)
 
     # There are some variants of MVAU that are only supported in RTL
     if impl_style == "rtl" and node.op_type == "MVAU":
-        inst = getCustomOp(node)
         # TODO: AB: Dont use the initializer to determine mvau type
         if model.get_initializer(node.input[1]) is not None:
             return "MVAU_rtl", impl_style
@@ -205,6 +205,7 @@ def _determine_hw_op_type(node, fpgapart, model):
             return "DynMVAU_rtl", impl_style
 
     return node.op_type + "_" + impl_style, impl_style
+
 
 def _dwc_determine_impl_style(node):
     # when possible use rtl variant
@@ -289,7 +290,6 @@ def _mvu_rtl_possible(n, fpgapart, model):
     idt = node_inst.get_input_datatype()
     inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
     weight_width_in_range = wdt.bitwidth() <= 8
-
 
     return inp_width_in_range and weight_width_in_range
 
