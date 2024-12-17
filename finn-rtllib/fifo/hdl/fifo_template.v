@@ -51,11 +51,38 @@ output   out_V_TVALID,
 output  $OUT_RANGE$ out_V_TDATA
 );
 
-	fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($bits(count))) fifo (
-		.clk(ap_clk), .rst(!ap_rst_n),
-		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
-		.odat(out_V_TDATA), .ovld(out_V_TVALID), .ordy(out_V_TREADY),
-		.count(count), .maxcount(maxcount)
-	);
+	localparam fifo_core = "$FIFO_CORE$";
+
+	case(fifo_core)
+	"sim_fifo_gauge":
+		fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$)) fifo (
+			.clk(ap_clk), .rst(!ap_rst_n),
+			.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+			.odat(out_V_TDATA), .ovld(out_V_TVALID), .ordy(out_V_TREADY),
+			.count(count), .maxcount(maxcount)
+		);
+	"q_srl":
+		Q_srl #(
+		.depth($DEPTH$),
+		.width($WIDTH$)
+		)
+		impl
+		(
+		.clock(ap_clk),
+		.reset(!ap_rst_n),
+		.count(count),
+		.maxcount(maxcount),
+		.i_d(in0_V_TDATA),
+		.i_v(in0_V_TVALID),
+		.i_r(in0_V_TREADY),
+		.o_d(out_V_TDATA),
+		.o_v(out_V_TVALID),
+		.o_r(out_V_TREADY)
+		);
+	default: initial begin
+			$error("Unrecognized FIFO_CORE '%s'", FIFO_CORE);
+			$finish;
+		end
+		endcase
 
 endmodule
