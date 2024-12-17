@@ -19,7 +19,10 @@ class DynMVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {"N_VECTORS": ("i", True, 0)}  # Height of Matrix A
+        my_attrs = {
+            "N_VECTORS": ("i", True, 0),
+            "inFIFODepths": ("ints", False, [2, 2]),
+        }  # Height of Matrix A
 
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
