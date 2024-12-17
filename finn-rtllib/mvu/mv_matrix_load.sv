@@ -263,7 +263,7 @@ always_comb begin : DP_PROC_WR
                 end
             end
         end
-        
+
     endcase
 end
 
@@ -342,7 +342,7 @@ always_comb begin : NSL_PROC_RD
                     end
                 end
             end
-        
+
     endcase
 end
 
@@ -408,7 +408,7 @@ assign odat = odat_C;
 
 for(genvar i = 0; i < PE; i++) begin
     for(genvar j = 0; j < SIMD; j++) begin
-        ram_p_c #( 
+        ram_p_c #(
             .ADDR_BITS($clog2(NF*SF)),
             .DATA_BITS(RAM_BITS),
             .RAM_TYPE("distributed")
@@ -428,7 +428,7 @@ end
 
 for(genvar i = 0; i < PE; i++) begin
     for(genvar j = 0; j < SIMD; j++) begin
-        ram_p_c #( 
+        ram_p_c #(
             .ADDR_BITS($clog2(NF*SF)),
             .DATA_BITS(RAM_BITS),
             .RAM_TYPE("distributed")

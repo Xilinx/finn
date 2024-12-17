@@ -77,7 +77,7 @@ module ram_p_c #(
       a_data_out <= a_data_reg;
     end
     if(b_en) begin
-      b_data_reg <= ram[b_addr]; 
+      b_data_reg <= ram[b_addr];
       b_data_out <= b_data_reg;
     end
    //end

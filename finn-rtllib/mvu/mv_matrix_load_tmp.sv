@@ -185,7 +185,7 @@ always_comb begin : DP_PROC_WR
     curr_simd_N = curr_simd_C;
 
     for(int i = 0; i < 2; i++)
-        rd_N[i] = done[i] ? 1'b0 : rd_C[i]; 
+        rd_N[i] = done[i] ? 1'b0 : rd_C[i];
 
     // Input
     irdy = 1'b0;
@@ -193,7 +193,7 @@ always_comb begin : DP_PROC_WR
     // Buffers
     a_we = 0;
     for(int i = 0; i < 2; i++) begin
-        a_addr[i] = offsets[curr_nf_C] + curr_sf_C;   
+        a_addr[i] = offsets[curr_nf_C] + curr_sf_C;
         for(int j = 0; j < PE; j++)
             for(int k = 0; k < SIMD; k++)
                 a_data_in[i][j][k] = idat[j];
@@ -312,7 +312,7 @@ always_comb begin : DP_PROC_RD
 
     if(rd_C[state_rd_C]) begin
         if(ordy) begin
-            vld_s0_N[state_rd_C] = 1'b1; 
+            vld_s0_N[state_rd_C] = 1'b1;
 
             cons_sfnf_N = (cons_sfnf_C == NF*SF-1) ? 0 : cons_sfnf_C + 1;
             cons_r_N = (cons_sfnf_C == NF*SF-1) ? cons_r_C + 1 : cons_r_C;
@@ -322,7 +322,7 @@ always_comb begin : DP_PROC_RD
                 cons_r_N = 0;
             end
         end
-    end 
+    end
 
 end
 
@@ -336,7 +336,7 @@ assign odat = odat_C;
 for(genvar i = 0; i < 2; i++) begin
     for(genvar j = 0; j < PE; j++) begin
         for(genvar k = 0; k < CU_SIMD; k++) begin
-            ram_p_c #( 
+            ram_p_c #(
                 .ADDR_BITS(WGT_ADDR_BITS),
                 .DATA_BITS(RAM_BITS),
                 .RAM_TYPE("distributed")

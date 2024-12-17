@@ -53,7 +53,7 @@ module mvu_dyn_axi #(
     int unsigned ACCU_WIDTH = 2*ACTIVATION_WIDTH+$clog2(MH),
     bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 1,
-    
+
     bit PUMPED_COMPUTE = 1,
     bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
@@ -66,7 +66,7 @@ module mvu_dyn_axi #(
     localparam int unsigned  OUTPUT_STREAM_WIDTH                = PE * ACCU_WIDTH,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA             = (OUTPUT_STREAM_WIDTH + 7)/8 * 8,
 	localparam bit  		 SIMD_UNEVEN  = SIMD % 2
-) ( 
+) (
     // Global Control
 	input	logic  ap_clk,
 	input	logic  ap_clk2x,	// synchronous, double-speed clock; only used for PUMPED_COMPUTE
@@ -76,7 +76,7 @@ module mvu_dyn_axi #(
 	input	logic [INPUT_1_STREAM_WIDTH_BA-1:0]  s_axis_input_0_tdata,
 	input	logic  s_axis_input_0_tvalid,
 	output	logic  s_axis_input_0_tready,
-    
+
     // Matrix stream - input 2
 	input	logic [INPUT_2_STREAM_WIDTH_BA-1:0]  s_axis_input_1_tdata,
 	input	logic  s_axis_input_1_tvalid,
@@ -110,13 +110,13 @@ mv_matrix_load #(
     .MH(MH), .MW(MW),
     .N_REPS(N_VECTORS)
 ) inst_matrix_load (
-    .clk(ap_clk), 
+    .clk(ap_clk),
     .rst(~ap_rst_n),
-    .ivld(s_axis_input_1_tvalid), 
-    .irdy(s_axis_input_1_tready), 
+    .ivld(s_axis_input_1_tvalid),
+    .irdy(s_axis_input_1_tready),
     .idat(dyn_w_t'(s_axis_input_1_tdata)),
-    .ovld(axis_input_1_tvalid), 
-    .ordy(axis_input_1_tready), 
+    .ovld(axis_input_1_tvalid),
+    .ordy(axis_input_1_tready),
     .odat(axis_input_1_tdata)
 );
 
