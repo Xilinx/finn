@@ -57,7 +57,6 @@ def prep_rtlsim_io_dict(model, execution_context):
     io_dict = {"inputs": {}, "outputs": {}}
     if_dict = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
     # go over and prepare inputs
-
     for i, i_vi in enumerate(model.graph.input):
         i_name = i_vi.name
         i_tensor = execution_context[i_name]

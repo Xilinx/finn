@@ -59,11 +59,7 @@ def save_model(model, name):
 #
 
 
-def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
-    inp_A = [1, M, N]
-    inp_B = [1, N, K]
-    out_Y = [1, M, K]
-
+def make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype):
     A_vi = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
     B_vi = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
     outp_tensor_value_info = helper.make_tensor_value_info("outp", TensorProto.FLOAT, out_Y)
@@ -85,20 +81,20 @@ def make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype):
     return model
 
 
-# matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("M", [128])
-@pytest.mark.parametrize("N", [32])
-@pytest.mark.parametrize("K", [16])
+# matrix size (1xHxMxK * 1xHxKxN) = 1xHxMxN
+@pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
+@pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
 @pytest.mark.parametrize("B_dtype", [DataType["INT8"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_infer_dyn_mvau(M, N, K, A_dtype, B_dtype):
+def test_fpgadataflow_infer_dyn_mvau(inp_A, inp_B, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
     """
-    model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
+    out_Y = [1, 12, 128, 16]
+    model = make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype)
     model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
@@ -112,6 +108,7 @@ def test_fpgadataflow_infer_dyn_mvau(M, N, K, A_dtype, B_dtype):
     output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    save_model(model, "infer.onnx")
     output_mvau = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert np.allclose(
@@ -120,9 +117,8 @@ def test_fpgadataflow_infer_dyn_mvau(M, N, K, A_dtype, B_dtype):
 
 
 # matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("M", [128])
-@pytest.mark.parametrize("N", [32])
-@pytest.mark.parametrize("K", [16])
+@pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
+@pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("pe", [1, 2, 4])
 @pytest.mark.parametrize("simd", [1, 4, 8])
 @pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
@@ -130,17 +126,17 @@ def test_fpgadataflow_infer_dyn_mvau(M, N, K, A_dtype, B_dtype):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dynamic_mvau_cppsim(M, N, K, pe, simd, A_dtype, B_dtype):
+def test_fpgadataflow_dynamic_mvau_cppsim(inp_A, inp_B, pe, simd, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
     """
     part = "xcvc1902-vsva2197-2MP-e-S"
 
     # Folding
-    assert K % pe == 0
-    assert N % simd == 0
-
-    model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
+    # assert K % pe == 0
+    # assert N % simd == 0
+    out_Y = [1, 12, 128, 16]
+    model = make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype)
     model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
@@ -194,9 +190,8 @@ def test_fpgadataflow_dynamic_mvau_cppsim(M, N, K, pe, simd, A_dtype, B_dtype):
 
 
 # matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("M", [128])
-@pytest.mark.parametrize("N", [32])
-@pytest.mark.parametrize("K", [16])
+@pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
+@pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("pe", [1, 2, 4])
 @pytest.mark.parametrize("simd", [1, 4, 8])
 @pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
@@ -204,18 +199,15 @@ def test_fpgadataflow_dynamic_mvau_cppsim(M, N, K, pe, simd, A_dtype, B_dtype):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dynamic_mvau_rtlsim(M, N, K, pe, simd, A_dtype, B_dtype):
+def test_fpgadataflow_dynamic_mvau_rtlsim(inp_A, inp_B, pe, simd, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
     """
     part = "xcvc1902-vsva2197-2MP-e-S"
     clk_ns = 4
 
-    # Folding
-    assert K % pe == 0
-    assert N % simd == 0
-
-    model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
+    out_Y = [1, 12, 128, 16]
+    model = make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype)
     model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
@@ -268,9 +260,8 @@ def test_fpgadataflow_dynamic_mvau_rtlsim(M, N, K, pe, simd, A_dtype, B_dtype):
 
 
 # matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("M", [128])
-@pytest.mark.parametrize("N", [32])
-@pytest.mark.parametrize("K", [16])
+@pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
+@pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("pe", [1, 2, 4])
 @pytest.mark.parametrize("simd", [1, 4, 8])
 @pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
@@ -278,19 +269,15 @@ def test_fpgadataflow_dynamic_mvau_rtlsim(M, N, K, pe, simd, A_dtype, B_dtype):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(M, N, K, pe, simd, A_dtype, B_dtype):
+def test_fpgadataflow_rtl_dynamic_mvau(inp_A, inp_B, pe, simd, A_dtype, B_dtype):
     """
     This test generates a MatMul Onnx graph, and then applies transformations
     """
     part = "xcvc1902-vsva2197-2MP-e-S"
     clk_ns = 4
 
-    # Folding
-    assert K % pe == 0
-    assert N % simd == 0
-
-    # I guess just return the ONNX model?
-    model = make_dynamic_matmul_modelwrapper(M, N, K, A_dtype, B_dtype)
+    out_Y = [1, 12, 128, 16]
+    model = make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype)
     model = model.transform(GiveUniqueNodeNames())
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
