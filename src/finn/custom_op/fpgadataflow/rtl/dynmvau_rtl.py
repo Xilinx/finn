@@ -214,8 +214,8 @@ class DynMVAU_rtl(MVAU, RTLBackend):
             folded_input_shape = tuple(vecs + [sf, simd])
         elif ind == 1:
             # calculate shape of input 1
-            # TODO: AB: Assume batch size is 1
-            vecs = [1, self.get_nodeattr("MW")]
+            vecs = list(self.get_nodeattr("numInputVectors"))[:2]
+            vecs = vecs + [mw]
             folded_input_shape = tuple(vecs + [nf, pe])
         else:
             raise Exception("Undefined input shape for requested input")

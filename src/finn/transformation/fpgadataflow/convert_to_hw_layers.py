@@ -1595,7 +1595,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             MH=mh,
                             SIMD=simd,
                             N_VECTORS=mm_in_shape[
-                                1
+                                -2
                             ],  # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
