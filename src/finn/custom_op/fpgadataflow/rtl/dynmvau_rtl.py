@@ -46,12 +46,11 @@ class DynMVU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "inFIFODepths": ("ints", False, [2, 2]),
-        }
-
+        my_attrs = {}
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
+        my_attrs["inFIFODepths"] = ("ints", False, [2, 2])
+        my_attrs["mem_mode"] = ("s", False, "external", {"external"})
         return my_attrs
 
     def generate_params(self, model, path):
