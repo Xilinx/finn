@@ -1,3 +1,30 @@
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import numpy as np
 import os
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
@@ -123,30 +150,27 @@ class DynMVAU_rtl(MVAU, RTLBackend):
         if mode == "cppsim":
             MVAU.execute_node(self, context, graph)
         elif mode == "rtlsim":
+            assert len(node.input) == 2, """Node must have 2 inputs"""
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # create a npy file fore each input of the node (in_ind is input index)
             in_ind = 0
-            for inputs in node.input:
+            for in_ind, inputs in enumerate(node.input):
                 # it is assumed that the first input of the node is the data input
                 # the second input are the weights
-                if in_ind < 2:
-                    assert (
-                        str(context[inputs].dtype) == "float32"
-                    ), """Input datatype is
-                    not float32 as expected."""
-                    expected_inp_shape = self.get_folded_input_shape(in_ind)
+                assert (
+                    str(context[inputs].dtype) == "float32"
+                ), """Input datatype is
+                not float32 as expected."""
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
 
-                    reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype()
-                    # make copy before saving the array
-                    reshaped_input = reshaped_input.copy()
-                    np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                        reshaped_input,
-                    )
-                else:
-                    raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
-                in_ind += 1
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                export_idt = self.get_input_datatype()
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
+                np.save(
+                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    reshaped_input,
+                )
 
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
