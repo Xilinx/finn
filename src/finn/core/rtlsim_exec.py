@@ -64,6 +64,7 @@ def prep_rtlsim_io_dict(model, execution_context):
         first_node_onnx = model.find_consumer(i_name)
         first_node = getCustomOp(first_node_onnx)
         node_inp_ind = list(first_node_onnx.input).index(i_name)
+
         if node_inp_ind == 0:
             # default node input (input 0)
             i_stream_w = first_node.get_instream_width()
