@@ -39,11 +39,9 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -116,80 +114,7 @@ def test_fpgadataflow_infer_dyn_mvau(inp_A, inp_B, A_dtype, B_dtype):
     ), "Output of ONNX model not matching output of MVAU!"
 
 
-# matrix size [MxN] * [NxK]
-@pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
-@pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
-@pytest.mark.parametrize("pe", [1, 2, 4])
-@pytest.mark.parametrize("simd", [1, 4, 8])
-@pytest.mark.parametrize("A_dtype", [DataType["INT8"]])
-@pytest.mark.parametrize("B_dtype", [DataType["INT8"]])
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_fpgadataflow_dynamic_mvau_cppsim(inp_A, inp_B, pe, simd, A_dtype, B_dtype):
-    """
-    This test generates a MatMul Onnx graph, and then applies transformations
-    """
-    part = "xcvc1902-vsva2197-2MP-e-S"
-
-    # Folding
-    # assert K % pe == 0
-    # assert N % simd == 0
-    out_Y = [1, 12, 128, 16]
-    model = make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype)
-    model = model.transform(GiveUniqueNodeNames())
-    # Create MatMul & obtain golden reference output
-    inpTensor_A = gen_finn_dt_tensor(
-        model.get_tensor_datatype("inp_A"), model.get_tensor_shape("inp_A")
-    )
-    inpTensor_B = gen_finn_dt_tensor(
-        model.get_tensor_datatype("inp_B"), model.get_tensor_shape("inp_B")
-    )
-    input_dict = {"inp_A": inpTensor_A, "inp_B": inpTensor_B}
-    # Execute ONNX model for reference values
-    output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
-
-    # Begin FINN Transformations
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(GiveUniqueNodeNames())
-
-    for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
-        inst.set_nodeattr("preferred_impl_style", "rtl")
-        inst.set_nodeattr("mem_mode", "external")
-        inst.set_nodeattr("rtlsim_trace", "MVAU_dyn.vcd")
-        inst.set_nodeattr("inFIFODepths", [16, 16])
-    # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Apply folding (i.e. specify to use DSPs)
-    folding_config = {
-        "Defaults": {},
-        "MVAU_rtl_0": {
-            "PE": pe,
-            "SIMD": simd,
-            "resType": "dsp",
-        },
-    }
-    model = model.transform(ApplyConfig(folding_config))
-    save_model(model, "ApplyConfig")
-    # make sure the changed datatypes are propagated through the network
-    model = model.transform(InferDataTypes())
-
-    # Run CPPsim
-    model = model.transform(SetExecMode("cppsim"))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    save_model(model, "PrepareCppSim")
-    output_mvau_cppsim = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (
-        output_matmul == output_mvau_cppsim
-    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
-
-
-# matrix size [MxN] * [NxK]
+# matrix size (1xHxMxK * 1xHxKxN) = 1xHxMxN
 @pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
 @pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("pe", [1, 2, 4])
@@ -259,7 +184,7 @@ def test_fpgadataflow_dynamic_mvau_rtlsim(inp_A, inp_B, pe, simd, A_dtype, B_dty
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
 
-# matrix size [MxN] * [NxK]
+# matrix size (1xHxMxK * 1xHxKxN) = 1xHxMxN
 @pytest.mark.parametrize("inp_A", [(1, 12, 128, 32)])
 @pytest.mark.parametrize("inp_B", [(1, 12, 32, 16)])
 @pytest.mark.parametrize("pe", [1, 2, 4])
