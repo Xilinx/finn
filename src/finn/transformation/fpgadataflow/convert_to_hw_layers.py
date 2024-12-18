@@ -1593,10 +1593,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             backend="fpgadataflow",
                             MW=mw,
                             MH=mh,
-                            SIMD=simd,
-                            N_VECTORS=mm_in_shape[
-                                -2
-                            ],  # Height of the input tensor A for dynamic MVAU
+                            SIMD=simd,  # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
                             weightDataType=wdt.name,

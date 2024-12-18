@@ -47,7 +47,6 @@ class DynMVAU_rtl(MVAU, RTLBackend):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "N_VECTORS": ("i", True, 0),
             "inFIFODepths": ("ints", False, [2, 2]),
         }
 
@@ -97,7 +96,6 @@ class DynMVAU_rtl(MVAU, RTLBackend):
 
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_dyn_axi_wrapper.v"
-
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
@@ -109,7 +107,7 @@ class DynMVAU_rtl(MVAU, RTLBackend):
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
-        code_gen_dict["$N_VECTORS$"] = [str(self.get_nodeattr("N_VECTORS"))]
+        code_gen_dict["$N_VECTORS$"] = [str(self.get_nodeattr("numInputVectors")[-1])]
         code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
             [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
         )
