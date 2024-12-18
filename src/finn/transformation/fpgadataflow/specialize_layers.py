@@ -202,7 +202,7 @@ def _determine_hw_op_type(node, fpgapart, model):
         if model.get_initializer(node.input[1]) is not None:
             return "MVAU_rtl", impl_style
         else:
-            return "DynMVAU_rtl", impl_style
+            return "DynMVU_rtl", impl_style
 
     return node.op_type + "_" + impl_style, impl_style
 

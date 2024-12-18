@@ -41,7 +41,7 @@ except ModuleNotFoundError:
     PyVerilator = None
 
 
-class DynMVAU_rtl(MVAU, RTLBackend):
+class DynMVU_rtl(MVAU, RTLBackend):
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
