@@ -48,15 +48,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def save_model(model, name):
-    model.save("dynMM_debug_" + name + ".onnx")
-
-
-#
-# Init
-#
-
-
 def make_dynamic_matmul_modelwrapper(inp_A, inp_B, out_Y, A_dtype, B_dtype):
     A_vi = helper.make_tensor_value_info("inp_A", TensorProto.FLOAT, inp_A)
     B_vi = helper.make_tensor_value_info("inp_B", TensorProto.FLOAT, inp_B)
@@ -106,7 +97,6 @@ def test_fpgadataflow_infer_dyn_mvau(inp_A, inp_B, A_dtype, B_dtype):
     output_matmul = oxe.execute_onnx(model, input_dict)["outp"]
 
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    save_model(model, "infer.onnx")
     output_mvau = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert np.allclose(
