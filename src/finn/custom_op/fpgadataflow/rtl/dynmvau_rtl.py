@@ -57,6 +57,9 @@ class DynMVU_rtl(MVAU, RTLBackend):
         # Dynamic MVAU does not have weight parameters
         pass
 
+    def get_instream_width(self, ind):
+        return self.get_folded_input_shape(ind)[-1] * DataType[self.get_nodeattr("inputDataType" if ind == 0 else "weightDataType")].bitwidth()
+
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
