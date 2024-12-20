@@ -83,27 +83,19 @@ class InsertDWC(Transformation):
                         # non-default inputs for the consumer
                         # - if FC and external mem, it could be connected to input 1
                         # - if concat, could be connected to any input
-                        if (
-                            consumer.op_type.startswith("MVAU")
-                            and n1.get_nodeattr("mem_mode") == "external"
-                        ) or (consumer.op_type.startswith("StreamingConcat")):
-                            # get input idx
-                            in_idx = None
-                            for idx, n_input in enumerate(consumer.input):
-                                if output_name == n_input:
-                                    in_idx = idx
-                            assert in_idx is not None, "Malformed model"
-                            n1_in_shape = n1.get_folded_input_shape(in_idx)
-                        else:
-                            # use default folded input shape
-                            n1_in_shape = n1.get_folded_input_shape()
+                        in_idx = None
+                        for idx, n_input in enumerate(consumer.input):
+                            if output_name == n_input:
+                                in_idx = idx
+                        assert in_idx is not None, "Malformed model"
+                        n1_in_shape = n1.get_folded_input_shape(in_idx)
 
                         if n0_out_shape[-1] != n1_in_shape[-1]:
                             graph_modified = True
                             # determine dwc inwidth
                             dwc_in_width = n0.get_outstream_width()
                             # determine dwc outwidth
-                            dwc_out_width = n1.get_instream_width()
+                            dwc_out_width = n1.get_instream_width(in_idx)
                             node_optype = "StreamingDataWidthConverter"
 
                             # determine shape for dwc
