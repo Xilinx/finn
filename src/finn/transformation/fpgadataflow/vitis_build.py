@@ -75,6 +75,15 @@ class VitisOptStrategy(Enum):
     BUILD_SPEED = "quick"
 
 
+class VivadoImplStrategy(str, Enum):
+    "Values applicable to VitisBuild Vivado implementation strategy"
+
+    ALL = "ALL"
+    DEFAULT = "'Vivado Implementation Defaults'"
+    PERFORMANCE_BALANCESLR = "Performance_BalanceSLRs"
+    PERFORMANCE_HIGHUTILSLR = "Performance_HighUtilSLRs"
+
+
 class CreateVitisXO(Transformation):
     """Create a Vitis object file from a stitched FINN ip.
 
@@ -175,12 +184,14 @@ class VitisLink(Transformation):
         f_mhz=200,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        impl_strategy=VivadoImplStrategy.DEFAULT,
     ):
         super().__init__()
         self.platform = platform
         self.f_mhz = f_mhz
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.impl_strategy = impl_strategy
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -306,16 +317,18 @@ class VitisLink(Transformation):
             f.write(
                 "v++ -t hw --platform %s --link %s"
                 " --kernel_frequency %d --config config.txt --optimize %s"
-                " --save-temps -R2 %s\n"
+                " --save-temps -R2 %s --vivado.impl.strategies %s\n"
                 % (
                     self.platform,
                     " ".join(object_files),
                     self.f_mhz,
                     self.strategy.value,
                     " ".join(debug_commands),
+                    self.impl_strategy.value,
                 )
             )
             f.write("cd {}\n".format(working_dir))
+
         bash_command = ["bash", script]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
@@ -357,6 +370,7 @@ class VitisBuild(Transformation):
         Must be parse-able by the ApplyConfig transform.
     :parameter enable_link: enable linking kernels (.xo files),
         otherwise just synthesize them independently.
+    :parameter impl_strategy: Vivado implementation strategy
     """
 
     def __init__(
@@ -369,6 +383,7 @@ class VitisBuild(Transformation):
         floorplan_file=None,
         enable_link=True,
         partition_model_dir=None,
+        impl_strategy=VivadoImplStrategy.DEFAULT,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -379,6 +394,7 @@ class VitisBuild(Transformation):
         self.floorplan_file = floorplan_file
         self.enable_link = enable_link
         self.partition_model_dir = partition_model_dir
+        self.impl_strategy = impl_strategy
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -425,6 +441,7 @@ class VitisBuild(Transformation):
                     round(1000 / self.period_ns),
                     strategy=self.strategy,
                     enable_debug=self.enable_debug,
+                    impl_strategy=self.impl_strategy,
                 )
             )
         # set platform attribute for correct remote execution
