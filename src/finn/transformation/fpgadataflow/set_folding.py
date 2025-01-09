@@ -29,6 +29,7 @@
 
 import numpy as np
 import warnings
+import functools
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -42,6 +43,15 @@ def divisors(num):
     for x in range(1, num + 1):
         if (num % x) == 0:
             yield x
+
+
+def common_divisors(numbers):
+    separate_divisors = []
+    for num in numbers:
+        individual_divisors = list(divisors(num))
+        separate_divisors.append(individual_divisors)
+    
+    return functools.reduce(np.intersect1d, separate_divisors)
 
 
 class SetFolding(Transformation):
@@ -117,6 +127,8 @@ class SetFolding(Transformation):
             "FMPadding_Pixel_hls",
             "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
+            "StreamingSplit_hls",
+            "StreamingConcat_hls",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -214,6 +226,14 @@ class SetFolding(Transformation):
                     else:
                         # depthwise SWGs are handled separately
                         continue
+                elif op_type == "StreamingConcat_hls" or op_type == "StreamingSplit_hls":
+                    node_inst.set_nodeattr("SIMD", 1)
+                    channels_per_stream = node_inst.get_nodeattr("ChannelsPerStream")
+                    for simd_val in common_divisors(channels_per_stream):
+                        node_inst.set_nodeattr("SIMD", simd_val)
+                        cyc = node_inst.get_exp_cycles()
+                        if cyc < self.target_cycles_per_frame:
+                            break
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
