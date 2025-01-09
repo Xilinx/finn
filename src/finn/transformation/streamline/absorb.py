@@ -283,10 +283,14 @@ class Absorb1BitMulIntoMatMul(Transformation):
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     if is_1bit:
                         Wnew = A * W
-                        assert (
-                            Wnew.shape == W.shape
-                        ), """Shape of new weights is not
-                        the same as the shape of the weight matrix before."""
+                        if Wnew.shape != W.shape:
+                            # may happen due to the 1-bit Mul param having extra dims
+                            # applying np.squeeze should solve the problem
+                            Wnew = np.squeeze(Wnew)
+                            assert (
+                                Wnew.shape == W.shape
+                            ), """Shape of new weights is not
+                            the same as the shape of the weight matrix before."""
                         check_fxn = np.vectorize(lambda x: Wdt.allowed(x))
                         # only absorb if permitted by W datatype
                         if check_fxn(Wnew).all():
