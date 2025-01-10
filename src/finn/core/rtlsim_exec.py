@@ -284,12 +284,15 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     launch_process_helper(runsim_cmd, proc_env=runsim_env, cwd=sim_base)
 
     # parse results file and return dict
-    with open(sim_base + "/results.txt", "r") as f:
+    results_filename = sim_base + "/results.txt"
+    with open(results_filename, "r") as f:
         results = f.read().strip().split("\n")
     ret_dict = {}
     for result_line in results:
         key, val = result_line.split("\t")
         ret_dict[key] = int(val)
+    if "TIMEOUT" in ret_dict.keys():
+        assert ret_dict["TIMEOUT"] == 0, f"XSI C++ simulation timed out, see {results_filename}"
     return ret_dict
 
 

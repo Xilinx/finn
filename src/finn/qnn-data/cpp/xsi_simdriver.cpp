@@ -369,6 +369,17 @@ int main(int argc, char *argv[]) {
         output_done = (n_finished_outstreams == outstream_names.size());
         timeout = (cycles_since_last_output > max_iters);
         exit_criterion = (input_done && output_done) || timeout;
+        // latency computation: when all outputs have generated 1 full sample
+        if(latency == 0) {
+            size_t n_outputs_with_one_completion = 0;
+            for(size_t i = 0; i < outstream_names.size(); i++) {
+                if(n_out_txns[i] == n_iters_per_output[i]) n_outputs_with_one_completion++;
+            }
+            if(n_outputs_with_one_completion == outstream_names.size()) {
+                cout << "All outputs have now produced a sample, latency = " << iters << " cycles" << endl;
+                latency = iters;
+            }
+        }
     }
 
     // dump final simulation statistics to stdout and file
@@ -387,6 +398,9 @@ int main(int argc, char *argv[]) {
     results_file << "cycles" << "\t" << iters << endl;
     results_file << "N" << "\t" << n_inferences << endl;
     results_file << "latency_cycles" << "\t" << latency << endl;
+    results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
+    results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
+    results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
     // optionally, extract more data from final status
     @POSTPROC_CPP@
     results_file.close();

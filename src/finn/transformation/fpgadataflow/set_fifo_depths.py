@@ -363,6 +363,7 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
+
         if self.force_python_sim:
             # do rtlsim in Python for FIFO sizing
             # calculate input frequency (number of cycles for each input word)

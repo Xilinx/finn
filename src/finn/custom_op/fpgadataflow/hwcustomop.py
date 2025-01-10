@@ -30,7 +30,7 @@ import numpy as np
 import os
 import warnings
 from abc import abstractmethod
-from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
+from pyverilator.util.axi_utils import rtlsim_multi_io
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -268,7 +268,11 @@ class HWCustomOp(CustomOp):
             )
         elif rtlsim_backend == "pyxsi":
             total_cycle_count = pyxsi_utils.rtlsim_multi_io(
-                sim, io_dict, num_out_values, sname=sname
+                sim,
+                io_dict,
+                num_out_values,
+                sname=sname,
+                liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
             )
         else:
             assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
@@ -353,8 +357,6 @@ class HWCustomOp(CustomOp):
             exp_cycles,
         )
         sim = self.get_rtlsim()
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
@@ -370,32 +372,12 @@ class HWCustomOp(CustomOp):
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
 
-        def monitor_txns(sim_obj):
-            for inp in txns_in:
-                in_ready = _read_signal(sim, inp + sname + "TREADY") == 1
-                in_valid = _read_signal(sim, inp + sname + "TVALID") == 1
-                if in_ready and in_valid:
-                    txns_in[inp].append(1)
-                else:
-                    txns_in[inp].append(0)
-            for outp in txns_out:
-                if (
-                    _read_signal(sim, outp + sname + "TREADY") == 1
-                    and _read_signal(sim, outp + sname + "TVALID") == 1
-                ):
-                    txns_out[outp].append(1)
-                else:
-                    txns_out[outp].append(0)
-
-        reset_rtlsim(sim)
-        total_cycle_count = rtlsim_multi_io(
+        self.reset_rtlsim(sim)
+        self.rtlsim_multi_io(
             sim,
             io_dict,
-            n_outs,
-            sname=sname,
-            liveness_threshold=period,
-            hook_preclk=monitor_txns,
         )
+        total_cycle_count = self.get_nodeattr("cycles_rtlsim")
         assert (
             total_cycle_count <= period
         ), """Total cycle count from rtl simulation is higher than
