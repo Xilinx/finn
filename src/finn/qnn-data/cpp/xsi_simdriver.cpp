@@ -398,9 +398,9 @@ int main(int argc, char *argv[]) {
     results_file << "cycles" << "\t" << iters << endl;
     results_file << "N" << "\t" << n_inferences << endl;
     results_file << "latency_cycles" << "\t" << latency << endl;
-    results_file << "TIMEOUT" << "\t" << timeout ? 1 : 0<< endl;
-    results_file << "INPUT_DONE" << "\t" << input_done ? 1 : 0 << endl;
-    results_file << "OUTPUT_DONE" << "\t" << output_done ? 1 : 0 << endl;
+    results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
+    results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
+    results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
     // optionally, extract more data from final status
     @POSTPROC_CPP@
     results_file.close();
