@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
             for(size_t i = 0; i < outstream_names.size(); i++) {
                 if(n_out_txns[i] == n_iters_per_output[i]) n_outputs_with_one_completion++;
             }
-            if(n_outputs_with_one_completion == outstream_names.size() latency = iters;
+            if(n_outputs_with_one_completion == outstream_names.size()) latency = iters;
         }
     }
 
