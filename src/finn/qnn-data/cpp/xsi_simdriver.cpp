@@ -369,6 +369,14 @@ int main(int argc, char *argv[]) {
         output_done = (n_finished_outstreams == outstream_names.size());
         timeout = (cycles_since_last_output > max_iters);
         exit_criterion = (input_done && output_done) || timeout;
+        // latency computation: when all outputs have generated 1 full sample
+        if(latency == 0) {
+            size_t n_outputs_with_one_completion = 0;
+            for(size_t i = 0; i < outstream_names.size(); i++) {
+                if(n_out_txns[i] == n_iters_per_output[i]) n_outputs_with_one_completion++;
+            }
+            if(n_outputs_with_one_completion == outstream_names.size() latency = iters;
+        }
     }
 
     // dump final simulation statistics to stdout and file
