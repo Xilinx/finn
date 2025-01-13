@@ -115,7 +115,9 @@ def file_to_basename(x):
     return os.path.basename(os.path.realpath(x))
 
 
-def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc_cpp=""):
+def rtlsim_exec_cppxsi(
+    model, execution_context, dummy_data_mode=False, postproc_cpp="", timeout_cycles=None
+):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
     The dummy_data_mode flag controls whether the simulation is driven by
     dummy data or real data. The execution_context parameter must be formatted
@@ -133,12 +135,15 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     The postproc_cpp optional argument can be used to inject C++ code to retrieve
     extra data when the simulation is finished. See the @POSTPROC_CPP@ template argument
     in the xsi_simdriver.cpp file to see what context and functions are available.
+    If timeout_cycles is not None, the default value from pyverilate_get_liveness_threshold_cycles
+    will be used.
 
     """
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
     # TODO: rename utility fxn to remove "pyverilate", used for other backends too
-    timeout_cycles = pyverilate_get_liveness_threshold_cycles()
+    if timeout_cycles is None:
+        timeout_cycles = pyverilate_get_liveness_threshold_cycles()
 
     assert dummy_data_mode, "Only dummy_data_mode=True is supported for now"
 

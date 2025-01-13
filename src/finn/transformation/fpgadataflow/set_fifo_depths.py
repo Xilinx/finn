@@ -197,10 +197,11 @@ class CapConvolutionFIFODepths(Transformation):
         return (model, False)
 
 
-def xsi_fifosim(model, n_inferences, max_iters=100000000):
+def xsi_fifosim(model, n_inferences, max_iters=None):
     """Create a XSI model of stitched IP and use a simple C++
     driver to drive the input stream. Useful for FIFO sizing, latency
-    and throughput measurement."""
+    and throughput measurement. If max_iters is None, use the default
+    liveness threshold instead."""
 
     assert len(model.graph.input) == 1, "Only a single input stream is supported"
     assert len(model.graph.output) == 1, "Only a single output stream is supported"
@@ -230,7 +231,9 @@ def xsi_fifosim(model, n_inferences, max_iters=100000000):
             fifo_ind += 1
     fifo_log = "\n".join(fifo_log)
     # run XSI sim with postproc
-    ret_dict = rtlsim_exec_cppxsi(model, ctx, dummy_data_mode=True, postproc_cpp=fifo_log)
+    ret_dict = rtlsim_exec_cppxsi(
+        model, ctx, dummy_data_mode=True, postproc_cpp=fifo_log, timeout_cycles=max_iters
+    )
 
     return ret_dict
 
@@ -433,10 +436,13 @@ class InsertAndSetFIFODepths(Transformation):
                 # layer pipeline due to overlaps
                 n_inferences = 2
 
+            # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+            max_iters = latency
+
             if backend in ["verilator", "pyverilator"]:
-                sim = verilator_fifosim(model, n_inferences)
+                sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
             elif backend is None or backend in ["xsi", "pyxsi"]:
-                sim = xsi_fifosim(model, n_inferences)
+                sim = xsi_fifosim(model, n_inferences, max_iters=max_iters)
             else:
                 assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 

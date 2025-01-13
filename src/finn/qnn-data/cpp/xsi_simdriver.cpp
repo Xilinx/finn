@@ -321,6 +321,8 @@ int main(int argc, char *argv[]) {
         for(size_t i = 0; i < outstream_names.size(); i++) {
             string outstream_name = outstream_names[i];
             if(chk_bool(outstream_name+"_tready") && chk_bool(outstream_name + "_tvalid")) {
+                // reset the no-output timeout counter
+                cycles_since_last_output = 0;
                 // TODO add output data capture to file here
                 // (unless we are in dummy data mode)
                 n_out_txns[i]++;
