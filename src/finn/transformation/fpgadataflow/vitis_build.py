@@ -41,7 +41,6 @@ from qonnx.transformation.general import (
 )
 
 # For better readability
-from finn.builder.build_dataflow_config import FpgaMemoryType
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -75,6 +74,13 @@ class VitisOptStrategy(Enum):
     PERFORMANCE_BEST = "3"
     SIZE = "s"
     BUILD_SPEED = "quick"
+
+
+class FpgaMemoryType(str, Enum):
+    "Memory Type used by the FPGA to store input/output data"
+
+    DEFAULT = "default"
+    HOST_MEM = "host_memory"
 
 
 class CreateVitisXO(Transformation):

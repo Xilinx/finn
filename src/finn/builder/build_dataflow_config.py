@@ -34,7 +34,10 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, List, Optional
 
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
+from finn.transformation.fpgadataflow.vitis_build import (
+    FpgaMemoryType,
+    VitisOptStrategy,
+)
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
@@ -63,13 +66,6 @@ class DataflowOutputType(str, Enum):
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
-    
-class FpgaMemoryType(str, Enum):
-    "Memory Type used by the FPGA to store input/output data"
-
-    DEFAULT = "default"
-    HOST_MEM = "host_memory"
-
 
 
 class VitisOptStrategyCfg(str, Enum):
@@ -312,7 +308,7 @@ class DataflowBuildConfig:
     #: Vitis optimization strategy
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
-    
+
     #: FPGA memory type
     #: Can be used to use host memory for input/output data instead of DDR or HBM memory
     fpga_memory: Optional[FpgaMemoryType] = FpgaMemoryType.DEFAULT
