@@ -30,7 +30,6 @@
 import json
 import os
 import subprocess
-from enum import Enum
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -40,6 +39,7 @@ from qonnx.transformation.general import (
     RemoveUnusedTensors,
 )
 
+from finn.builder.build_dataflow_config import FpgaMemoryType, VitisOptStrategy
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -62,17 +62,6 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
-
-
-class VitisOptStrategy(Enum):
-    "Values applicable to VitisBuild optimization strategy."
-
-    DEFAULT = "0"
-    POWER = "1"
-    PERFORMANCE = "2"
-    PERFORMANCE_BEST = "3"
-    SIZE = "s"
-    BUILD_SPEED = "quick"
 
 
 class CreateVitisXO(Transformation):
@@ -175,12 +164,14 @@ class VitisLink(Transformation):
         f_mhz=200,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        fpga_memory_type="default",
     ):
         super().__init__()
         self.platform = platform
         self.f_mhz = f_mhz
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.fpga_memory_type = fpga_memory_type
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -229,28 +220,42 @@ class VitisLink(Transformation):
             if node_slr != -1:
                 config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
             # assign memory banks
-            if producer is None or consumer is None:
+            if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
-                    # configure good defaults based on board
-                    if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
-                        # Use HBM where available (also U50 does not have DDR)
-                        mem_type = "HBM"
-                        mem_idx = 0
-                    elif "u200" in self.platform:
-                        # Use DDR controller in static region of U200
-                        mem_type = "DDR"
-                        mem_idx = 1
-                    elif "u250" in self.platform:
-                        # Use DDR controller on the node's SLR if set, otherwise 0
-                        mem_type = "DDR"
-                        if node_slr == -1:
+                    if self.fpga_memory_type == FpgaMemoryType.DEFAULT:
+                        # configure good defaults based on board
+                        if (
+                            "u50" in self.platform
+                            or "u280" in self.platform
+                            or "u55c" in self.platform
+                        ):
+                            # Use HBM where available (also U50 does not have DDR)
+                            mem_type = "HBM"
                             mem_idx = 0
+                        elif "u200" in self.platform:
+                            # Use DDR controller in static region of U200
+                            mem_type = "DDR"
+                            mem_idx = 1
+                        elif "u250" in self.platform:
+                            # Use DDR controller on the node's SLR if set, otherwise 0
+                            mem_type = "DDR"
+                            if node_slr == -1:
+                                mem_idx = 0
+                            else:
+                                mem_idx = node_slr
                         else:
-                            mem_idx = node_slr
+                            mem_type = "DDR"
+                            mem_idx = 1
+                    elif self.fpga_memory_type == FpgaMemoryType.HOST_MEM:
+                        mem_type = "HOST"
+                        mem_idx = 0
                     else:
-                        mem_type = "DDR"
-                        mem_idx = 1
+                        raise RuntimeError(
+                            "Unknown fpga memory type: "
+                            + str(self.fpga_memory_type)
+                            + ". Aborting!"
+                        )
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                 config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
@@ -357,6 +362,7 @@ class VitisBuild(Transformation):
         Must be parse-able by the ApplyConfig transform.
     :parameter enable_link: enable linking kernels (.xo files),
         otherwise just synthesize them independently.
+    :parameter fpga_memory_type: Specify whether Host or FPGA memory such as DDR/HBM should be used
     """
 
     def __init__(
@@ -369,6 +375,7 @@ class VitisBuild(Transformation):
         floorplan_file=None,
         enable_link=True,
         partition_model_dir=None,
+        fpga_memory_type=FpgaMemoryType.DEFAULT,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -379,6 +386,7 @@ class VitisBuild(Transformation):
         self.floorplan_file = floorplan_file
         self.enable_link = enable_link
         self.partition_model_dir = partition_model_dir
+        self.fpga_memory_type = fpga_memory_type
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -425,6 +433,7 @@ class VitisBuild(Transformation):
                     round(1000 / self.period_ns),
                     strategy=self.strategy,
                     enable_debug=self.enable_debug,
+                    fpga_memory_type=self.fpga_memory_type,
                 )
             )
         # set platform attribute for correct remote execution
