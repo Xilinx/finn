@@ -197,10 +197,12 @@ class CapConvolutionFIFODepths(Transformation):
         return (model, False)
 
 
-def xsi_fifosim(model, n_inferences, max_iters=100000000):
+def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     """Create a XSI model of stitched IP and use a simple C++
     driver to drive the input stream. Useful for FIFO sizing, latency
-    and throughput measurement."""
+    and throughput measurement. If max_iters is None, use the default
+    liveness threshold instead. throttle_cycles can be used for throttling
+    the input stream every time a frame is finished."""
 
     assert len(model.graph.input) == 1, "Only a single input stream is supported"
     assert len(model.graph.output) == 1, "Only a single output stream is supported"
@@ -230,7 +232,14 @@ def xsi_fifosim(model, n_inferences, max_iters=100000000):
             fifo_ind += 1
     fifo_log = "\n".join(fifo_log)
     # run XSI sim with postproc
-    ret_dict = rtlsim_exec_cppxsi(model, ctx, dummy_data_mode=True, postproc_cpp=fifo_log)
+    ret_dict = rtlsim_exec_cppxsi(
+        model,
+        ctx,
+        dummy_data_mode=True,
+        postproc_cpp=fifo_log,
+        timeout_cycles=max_iters,
+        throttle_cycles=throttle_cycles,
+    )
 
     return ret_dict
 
@@ -250,6 +259,8 @@ class InsertAndSetFIFODepths(Transformation):
         smaller where appropriate
     :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
         for large FIFOs implemented by Vivado afterwards
+    :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
+        while doing simulation-based FIFO sizing
 
     Assumed input graph properties:
 
@@ -285,6 +296,7 @@ class InsertAndSetFIFODepths(Transformation):
         swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
+        fifosim_input_throttle=True,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -294,6 +306,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
         self.force_python_sim = force_python_sim
+        self.fifosim_input_throttle = fifosim_input_throttle
 
     def apply(self, model):
         # these optypes may potentially use external weights
@@ -433,10 +446,23 @@ class InsertAndSetFIFODepths(Transformation):
                 # layer pipeline due to overlaps
                 n_inferences = 2
 
+            # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+            max_iters = latency
+
+            # set up rate limit for input throttling
+            if self.fifosim_input_throttle:
+                first_node = getCustomOp(model.graph.node[0])
+                inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
+                throttle_cycles = max(0, perf["max_cycles"] - inp_fold)
+            else:
+                throttle_cycles = 0
+
             if backend in ["verilator", "pyverilator"]:
-                sim = verilator_fifosim(model, n_inferences)
+                sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
             elif backend is None or backend in ["xsi", "pyxsi"]:
-                sim = xsi_fifosim(model, n_inferences)
+                sim = xsi_fifosim(
+                    model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
+                )
             else:
                 assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 

@@ -142,7 +142,7 @@ def pyverilate_get_liveness_threshold_cycles():
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
 
 
 def make_build_dir(prefix=""):
