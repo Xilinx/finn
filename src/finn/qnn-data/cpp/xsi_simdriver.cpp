@@ -307,7 +307,8 @@ int main(int argc, char *argv[]) {
             }
 
             if(n_in_txns[i] < n_iters_per_input[i] * n_inferences) {
-                signals_to_write[instream_name + "_tvalid"] = true;
+                bool enable_throttled_input = ((float)n_in_txns[i] / (float)(iters+1)) <= @RATE_LIMIT@;
+                signals_to_write[instream_name + "_tvalid"] = enable_throttled_input;
             } else if(n_in_txns[i] > n_iters_per_input[i] * n_inferences) {
                 // more input transactions than specified, should never happen
                 // most likely a bug in the C++ driver code if this happens

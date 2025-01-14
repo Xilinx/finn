@@ -116,7 +116,12 @@ def file_to_basename(x):
 
 
 def rtlsim_exec_cppxsi(
-    model, execution_context, dummy_data_mode=False, postproc_cpp="", timeout_cycles=None
+    model,
+    execution_context,
+    dummy_data_mode=False,
+    postproc_cpp="",
+    timeout_cycles=None,
+    rate_limit=1.0,
 ):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
     The dummy_data_mode flag controls whether the simulation is driven by
@@ -251,6 +256,8 @@ def rtlsim_exec_cppxsi(
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
+        # rate limit for input throttling
+        "RATE_LIMIT": rate_limit,
     }
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
