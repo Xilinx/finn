@@ -34,7 +34,6 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, List, Optional
 
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
@@ -65,15 +64,22 @@ class DataflowOutputType(str, Enum):
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
-class VitisOptStrategyCfg(str, Enum):
-    """Vitis optimization strategy with serializable string enum values."""
+class VitisOptStrategy(Enum):
+    "Values applicable to VitisBuild optimization strategy."
+
+    DEFAULT = "0"
+    POWER = "1"
+    PERFORMANCE = "2"
+    PERFORMANCE_BEST = "3"
+    SIZE = "s"
+    BUILD_SPEED = "quick"
+
+
+class FpgaMemoryType(str, Enum):
+    "Memory Type used by the FPGA to store input/output data"
 
     DEFAULT = "default"
-    POWER = "power"
-    PERFORMANCE = "performance"
-    PERFORMANCE_BEST = "performance_best"
-    SIZE = "size"
-    BUILD_SPEED = "quick"
+    HOST_MEM = "host_memory"
 
 
 class LargeFIFOMemStyle(str, Enum):
@@ -304,7 +310,11 @@ class DataflowBuildConfig:
 
     #: Vitis optimization strategy
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
+    vitis_opt_strategy: Optional[VitisOptStrategy] = VitisOptStrategy.DEFAULT
+
+    #: FPGA memory type
+    #: Can be used to use host memory for input/output data instead of DDR or HBM memory
+    fpga_memory: Optional[FpgaMemoryType] = FpgaMemoryType.DEFAULT
 
     #: Whether intermediate ONNX files will be saved during the build process.
     #: These can be useful for debugging if the build fails.
@@ -387,18 +397,6 @@ class DataflowBuildConfig:
             n_clock_cycles_per_sec = 10**9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
-
-    def _resolve_vitis_opt_strategy(self):
-        # convert human-readable enum to value expected by v++
-        name_to_strategy = {
-            VitisOptStrategyCfg.DEFAULT: VitisOptStrategy.DEFAULT,
-            VitisOptStrategyCfg.POWER: VitisOptStrategy.POWER,
-            VitisOptStrategyCfg.PERFORMANCE: VitisOptStrategy.PERFORMANCE,
-            VitisOptStrategyCfg.PERFORMANCE_BEST: VitisOptStrategy.PERFORMANCE_BEST,
-            VitisOptStrategyCfg.SIZE: VitisOptStrategy.SIZE,
-            VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
-        }
-        return name_to_strategy[self.vitis_opt_strategy]
 
     def _resolve_vitis_platform(self):
         if self.vitis_platform is not None:
