@@ -197,12 +197,12 @@ class CapConvolutionFIFODepths(Transformation):
         return (model, False)
 
 
-def xsi_fifosim(model, n_inferences, max_iters=None, rate_limit=1.0):
+def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     """Create a XSI model of stitched IP and use a simple C++
     driver to drive the input stream. Useful for FIFO sizing, latency
     and throughput measurement. If max_iters is None, use the default
-    liveness threshold instead. rate_limit can be used for throttling
-    the input stream."""
+    liveness threshold instead. throttle_cycles can be used for throttling
+    the input stream every time a frame is finished."""
 
     assert len(model.graph.input) == 1, "Only a single input stream is supported"
     assert len(model.graph.output) == 1, "Only a single output stream is supported"
@@ -238,7 +238,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, rate_limit=1.0):
         dummy_data_mode=True,
         postproc_cpp=fifo_log,
         timeout_cycles=max_iters,
-        rate_limit=rate_limit,
+        throttle_cycles=throttle_cycles,
     )
 
     return ret_dict
@@ -453,14 +453,16 @@ class InsertAndSetFIFODepths(Transformation):
             if self.fifosim_input_throttle:
                 first_node = getCustomOp(model.graph.node[0])
                 inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
-                rate_limit = min(1.0, inp_fold / perf["max_cycles"])
+                throttle_cycles = max(0, perf["max_cycles"] - inp_fold)
             else:
-                rate_limit = 1.0
+                throttle_cycles = 0
 
             if backend in ["verilator", "pyverilator"]:
                 sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
             elif backend is None or backend in ["xsi", "pyxsi"]:
-                sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, rate_limit=rate_limit)
+                sim = xsi_fifosim(
+                    model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
+                )
             else:
                 assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 

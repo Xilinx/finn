@@ -121,7 +121,7 @@ def rtlsim_exec_cppxsi(
     dummy_data_mode=False,
     postproc_cpp="",
     timeout_cycles=None,
-    rate_limit=1.0,
+    throttle_cycles=0,
 ):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
     The dummy_data_mode flag controls whether the simulation is driven by
@@ -142,7 +142,7 @@ def rtlsim_exec_cppxsi(
     in the xsi_simdriver.cpp file to see what context and functions are available.
     If timeout_cycles is not None, the default value from pyverilate_get_liveness_threshold_cycles
     will be used.
-
+    throttle_cycles will be used to pause the input stream every time an input frame is finished.
     """
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
@@ -256,8 +256,8 @@ def rtlsim_exec_cppxsi(
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
-        # rate limit for input throttling
-        "RATE_LIMIT": rate_limit,
+        # input throttling for rate limit
+        "THROTTLE_CYCLES": throttle_cycles,
     }
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
