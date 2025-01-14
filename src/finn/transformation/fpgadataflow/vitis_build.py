@@ -30,7 +30,6 @@
 import json
 import os
 import subprocess
-from enum import Enum
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -40,7 +39,7 @@ from qonnx.transformation.general import (
     RemoveUnusedTensors,
 )
 
-# For better readability
+from finn.builder.build_dataflow_config import FpgaMemoryType, VitisOptStrategy
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -63,24 +62,6 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
-
-
-class VitisOptStrategy(Enum):
-    "Values applicable to VitisBuild optimization strategy."
-
-    DEFAULT = "0"
-    POWER = "1"
-    PERFORMANCE = "2"
-    PERFORMANCE_BEST = "3"
-    SIZE = "s"
-    BUILD_SPEED = "quick"
-
-
-class FpgaMemoryType(str, Enum):
-    "Memory Type used by the FPGA to store input/output data"
-
-    DEFAULT = "default"
-    HOST_MEM = "host_memory"
 
 
 class CreateVitisXO(Transformation):
