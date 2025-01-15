@@ -139,6 +139,7 @@ class DynMVU_rtl(MVAU, RTLBackend):
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
+        self.set_nodeattr("rtlsim_backend", "pyverilator")
 
         return sim
 
@@ -173,7 +174,7 @@ class DynMVU_rtl(MVAU, RTLBackend):
                 )
 
             sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
+            nbits = self.get_instream_width(ind=0)
             inp_0 = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             reset_rtlsim(sim)
             toggle_clk(sim)
