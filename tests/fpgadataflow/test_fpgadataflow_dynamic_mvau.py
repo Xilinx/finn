@@ -144,7 +144,7 @@ def test_fpgadataflow_dynamic_mvau_rtlsim(inp_A, inp_B, pe, simd, A_dtype, B_dty
         inst = getCustomOp(node)
         inst.set_nodeattr("preferred_impl_style", "rtl")
         inst.set_nodeattr("mem_mode", "external")
-        inst.set_nodeattr("rtlsim_backend", "pyverilator")
+        inst.set_nodeattr("rtlsim_backend", "pyxsi")
         inst.set_nodeattr("inFIFODepths", [16, 16])
     # Apply convert-to-rtl step
     model = model.transform(SpecializeLayers(part))
@@ -166,7 +166,7 @@ def test_fpgadataflow_dynamic_mvau_rtlsim(inp_A, inp_B, pe, simd, A_dtype, B_dty
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     output_mvau_rtl = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
@@ -214,7 +214,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(inp_A, inp_B, pe, simd, A_dtype, B_dtype)
         inst = getCustomOp(node)
         inst.set_nodeattr("preferred_impl_style", "rtl")
         inst.set_nodeattr("mem_mode", "external")
-        inst.set_nodeattr("rtlsim_backend", "pyverilator")
+        inst.set_nodeattr("rtlsim_backend", "pyxsi")
         inst.set_nodeattr("inFIFODepths", [16, 16])
     # Apply convert-to-rtl step
     model = model.transform(SpecializeLayers(part))
@@ -242,7 +242,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(inp_A, inp_B, pe, simd, A_dtype, B_dtype)
     model = model.transform(PrepareRTLSim())
     model = model.transform(SetExecMode("rtlsim"))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyverilator")
+    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["outp"]
 

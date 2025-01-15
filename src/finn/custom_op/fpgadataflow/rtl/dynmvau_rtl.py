@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import numpy as np
 import os
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
@@ -117,32 +116,6 @@ class DynMVU_rtl(MVAU, RTLBackend):
 
         return template_path, code_gen_dict
 
-    def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
-
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
-
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        self.set_nodeattr("rtlsim_backend", "pyverilator")
-
-        return sim
-
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         mem_mode = self.get_nodeattr("mem_mode")
@@ -176,8 +149,11 @@ class DynMVU_rtl(MVAU, RTLBackend):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width(ind=0)
             inp_0 = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            reset_rtlsim(sim)
-            toggle_clk(sim)
+
+            super().reset_rtlsim(sim)
+            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
+                super().toggle_clk(sim) 
+
             if mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
@@ -204,6 +180,7 @@ class DynMVU_rtl(MVAU, RTLBackend):
             oshape = self.get_normal_output_shape()
             output = np.asarray([output], dtype=np.float32).reshape(*oshape)
             context[node.output[0]] = output
+            super().close_rtlsim(sim)
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
