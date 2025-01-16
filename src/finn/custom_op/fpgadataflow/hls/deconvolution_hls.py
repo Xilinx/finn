@@ -198,13 +198,27 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
     def docompute(self):
         odtype = self.get_output_datatype()
         pe = self.get_nodeattr("PE")
-        # ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
+        simd = self.get_nodeattr("SIMD")
+        i_ch = self.get_nodeattr("IFMChannels")
+        k_h, k_w = self.get_nodeattr("KernelDim")
+        s_h, s_w = self.get_nodeattr("Stride")
+        i_h, i_w = self.get_nodeattr("IFMDim")
+        p_h, p_w = self.get_nodeattr("Padding")
+        if p_w >= k_w - s_w:
+            padup = 0
+        else:
+            padup = (k_w - p_w - 1) / s_w
+        crop = s_w * padup - ((k_w - s_w) - p_w)
+        sf = i_ch / simd
+        w_eff = padup + i_w + padup
+        wo_eff = (w_eff - 1) * s_w + k_w
         self.code_gen_dict["$DOCOMPUTE$"] = [
             "hls::stream<hls::vector<{},{}>> strm;".format(odtype.get_hls_datatype_str(), pe)
         ]
         self.code_gen_dict["$DOCOMPUTE$"].append("unsigned  timeout = 0;")
-        self.code_gen_dict["$DOCOMPUTE$"].append("while(timeout < %s) {" % (2 * np.prod(oshape)))
+        self.code_gen_dict["$DOCOMPUTE$"].append(
+            "while(timeout < %s) {" % (wo_eff * (crop + 1) * ((k_w / s_w) ** 2) * sf + 50)
+        )
         self.code_gen_dict["$DOCOMPUTE$"].append(
             """deconv<Kernel, Stride, Padding, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
             (weights, in0_{}, out_{});""".format(
