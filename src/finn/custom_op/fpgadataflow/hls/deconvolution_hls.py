@@ -217,7 +217,7 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         ]
         self.code_gen_dict["$DOCOMPUTE$"].append("unsigned  timeout = 0;")
         self.code_gen_dict["$DOCOMPUTE$"].append(
-            "while(timeout < %s) {" % (wo_eff * (crop + 1) * ((k_w / s_w) ** 2) * sf + 50)
+            "while(timeout < %s) {" % (wo_eff * (crop + 1) * ((k_w / s_w) ** 2) * 2 * sf + 50)
         )
         self.code_gen_dict["$DOCOMPUTE$"].append(
             """deconv<Kernel, Stride, Padding, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
