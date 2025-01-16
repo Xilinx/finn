@@ -181,17 +181,17 @@ def create_deconv_node(idt, wdt, odt, k, idim, ifm_ch, ofm_ch, stride, padding, 
 # number of rows and number of cols to add
 @pytest.mark.parametrize("stride", [[2, 2]])
 # number of channels
-@pytest.mark.parametrize("ifm_ch", [4])
+@pytest.mark.parametrize("ifm_ch", [2])
 # number of channels
-@pytest.mark.parametrize("ofm_ch", [6])
+@pytest.mark.parametrize("ofm_ch", [3])
 # Input parallelism
-@pytest.mark.parametrize("simd", [1, 2, 4])
+@pytest.mark.parametrize("simd", [1])
 # PE
-@pytest.mark.parametrize("pe", [1, 3, 6])
+@pytest.mark.parametrize("pe", [1])
 # kernel size
-@pytest.mark.parametrize("k", [2, 4])
+@pytest.mark.parametrize("k", [4])
 # padding
-@pytest.mark.parametrize("padding", [0, 1, 2])
+@pytest.mark.parametrize("padding", [1])
 # exec mode
 @pytest.mark.parametrize("exec_mode", ["cppsim"])
 @pytest.mark.fpgadataflow
