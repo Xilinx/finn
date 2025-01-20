@@ -100,6 +100,9 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 : ${FINN_SINGULARITY=""}
+: ${FINN_SKIP_XRT_DOWNLOAD=""}
+: ${FINN_XRT_PATH=""}
+: ${FINN_DOCKER_NO_CACHE="0"}
 
 DOCKER_INTERACTIVE=""
 
@@ -140,7 +143,7 @@ elif [ "$1" = "build_custom" ]; then
 #  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
-  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
@@ -185,14 +188,31 @@ if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
   cd $OLD_PWD
 fi
 
+# If xrt path given, copy .deb file to this repo
+# Be aware that we assume a certain name of the xrt deb version
+if [ -d "$FINN_XRT_PATH" ];then
+  cp $FINN_XRT_PATH/$XRT_DEB_VERSION.deb .
+  export LOCAL_XRT=1
+fi
+
+if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
+  FINN_DOCKER_BUILD_EXTRA+="--no-cache "
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
   cd $OLD_PWD
 fi
+
+# Remove local xrt.deb file from repo
+if [ ! -z "$LOCAL_XRT" ];then
+  rm $XRT_DEB_VERSION.deb
+fi
+
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
@@ -215,6 +235,9 @@ DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647
 DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
+# Workaround for running multiple Vivado instances simultaneously, see:
+# https://adaptivesupport.amd.com/s/article/63253?language=en_US
+DOCKER_EXEC+="-e XILINX_LOCAL_USER_DATA=no "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
   DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
   DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
@@ -254,6 +277,36 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
     DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
+
+# This part is used for internal ci for finn-examples
+# if using build verification for finn-examples ci, set up the necessary Docker variables
+if [ "$VERIFICATION_EN" = 1 ]; then
+  if [ -z "$FINN_EXAMPLES_ROOT" ]; then
+    recho "FINN_EXAMPLES_ROOT path has not been set."
+    recho "Please set FINN_EXAMPLES_ROOT path to enable verification."
+    exit -1
+  elif [ ! -d "${FINN_EXAMPLES_ROOT}/ci" ]; then
+    recho "ci folder not found in ${FINN_EXAMPLES_ROOT}."
+    recho "Please ensure the FINN-examples repo has been set up correctly, and FINN_EXAMPLES_ROOT path is set correctly, to enable verification."
+    exit -1
+  elif [ -z "$VERIFICATION_IO" ]; then
+    recho "VERIFICATION_IO paths has not been set."
+    recho "Please ensure the path to the input and expected output files has been set correctly to eneable verification."
+    exit -1
+  elif [ ! -d "$VERIFICATION_IO" ]; then
+    recho "${VERIFICATION_IO} is not a directory."
+    recho "Please ensure the VERIFICATION_IO path has been set to the directory containing the input and expected output files for verification."
+    exit -1
+  else
+    DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
+    DOCKER_EXEC+="-e FINN_EXAMPLES_ROOT=$FINN_EXAMPLES_ROOT "
+    DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
+    FINN_DOCKER_EXTRA+="-v $FINN_EXAMPLES_ROOT/ci:$FINN_EXAMPLES_ROOT/ci "
+    FINN_DOCKER_EXTRA+="-v $VERIFICATION_IO:$VERIFICATION_IO "
+  fi
+fi
+
+
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 
 if [ -z "$FINN_SINGULARITY" ];then

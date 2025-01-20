@@ -26,18 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 import warnings
 from onnx import helper
-from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.fpgadataflow import is_versal
+from finn.util.basic import get_dsp_block, is_versal
 
 
-def _determine_impl_style(node, fpgapart):
+def _determine_impl_style(node, fpgapart, model):
     optype = node.op_type
 
     # check if there is an HLS or RTL variant or both
@@ -45,8 +45,8 @@ def _determine_impl_style(node, fpgapart):
     rtl_variant = optype + "_rtl" in rtl_variants.keys()
 
     # check if user has specified a preferred_impl_style
-    inst = getCustomOp(node)
-    impl_style = inst.get_nodeattr("preferred_impl_style")
+    node_inst = getCustomOp(node)
+    impl_style = node_inst.get_nodeattr("preferred_impl_style")
 
     # if impl_style not set, for "simple" layers always try
     # to use rtl variant if available
@@ -55,23 +55,19 @@ def _determine_impl_style(node, fpgapart):
             return _dwc_determine_impl_style(node)
         if rtl_variant:
             if optype == "MVAU":
-                inp_width_fit = (
-                    DataType[getCustomOp(node).get_nodeattr("inputDataType")].bitwidth() >= 4
-                )
-                weight_width_fit = (
-                    DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
-                )
-                if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node):
+                idt = node_inst.get_input_datatype()
+                wdt = node_inst.get_weight_datatype()
+                inp_width_fit = idt.bitwidth() >= 4
+                weight_width_fit = wdt.bitwidth() >= 4
+                if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
             elif optype == "VVAU":
-                inp_width_fit = (
-                    DataType[getCustomOp(node).get_nodeattr("inputDataType")].bitwidth() >= 4
-                )
-                weight_width_fit = (
-                    DataType[getCustomOp(node).get_nodeattr("weightDataType")].bitwidth() >= 4
-                )
+                idt = node_inst.get_input_datatype()
+                wdt = node_inst.get_weight_datatype()
+                inp_width_fit = idt.bitwidth() >= 4
+                weight_width_fit = wdt.bitwidth() >= 4
                 if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
                     return "rtl"
                 else:
@@ -136,7 +132,7 @@ def _determine_impl_style(node, fpgapart):
                 # user setting can be fulfilled
                 return "rtl"
         elif optype == "MVAU":
-            if _mvu_rtl_possible(node):
+            if _mvu_rtl_possible(node, fpgapart, model):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
@@ -232,31 +228,43 @@ def _swg_hls_possible(node):
             return False
 
 
-def _mvu_rtl_possible(n):
+def _mvu_rtl_possible(n, fpgapart, model):
     # Checks whether RTL-based MVU is supported
     # Currently, for DSP48 we only support computations up to
     # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
-    # and for DSP58 we support up to 8sx9s. Next to that,
-    # embedded thresholding functionality is not supported and
-    # neither binaryxnormode computation.
-    inp_width_in_range = (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
-    ) or (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
-        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
-    )
-    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
-    signed_weights = DataType[getCustomOp(n).get_nodeattr("weightDataType")].min() < 0
-    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
-    not_binaryxnor_mode = getCustomOp(n).get_nodeattr("binaryXnorMode") == 0
+    # and for DSP58 we support up to 8sx9s.
+    # Please note, DSP48E1 does only support narrow range for weights
+    # Next to that, embedded thresholding functionality is not supported
+    # and neither binaryxnormode computation.
+    node_inst = getCustomOp(n)
+    # first check if no Activation or binary xnor mode and return False
+    # immediately if one of them is True
+    no_activation = node_inst.get_nodeattr("noActivation") == 0
+    not_binaryxnor_mode = node_inst.get_nodeattr("binaryXnorMode") == 1
+    if no_activation or not_binaryxnor_mode:
+        return False
 
-    return (
-        inp_width_in_range
-        and weight_width_in_range
-        and signed_weights
-        and no_activation
-        and not_binaryxnor_mode
-    )
+    # check if weights are signed, if not return False
+    wdt = node_inst.get_weight_datatype()
+    if not wdt.signed():
+        return False
+
+    # check which dsp block is available on fpga
+    dsp_block = get_dsp_block(fpgapart)
+    # check if weights are narrow
+    weights = model.get_initializer(n.input[1])
+    narrow_weights = False if np.min(weights) == wdt.min() else True
+    # if non narrow weights and only DSP48E1 available return False
+    if not narrow_weights and dsp_block == "DSP48E1":
+        return False
+
+    # if none of the above constraints have been triggered
+    # we now check if input and weight data types are in range
+    idt = node_inst.get_input_datatype()
+    inp_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
+    weight_width_in_range = wdt.bitwidth() <= 8
+
+    return inp_width_in_range and weight_width_in_range
 
 
 def _vvu_rtl_possible(n, fpgapart):
@@ -264,30 +272,25 @@ def _vvu_rtl_possible(n, fpgapart):
     # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs
     # (8-bit signed weights x (9-bit signed OR 8-bit (un)signed) activations).
     # Next to that, embedded thresholding functionality is not supported.
-    in_width_in_range = (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8
-    ) or (
-        DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9
-        and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0
-    )
-    weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
-    signed_weights = DataType[getCustomOp(n).get_nodeattr("weightDataType")].min() < 0
-    is_versal_family = is_versal(fpgapart)
-    no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
+    node_inst = getCustomOp(n)
+    if not node_inst.get_nodeattr("noActivation"):
+        return False
+    if not is_versal(fpgapart):
+        return False
 
-    return (
-        in_width_in_range
-        and weight_width_in_range
-        and signed_weights
-        and is_versal_family
-        and no_activation
-    )
+    idt = node_inst.get_input_datatype()
+    wdt = node_inst.get_weight_datatype()
+    in_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.min() < 0)
+    weight_width_in_range = wdt.bitwidth() <= 8
+    signed_weights = wdt.min() < 0
+
+    return in_width_in_range and weight_width_in_range and signed_weights
 
 
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
-    def __init__(self, fpgapart=""):
+    def __init__(self, fpgapart):
         super().__init__()
         self.fpgapart = fpgapart
 
@@ -300,7 +303,7 @@ class SpecializeLayers(Transformation):
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
             node_ind += 1
-            impl_style = _determine_impl_style(node, self.fpgapart)
+            impl_style = _determine_impl_style(node, self.fpgapart, model)
             optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
@@ -313,9 +316,6 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
-            if new_node.op_type == "MVAU_rtl":
-                is_versal_family = is_versal(self.fpgapart)
-                getCustomOp(new_node).set_nodeattr("is_versal", is_versal_family)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)

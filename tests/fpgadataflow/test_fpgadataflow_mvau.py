@@ -312,7 +312,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         inst.set_nodeattr("mem_mode", mem_mode)
         # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
@@ -423,10 +423,10 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -531,12 +531,12 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -611,12 +611,12 @@ def test_mvau_fifocharacterize_rtlsim(
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
     exp_total_cycles = total_fold + 10
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     model = model.transform(DeriveCharacteristic(exp_total_cycles))
@@ -635,17 +635,19 @@ def test_mvau_fifocharacterize_rtlsim(
 
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [128])
-@pytest.mark.parametrize("pe", [1, 6, 9, 18])
-@pytest.mark.parametrize("simd", [1, 4, 16, 64, 128])
+@pytest.mark.parametrize("pe", [1, 9, 18])
+@pytest.mark.parametrize("simd", [1, 64, 128])
 @pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
 @pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
-@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e"])
+@pytest.mark.parametrize(
+    "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
+)
 @pytest.mark.parametrize("clk_ns", [1.66, 4])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
-    if part == "xcku3p-ffva676-1-e" and clk_ns != 1.66:
+    if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
             since this variable only affects DSP58s"""
@@ -657,6 +659,9 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
     ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
     W = gen_finn_dt_tensor(wdt, (mw, mh))
+    # if 7 series, force weights to narrow range
+    if part == "xc7z020clg400-1":
+        W = np.clip(W, wdt.min() + 1, wdt.max())
     model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())

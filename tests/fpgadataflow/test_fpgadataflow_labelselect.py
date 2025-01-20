@@ -118,7 +118,7 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
 
     assert soft_verify_topk(x, y, k), "HW layer execution failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

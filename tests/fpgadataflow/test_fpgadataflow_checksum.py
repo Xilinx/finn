@@ -176,7 +176,7 @@ def test_fpgadataflow_checksum():
 
     # rtlsim
     model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
