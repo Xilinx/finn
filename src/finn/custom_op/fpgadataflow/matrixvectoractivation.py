@@ -130,6 +130,8 @@ class MVAU(HWCustomOp):
     def execute_node(self, context, graph):
         node = self.onnx_node
         in_act = context[node.input[0]]
+        # ensure that shape is compatible
+        in_act = in_act.reshape(self.get_normal_input_shape())
         mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
         mvau_w = np_helper.to_array(mvau_w_init)
         # Matrix multiplication
@@ -159,8 +161,8 @@ class MVAU(HWCustomOp):
             if result.ndim == 4:
                 # NCHW to NHWC
                 result = result.transpose((0, 2, 3, 1))
-
-        context[node.output[0]] = result
+        oshape = context[node.output[0]].shape
+        context[node.output[0]] = result.reshape(oshape)
 
     def verify_node(self):
         info_messages = []

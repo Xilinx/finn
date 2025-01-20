@@ -136,7 +136,7 @@ class HWCustomOp(CustomOp):
         sim = PyVerilator(rtlsim_so)
         return sim
 
-    def node_res_estimation(self):
+    def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
         of the node as a dictionary."""
         ret = dict()
@@ -145,7 +145,7 @@ class HWCustomOp(CustomOp):
         ret["LUT"] = self.lut_estimation()
         ret["URAM"] = self.uram_estimation()
         ret["URAM_efficiency"] = self.uram_efficiency_estimation()
-        ret["DSP"] = self.dsp_estimation()
+        ret["DSP"] = self.dsp_estimation(fpgapart)
         return ret
 
     def bram_efficiency_estimation(self):
@@ -173,7 +173,7 @@ class HWCustomOp(CustomOp):
         HWCustomOp class but has to be filled by every node"""
         return 0
 
-    def dsp_estimation(self):
+    def dsp_estimation(self, fpgapart):
         """Function for DSP resource estimation, is member function of
         HWCustomOp class but has to be filled by every node"""
         return 0

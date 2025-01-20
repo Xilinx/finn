@@ -112,7 +112,7 @@ class VVAU_hls(VVAU, HLSBackend):
             c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
         )
 
-    def dsp_estimation(self):
+    def dsp_estimation(self, fpgapart):
         # multiplication
         P = self.get_nodeattr("PE")
         res_type = self.get_nodeattr("resType")

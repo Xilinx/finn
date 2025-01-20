@@ -416,6 +416,13 @@ class QuantReluHandler(QuantActBaseHandler):
 
         # ToDo: The index 1 needs to be changed to -1 for the channels last format
         num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
+
+        assert (
+                thresholds.shape[0] == 1 or thresholds.shape[
+            0] == num_output_channels
+        ), """Quant node cannot be converted to MultiThreshold because only
+            per tensor or per channel quantization supported."""
+
         final_shape = (num_output_channels, num_thresholds)
         if thresholds.shape != final_shape:
             thresholds = np.broadcast_to(thresholds, final_shape)
@@ -577,6 +584,11 @@ class QuantIdentityHandler(QuantActBaseHandler):
 
             # ToDo: The index 1 needs to be changed to -1 for the channels last format
             num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
+
+            assert (
+                thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
+            ), """Quant node cannot be converted to MultiThreshold because only
+                per tensor or per channel quantization supported."""
 
             final_shape = (num_output_channels, num_thresholds)
             if thresholds.shape != final_shape:
