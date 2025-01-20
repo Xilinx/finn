@@ -131,7 +131,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     ret_hw = execute_onnx(model, {iname: itensor})
     assert (exp_out == ret_hw[oname]).all()
     # call transformation to convert abstraction layer into HLS layer
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xczu3eg-sbva484-1-e"))
     assert model.graph.node[0].op_type == "Lookup_hls"
     if exec_mode == "cppsim":
         model = model.transform(GiveUniqueNodeNames())
@@ -174,7 +174,7 @@ def test_fpgadataflow_lookup_external():
     assert (model.get_initializer(ename) == embeddings).all()
     model = model.transform(InferLookupLayer())
     assert model.graph.node[0].op_type == "Lookup"
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "Lookup_hls"
     assert model.graph.node[0].input[0] == iname
     assert model.graph.node[0].input[1] == ename

@@ -29,6 +29,7 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
+from copy import deepcopy
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
@@ -641,6 +642,10 @@ class MoveScalarLinearPastInvariants(Transformation):
                     # if initializer is not scalar, skip
                     if np.prod(init0.shape) != 1:
                         continue
+                    if model.is_fork_node(prod0):
+                        model = model.transform(MoveOpPastFork(prod0.op_type))
+                        # topology modified, "ask" ModelWrapper to apply this transform again
+                        return (model, True)
                     # Flatten input if required
                     if len(init0.shape) > 0:
                         init0 = init0.flatten()[0]
@@ -713,6 +718,12 @@ class MakeMaxPoolNHWC(Transformation):
                 elif producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
+                        # check if the producer is a fork node
+                        # (need to move it past the fork before this transform)
+                        if model.is_fork_node(producer):
+                            model = model.transform(MoveTransposePastFork())
+                            # topology modified, "ask" ModelWrapper to apply this transform again
+                            return (model, True)
                         ceil_mode = get_by_name(n.attribute, "ceil_mode")
                         if ceil_mode is not None:
                             ceil_mode = ceil_mode.i
@@ -764,6 +775,12 @@ class MakeScaleResizeNHWC(Transformation):
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
+                        # check if the producer is a fork node
+                        # (need to move it past the fork before this transform)
+                        if model.is_fork_node(producer):
+                            model = model.transform(MoveTransposePastFork())
+                            # topology modified, "ask" ModelWrapper to apply this transform again
+                            return (model, True)
                         old_value = model.get_initializer(n.input[scales_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
@@ -813,10 +830,9 @@ class MoveOpPastFork(Transformation):
     can be merged with nodes in the branches
     """
 
-    def __init__(self, op_name_list, get_attrs_fxn=lambda x: {}):
+    def __init__(self, op_name_list):
         super().__init__()
         self.ops_to_move = op_name_list
-        self.get_attrs_fxn = get_attrs_fxn
 
     def apply(self, model):
         graph = model.graph
@@ -859,11 +875,9 @@ class MoveOpPastFork(Transformation):
                         new_param_name = model.make_new_valueinfo_name()
                         new_inp_list = [n.input[0], new_param_name]
                         model.set_initializer(new_param_name, op_init_param)
-                    attrs = self.get_attrs_fxn(n)
-                    # TODO use copy of original node instead to get attrs?
-                    new_node = oh.make_node(
-                        n.op_type, new_inp_list, [new_output_tensor_name], **attrs
-                    )
+                    new_node = deepcopy(n)
+                    new_node.input[:] = new_inp_list
+                    new_node.output[:] = [new_output_tensor_name]
                     graph.node.insert(node_ind, new_node)
                     node_ind += 1
 
@@ -901,7 +915,7 @@ class MoveLinearPastFork(MoveOpPastFork):
 
 class MoveTransposePastFork(MoveOpPastFork):
     def __init__(self):
-        super().__init__(["Transpose"], lambda x: {"perm": get_by_name(x.attribute, "perm").ints})
+        super().__init__(["Transpose"])
 
 
 class MoveMaxPoolPastMultiThreshold(Transformation):

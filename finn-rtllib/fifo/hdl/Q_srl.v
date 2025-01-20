@@ -74,7 +74,8 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
    parameter depth = 16;   // - greatest #items in queue  (2 <= depth <= 256)
    parameter width = 16;   // - width of data (i_d, o_d)
 
-   parameter addrwidth = $clog2(depth);
+   localparam countwidth = $clog2(depth + 1);
+   localparam addrwidth = $clog2(depth);
 
    input     clock;
    input     reset;
@@ -89,10 +90,10 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
    input              o_r;	// - output stream ready
    wire               o_b;	// - output stream back-pressure
 
-   output [addrwidth:0] count;  // - output number of elems in queue
-   output [addrwidth:0] maxcount;  // - maximum observed count since reset
+   output [countwidth-1:0] count;  // - output number of elems in queue
+   output [countwidth-1:0] maxcount;  // - maximum observed count since reset
 
-   reg [addrwidth:0] maxcount_reg;  // - maximum count seen until now
+   reg [countwidth-1:0] maxcount_reg;  // - maximum count seen until now
    reg    [addrwidth-1:0] addr, addr_, a_;		// - SRL16 address
 							//     for data output
    reg 			  shift_en_;			// - SRL16 shift enable
@@ -183,58 +184,58 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
    end // always @ (posedge clock or negedge reset)
 
    always @* begin					// - combi always
-        srlo_       <=  'bx;
-        shift_en_o_ <= 1'bx;
-        shift_en_   <= 1'bx;
-        addr_       <=  'bx;
-        state_      <= 2'bx;
+        srlo_       =  'bx;
+        shift_en_o_ = 1'bx;
+        shift_en_   = 1'bx;
+        addr_       =  'bx;
+        state_      = 2'bx;
       case (state)
 
 	state_empty: begin		    // - (empty, will not produce)
 	      if (i_v) begin		    // - empty & i_v => consume
-		 srlo_       <= i_d;
-		 shift_en_o_ <= 1;
-		 shift_en_   <= 1'bx;
-		 addr_       <= 0;
-		 state_      <= state_one;
+		 srlo_       = i_d;
+		 shift_en_o_ = 1;
+		 shift_en_   = 1'bx;
+		 addr_       = 0;
+		 state_      = state_one;
 	      end
 	      else	begin		    // - empty & !i_v => idle
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 1'bx;
-		 addr_       <= 0;
-		 state_      <= state_empty;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 1'bx;
+		 addr_       = 0;
+		 state_      = state_empty;
 	      end
 	end
 
 	state_one: begin		    // - (contains one)
 	      if (i_v && o_b) begin	    // - one & i_v & o_b => consume
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 1;
-		 addr_       <= 0;
-		 state_      <= state_more;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 1;
+		 addr_       = 0;
+		 state_      = state_more;
 	      end
 	      else if (i_v && !o_b) begin   // - one & i_v & !o_b => cons+prod
-		 srlo_       <= i_d;
-		 shift_en_o_ <= 1;
-		 shift_en_   <= 1;
-		 addr_       <= 0;
-		 state_      <= state_one;
+		 srlo_       = i_d;
+		 shift_en_o_ = 1;
+		 shift_en_   = 1;
+		 addr_       = 0;
+		 state_      = state_one;
 	      end
 	      else if (!i_v && o_b) begin   // - one & !i_v & o_b => idle
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 1'bx;
-		 addr_       <= 0;
-		 state_      <= state_one;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 1'bx;
+		 addr_       = 0;
+		 state_      = state_one;
 	      end
 	      else if (!i_v && !o_b) begin  // - one & !i_v & !o_b => produce
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 1'bx;
-		 addr_       <= 0;
-		 state_      <= state_empty;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 1'bx;
+		 addr_       = 0;
+		 state_      = state_empty;
 	      end
 	end // case: state_one
 
@@ -243,60 +244,60 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
 					    // - (full, will not consume)
 					    // - (full here if depth==2)
 	      if (o_b) begin		    // - full & o_b => idle
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 0;
-		 addr_       <= addr;
-		 state_      <= state_more;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 0;
+		 addr_       = addr;
+		 state_      = state_more;
 	      end
 	      else begin		    // - full & !o_b => produce
-		 srlo_       <= srl[addr];
-		 shift_en_o_ <= 1;
-		 shift_en_   <= 0;
-//		 addr_       <= addr-1;
-//		 state_      <= state_more;
-		 addr_       <= addr_zero_ ? 0         : addr-1;
-		 state_      <= addr_zero_ ? state_one : state_more;
+		 srlo_       = srl[addr];
+		 shift_en_o_ = 1;
+		 shift_en_   = 0;
+//		 addr_       = addr-1;
+//		 state_      = state_more;
+		 addr_       = addr_zero_ ? 0         : addr-1;
+		 state_      = addr_zero_ ? state_one : state_more;
 	      end
 	   end
 	   else begin			    // - (mid: neither empty nor full)
 	      if (i_v && o_b) begin	    // - mid & i_v & o_b => consume
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 1;
-		 addr_       <= addr+1;
-		 state_      <= state_more;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 1;
+		 addr_       = addr+1;
+		 state_      = state_more;
 	      end
 	      else if (i_v && !o_b) begin   // - mid & i_v & !o_b => cons+prod
-		 srlo_       <= srl[addr];
-		 shift_en_o_ <= 1;
-		 shift_en_   <= 1;
-		 addr_       <= addr;
-		 state_      <= state_more;
+		 srlo_       = srl[addr];
+		 shift_en_o_ = 1;
+		 shift_en_   = 1;
+		 addr_       = addr;
+		 state_      = state_more;
 	      end
 	      else if (!i_v && o_b) begin   // - mid & !i_v & o_b => idle
-		 srlo_       <= 'bx;
-		 shift_en_o_ <= 0;
-		 shift_en_   <= 0;
-		 addr_       <= addr;
-		 state_      <= state_more;
+		 srlo_       = 'bx;
+		 shift_en_o_ = 0;
+		 shift_en_   = 0;
+		 addr_       = addr;
+		 state_      = state_more;
 	      end
 	      else if (!i_v && !o_b) begin  // - mid & !i_v & !o_b => produce
-		 srlo_       <= srl[addr];
-		 shift_en_o_ <= 1;
-		 shift_en_   <= 0;
-		 addr_       <= addr_zero_ ? 0         : addr-1;
-		 state_      <= addr_zero_ ? state_one : state_more;
+		 srlo_       = srl[addr];
+		 shift_en_o_ = 1;
+		 shift_en_   = 0;
+		 addr_       = addr_zero_ ? 0         : addr-1;
+		 state_      = addr_zero_ ? state_one : state_more;
 	      end
 	   end // else: !if(addr_full)
 	end // case: state_more
 
 	default: begin
-		 srlo_       <=  'bx;
-		 shift_en_o_ <= 1'bx;
-		 shift_en_   <= 1'bx;
-		 addr_       <=  'bx;
-		 state_      <= 2'bx;
+		 srlo_       =  'bx;
+		 shift_en_o_ = 1'bx;
+		 shift_en_   = 1'bx;
+		 addr_       =  'bx;
+		 state_      = 2'bx;
 	end // case: default
 
       endcase // case(state)

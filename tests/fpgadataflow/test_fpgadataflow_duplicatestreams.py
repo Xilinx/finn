@@ -128,7 +128,7 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
         y = output_dict["outp%d" % i]
         assert (y == expected_y).all(), "HW layer execution failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

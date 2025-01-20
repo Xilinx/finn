@@ -112,7 +112,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode, impl_style)
 
     assert (y == expected_y).all(), "HW layer verification failed"
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())

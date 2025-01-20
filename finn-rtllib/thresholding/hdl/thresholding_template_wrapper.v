@@ -33,8 +33,9 @@
  */
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter  N = $N$,	// output precision
-	parameter  K = $M$,	// input/threshold precision
+	parameter  N = $N$,		// output precision
+	parameter  WI = $WI$,	// input precision
+	parameter  WT = $WT$,	// threshold precision
 	parameter  C = $C$,	// Channels
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
@@ -87,7 +88,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	//- AXI Stream - Input --------------
 	output  in0_V_TREADY,
 	input   in0_V_TVALID,
-	input [((PE*K+7)/8)*8-1:0]  in0_V_TDATA,
+	input [((PE*WI+7)/8)*8-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
 	input   out_V_TREADY,
@@ -96,7 +97,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 );
 
 	thresholding_axi #(
-		.N(N), .K(K), .C(C), .PE(PE),
+		.N(N), .WI(WI), .WT(WT), .C(C), .PE(PE),
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
 		.BIAS(BIAS),
