@@ -78,12 +78,6 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
                 self.get_instream_width(), self.hls_sname(), self.hls_sname()
             )
         )
-        if self.needs_lcm():
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
-                    self.get_iowidth_lcm()
-                )
-            )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
                 self.get_outstream_width(), self.hls_sname(), self.hls_sname()

@@ -41,11 +41,13 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import (
-    LowerConvsToMatMul,
-    _auto_pad_to_explicit_padding,
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import (
+    auto_pad_to_explicit_padding,
+    gen_finn_dt_tensor,
+    get_by_name,
+    qonnx_make_model,
 )
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -69,11 +71,11 @@ def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, d
     group = ifm if depthwise else 1
     group_str = str(group)
     ishp = (1, ifm, idim_h, idim_w)
-    pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
+    pad_0 = auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
     int_dim_h = compute_conv_output_dim(idim_h, k, stride, total_pad=pad_0[0] + pad_0[2])
     int_dim_w = compute_conv_output_dim(idim_w, k, stride, total_pad=pad_0[1] + pad_0[3])
 
-    pad_1 = _auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
+    pad_1 = auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
     odim_h = compute_conv_output_dim(int_dim_h, k, stride, total_pad=pad_1[0] + pad_1[2])
     odim_w = compute_conv_output_dim(int_dim_w, k, stride, total_pad=pad_1[1] + pad_1[3])
     oshp = (1, ifm, odim_h, odim_w) if depthwise else (1, ofm, odim_h, odim_w)
@@ -253,7 +255,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
@@ -281,7 +283,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -523,11 +525,11 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
         dw=dw,
     )
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     # Simulate using stitched-ip-rtlsim so we can use existing infrastructure
     # that supports hook functions to re-program configuration before rtlsim
     model = model.transform(InsertFIFO(True))  # required for proper simulation
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())

@@ -34,6 +34,7 @@ import shutil
 import warnings
 from copy import deepcopy
 from distutils.dir_util import copy_tree
+from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -62,6 +63,7 @@ from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
 )
+from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
@@ -119,6 +121,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
@@ -277,7 +280,7 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
-        verify_step(model, cfg, "qonnx_to_finn_python", need_parent=False)
+        verify_step(model, cfg, "finn_onnx_python", need_parent=False)
 
     return model
 
@@ -469,11 +472,15 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
         with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
             json.dump(estimate_layer_cycles, f, indent=2)
-        estimate_layer_resources = model.analysis(res_estimation)
+        estimate_layer_resources = model.analysis(
+            partial(res_estimation, fpgapart=cfg._resolve_fpga_part())
+        )
         estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
         with open(report_dir + "/estimate_layer_resources.json", "w") as f:
             json.dump(estimate_layer_resources, f, indent=2)
-        estimate_layer_resources_complete = model.analysis(res_estimation_complete)
+        estimate_layer_resources_complete = model.analysis(
+            partial(res_estimation_complete, fpgapart=cfg._resolve_fpga_part())
+        )
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
         # need to call AnnotateCycles before dataflow_performance
@@ -497,6 +504,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth())
         model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(RoundAndClipThresholds())
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes())
     return model
@@ -521,6 +529,11 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
+
+    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        model = model.transform(PrepareRTLSim())
+        model = model.transform(SetExecMode("rtlsim"))
+        verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
 
@@ -540,7 +553,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
-            model = model.transform(SpecializeLayers())
+            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
@@ -558,7 +571,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
-            model = model.transform(SpecializeLayers())
+            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
@@ -590,7 +603,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         # need to make sure all FIFOs are created so that their depth can be
         # set by ApplyConfig, so create_shallow_fifos=True
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
-        model = model.transform(SpecializeLayers())
+        model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
@@ -655,7 +668,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         estimate_network_performance = verify_model.analysis(dataflow_performance)
         prev_liveness = pyverilate_get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"])
+            int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
@@ -801,6 +814,11 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
+
             vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
             timing_rpt = (
                 "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
@@ -825,6 +843,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
