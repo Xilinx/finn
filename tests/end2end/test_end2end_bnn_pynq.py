@@ -94,6 +94,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
@@ -672,6 +673,7 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(MinimizeAccumulatorWidth())
         model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(RoundAndClipThresholds())
         curr_chkpt_name = get_checkpoint_name(topology, wbits, abits, "minimize_bit_width")
         model.save(curr_chkpt_name)
 
