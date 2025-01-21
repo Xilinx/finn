@@ -1211,21 +1211,24 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn(
+                        "Inputs with undefined datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
+                    warnings.warn(
+                        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1233,9 +1236,10 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
-                    ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    name="StreamingConcat_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
                 )
