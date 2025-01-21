@@ -1310,7 +1310,14 @@ class MoveTransposePastEltwise(Transformation):
                     # case it is a multi-axis transpose
                     perm = get_by_name(node.attribute, "perm")
                     # Convert permutation indices to list of integers
-                    perm = perm.ints if perm is not None else None
+                    perm = list(perm.ints) if perm is not None else None
+
+                    # Inverse permutation needs to be applied to the initializer
+                    # fmt: off
+                    inverse_perm = None if not perm else [
+                        perm.index(i) for i in range(len(perm))
+                    ]
+                    # fmt: on
 
                     # This transformation does only apply to Add nodes where the
                     # second input is a constant initializer
@@ -1318,11 +1325,14 @@ class MoveTransposePastEltwise(Transformation):
                         # Do not transpose scalar or effectively scalar
                         # initializers
                         if not (value.shape is None or all(
-                                x == 1 for x in value.shape)
-                        ):
+                                x == 1 for x in value.shape)):
                             # Transpose the initializer and re-insert into the
                             # model
-                            model.set_initializer(a, value.transpose(perm))
+                            # fmt: off
+                            model.set_initializer(
+                                a, value.transpose(inverse_perm)
+                            )
+                            # fmt: on
                         # Rewire the graph to feed original input and the
                         # transposed initializer into the Add node first
                         successor.input[:] = [inp, a]
