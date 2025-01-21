@@ -8,6 +8,11 @@ from onnx import NodeProto
 from qonnx.core.modelwrapper import ModelWrapper
 
 
+# Tests whether a node is a multi-threshold operation
+def is_threshold(node: NodeProto):
+    return node.op_type == "MultiThreshold"
+
+
 # Tests whether a node is a join-node MatMul operation, i.e., a MatMul with two
 # runtime inputs but no weights initializers
 def is_join_matmul(node: NodeProto, model: ModelWrapper):  # noqa

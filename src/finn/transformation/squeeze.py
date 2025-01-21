@@ -20,8 +20,14 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 # Transformation running onnx shape inference
 from qonnx.transformation.infer_shapes import InferShapes
 
+# Reuse node removal and rewiring from qonnx
+from qonnx.transformation.remove import remove_node_and_rewire
+
 # Gets items from protobuf by name
 from qonnx.util.basic import get_by_name, remove_by_name
+
+# Small utility functions for graph transformations
+from .util import is_threshold
 
 
 # Squeezes, i.e., removes, dimensions of size 1
@@ -36,17 +42,19 @@ class Squeeze(Transformation):
     def apply(self, model: ModelWrapper):  # noqa
         # Get the model graph out of the model wrapper object
         graph = model.graph
-        # Keep track of whether the graph has been modified
-        graph_modified = False
+        # # Keep track of whether the graph has been modified
+        # graph_modified = False
         # Iterate all nodes in the graph keeping track of the index
         for index, node in enumerate(graph.node):
             # There should not be any squeeze or unsqueeze operations in the
             # graph as these would interfere with this transformation
             if node.op_type in {"Squeeze", "Unsqueeze"}:
                 # Issue a warning to make the user aware of this potential issue
+                # fmt: off
                 warnings.warn(
                     f"Squeezing graph containing {node.op_type}: {node.name}"
                 )
+                # fmt: on
 
             # Validate slice not slicing along squeezed dimension
             if node.op_type == "Slice":
@@ -83,7 +91,8 @@ class Squeeze(Transformation):
                     # Track whether the shape actually changed
                     if len(new_shape) != len(shape):
                         # Is never reset back to False during iteration
-                        graph_modified = True
+                        # graph_modified = True
+                        pass
 
             # Need to drop dimensions of size 1 from transpose permutation list
             if node.op_type == "Transpose":
@@ -120,8 +129,9 @@ class Squeeze(Transformation):
                     ]
                     # Track whether the permutations actually changed
                     if len(new_perm) != len(perm) or new_perm != perm:
-                        # Is never reset back to False during iteration
-                        graph_modified = True
+                        # # Is never reset back to False during iteration
+                        # graph_modified = True
+                        pass
                     # Remove the permutation attribute before setting the new
                     # permutation
                     remove_by_name(node.attribute, "perm")
@@ -143,8 +153,25 @@ class Squeeze(Transformation):
                 )
                 # Track whether the number of inputs actually changed
                 if len(new_num_inputs) != len(num_inputs.ints):
-                    # Is never reset back to False during iteration
-                    graph_modified = True
+                    # # Is never reset back to False during iteration
+                    # graph_modified = True
+                    pass
+
+            # Need to adjust the index of the split axis by the amount of
+            # squeezed axes before
+            if node.op_type == "Split":
+                # Get the axis attribute from the Split operator
+                axis = get_by_name(node.attribute, "axis")
+                # Convert to integer or substitute default 0 according to ONNX
+                # reference
+                axis = axis.i if axis is not None else 0
+                # Get the shape of the input tensor to the split operation
+                shape = model.get_tensor_shape(node.input[0])
+                # Subtract the number of squeezed, i.e, size=1, axes before axis
+                axis = axis - sum(size == 1 for size in shape[:axis])
+                # Update the attribute by removing and reinserting
+                remove_by_name(node.attribute, "axis")
+                node.attribute.append(oh.make_attribute("axis", axis))
 
             # Need to set the squeezed output mode of multi-head merging
             if node.op_type == "MergeMultiHeads":
@@ -165,8 +192,9 @@ class Squeeze(Transformation):
                 )
                 # Track whether the number of inputs actually changed
                 if len(new_num_inputs) != len(num_inputs.ints):
-                    # Is never reset back to False during iteration
-                    graph_modified = True
+                    # # Is never reset back to False during iteration
+                    # graph_modified = True
+                    pass
 
             # Need to patch the Im2Col operator when squeezing as this cannot
             # operate on other data layouts than 4-dimensional layouts
@@ -203,7 +231,7 @@ class Squeeze(Transformation):
                     # Create a new output tensor
                     outputs=[model.make_new_valueinfo_name()],
                     # Specify the axes to unsqueeze
-                    axes=axes
+                    axes=axes,
                 )
                 # Instantiate a squeeze operator adapting from unsqueezed
                 # 4-dimensional layout back to the squeezed layout
@@ -215,7 +243,7 @@ class Squeeze(Transformation):
                     # Inherit the output tensor from the Im2Col operation
                     outputs=node.output,
                     # Specify the axes to squeeze
-                    axes=axes
+                    axes=axes,
                 )
                 # Rewire the input/output to/from the Im2Col operator to connect
                 # the Unsqueeze/Squeeze wrapper
@@ -224,9 +252,28 @@ class Squeeze(Transformation):
                 # Insert the new nodes
                 graph.node.insert(index, unsqueeze)
                 graph.node.insert(index, squeeze)
-                # The graph has now been modified. This is never reset back to
-                # False during iteration
-                graph_modified = True
+                # # The graph has now been modified. This is never reset back to
+                # # False during iteration
+                # graph_modified = True
+
+        # Iterate the graph once again to get rid of existing Squeeze/Unsqueeze
+        # Note: This needs to be done after all other operations to not mess
+        # with the shape annotations
+        for index, node in enumerate(graph.node):
+            # Squeeze and Unsqueeze can be handled the same
+            if node.op_type in {"Squeeze", "Unsqueeze"}:
+                # Do not touch the Unsqueeze/Squeeze surrounding the Im2Col
+                # operation
+                if "Im2Col" not in [
+                    n.op_type
+                    for n in [
+                        *model.find_direct_predecessors(node),
+                        *model.find_direct_successors(node),
+                    ]
+                ]:
+                    # Remove existing Squeeze/Unsqueeze from the graph as these
+                    # will not have any effect anymore
+                    remove_node_and_rewire(model, node)
 
         # Get the names of all global input tensors to insert a Squeeze
         # operation in front
@@ -257,7 +304,7 @@ class Squeeze(Transformation):
                 # Create a new output connecting to the graph
                 outputs=[model.make_new_valueinfo_name()],
                 # Specify the axes to squeeze
-                axes=axes
+                axes=axes,
             )
             # Connect the new squeeze operator to all consumers of this
             # global input
@@ -273,7 +320,7 @@ class Squeeze(Transformation):
             model.graph.node.insert(0, squeeze)
 
         # Get the names of all global output tensors to insert an Unsqueeze
-        # operation afterwards
+        # operation afterward
         global_outputs = [out.name for out in model.graph.output]
         # Insert Unsqueeze operators at each global output
         for out in global_outputs:
@@ -300,7 +347,7 @@ class Squeeze(Transformation):
                 # Connect tho the global output
                 outputs=[out],
                 # Specify the axes to unsqueeze
-                axes=axes
+                axes=axes,
             )
             # Connect the new unsqueeze operator to the producer of this global
             # output
@@ -324,7 +371,25 @@ class Squeeze(Transformation):
                 continue
             # Skip initializer tensors: Shape inference should actually restore
             # these shapes, but for some reason it does not work...
-            if model.get_initializer(name) is not None:
+            if (init := model.get_initializer(name)) is not None:
+                # If any of the consumers of this initializer is a
+                # multi-threshold function, it should not be squeezed as the
+                # thresholding is quite sensitive to data layouts and does not
+                # handle broadcasting.
+                # Note: Not sue whether there can actually be cases wih multiple
+                # consumers of a threshold tensor, but this should be perfectly
+                # legal according to standard ONNX.
+                if any(is_threshold(op) for op in model.find_consumers(name)):
+                    # Skip without warning
+                    continue
+                # First squeeze the actual data of the initializer tensors
+                model.set_initializer(name, np.squeeze(init))
+                # Now also annotate the squeezed shape, otherwise the following
+                # shape inference might fail or break the graph
+                # Note: Deleting the annotation is not sufficient here, it is
+                # not recovered properly from the tensor data for some reason...
+                model.set_tensor_shape(name, np.squeeze(init).shape)
+                # Continue with the next tensor, skipping the default case below
                 continue
             # Just delete all existing shape annotations to redo them later
             model.set_tensor_shape(name, None)
