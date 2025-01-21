@@ -1325,6 +1325,20 @@ class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
         return True
 
 
+class MoveTransposePastJoinMul(MoveIdenticalOpPastJoinOp):
+    def __init__(self):
+        super().__init__(["Transpose"], ["Mul"])
+
+    def are_producers_identical(self, model, producers):
+        if not super().are_producers_identical(model, producers):
+            return False
+        first_perm = get_by_name(producers[0].attribute, "perm").ints
+        for producer in producers:
+            if first_perm != get_by_name(producer.attribute,  "perm").ints:
+                False
+        return True
+
+
 class MoveMulPastJoinAdd(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Mul"], ["Add"])
