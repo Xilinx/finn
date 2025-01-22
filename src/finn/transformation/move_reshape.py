@@ -21,6 +21,8 @@ class RemoveCNVtoFCFlatten(Transformation):
                 oshape = model.get_tensor_shape(n.output[0])
                 if len(oshape) == 2 and ishape[0] == oshape[0]:
                     producer = model.find_producer(n.input[0])
+                    if producer is None:
+                        continue
                     if is_fpgadataflow_node(producer):
                         # standalone flatten, remove
                         consumer = model.find_consumer(n.output[0])
