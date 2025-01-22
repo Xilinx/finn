@@ -113,7 +113,6 @@ else
   else
     OLDPWD=$(pwd)
     cd ${FINN_ROOT}/deps/pyxsi
-    touch .dockerenv
     make
     cd $OLDPWD
   fi
