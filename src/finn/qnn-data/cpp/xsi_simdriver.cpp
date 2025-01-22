@@ -230,8 +230,7 @@ inline void toggle_clk_and_clk2x() {
 void reset() {
     clear_bool("@CLK_NAME@");
     clear_bool("@NRST_NAME@");
-    toggle_@CLKNAMES@();
-    toggle_@CLKNAMES@();
+    for(unsigned i = 0; i < 16; i++) toggle_@CLKNAMES@();
     set_bool("@NRST_NAME@");
     toggle_@CLKNAMES@();
     toggle_@CLKNAMES@();
