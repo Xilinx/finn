@@ -37,68 +37,68 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.streamline import Streamline
 from qonnx.util.cleanup import cleanup_model
-from qonnx.util.range_analysis import RangeInfo
-from qonnx.util.test import download_model, get_random_input
+from qonnx.util.test import download_model, get_model_input_metadata, get_random_input
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 frontend_test_networks = [
     "FINN-TFC_W2A2",
     "FINN-CNV_W2A2",
 ]
 
-uint8_to_unitfloat = {
-    "range": (np.asarray(0.0, dtype=np.float32), np.asarray(1.0, dtype=np.float32)),
-    "int_range": (np.asarray(0.0, dtype=np.float32), np.asarray(255.0, dtype=np.float32)),
-    "scale": np.asarray(1.0 / 255.0, dtype=np.float32),
-    "bias": np.asarray(0.0, dtype=np.float32),
-    "is_initializer": False,
-}
-
-model_details_scaledint = {
-    "FINN-TFC_W2A2": {
-        "scaledint_input_range": RangeInfo(shape=(1, 1, 28, 28), **uint8_to_unitfloat)
-    },
-    "FINN-CNV_W2A2": {
-        "scaledint_input_range": RangeInfo(shape=(1, 3, 32, 32), **uint8_to_unitfloat)
-    },
-}
-
 
 @pytest.mark.parametrize("model_name", frontend_test_networks)
 def test_frontend_flow(model_name):
     # download the model to be tested
-    filename = download_model(model_name)
+    filename = download_model(model_name, do_cleanup=True, add_preproc=True)
     assert os.path.isfile(filename), f"Download for model {model_name} failed"
     model = ModelWrapper(filename)
     # Step 1: tidy-up
     model = cleanup_model(model, extract_conv_bias=True)
+    model.save(f"frontend-step1-tidyup-{model_name}.onnx")
     assert model.check_all_tensor_shapes_specified(), "Tidy-up failed (shape inference)"
     # TODO other checks for tidy-up here
     # generate golden in/out pair
-    x = get_random_input(model_name)
+    x = get_random_input(model_name, preprocesing=True)
     input_dict = {model.graph.input[0].name: x}
     golden_output_dict = execute_onnx(model, input_dict)
-    # TODO revisit golden ref gen after input scale streamlining fix
-    _ = golden_output_dict[model.graph.output[0].name]
-    # Step 2 : streamlining
-    # TODO get input range directly from test_model_details once this is added
-    current_irange = model_details_scaledint[model_name]["scaledint_input_range"]
+    golden_y = golden_output_dict[model.graph.output[0].name]
+    # Step 2 : range-analysis streamlining
+    current_irange = get_model_input_metadata(model_name, include_preprocessing=True)["range"]
     model = model.transform(Streamline(irange=current_irange))
-    # TODO checks for streamlining
+    model = model.transform(InferDataTypes())
+    # TODO add checks for streamlining
+    streamlined_output_dict = execute_onnx(model, input_dict)
+    streamlined_y = streamlined_output_dict[model.graph.output[0].name]
+    assert np.isclose(golden_y, streamlined_y, atol=1e-3).all(), "Streamlined model output mismatch"
+    model.save(f"frontend-step2-streamline-{model_name}.onnx")
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
     if need_lowering:
         # Step 3: convolution lowering
         model = model.transform(LowerConvsToMatMul())
+        lowered_output_dict = execute_onnx(model, input_dict)
+        lowered_y = lowered_output_dict[model.graph.output[0].name]
+        assert np.isclose(
+            golden_y, lowered_y, atol=1e-3
+        ).all(), "Conv-lowered model output mismatch"
+        model.save(f"frontend-step3-lowerconvs-{model_name}.onnx")
         # TODO checks for convolution lowering
         # Step 4: data layout conversion
         model = model.transform(ConvertToChannelsLastAndClean())
+        chanslast_output_dict = execute_onnx(model, input_dict)
+        chanslast_y = chanslast_output_dict[model.graph.output[0].name]
+        assert np.isclose(
+            golden_y, chanslast_y, atol=1e-3
+        ).all(), "Channels-last model output mismatch"
+        model.save(f"frontend-step4-chanslast-{model_name}.onnx")
     # Step 5: convert Quant nodes to thresholds where it makes sense
     # TODO to be replaced by the new threshold conversion methodology when it's ready
     model = model.transform(
@@ -112,6 +112,12 @@ def test_frontend_flow(model_name):
     model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
     model = model.transform(absorb.Absorb1BitMulIntoMatMul())
     model = model.transform(absorb.Absorb1BitMulIntoConv())
+    model = model.transform(RoundAndClipThresholds())
+    thres_output_dict = execute_onnx(model, input_dict)
+    thres_y = thres_output_dict[model.graph.output[0].name]
+    assert np.isclose(golden_y, thres_y, atol=1e-3).all(), "Thresholds model output mismatch"
+
+    model.save(f"frontend-step5-thresholds-{model_name}.onnx")
     # TODO add checks for threshold conversion
     # Step 6: convert to hardware nodes
     model = model.transform(InferDataTypes())
@@ -121,7 +127,8 @@ def test_frontend_flow(model_name):
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
     model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(RemoveCNVtoFCFlatten())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-
-    model.save(f"frontend_{model_name}.onnx")
+    model.save(f"frontend-step6-hwlayers-{model_name}.onnx")
