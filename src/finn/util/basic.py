@@ -81,6 +81,7 @@ alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 part_map = {**pynq_part_map, **alveo_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
 def get_rtlsim_trace_depth():
@@ -142,7 +143,7 @@ def pyverilate_get_liveness_threshold_cycles():
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
 
 
 def make_build_dir(prefix=""):

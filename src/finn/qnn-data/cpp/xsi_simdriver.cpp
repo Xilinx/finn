@@ -230,8 +230,7 @@ inline void toggle_clk_and_clk2x() {
 void reset() {
     clear_bool("@CLK_NAME@");
     clear_bool("@NRST_NAME@");
-    toggle_@CLKNAMES@();
-    toggle_@CLKNAMES@();
+    for(unsigned i = 0; i < 16; i++) toggle_@CLKNAMES@();
     set_bool("@NRST_NAME@");
     toggle_@CLKNAMES@();
     toggle_@CLKNAMES@();
@@ -262,6 +261,7 @@ int main(int argc, char *argv[]) {
     reset();
 
     vector<unsigned> n_in_txns(instream_names.size(), 0), n_out_txns(outstream_names.size(), 0);
+    vector<unsigned> throttle_input_until_time(instream_names.size(), 0);
     size_t total_n_in_txns = 0, total_n_out_txns = 0;
     unsigned iters = 0, last_output_at = 0;
     unsigned latency = 0;
@@ -298,6 +298,9 @@ int main(int argc, char *argv[]) {
             string instream_name = instream_names[i];
             if(chk_bool(instream_name+"_tready") && chk_bool(instream_name + "_tvalid")) {
                 n_in_txns[i]++;
+                // determine whether this input will be throttled for rate-limiting
+                // every time an input frame is finished, we throttle for @THROTTLE_CYCLES@ cycles
+                if(n_in_txns[i] % n_iters_per_input[i] == 0) throttle_input_until_time[i] = iters + @THROTTLE_CYCLES@;
                 total_n_in_txns++;
                 // determine whether we have more inputs to feed
                 if(n_in_txns[i] == n_iters_per_input[i] * n_inferences) {
@@ -307,7 +310,8 @@ int main(int argc, char *argv[]) {
             }
 
             if(n_in_txns[i] < n_iters_per_input[i] * n_inferences) {
-                signals_to_write[instream_name + "_tvalid"] = true;
+                bool enable_throttled_input = (iters >= throttle_input_until_time[i]);
+                signals_to_write[instream_name + "_tvalid"] = enable_throttled_input;
             } else if(n_in_txns[i] > n_iters_per_input[i] * n_inferences) {
                 // more input transactions than specified, should never happen
                 // most likely a bug in the C++ driver code if this happens
@@ -321,6 +325,8 @@ int main(int argc, char *argv[]) {
         for(size_t i = 0; i < outstream_names.size(); i++) {
             string outstream_name = outstream_names[i];
             if(chk_bool(outstream_name+"_tready") && chk_bool(outstream_name + "_tvalid")) {
+                // reset the no-output timeout counter
+                cycles_since_last_output = 0;
                 // TODO add output data capture to file here
                 // (unless we are in dummy data mode)
                 n_out_txns[i]++;

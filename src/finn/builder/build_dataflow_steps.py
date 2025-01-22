@@ -585,6 +585,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     "Multi-in/out streams currently not supported "
                     + "in FINN C++ verilator driver, falling back to Python"
                 )
+            if cfg.fifosim_save_waveform:
+                model.set_metadata_prop("rtlsim_trace", "fifosim_trace.wdb")
             model = model.transform(
                 InsertAndSetFIFODepths(
                     cfg._resolve_fpga_part(),
@@ -592,8 +594,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     force_python_sim=force_python_sim,
+                    fifosim_input_throttle=cfg.fifosim_input_throttle,
                 )
             )
+            if cfg.fifosim_save_waveform:
+                # un-set rtlsim_trace to remove unwanted traces in later steps
+                model.set_metadata_prop("rtlsim_trace", "")
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
         else:

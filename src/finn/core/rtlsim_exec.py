@@ -115,7 +115,14 @@ def file_to_basename(x):
     return os.path.basename(os.path.realpath(x))
 
 
-def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc_cpp=""):
+def rtlsim_exec_cppxsi(
+    model,
+    execution_context,
+    dummy_data_mode=False,
+    postproc_cpp="",
+    timeout_cycles=None,
+    throttle_cycles=0,
+):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
     The dummy_data_mode flag controls whether the simulation is driven by
     dummy data or real data. The execution_context parameter must be formatted
@@ -133,12 +140,15 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
     The postproc_cpp optional argument can be used to inject C++ code to retrieve
     extra data when the simulation is finished. See the @POSTPROC_CPP@ template argument
     in the xsi_simdriver.cpp file to see what context and functions are available.
-
+    If timeout_cycles is not None, the default value from pyverilate_get_liveness_threshold_cycles
+    will be used.
+    throttle_cycles will be used to pause the input stream every time an input frame is finished.
     """
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
     # TODO: rename utility fxn to remove "pyverilate", used for other backends too
-    timeout_cycles = pyverilate_get_liveness_threshold_cycles()
+    if timeout_cycles is None:
+        timeout_cycles = pyverilate_get_liveness_threshold_cycles()
 
     assert dummy_data_mode, "Only dummy_data_mode=True is supported for now"
 
@@ -166,8 +176,10 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None) or trace_file != ""
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
@@ -246,6 +258,8 @@ def rtlsim_exec_cppxsi(model, execution_context, dummy_data_mode=False, postproc
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
+        # input throttling for rate limit
+        "THROTTLE_CYCLES": throttle_cycles,
     }
     for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
@@ -325,8 +339,10 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None) or trace_file != ""
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so

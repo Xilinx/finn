@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, part_map
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -281,6 +281,14 @@ class DataflowBuildConfig:
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
+    #: Enable input throttling for simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_input_throttle: Optional[bool] = True
+
+    #: Enable saving waveforms from simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_save_waveform: Optional[bool] = False
+
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
     #: If not specified it will default to synth_clk_period_ns
@@ -370,11 +378,10 @@ class DataflowBuildConfig:
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
-            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-                return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-                return alveo_part_map[self.board]
-            else:
+            try:
+                fpga_part = part_map[self.board]
+                return fpga_part
+            except KeyError:
                 raise Exception("Couldn't resolve fpga_part for " + self.board)
         else:
             # return as-is when explicitly specified

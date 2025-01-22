@@ -248,7 +248,7 @@ class HWCustomOp(CustomOp):
         else:
             assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
 
-    def rtlsim_multi_io(self, sim, io_dict):
+    def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
         "Run rtlsim for this node, supports multiple i/o streams."
         # signal name suffix
         sname = "_" + self.hls_sname() + "_"
@@ -273,6 +273,7 @@ class HWCustomOp(CustomOp):
                 num_out_values,
                 sname=sname,
                 liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+                hook_postclk=hook_postclk,
             )
         else:
             assert False, f"Unknown rtlsim_backend {rtlsim_backend}"
@@ -371,11 +372,31 @@ class HWCustomOp(CustomOp):
         # note that we restrict key names to filter out weight streams etc
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+        # signal name
+        sname = "_" + self.hls_sname() + "_"
+
+        def monitor_txns(sim_obj):
+            for inp in txns_in:
+                in_ready = pyxsi_utils._read_signal(sim_obj, inp + sname + "TREADY") == 1
+                in_valid = pyxsi_utils._read_signal(sim_obj, inp + sname + "TVALID") == 1
+                if in_ready and in_valid:
+                    txns_in[inp].append(1)
+                else:
+                    txns_in[inp].append(0)
+            for outp in txns_out:
+                if (
+                    pyxsi_utils._read_signal(sim_obj, outp + sname + "TREADY") == 1
+                    and pyxsi_utils._read_signal(sim_obj, outp + sname + "TVALID") == 1
+                ):
+                    txns_out[outp].append(1)
+                else:
+                    txns_out[outp].append(0)
 
         self.reset_rtlsim(sim)
         self.rtlsim_multi_io(
             sim,
             io_dict,
+            hook_postclk=monitor_txns,
         )
         total_cycle_count = self.get_nodeattr("cycles_rtlsim")
         assert (
