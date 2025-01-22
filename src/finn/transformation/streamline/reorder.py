@@ -115,18 +115,28 @@ class MoveScalarMulPastMatMul(Transformation):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MatMul":
                     mul_weight_name = n.input[1]
-                    matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
                     mm_out_shape = model.get_tensor_shape(end_name)
+                    # check which input mul node is connected to build the write node connectivity
+                    if n.output[0] == consumer.input[0]:
+                        new_matmul_inps = [start_name, consumer.input[1]]
+                    elif n.output[0] == consumer.input[1]:
+                        new_matmul_inps = [consumer.input[0], start_name]
+                    else:
+                        raise Exception(
+                            """Invalid pattern detected,
+                            output of matmul is not connected to any of the consumers inputs."""
+                        )
+
                     if all(x == 1 for x in A.shape):
                         # if the mul is scalar, we can simply swap the order of ops
                         # make and insert new nodes
                         new_matmul = oh.make_node(
                             "MatMul",
-                            [start_name, matmul_weight_name],
+                            new_matmul_inps,
                             [middle_name],
                             name=consumer.name,
                         )
