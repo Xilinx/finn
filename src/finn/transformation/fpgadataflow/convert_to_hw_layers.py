@@ -380,7 +380,9 @@ class InferStreamingMaxPool(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type == "MaxPoolNHWC":
+            if node.op_type == "MaxPoolNHWC" or (
+                node.op_type == "MaxPool" and node.domain == "qonnx.custom_op.channels_last"
+            ):
                 mp_input = node.input[0]
                 mp_output = node.output[0]
                 mp_in_shape = model.get_tensor_shape(mp_input)
@@ -397,7 +399,9 @@ class InferStreamingMaxPool(Transformation):
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
                 pe = 1
-                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
+                ceil_mode = (
+                    mp_inst.get_nodeattr("ceil_mode") if node.op_type == "MaxPoolNHWC" else 0
+                )
                 is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
                 is_divisable = (ifm_dim_h % k_h == 0) or (ifm_dim_w % k_w == 0)
                 is_bipolar = dt == DataType["BIPOLAR"]
