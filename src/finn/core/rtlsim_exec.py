@@ -176,8 +176,10 @@ def rtlsim_exec_cppxsi(
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None) or trace_file != ""
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
@@ -337,8 +339,10 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None) or trace_file != ""
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
