@@ -119,8 +119,6 @@ def is_const_scalar_mul(node, model):
     return False
 
 
-# Refactored version of the MoveScalarMulPastMatMul transform capable of
-# transforming two-input MatMul, like those being part of the attention operator
 class MoveScalarMulPastMatMul(Transformation):
     """Move scalar mul operations past matmul operations. We want to have muls
     next to each other such that they can be collapsed into a single mul."""
@@ -131,102 +129,51 @@ class MoveScalarMulPastMatMul(Transformation):
         graph = model.graph
         # Keep track of whether the graph has been modified
         graph_modified = False
-
         # Iterate all nodes in the graph keeping track of the index
-        for index, node in enumerate(graph.node):
-            # First pattern matching condition: For the transform to be
-            # applicable, the node has to be a MatMul operator
-            if node.op_type == "MatMul":
-                # Note: When touching the following code, remember to treat both
-                # branches equivalently!
-                # TODO: Can this be enforced or at least be made easier by
-                #  extracting common code patterns to a function?
+        for node_ind, n in enumerate(graph.node):
+            if n.op_type == "Mul" and not model.is_fork_node(n) and not model.is_join_node(n):
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None and consumer.op_type == "MatMul":
+                    mul_weight_name = n.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    start_name = n.input[0]
+                    middle_name = n.output[0]
+                    end_name = consumer.output[0]
+                    mm_out_shape = model.get_tensor_shape(end_name)
+                    # check which input mul node is connected to build the write node connectivity
+                    if n.output[0] == consumer.input[0]:
+                        new_matmul_inps = [start_name, consumer.input[1]]
+                    elif n.output[0] == consumer.input[1]:
+                        new_matmul_inps = [consumer.input[0], start_name]
+                    else:
+                        raise Exception(
+                            """Invalid pattern detected,
+                            output of matmul is not connected to any of the consumers inputs."""
+                        )
 
-                # Get the left hand side and right hand side inputs
-                #   Note: Assumes the ordering of left to right inputs to match
-                #   indices 0 to 1. However, it does not "hurt" if it is
-                #   reversed as both sides are treated equivalently.
-                lhs = model.find_producer(node.input[0])
-                rhs = model.find_producer(node.input[1])
-
-                # Give precedence to the left hand side input testing for the
-                # presence of a scalar multiplication
-                if is_const_scalar_mul(lhs, model):
-                    # Cannot handle fork nodes: We would have to distribute the
-                    # Mul into all branches
-                    # TODO: Maybe reconsider this at some point, there is
-                    #  probably nothing preventing this in general, it is just
-                    #  more difficult and apparently not necessary right now.
-                    if model.is_fork_node(lhs):
-                        # Softly skip this node
-                        continue
-                    # Unpack the connection pattern of a scalar mul feeding the
-                    # lhs input of the matmul
-                    # Names of the three input tensors to the mul-matmul complex
-                    a, b, c = lhs.input[0], lhs.input[1], node.input[1]
-                    # Names of the intermediate and the global output
-                    m, o = lhs.output[0], node.output[0]  # noqa: Duplicate code
-                    # Rewire the operator connections locally, swapping mul and
-                    # matmul operator order
-                    matmul = oh.make_node("MatMul", [a, c], [m], node.name)
-                    mul = oh.make_node("Mul", [m, b], [o], lhs.name)
-                    # Insert the rewired nodes into the graph
-                    graph.node.insert(index, matmul)
-                    graph.node.insert(index + 1, mul)
-                    # Adapt the shape of the intermediate tensor as it changed
-                    # according to the output shape of the matmul
-                    model.set_tensor_shape(m, model.get_tensor_shape(o))
-                    # Remove the old nodes from the graph
-                    graph.node.remove(lhs)
-                    graph.node.remove(node)
-                    # The graph has been modified, this needs to be reported
-                    # back to the caller
-                    graph_modified = True
-                    # Cannot further modify the node (i.e., the rhs) as the
-                    # index and state of the nodes changed and need to be
-                    # queried again from the graph.node at the start of the next
-                    # iteration.
-                    continue
-
-                # Next try whether the right hand side matches the pattern of a
-                # scalar multiplication
-                if is_const_scalar_mul(rhs, model):
-                    # Cannot handle fork nodes: We would have to distribute the
-                    # Mul into all branches
-                    # TODO: Maybe reconsider this at some point, there is
-                    #  probably nothing preventing this in general, it is just
-                    #  more difficult and apparently not necessary right now.
-                    if model.is_fork_node(rhs):
-                        # Softly skip this node
-                        continue
-                    # Unpack the connection pattern of a scalar mul feeding the
-                    # rhs input of the matmul
-                    # Names of the three input tensors to the mul-matmul complex
-                    a, b, c = node.input[0], rhs.input[0], rhs.input[1]
-                    # Names of the intermediate and the global output
-                    m, o = rhs.output[0], node.output[0]  # noqa: Duplicate code
-                    # Rewire the operator connections locally, swapping mul and
-                    # matmul operator order
-                    matmul = oh.make_node("MatMul", [a, b], [m], node.name)
-                    mul = oh.make_node("Mul", [m, c], [o], rhs.name)
-                    # Insert the rewired nodes into the graph
-                    graph.node.insert(index, matmul)
-                    graph.node.insert(index + 1, mul)
-                    # Adapt the shape of the intermediate tensor as it changed
-                    # according to the output shape of the matmul
-                    model.set_tensor_shape(m, model.get_tensor_shape(o))
-                    # Remove the old nodes from the graph
-                    graph.node.remove(rhs)
-                    graph.node.remove(node)
-                    # The graph has been modified, this needs to be reported
-                    # back to the caller
-                    graph_modified = True
-
-        # Finalize the transformation by inferring shapes again (as these might
-        # have changed)
+                    if all(x == 1 for x in A.shape):
+                        # if the mul is scalar, we can simply swap the order of ops
+                        # make and insert new nodes
+                        new_matmul = oh.make_node(
+                            "MatMul",
+                            new_matmul_inps,
+                            [middle_name],
+                            name=consumer.name,
+                        )
+                        new_mul = oh.make_node(
+                            "Mul",
+                            [middle_name, mul_weight_name],
+                            [end_name],
+                            name=n.name,
+                        )
+                        graph.node.insert(node_ind, new_matmul)
+                        graph.node.insert(node_ind + 1, new_mul)
+                        model.set_tensor_shape(middle_name, mm_out_shape)
+                        # remove old nodes
+                        graph.node.remove(n)
+                        graph.node.remove(consumer)
+                        graph_modified = True
         model = model.transform(InferShapes())
-        # Return the transformed model and indicate whether the graph actually
-        # has been transformed
         return model, graph_modified
 
 
