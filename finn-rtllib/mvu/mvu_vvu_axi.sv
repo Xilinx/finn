@@ -129,8 +129,6 @@ module mvu_vvu_axi #(
 		end
 	end
 
-	uwire  clk = ap_clk;
-	uwire  clk2x = ap_clk2x;
 	uwire  rst = !ap_rst_n;
 
 	//- Replay to Accommodate Neuron Fold -----------------------------------
@@ -144,7 +142,7 @@ module mvu_vvu_axi #(
 	localparam int unsigned  SF = MW/SIMD;
 	localparam int unsigned  NF = MH/PE;
 	replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvu_flatin_t))) activation_replay (
-		.clk, .rst,
+		.clk(ap_clk), .rst,
 		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
 		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
 	);
@@ -190,7 +188,6 @@ module mvu_vvu_axi #(
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
-		uwire  dsp_clk;
 		uwire  dsp_en;
 
 		uwire  dsp_last;
@@ -202,8 +199,7 @@ module mvu_vvu_axi #(
 		uwire dsp_p_t  dsp_p;
 
 		if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
-			assign	dsp_clk = clk;
-			assign	dsp_en  = en;
+			assign	dsp_en = en;
 
 			assign	dsp_last = alast && avld;
 			assign	dsp_zero = !istb;
@@ -214,15 +210,14 @@ module mvu_vvu_axi #(
 			assign	odat = dsp_p;
 		end : genUnpumpedCompute
 		else begin : genPumpedCompute
-			assign	dsp_clk = clk2x;
 
 			// Identify second fast cycle just before active slow clock edge
 			logic  Active = 0;
 			if(1) begin : blkActive
 				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(clk));
+				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(ap_clk));
 				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
-				always_ff @(posedge clk2x)  Active <= clk_lut[1];
+				always_ff @(posedge ap_clk2x)  Active <= clk_lut[1];
 			end : blkActive
 
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
@@ -237,7 +232,7 @@ module mvu_vvu_axi #(
 				for(genvar  i =    0; i <       SIMD; i++)  assign  w[i] = mvu_w[pe][i];
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  w[i] = 0;
 
-				always_ff @(posedge clk2x) begin
+				always_ff @(posedge ap_clk2x) begin
 					if(rst)      W[pe] <= 'x;
 					else if(en)  W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
@@ -251,7 +246,7 @@ module mvu_vvu_axi #(
 				for(genvar  i =    0; i <       SIMD; i++)  assign  a[i] = amvau_i[pe][i];
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  a[i] = 0;
 
-				always_ff @(posedge clk2x) begin
+				always_ff @(posedge ap_clk2x) begin
 					if(rst)      A[pe] <= 'x;
 					else if(en)  A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
@@ -260,7 +255,7 @@ module mvu_vvu_axi #(
 
 			logic  Zero = 1;
 			logic  Last = 0;
-			always_ff @(posedge clk2x) begin
+			always_ff @(posedge ap_clk2x) begin
 				if(rst) begin
 					Zero <= 1;
 					Last <= 0;
@@ -283,7 +278,7 @@ module mvu_vvu_axi #(
 			// clock to pick it up.
 			logic    Vld = 0;
 			dsp_p_t  P = 'x;
-			always_ff @(posedge clk2x) begin
+			always_ff @(posedge ap_clk2x) begin
 				if(rst) begin
 					Vld <= 0;
 					P   <= 'x;
@@ -307,7 +302,7 @@ module mvu_vvu_axi #(
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -318,7 +313,7 @@ module mvu_vvu_axi #(
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
 				.VERSION(1), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -329,7 +324,7 @@ module mvu_vvu_axi #(
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
 				.VERSION(2), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -339,7 +334,7 @@ module mvu_vvu_axi #(
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(dsp_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
@@ -366,7 +361,7 @@ module mvu_vvu_axi #(
 	assign	en = A.rdy;
 	uwire  b_load = !B.vld || m_axis_output_tready;
 
-	always_ff @(posedge clk) begin
+	always_ff @(posedge ap_clk) begin
 		if(rst) begin
 			A <= '{ rdy: 1, default: 'x };
 			B <= '{ vld: 0, default: 'x };
