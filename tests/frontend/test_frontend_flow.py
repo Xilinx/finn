@@ -31,8 +31,10 @@ import pytest
 import numpy as np
 import os
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.streamline import Streamline
@@ -49,10 +51,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
-frontend_test_networks = [
-    "FINN-TFC_W2A2",
-    "FINN-CNV_W2A2",
-]
+frontend_test_networks = ["FINN-TFC_W2A2", "FINN-CNV_W2A2", "MobileNetv1-w4a4"]
 
 
 @pytest.mark.parametrize("model_name", frontend_test_networks)
@@ -74,6 +73,8 @@ def test_frontend_flow(model_name):
     # Step 2 : range-analysis streamlining
     current_irange = get_model_input_metadata(model_name, include_preprocessing=True)["range"]
     model = model.transform(Streamline(irange=current_irange))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
     # TODO add checks for streamlining
     streamlined_output_dict = execute_onnx(model, input_dict)
@@ -84,6 +85,9 @@ def test_frontend_flow(model_name):
     if need_lowering:
         # Step 3: convolution lowering
         model = model.transform(LowerConvsToMatMul())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataTypes())
         lowered_output_dict = execute_onnx(model, input_dict)
         lowered_y = lowered_output_dict[model.graph.output[0].name]
         assert np.isclose(
@@ -93,6 +97,9 @@ def test_frontend_flow(model_name):
         # TODO checks for convolution lowering
         # Step 4: data layout conversion
         model = model.transform(ConvertToChannelsLastAndClean())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataTypes())
         chanslast_output_dict = execute_onnx(model, input_dict)
         chanslast_y = chanslast_output_dict[model.graph.output[0].name]
         assert np.isclose(
@@ -106,12 +113,26 @@ def test_frontend_flow(model_name):
             filter_function=default_filter_function_generator(max_multithreshold_bit_width=8)
         )
     )
+    # need to switch generated MultiThreshold mode to channels-last
+    # TODO package this up as a transformation?
+    model = model.transform(InferDataLayouts())
+    for node in model.get_nodes_by_op_type("MultiThreshold"):
+        mt_layout = model.get_tensor_layout(node.input[0])
+        if mt_layout is None:
+            continue
+        elif mt_layout[-1] == "C":
+            getCustomOp(node).set_nodeattr("data_layout", "NHWC")
+        else:
+            continue
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.FactorOutMulSignMagnitude())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
     model = model.transform(absorb.Absorb1BitMulIntoMatMul())
     model = model.transform(absorb.Absorb1BitMulIntoConv())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataTypes())
     model = model.transform(RoundAndClipThresholds())
     thres_output_dict = execute_onnx(model, input_dict)
     thres_y = thres_output_dict[model.graph.output[0].name]
