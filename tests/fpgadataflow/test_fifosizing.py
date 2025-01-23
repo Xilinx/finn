@@ -62,7 +62,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
         "largefifo_rtlsim_cpp",
     ],
 )
-@pytest.mark.parametrize("topology", ["cnv","tfc"])
+@pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
     method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
