@@ -381,10 +381,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {"out": []},
             }
-            trace_file = self.get_nodeattr("rtlsim_trace")
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-
             super().reset_rtlsim(sim)
             if self.get_nodeattr("rtlsim_backend") == "pyverilator":
                 super().toggle_clk(sim)
