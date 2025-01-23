@@ -468,14 +468,14 @@ class HWCustomOp(CustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # ensure that there is a directory
             if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-                code_gen_dir = make_build_dir(prefix="code_gen_ipgen_" + str(self.name) + "_")
+                code_gen_dir = make_build_dir(prefix="code_gen_ipgen_" + str(self.onnx_node.name) + "_")
                 self.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
                 # ensure that there is generated code inside the dir
                 self.code_generation_ipgen(model, fpga_part, clk_period)
 
             # lazy construction of hlssynthip step
             if is_hls_node(node):
-                # ensure that code is generated
+                # ensure that code is generated if using HLS variant
                 try:
                     assert (
                         self.get_nodeattr("code_gen_dir_ipgen") != ""
@@ -488,7 +488,7 @@ class HWCustomOp(CustomOp):
                         # call the compilation function for this node
                         self.ipgen_singlenode_code()
                     else:
-                        warnings.warn("Using pre-existing IP for %s" % self.name)
+                        warnings.warn("Using pre-existing IP for %s" % self.onnx_node.name)
                     # ensure that executable path is now set
                     assert (
                         self.get_nodeattr("ipgen_path") != ""
@@ -498,19 +498,19 @@ class HWCustomOp(CustomOp):
                 except KeyError:
                     # exception if op_type is not supported
                     raise Exception("Custom op_type %s is currently not supported." % op_type)
-
+                
+            try:
                 # lazy construction of prepare rtlsim step
+                self.prepare_rtlsim()
+                # ensure that executable path is now set
+                assert (
+                    self.get_nodeattr("rtlsim_so") != ""
+                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
 
-                try:
-                    self.prepare_rtlsim()
-                    # ensure that executable path is now set
-                    assert (
-                        self.get_nodeattr("rtlsim_so") != ""
-                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
-                except KeyError:
-                    # exception if op_type is not supported
-                    raise Exception("Custom op_type %s is currently not supported." % op_type)
-
+            
         # assert , "rtlsim not ready for " + self.onnx_node.name
         if self.get_nodeattr("io_chrc_period") > 0:
             warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)

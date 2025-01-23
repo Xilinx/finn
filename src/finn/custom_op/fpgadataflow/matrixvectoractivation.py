@@ -1031,8 +1031,8 @@ class MVAU(HWCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode in ["internal_decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
-            # num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(1 * n_weight_inps)]
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
 
         super().derive_characteristic_fxns(
             model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict

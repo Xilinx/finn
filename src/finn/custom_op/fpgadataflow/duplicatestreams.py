@@ -174,7 +174,7 @@ class DuplicateStreams(HWCustomOp):
             "inputs": {
                 "in0": [0 for i in range(n_inps)],
             },
-            "outputs": {"out0": [], "out1": []},
+            "outputs": {*[f'out{x}' for x in range(self.get_num_output_streams())]},
         }
 
         super().derive_characteristic_fxns(

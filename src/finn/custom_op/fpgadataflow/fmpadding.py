@@ -181,10 +181,7 @@ class FMPadding(HWCustomOp):
         TOTAL_ELS = np.prod(NewDim)
         NF = int(NumChannels / SIMD)
 
-        # assert True == False
         kwargs = (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF)
-
-        # assert True==False
 
         return kwargs
 

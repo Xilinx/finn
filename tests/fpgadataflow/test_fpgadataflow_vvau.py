@@ -494,13 +494,11 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
 @pytest.mark.parametrize("channels", [3, 6])
 # memory mode
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
-# execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_analytical_characterization_vvau(
-    direction, idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode, exec_mode
+    direction, idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode
 ):
     if dim_w == 1 and k_w != 1:
         pytest.skip("1D image requires 1D kernel, skipping.")
