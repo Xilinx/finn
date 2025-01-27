@@ -144,14 +144,17 @@ std::string logic_val_to_string(s_xsi_vlog_logicval* value, size_t n_bits) {
 
 // top-level sim object for the simulation
 Xsi::Loader *top;
-// mapping of port names to port numbers
+// mapping of port names to port numbers and directions
 map<string, int> port_map;
+map<string, int> port_dir;
 
 // walk the top-level IO interfaces to populate the port_map
 void populate_port_map() {
     for(int i=0; i<top->num_ports(); i++) {
         string port_name = top->get_str_property_port(i, xsiNameTopPort);
         port_map[port_name] = i;
+        int pd = top->get_int_property_port(i, xsiDirectionTopPort);
+        port_dir[port_name] = pd;
     }
 }
 
@@ -236,6 +239,24 @@ void reset() {
     toggle_@CLKNAMES@();
 }
 
+void clear_signal(string name) {
+    int port_id = port_map[name];
+    int n_bits = top->get_int_property_port(port_id, xsiHDLValueSize);
+    size_t n_logicvals = roundup_int_div(n_bits, 32);
+    s_xsi_vlog_logicval *buf = new s_xsi_vlog_logicval[n_logicvals];
+    string zeros_str = std::string(n_bits, '0');
+    string_to_logic_val(zeros_str, buf);
+    top->put_value(port_map[name], buf);
+    delete [] buf;
+}
+
+void clear_all_input_signals() {
+    for(int i=0; i<top->num_ports(); i++) {
+        string port_name = top->get_str_property_port(i, xsiNameTopPort);
+        if(port_dir[port_name] == xsiInputPort) clear_signal(port_name);
+    }
+}
+
 int main(int argc, char *argv[]) {
     // load pre-compiled rtl simulation
     std::string simengine_libname = "@SIMKERNEL_SO@";
@@ -252,13 +273,13 @@ int main(int argc, char *argv[]) {
 
     vector<string> instream_names = @INSTREAM_NAME@;
     vector<string> outstream_names = @OUTSTREAM_NAME@;
-    vector<string> deassert_signals = @DEASSERT_SIGNAL_NAMES@;
     // how much data to push into/pull out of sim
     vector<unsigned> n_iters_per_input = @ITERS_PER_INPUT@;
     vector<unsigned> n_iters_per_output = @ITERS_PER_OUTPUT@;
     unsigned n_inferences = @N_INFERENCES@;
     unsigned max_iters = @MAX_ITERS@;
 
+    clear_all_input_signals();
     reset();
 
     vector<unsigned> n_in_txns(instream_names.size(), 0), n_out_txns(outstream_names.size(), 0);
@@ -281,11 +302,6 @@ int main(int argc, char *argv[]) {
     bool input_done = false;
     bool output_done = false;
     bool timeout = false;
-
-    // set fixed-value control signals
-    for (auto & deassert_signal : deassert_signals) {
-        clear_bool(deassert_signal);
-    }
 
     // enable reception on the output streams
     for (auto & outstream_name : outstream_names) {
