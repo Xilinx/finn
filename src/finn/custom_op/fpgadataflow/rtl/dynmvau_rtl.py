@@ -239,7 +239,6 @@ class DynMVU_rtl(MVAU, RTLBackend):
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             rtllib_dir + "mv_matrix_load.sv",
-            rtllib_dir + "mv_matrix_load_wide.sv",
             rtllib_dir + "mvu_4sx4u.sv",
             rtllib_dir + "mvu_8sx8u_dsp48.sv",
             rtllib_dir + "mvu_dyn_axi.sv",
@@ -338,7 +337,6 @@ class DynMVU_rtl(MVAU, RTLBackend):
         verilog_files = [
             code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
             rtllib_dir + "mv_matrix_load.sv",
-            rtllib_dir + "mv_matrix_load_wide.sv",
             rtllib_dir + "mvu_4sx4u.sv",
             rtllib_dir + "mvu_8sx8u_dsp48.sv",
             rtllib_dir + "mvu_dyn_axi.sv",

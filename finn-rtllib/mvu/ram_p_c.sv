@@ -41,9 +41,9 @@
 // @author	Dario Korolija <dario.korolija@amd.com>
 
 module ram_p_c #(
-    parameter ADDR_BITS = 10,
-    parameter DATA_BITS = 64,
-    parameter RAM_TYPE = "block"
+    parameter int unsigned ADDR_BITS = 10,
+    parameter int unsigned DATA_BITS = 64,
+    parameter int unsigned RAM_STYLE = "block"
 ) (
     input  logic                          clk,
     input  logic                          a_en,
@@ -56,9 +56,9 @@ module ram_p_c #(
     output logic [DATA_BITS-1:0]          b_data_out
 );
 
-  localparam DEPTH = 2**ADDR_BITS;
+  localparam int unsigned DEPTH = 2**ADDR_BITS;
 
-  (* ram_style = RAM_TYPE *) reg [DATA_BITS-1:0] ram[DEPTH];
+  (* ram_style = RAM_STYLE *) reg [DATA_BITS-1:0] ram[DEPTH];
 
   reg [DATA_BITS-1:0] a_data_reg = 0;
   reg [DATA_BITS-1:0] b_data_reg = 0;
@@ -83,4 +83,4 @@ module ram_p_c #(
    //end
    end
 
-endmodule // ram_p_c
+endmodule : ram_p_c
