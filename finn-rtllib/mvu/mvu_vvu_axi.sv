@@ -91,6 +91,7 @@ module mvu_vvu_axi #(
 	output	logic  m_axis_output_tvalid,
 	input	logic  m_axis_output_tready
 );
+	import  mvu_pkg::*;
 
 //-------------------- Parameter sanity checks --------------------\\
 	initial begin
@@ -173,10 +174,9 @@ module mvu_vvu_axi #(
 	end : genVVUInput
 
 	//- Flow Control Bracket around Compute Core ----------------------------
-	uwire en;
-	uwire istb = avld && s_axis_weights_tvalid;
-	assign ardy = en && s_axis_weights_tvalid;
-	assign s_axis_weights_tready = en && avld;
+	uwire  idle;
+	assign	ardy = !idle && s_axis_weights_tvalid;
+	assign	s_axis_weights_tready = !idle && avld;
 
 	//- Conditionally Pumped DSP Compute ------------------------------------
 	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
@@ -188,8 +188,6 @@ module mvu_vvu_axi #(
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [ACT_PE-1:0][DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
-		uwire  dsp_en;
-
 		uwire  dsp_last;
 		uwire  dsp_zero;
 		uwire dsp_w_t  dsp_w;
@@ -199,10 +197,8 @@ module mvu_vvu_axi #(
 		uwire dsp_p_t  dsp_p;
 
 		if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
-			assign	dsp_en = en;
-
-			assign	dsp_last = alast && avld;
-			assign	dsp_zero = !istb;
+			assign	dsp_last = alast && avld && !idle;
+			assign	dsp_zero = idle || !s_axis_weights_tvalid || !avld;
 			assign	dsp_w = mvu_w;
 			assign	dsp_a = amvau_i;
 
@@ -261,12 +257,11 @@ module mvu_vvu_axi #(
 					Last <= 0;
 				end
 				else if(en) begin
-					Zero <= !istb;
-					Last <= alast && avld && Active;
+					Zero <= idle || !s_axis_weights_tvalid || !avld;
+					Last <= alast && avld && !idle && Active;
 				end
 			end
 
-			assign	dsp_en = en;
 			assign	dsp_last = Last;
 			assign	dsp_zero = Zero;
 			assign	dsp_w = W;
@@ -294,7 +289,7 @@ module mvu_vvu_axi #(
 		end : genPumpedCompute
 
 		case(COMPUTE_CORE)
-		"mvu_vvu_8sx9_dsp58":
+		"mvu_vvu_8sx9_dsp58": begin : core
 			mvu_vvu_8sx9_dsp58 #(
 				.IS_MVU(IS_MVU),
 				.PE(PE), .SIMD(DSP_SIMD),
@@ -302,42 +297,46 @@ module mvu_vvu_axi #(
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 				.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_4sx4u_dsp48e1":
+		end
+		"mvu_4sx4u_dsp48e1": begin : core
 			mvu_4sx4u #(
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
 				.VERSION(1), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_4sx4u_dsp48e2":
+		end
+		"mvu_4sx4u_dsp48e2": begin : core
 			mvu_4sx4u #(
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .NARROW_WEIGHTS(NARROW_WEIGHTS),
 				.VERSION(2), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
-		"mvu_8sx8u_dsp48":
+		end
+		"mvu_8sx8u_dsp48": begin : core
 			mvu_8sx8u_dsp48 #(
 				.PE(PE), .SIMD(DSP_SIMD),
 				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
 				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 			) core (
-				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en(dsp_en),
+				.clk(PUMPED_COMPUTE? ap_clk2x : ap_clk), .rst, .en('1),
 				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
 				.vld(dsp_vld), .p(dsp_p)
 			);
+		end
 		default: initial begin
 			$error("Unrecognized COMPUTE_CORE '%s'", COMPUTE_CORE);
 			$finish;
@@ -346,41 +345,56 @@ module mvu_vvu_axi #(
 
 	end : blkDsp
 
-//-------------------- Output register slice --------------------\\
-	// Make `en`computation independent from external inputs.
-	// Drive all outputs from registers.
-	struct packed {
-		logic rdy;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  A = '{ rdy: 1, default: 'x };	// side-step register used when encountering backpressure
-	struct packed {
-		logic vld;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  B = '{ vld: 0, default: 'x };	// ultimate output register
+	if(1) begin : blkOutput
+		localparam int unsigned  PIPELINE_DEPTH = mvu_pipeline_depth(COMPUTE_CORE, SIMD, SEGMENTLEN);
+		localparam int unsigned  MIN_OUT_PERIOD = MW / SIMD;
+		localparam int unsigned  MAX_IN_FLIGHT  = 1 + PIPELINE_DEPTH / MIN_OUT_PERIOD;
 
-	assign	en = A.rdy;
-	uwire  b_load = !B.vld || m_axis_output_tready;
+		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
 
-	always_ff @(posedge ap_clk) begin
-		if(rst) begin
-			A <= '{ rdy: 1, default: 'x };
-			B <= '{ vld: 0, default: 'x };
+		logic signed [$clog2(MAX_IN_FLIGHT+1):0]  OPtr = '1;	// -1 | 0, 1, ..., MAX_IN_FLIGHT
+		output_t  OBuf[0:MAX_IN_FLIGHT];
+		logic     OVld  =  0;
+		output_t  OReg  = 'x;
+		logic     OLock =  0;	// Lock upon backpressure (second entry into queue)
+
+		// Catch every output into (SRL) Output Queue
+		always_ff @(posedge ap_clk) begin
+			if(ovld)  OBuf <= { odat, OBuf[0:MAX_IN_FLIGHT-1] };
 		end
-		else begin
-			if(A.rdy)  A.dat <= odat;
-			A.rdy <= (A.rdy && !ovld) || b_load;
 
-			if(b_load) begin
-				B <= '{
-					vld: ovld || !A.rdy,
-					dat: A.rdy? odat : A.dat
-				};
+		always_ff @(posedge ap_clk) begin
+			if(rst) begin
+				OPtr  <= '1;
+				OVld  <=  0;
+				OReg  <= 'x;
+				OLock <=  0;
+			end
+			else begin
+				automatic logic  push = ovld;
+				automatic logic  pop  = (m_axis_output_tready || !OVld) && !OPtr[$left(OPtr)];
+				assert(pop || !push || (OPtr < $signed(MAX_IN_FLIGHT))) else begin
+					$error("%m: Overflowing output queue.");
+					$stop;
+				end
+				OPtr <= OPtr + $signed(push == pop? 0 : push? 1 : -1);
+
+				if(OPtr[$left(OPtr)])                   OLock <= 0;
+				else if(OVld && !m_axis_output_tready)  OLock <= 1;
+
+				if(m_axis_output_tready || !OVld) begin
+					OVld <= !OPtr[$left(OPtr)];
+					OReg <= OBuf[OPtr[$left(OPtr)-1:0]];
+				end
 			end
 		end
-	end
-	assign	m_axis_output_tvalid = B.vld;
-	// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
-	// These extra bits should never be used. Why not 'x them out?
-	assign	m_axis_output_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
+		assign	idle = OLock;
+
+		assign	m_axis_output_tvalid = OVld;
+		// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
+		// These extra bits should never be used. Why not 'x them out?
+		assign	m_axis_output_tdata = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){OReg[PE-1][ACCU_WIDTH-1]}}, OReg };
+
+	end : blkOutput
 
 endmodule : mvu_vvu_axi

@@ -45,8 +45,7 @@ module mvu_vvu_8sx9_dsp58 #(
 
 	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD,
 	localparam int unsigned WEIGHT_ELEMENTS = PE*SIMD
-  )
-  (
+  )  (
     // Global Control
 	input   logic clk,
     input   logic rst,
@@ -62,6 +61,8 @@ module mvu_vvu_8sx9_dsp58 #(
 	output  logic vld,
     output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
+	import  mvu_pkg::*;
+
 	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
@@ -90,6 +91,12 @@ module mvu_vvu_8sx9_dsp58 #(
 		end
 	end
 	assign vld = L[0];
+	initial begin
+		if(mvu_pipeline_depth("mvu_vvu_8sx9_dsp58", SIMD, SEGMENTLEN) < $bits(L)) begin
+			$error("%m: Outdated pipeline depth computation.");
+			$stop;
+		end
+	end
 
 //-------------------- Shift register for ZERO flag --------------------\\
 	logic Z [0:MAX_PIPELINE_STAGES-2] = '{default:0}; // We need MAX_PIPELINE_STAGES-1 pipeline stages (note: INMODE is buffered inside DSP fabric)

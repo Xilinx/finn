@@ -57,6 +57,8 @@ module mvu_8sx8u_dsp48 #(
 	output	logic  vld,
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
+	import  mvu_pkg::*;
+
 	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
@@ -83,6 +85,12 @@ module mvu_8sx8u_dsp48 #(
 		else if(en)  L <= { last, L[1:4] };
 	end
 	assign	vld = L[5];
+	initial begin
+		if(mvu_pipeline_depth("mvu_8sx8u_dsp48") < $bits(L)) begin
+			$error("%m: Outdated pipeline depth computation.");
+			$stop;
+		end
+	end
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
 	localparam int unsigned  SINGLE_PROD_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH;

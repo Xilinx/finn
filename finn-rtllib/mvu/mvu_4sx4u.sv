@@ -58,6 +58,8 @@ module mvu_4sx4u #(
 	output	logic  vld,
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
+	import  mvu_pkg::*;
+
 	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
@@ -129,6 +131,12 @@ module mvu_4sx4u #(
 		else if(en)  L <= { last, L[1:4] };
 	end
 	assign	vld = L[5];
+	initial begin
+		if(mvu_pipeline_depth("mvu_4sx4u") < $bits(L)) begin
+			$error("%m: Outdated pipeline depth computation.");
+			$stop;
+		end
+	end
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
 	localparam int unsigned  PIPE_COUNT = (PE+3)/4;
