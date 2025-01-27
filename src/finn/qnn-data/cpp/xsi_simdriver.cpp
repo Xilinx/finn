@@ -420,19 +420,25 @@ int main(int argc, char *argv[]) {
     cout << "Timeout? " << timeout << endl;
 
     ofstream results_file;
-    results_file.open("results.txt", ios::out | ios::trunc);
-    results_file << "N_IN_TXNS" << "\t" << total_n_in_txns << endl;
-    results_file << "N_OUT_TXNS" << "\t" << total_n_out_txns << endl;
-    results_file << "cycles" << "\t" << iters << endl;
-    results_file << "N" << "\t" << n_inferences << endl;
-    results_file << "latency_cycles" << "\t" << latency << endl;
-    results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
-    results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
-    results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
-    // optionally, extract more data from final status
-    @POSTPROC_CPP@
-    results_file.close();
-    top->close();
+    try {
+        results_file.open("results.txt", ios::out | ios::trunc);
+        results_file << "N_IN_TXNS" << "\t" << total_n_in_txns << endl;
+        results_file << "N_OUT_TXNS" << "\t" << total_n_out_txns << endl;
+        results_file << "cycles" << "\t" << iters << endl;
+        results_file << "N" << "\t" << n_inferences << endl;
+        results_file << "latency_cycles" << "\t" << latency << endl;
+        results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
+        results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
+        results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
+        // optionally, extract more data from final status
+        @POSTPROC_CPP@
+        results_file.close();
+        top->close();
+    } catch(...) {
+        cout << "Caught exception, maybe FIFO maxcounts were invalid? Enable tracing and check waveform." << endl;
+        results_file.close();
+        top->close();
+    }
 
     return 0;
 }
