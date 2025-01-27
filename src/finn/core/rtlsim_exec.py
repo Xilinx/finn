@@ -121,6 +121,7 @@ def rtlsim_exec_cppxsi(
     execution_context,
     dummy_data_mode=False,
     postproc_cpp="",
+    iter_progress_cpp="",
     timeout_cycles=None,
     throttle_cycles=0,
 ):
@@ -250,6 +251,7 @@ def rtlsim_exec_cppxsi(
         "CLK2X_NAME": "ap_clk2x",
         "CLKNAMES": clknames,
         "NRST_NAME": "ap_rst_n",
+        "ITER_PROGRESS_CPP": iter_progress_cpp,
         # control tracing and trace filename
         "TRACE_FILE": "NULL" if trace_file is None else f'"{trace_file}"',
         "TRACE_CMD": "" if trace_file is None else "top->trace_all();",

@@ -42,6 +42,7 @@ prior to compilation
 // currently using the pyxsi version and not the original Vivado version
 #include "xsi_loader.h"
 
+#include <sstream>
 #include <iostream>
 #include <fstream>
 #include <cstddef>
@@ -370,6 +371,9 @@ int main(int argc, char *argv[]) {
             chrono::steady_clock::time_point end = chrono::steady_clock::now();
             cout << "Elapsed since last report = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
             begin = end;
+
+	    // optionally processing that happens during progress reporting
+	    @ITER_PROGRESS_CPP@
         }
         // check whether the exit criteria are reached
         input_done = (n_finished_instreams == instream_names.size());
