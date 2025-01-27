@@ -225,6 +225,18 @@ def rtlsim_exec_cppxsi(
         is_double_pumped = ifnames["clk2x"] != []
     else:
         is_double_pumped = False
+    # if the IP is using other interfaces like AXI-lite, ensure
+    # the control signals are deasserted
+    deassert_signals = []
+    axilite_deassert_sigs = ["arvalid", "awvalid", "bready", "rready", "wvalid"]
+    if "axilite" in ifnames.keys() and ifnames["axilite"] != []:
+        for axilite_ifname in ifnames["axilite"]:
+            for axilite_sig in axilite_deassert_sigs:
+                deassert_signals.append("%s_%s" % (axilite_ifname, axilite_sig))
+    if "aximm" in ifnames.keys() and ifnames["aximm"] != []:
+        assert (
+            False
+        ), f"cppxsi sim doesn't know how to handle full AXI MM interfaces: {ifnames['aximm']}"
     clknames = "clk_and_clk2x" if is_double_pumped else "clk"
     instream_names = [x[0] for x in ifnames["s_axis"]]
     instream_names_str = "{" + ", ".join(['"' + x + '"' for x in instream_names]) + "}"
@@ -232,6 +244,7 @@ def rtlsim_exec_cppxsi(
     outstream_names_str = "{" + ", ".join(['"' + x + '"' for x in outstream_names]) + "}"
     instream_iters_str = "{" + ", ".join([str(x) for x in instream_iters]) + "}"
     outstream_iters_str = "{" + ", ".join([str(x) for x in outstream_iters]) + "}"
+    deassert_signals_str = "{" + ", ".join(['"' + str(x) + '"' for x in deassert_signals]) + "}"
     # fill in the template arguments for sim driver
     template_dict = {
         # number of input transactions per inference
@@ -247,6 +260,8 @@ def rtlsim_exec_cppxsi(
         # names of the top-level AXI streams and signals
         "INSTREAM_NAME": instream_names_str,
         "OUTSTREAM_NAME": outstream_names_str,
+        # names of control signals to be deasserted
+        "DEASSERT_SIGNAL_NAMES": deassert_signals_str,
         "CLK_NAME": "ap_clk",
         "CLK2X_NAME": "ap_clk2x",
         "CLKNAMES": clknames,
