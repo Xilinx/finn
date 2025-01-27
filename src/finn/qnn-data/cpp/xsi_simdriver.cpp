@@ -252,6 +252,7 @@ int main(int argc, char *argv[]) {
 
     vector<string> instream_names = @INSTREAM_NAME@;
     vector<string> outstream_names = @OUTSTREAM_NAME@;
+    vector<string> deassert_signals = @DEASSERT_SIGNAL_NAMES@;
     // how much data to push into/pull out of sim
     vector<unsigned> n_iters_per_input = @ITERS_PER_INPUT@;
     vector<unsigned> n_iters_per_output = @ITERS_PER_OUTPUT@;
@@ -280,6 +281,11 @@ int main(int argc, char *argv[]) {
     bool input_done = false;
     bool output_done = false;
     bool timeout = false;
+
+    // set fixed-value control signals
+    for (auto & deassert_signal : deassert_signals) {
+        clear_bool(deassert_signal);
+    }
 
     // enable reception on the output streams
     for (auto & outstream_name : outstream_names) {
