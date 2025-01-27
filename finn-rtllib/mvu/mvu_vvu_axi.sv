@@ -229,8 +229,8 @@ module mvu_vvu_axi #(
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  w[i] = 0;
 
 				always_ff @(posedge ap_clk2x) begin
-					if(rst)      W[pe] <= 'x;
-					else if(en)  W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+					if(rst)  W[pe] <= 'x;
+					else     W[pe] <= w[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
 
 			end : genPERegW
@@ -243,8 +243,8 @@ module mvu_vvu_axi #(
 				for(genvar  i = SIMD; i < 2*DSP_SIMD; i++)  assign  a[i] = 0;
 
 				always_ff @(posedge ap_clk2x) begin
-					if(rst)      A[pe] <= 'x;
-					else if(en)  A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
+					if(rst)  A[pe] <= 'x;
+					else     A[pe] <= a[(Active? DSP_SIMD : 0) +: DSP_SIMD];
 				end
 
 			end : genPERegA
@@ -256,7 +256,7 @@ module mvu_vvu_axi #(
 					Zero <= 1;
 					Last <= 0;
 				end
-				else if(en) begin
+				else begin
 					Zero <= idle || !s_axis_weights_tvalid || !avld;
 					Last <= alast && avld && !idle && Active;
 				end
@@ -278,7 +278,7 @@ module mvu_vvu_axi #(
 					Vld <= 0;
 					P   <= 'x;
 				end
-				else if(en) begin
+				else begin
 					if(dsp_vld)  P <= dsp_p;
 					Vld <= dsp_vld || (Vld && !Active);
 				end
@@ -353,6 +353,7 @@ module mvu_vvu_axi #(
 		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
 
 		logic signed [$clog2(MAX_IN_FLIGHT+1):0]  OPtr = '1;	// -1 | 0, 1, ..., MAX_IN_FLIGHT
+		(* SHREG_EXTRACT = "YES" *)
 		output_t  OBuf[0:MAX_IN_FLIGHT];
 		logic     OVld  =  0;
 		output_t  OReg  = 'x;
