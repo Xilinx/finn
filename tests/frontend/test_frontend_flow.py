@@ -51,7 +51,12 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
-frontend_test_networks = ["FINN-TFC_W2A2", "FINN-CNV_W2A2", "MobileNetv1-w4a4"]
+frontend_test_networks = [
+    "FINN-TFC_W2A2",
+    "FINN-CNV_W2A2",
+    "MobileNetv1-w4a4",
+    "rn18_w4a4_a2q_plus_12b",
+]
 
 
 @pytest.mark.parametrize("model_name", frontend_test_networks)
