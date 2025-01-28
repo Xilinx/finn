@@ -28,6 +28,7 @@
 
 
 import math
+import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
@@ -117,6 +118,10 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
     To the FINN op: QuantAvgPool2d
     """
 
+    def __init__(self, mul_atol=0.001):
+        super().__init__()
+        self.mul_atol = mul_atol
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -153,7 +158,11 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
 
                         # Mul node
                         mul_val = model.get_initializer(mul_node.input[1])
-                        if mul_val is None or len(mul_val.shape) != 0 or mul_val != k_s * k_s:
+                        if (
+                            (mul_val is None)
+                            or (mul_val.size != 1)
+                            or (not np.isclose(mul_val, k_s * k_s, atol=self.mul_atol))
+                        ):
                             raise ValueError(
                                 f"The Mul node after the AveragePool node must have "
                                 f"static initialization at the second input, "
