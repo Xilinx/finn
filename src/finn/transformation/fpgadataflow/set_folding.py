@@ -92,7 +92,7 @@ class SetFolding(Transformation):
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
-            if cyc < self.target_cycles_per_frame:
+            if cyc <= self.target_cycles_per_frame:
                 # finish if target met
                 break
 
@@ -138,7 +138,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.target_cycles_per_frame:
+                    if cyc <= self.target_cycles_per_frame:
                         # finish if target met
                         break
                     if (
