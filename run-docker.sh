@@ -103,8 +103,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
-# Default to non-interactive runs, set DOCKER_INTERACTIVE="-it"
-: "${DOCKER_INTERACTIVE=""}"
+# Default to interactive runs, for non-interactive set DOCKER_INTERACTIVE=""
+: "${DOCKER_INTERACTIVE="-it"}"
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
@@ -145,8 +145,8 @@ elif [ "$1" = "build_custom" ]; then
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
-   # Overwrite the default, container only should always be interactive as it
-   # drops us into a bash prompt...
+   # Overwrite: container only should always be interactive as it drops us into
+   # a bash prompt...
    DOCKER_INTERACTIVE="-it"
 else
   gecho "Running container with passed arguments"
