@@ -8,8 +8,6 @@ import onnxruntime as ort
 
 from dut.mvau import bench_mvau
 from dut.transformer import bench_transformer
-from dut.transformer_radioml import bench_transformer_radioml
-from dut.transformer_gpt import bench_transformer_gpt
 from dut.fifosizing import bench_fifosizing, bench_metafi_fifosizing, bench_resnet50_fifosizing
 
 
