@@ -30,26 +30,16 @@ import pytest
 
 import numpy as np
 import os
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from qonnx.transformation.infer_data_layouts import InferDataLayouts
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.transformation.streamline import Streamline
-from qonnx.util.cleanup import cleanup_model
-from qonnx.util.test import download_model, get_model_input_metadata, get_random_input
-
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.transformation.streamline.absorb as absorb
-from finn.core.onnx_exec import execute_onnx
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.transformation.qonnx.quant_act_to_multithreshold import (
-    default_filter_function_generator,
+from qonnx.util.test import (
+    download_model,
+    get_golden_in_and_output,
+    get_model_input_metadata,
 )
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+
+import finn.builder.build_dataflow as build
+import finn.builder.frontend_steps as fe_steps
+from finn.builder.build_dataflow_steps import step_tidy_up
+from finn.util.basic import make_build_dir
 
 frontend_test_networks = [
     "FINN-TFC_W2A2",
@@ -58,103 +48,53 @@ frontend_test_networks = [
     "rn18_w4a4_a2q_plus_12b",
 ]
 
+frontend_steps = [
+    step_tidy_up,
+    fe_steps.step_aggregate_scale_bias,
+    fe_steps.step_lower_convs_to_matmul,
+    fe_steps.step_convert_to_channels_last,
+    fe_steps.step_convert_to_thresholds,
+    fe_steps.step_convert_to_hw,
+]
+
+frontend_step_names_verify = [
+    "step_aggregate_scale_bias",
+    "step_lower_convs_to_matmul",
+    "step_convert_to_channels_last",
+    "step_convert_to_thresholds",
+    "step_convert_to_hw",
+]
+
 
 @pytest.mark.parametrize("model_name", frontend_test_networks)
 def test_frontend_flow(model_name):
     # download the model to be tested
     filename = download_model(model_name, do_cleanup=True, add_preproc=True)
     assert os.path.isfile(filename), f"Download for model {model_name} failed"
-    model = ModelWrapper(filename)
-    # Step 1: tidy-up
-    model = cleanup_model(model, extract_conv_bias=True)
-    model.save(f"frontend-step1-tidyup-{model_name}.onnx")
-    assert model.check_all_tensor_shapes_specified(), "Tidy-up failed (shape inference)"
-    # TODO other checks for tidy-up here
-    # generate golden in/out pair
-    x = get_random_input(model_name, preprocesing=True)
-    input_dict = {model.graph.input[0].name: x}
-    golden_output_dict = execute_onnx(model, input_dict)
-    golden_y = golden_output_dict[model.graph.output[0].name]
-    # Step 2 : range-analysis streamlining
+    x, golden_y = get_golden_in_and_output(model_name, preprocesing=True)
+    output_dir = make_build_dir("test_frontend_flow_%s_" % model_name)
+    x_filename = output_dir + "/x.npy"
+    golden_y_filename = output_dir + "/golden_y.npy"
+    np.save(x_filename, x)
+    np.save(golden_y_filename, golden_y)
     current_irange = get_model_input_metadata(model_name, include_preprocessing=True)["range"]
-    model = model.transform(Streamline(irange=current_irange))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataTypes())
-    # TODO add checks for streamlining
-    streamlined_output_dict = execute_onnx(model, input_dict)
-    streamlined_y = streamlined_output_dict[model.graph.output[0].name]
-    assert np.isclose(golden_y, streamlined_y, atol=1e-3).all(), "Streamlined model output mismatch"
-    model.save(f"frontend-step2-streamline-{model_name}.onnx")
-    need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
-    if need_lowering:
-        # Step 3: convolution lowering
-        model = model.transform(LowerConvsToMatMul())
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(GiveReadableTensorNames())
-        model = model.transform(InferDataTypes())
-        lowered_output_dict = execute_onnx(model, input_dict)
-        lowered_y = lowered_output_dict[model.graph.output[0].name]
-        assert np.isclose(
-            golden_y, lowered_y, atol=1e-3
-        ).all(), "Conv-lowered model output mismatch"
-        model.save(f"frontend-step3-lowerconvs-{model_name}.onnx")
-        # TODO checks for convolution lowering
-        # Step 4: data layout conversion
-        model = model.transform(ConvertToChannelsLastAndClean())
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(GiveReadableTensorNames())
-        model = model.transform(InferDataTypes())
-        chanslast_output_dict = execute_onnx(model, input_dict)
-        chanslast_y = chanslast_output_dict[model.graph.output[0].name]
-        assert np.isclose(
-            golden_y, chanslast_y, atol=1e-3
-        ).all(), "Channels-last model output mismatch"
-        model.save(f"frontend-step4-chanslast-{model_name}.onnx")
-    # Step 5: convert Quant nodes to thresholds where it makes sense
-    # TODO to be replaced by the new threshold conversion methodology when it's ready
-    model = model.transform(
-        ConvertQONNXtoFINN(
-            filter_function=default_filter_function_generator(max_multithreshold_bit_width=8)
-        )
+    cfg = build.DataflowBuildConfig(
+        output_dir=output_dir,
+        verbose=True,
+        verify_input_npy=x_filename,
+        verify_expected_output_npy=golden_y_filename,
+        standalone_thresholds=True,
+        steps=frontend_steps,
+        input_range_info=[current_irange],
+        verify_steps=frontend_step_names_verify,
+        synth_clk_period_ns=5,
+        generate_outputs=[],
     )
-    # need to switch generated MultiThreshold mode to channels-last
-    # TODO package this up as a transformation?
-    model = model.transform(InferDataLayouts())
-    for node in model.get_nodes_by_op_type("MultiThreshold"):
-        mt_layout = model.get_tensor_layout(node.input[0])
-        if mt_layout is None:
-            continue
-        elif mt_layout[-1] == "C":
-            getCustomOp(node).set_nodeattr("data_layout", "NHWC")
-        else:
-            continue
-    model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
-    model = model.transform(absorb.FactorOutMulSignMagnitude())
-    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
-    model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
-    model = model.transform(absorb.Absorb1BitMulIntoMatMul())
-    model = model.transform(absorb.Absorb1BitMulIntoConv())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataTypes())
-    model = model.transform(RoundAndClipThresholds())
-    thres_output_dict = execute_onnx(model, input_dict)
-    thres_y = thres_output_dict[model.graph.output[0].name]
-    assert np.isclose(golden_y, thres_y, atol=1e-3).all(), "Thresholds model output mismatch"
-
-    model.save(f"frontend-step5-thresholds-{model_name}.onnx")
-    # TODO add checks for threshold conversion
-    # Step 6: convert to hardware nodes
-    model = model.transform(InferDataTypes())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(to_hw.InferThresholdingLayer())
-    model = model.transform(to_hw.InferElementwiseBinaryOperation())
-    model = model.transform(to_hw.InferReLUAsElementwiseMax())
-    model = model.transform(to_hw.InferQuantAsFloat2Int())
-    model = model.transform(to_hw.InferConvInpGen())
-    model = model.transform(to_hw.InferStreamingMaxPool())
-    model = model.transform(RemoveCNVtoFCFlatten())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model.save(f"frontend-step6-hwlayers-{model_name}.onnx")
+    build.build_dataflow_cfg(filename, cfg)
+    # check that intermediate model files are created
+    # and that verification is successful
+    for step_name in frontend_step_names_verify:
+        step_checkpoint = output_dir + "/intermediate_models/" + step_name + ".onnx"
+        assert os.path.isfile(step_checkpoint), step_checkpoint + " not found"
+        step_ok_fname = output_dir + "/verification_output/verify_" + step_name + "_0_SUCCESS.npy"
+        assert os.path.isfile(step_ok_fname), step_ok_fname + " not found"
