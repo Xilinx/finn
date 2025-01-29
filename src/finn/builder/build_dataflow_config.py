@@ -200,7 +200,7 @@ class DataflowBuildConfig:
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.
-    verify_steps: Optional[List[VerificationStepType]] = None
+    verify_steps: Optional[List[str]] = None
 
     #: (Optional) Name of .npy file that will be used as the input for
     #: verification. Only required if verify_steps is not empty.
