@@ -1,0 +1,29 @@
+[
+    {
+        "idt": ["INT4","INT2"],
+        "wdt": ["INT4"],
+        "act": ["INT4"],
+
+        "sparsity_type": ["none"],
+        "sparsity_amount": [0],
+
+        "nhw": [[1,32,32]],
+        "mw": [64],
+        "mh": [64],
+        "sf": [-1],
+        "nf": [-1],
+        "m": [1],
+
+        "mem_mode": ["internal_embedded"],
+        "ram_style": ["distributed"],
+        "ram_style_thr": ["distributed"],
+
+        "do_hls": [true],
+        "do_rtlsim": [true],
+        "do_synthesis": [true],
+        "do_sim_power": [true],
+        "do_synth_power": [true],
+
+        "dut_duplication": [1]
+    }
+    ]

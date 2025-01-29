@@ -1,0 +1,21 @@
+[
+    {
+        "dim": [32],
+        "kernel_size": [5],
+        "ch": [4],
+        "simd": [4],
+        "pe": [4],
+        "parallel_window": [1],
+
+        "lb_num_layers": [1],
+        "rb_num_layers": [3],
+
+        "strategy": ["analytical", "rtlsim"],
+
+        "rtlsim_n": [10],
+        "throughput_factor_threshold": [0.9],
+        "fifo_reduction_skip_threshold": [64],
+        "fifo_reduction_factor": [0.5],
+        "fifo_reduction_throughput_drop_threshold": [0.01]
+    }
+    ]

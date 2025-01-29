@@ -1,0 +1,17 @@
+[
+    {
+        "model_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/metafi/model.onnx"],
+        "folding_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/metafi/auto_folding_config _metaFi_f25.json"],
+
+        "board": ["RFSoC2x2"],
+        "clock_period_ns": [10],
+
+        "strategy": ["analytical"],
+
+        "rtlsim_n": [10],
+        "throughput_factor_threshold": [0.9],
+        "fifo_reduction_skip_threshold": [1024],
+        "fifo_reduction_factor": [0.5],
+        "fifo_reduction_throughput_drop_threshold": [0.01]
+    }
+    ]

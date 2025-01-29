@@ -1,0 +1,19 @@
+[
+    {
+        "model_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/ResNet-50/resnet50_w1a2_exported.onnx"],
+        "folding_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/ResNet-50/U250_folding_config.json"],
+        "specialize_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/ResNet-50/U250_specialize_layers.json"],
+        "floorplan_path": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/ResNet-50/floorplan_resnet50.json"],
+
+        "board": ["U250"],
+        "clock_period_ns": [4],
+
+        "strategy": ["analytical"],
+
+        "rtlsim_n": [2],
+        "throughput_factor_threshold": [0.9],
+        "fifo_reduction_skip_threshold": [1024],
+        "fifo_reduction_factor": [0.5],
+        "fifo_reduction_throughput_drop_threshold": [0.01]
+    }
+    ]

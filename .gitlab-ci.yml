@@ -1,0 +1,84 @@
+stages:
+  - update
+  - build
+  - load_deps
+  - test
+  - trigger_benchmarks
+
+variables:
+  PIPELINE_NAME:
+    description: "Optional name to better identify this pipeline"
+    value: ""
+  CPU_CORES:
+    description: "Select number of CPU cores and test workers"
+    value: "8"
+  PARALLEL_JOBS:
+    description: "Number of parallel Slurm array jobs per CI job"
+    value: "2"
+  SLURM_TIMEOUT:
+    description: "Timeout"
+    value: "2-0" # [days-hours]
+  MANUAL_CFG_PATH:
+    description: "Use this config file instead of configs stored in the repo. Path must be accessible to runner"
+    value: ""
+  SLURM_PARTITION:
+    description: "Slurm partition (e.g., normal, largemem, fpga, gpu)"
+    value: "normal"
+  SLURM_QOS:
+    description: "Optional QoS option (include --qos, e.g., --qos express)"
+    value: ""
+  FINN_XILINX_VERSION:
+    value: "2022.2"
+
+workflow:
+  name: '$PIPELINE_NAME'
+
+Fetch Repos:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: load_deps
+  tags:
+    - login
+  cache: 
+    key: $CI_COMMIT_SHA
+    paths:
+      - deps
+  script:
+    - ./fetch-repos.sh
+
+Bench (Manual):
+  stage: trigger_benchmarks
+  rules:
+    - if: $MANUAL_CFG_PATH != ""
+  trigger:
+    include: benchmarking/bench-ci.yml
+    strategy: depend
+    forward:
+      pipeline_variables: true
+  variables:
+    BENCH_CFG: "manual"
+
+Bench:
+  stage: trigger_benchmarks
+  rules:
+    - if: $MANUAL_CFG_PATH == ""
+  trigger:
+    include: benchmarking/bench-ci.yml
+    strategy: depend
+    forward:
+      pipeline_variables: true
+  parallel:
+    matrix:
+      - BENCH_CFG: [mvau_test]
+
+#dev: mvau_test
+#fifo: fifosizing_test, metafi_fifosizing_test, resnet50_fifosizing_test
+#transformer: transformer_test, transformer_radioml_all
+
+#TODO: introduce result collect job on parent level for easier visualization/excel interfacing
+#TODO: more control via (optional) variables
+#TODO: move power measurement from polling-based script to its own job/runner
+#TODO: ensure a freshly initialized workdir on job/runner level (e.g. created directories seem to stay there)
+#TODO: (optionally) save ALL build artifacts/logs/temporary files to artifacts or PFS for debugging (maybe via Jacamar feature of setting individual persistent workdirs?)
+#TODO: fix clock frequency discrepancies between setting, synth, and driver

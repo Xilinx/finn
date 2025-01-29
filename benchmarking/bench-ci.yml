@@ -1,0 +1,53 @@
+stages:
+  - synth
+  - measure
+  - collect
+
+variables:
+  BENCH_CFG:
+    description: "Select config, usually provided by parent pipeline"
+    value: ""
+
+workflow:
+  name: "bench_$BENCH_CFG"
+
+FINN Build:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: synth
+  variables:
+    SCHEDULER_PARAMETERS: "-A $PROJECT_ACCOUNT -p $SLURM_PARTITION -t $SLURM_TIMEOUT $SLURM_QOS --nodes 1 --ntasks 1 --cpus-per-task $CPU_CORES --mem 128G --array 0-$( expr $PARALLEL_JOBS - 1 )"
+    PYTEST_PARALLEL: "$CPU_CORES"
+    FINN_SINGULARITY: "$PATH_SINGULARITY_IMG/xilinx/finn_dev.sif"
+  before_script:
+    - cp -dfR .. $PATH_WORKDIR # Copy to working directory (e.g. RAMdisk)
+    - cd $PATH_WORKDIR/finn-plus
+    - module load system singularity
+  script:
+    - ./run-docker.sh python benchmarking/bench.py $BENCH_CFG
+  cache: 
+    key: $CI_COMMIT_SHA
+    policy: pull
+    paths:
+      - deps
+  artifacts:
+    name: "bench_artifacts"
+    when: always
+    paths:
+      - bench_artifacts/
+
+Result Collection:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: collect
+  tags:
+    - image_build
+  script:
+    - python benchmarking/collect.py bench_artifacts/tasks_output bench_results.json
+  artifacts:
+    name: "bench_results"
+    when: always
+    paths:
+      - bench_results.json

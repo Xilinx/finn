@@ -1,0 +1,20 @@
+[
+    {
+        "seed": [12],
+
+        "calibration_passes": [32],
+
+        "model_num_heads": [1],
+        "model_num_layers": [1],
+        "model_bias":[true],
+        "model_emb_dim": [32],
+        "model_mlp_dim": [192],
+        "model_seq_len": [64],
+        "model_bits": [2],
+        "model_norm": ["none"],
+        "model_mask": ["none"],
+        "model_positional_encoding": ["binary"],
+
+        "dut_duplication": [1]
+    }
+]
