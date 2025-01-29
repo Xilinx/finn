@@ -3,5 +3,10 @@
         "seed": [12],
         "model_dir": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/radioml_0"],
         "dut_duplication": [1]
+    },
+    {
+        "seed": [12],
+        "model_dir": ["/pc2/groups/hpc-prf-ekiapp/felix/ci_models/radioml_convformer"],
+        "dut_duplication": [1]
     }
 ]

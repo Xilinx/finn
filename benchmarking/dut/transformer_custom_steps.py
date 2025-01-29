@@ -179,6 +179,7 @@ from finn.transformation.streamline.reorder import (
     MoveAddPastMul,
     MoveAffinePastJoinConcat,
     MoveLinearPastEltwiseAdd,
+    MoveLinearPastFork,
     MoveMulPastFork,
     MoveMulPastJoinAdd,
     MoveMulPastJoinConcat,
@@ -696,7 +697,7 @@ def Streamline():  # noqa: Uppercase
                     # connections, i.e., this corresponds to the original residual
                     # addition, i.e., y = f(x) + x
                     MoveLinearPastEltwiseAdd(),
-                    MoveScalarLinearPastFork(),
+                    MoveLinearPastFork(), #DEBUG for positional encoding streamlining, MoveScalarLinearPastFork()
                     MoveScalarLinearPastInvariants(),
                     MoveMulPastFork(),
                     MoveMulPastJoinAdd(),
