@@ -130,10 +130,6 @@ def main(config_name):
         # give bench subclass name directly in config?
         if config_select.startswith("mvau"):
             bench_object = bench_mvau(params, task_id, run_id, artifacts_dir, save_dir)
-        elif config_select.startswith("transformer_radioml"):
-            bench_object = bench_transformer_radioml(params, task_id, run_id, artifacts_dir, save_dir)
-        elif config_select.startswith("transformer_gpt"):
-            bench_object = bench_transformer_gpt(params, task_id, run_id, artifacts_dir, save_dir)
         elif config_select.startswith("transformer"):
             bench_object = bench_transformer(params, task_id, run_id, artifacts_dir, save_dir)
         elif config_select.startswith("fifosizing"):

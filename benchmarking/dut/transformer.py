@@ -13,6 +13,7 @@ from brevitas.nn import (
     QuantReLU
 )
 import os
+from qonnx.core.modelwrapper import ModelWrapper
 # Progressbar
 from tqdm import trange
 import numpy as np
@@ -26,34 +27,37 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import AutoFIFOSizingMethod
 from bench_base import bench, step_synth_harness
+from finn.util.basic import alveo_part_map
+
+# Range information structure for seeding the range analysis for converting
+# quantized activations to MultiThreshold
+from qonnx.util.range_analysis import RangeInfo
 
 # Custom build steps required to streamline and convert the attention operator
 from dut.transformer_custom_steps import (
-    step_tidy_up_pre_attention,
-    step_tidy_up_post_attention,
-    step_streamline_attention,
-    step_streamline_residual,
-    step_streamline_norms,
-    step_streamline_positional,
+    prepare_graph,
+    step_streamline,
     step_convert_attention_to_hw,
     step_convert_elementwise_binary_to_hw,
     step_convert_lookup_to_hw,
+    step_convert_split_concat_to_hw,
+    step_convert_depth_wise_to_hw,
     step_replicate_streams,
     set_target_parallelization,
     set_fifo_depths,
     step_apply_folding_config,
-    node_by_node_rtlsim,
-    node_by_node_cppsim
+    node_by_node_rtlsim,  # noqa: Maybe unused, only for debugging
+    node_by_node_cppsim,
 )
-from performance.platform_build_steps import(
-     test_step_gen_vitis_xo,
-     test_step_gen_instrumentation_wrapper,
-     test_step_gen_instrwrap_sim,
-     test_step_insert_tlastmarker,
-     test_step_export_xo,
-     test_step_build_platform,
-     test_step_run_instrwrap_sim
-)
+# from performance.platform_build_steps import(
+#      test_step_gen_vitis_xo,
+#      test_step_gen_instrumentation_wrapper,
+#      test_step_gen_instrwrap_sim,
+#      test_step_insert_tlastmarker,
+#      test_step_export_xo,
+#      test_step_build_platform,
+#      test_step_run_instrwrap_sim
+# )
 
 ### ADAPTED FROM utils.py
 # Seeds all relevant random number generators to the same seed for
@@ -791,6 +795,9 @@ defaults:
 
 class bench_transformer(bench):
     def step_export_onnx(self, output_onnx_path):
+        # Generates a dummy transformer block,
+        # not used for actual models (RadioML, GPT, etc.)
+
         # Load the parameters file
         #params = dvc.api.params_show("params.yaml")
         # Seed all RNGs
@@ -841,9 +848,10 @@ class bench_transformer(bench):
         # Compute attention output
         o = model(x)
         # Save the input and output data for verification purposes later
-        # TODO: go via self.build_inputs["input_npy_path"]
         np.save("inp.npy", x.detach().numpy())
         np.save("out.npy", o.detach().numpy())
+        self.build_inputs["input_npy_path"] = "inp.npy"
+        self.build_inputs["output_npy_path"] = "out.npy"
         # Export the model graph to QONNX
         #export_qonnx(model, (x,), "attention.onnx", **self.params["export"])
         export_qonnx(model, (x,), output_onnx_path, 
@@ -856,8 +864,23 @@ class bench_transformer(bench):
         # Seed all RNGs
         seed(self.params["seed"])
         # Extract sequence length and embedding dimension from parameters
-        seq_len, emb_dim = self.params["model_seq_len"], self.params["model_emb_dim"]
+        if "model_seq_len" in self.params and "model_emb_dim" in self.params:
+            # for dummy Transformer DUT
+            seq_len, emb_dim = self.params["model_seq_len"], self.params["model_emb_dim"]
+        else:
+            # for real input models
+            _, seq_len, emb_dim = np.load(self.build_inputs["input_npy_path"]).shape
+            # TODO: use the following to get dimensions for GPT models?
+            #model = ModelWrapper(self.build_inputs["onnx_path"])
+            #_, emb_dim, seq_len = model.get_tensor_shape("/emb_add/input_quant/export_handler/Quant_output_0")
 
+        # Read the input value range information for the dataset from the parameters
+        # Note: Consider calibrating this on the fly from the dataset
+        range = [ -100, +100 ] # params["build"]["range"] # TODO: make configurable?
+        input_range = tuple(np.array([range]).T)
+        # Construct the seed range information of the input tensor
+        range_info = RangeInfo(shape=(1, seq_len, emb_dim), range=input_range)
+    
         # Prepare config files
         # TODO: make configurable
         # TODO: log intermediate files such as inp.npy, folding.yaml, or specialize_layers.jon as artifacts, maybe create in unique temp dirs
@@ -874,16 +897,21 @@ class bench_transformer(bench):
         with open("folding.yaml", "w") as f:
                 f.write(template_folding_yaml)
 
+        if self.board in alveo_part_map:
+            shell_flow = "vitis_alveo"
+        else:
+            shell_flow = "vivado_zynq"
+
         # Create a configuration for building the scaled dot-product attention
         # operator to a hardware accelerator
         cfg = build_cfg.DataflowBuildConfig(
             # Unpack the build configuration parameters
-            #**params["build"],
+            #**params["build"]["finn"],
             output_dir = self.build_inputs["build_dir"],
-            stitched_ip_gen_dcp = True,
+            stitched_ip_gen_dcp = False, # only needed for further manual integration
             synth_clk_period_ns = self.clock_period_ns,
             board = self.board,
-            shell_flow_type = "vivado_zynq", #TODO: Alveo support
+            shell_flow_type = shell_flow,
             folding_config_file = "folding.yaml",
             specialize_layers_config_file = "specialize_layers.json",
             standalone_thresholds = True,
@@ -915,11 +943,14 @@ class bench_transformer(bench):
                 build_cfg.VerificationStepType.TIDY_UP_PYTHON,
                 # Verify the model after generating C++ HLS and applying folding
                 build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
+                # No RTL Simulation support for now
             ],
             # File with test inputs for verification
-            verify_input_npy="inp.npy",
+            verify_input_npy=self.build_inputs["input_npy_path"],
             # File with expected test outputs for verification
-            verify_expected_output_npy="out.npy",
+            verify_expected_output_npy=self.build_inputs["output_npy_path"],
+            # Output full context dump for verification steps
+            verify_save_full_context=True,
             # Save the intermediate model graphs
             save_intermediate_models=True,
             # Avoid RTL simulation for setting the FIFO sizes
@@ -929,39 +960,27 @@ class bench_transformer(bench):
             auto_fifo_depths=False,
             # Build steps to execute
             steps=[
-                # Need to apply some tidy-up transformations before converting to
-                # the finn dialect of onnx
-                step_tidy_up_pre_attention,
-                # Convert all QONNX Quant nodes to Multithreshold nodes
-                "step_qonnx_to_finn",
-                # Tidy up the graph after converting from QONNX to FINN format
-                # Note: Triggers a verification step
-                "step_tidy_up",
-                # Positional encoding needs to be streamlined first with slightly
-                # different order of certain streamlining transformations to avoid
-                # weird rounding issue of intermediate results
-                step_streamline_positional,
-                # Custom streamlining for models containing attention operators
-                step_streamline_attention,
-                # Streamlining of the residual branches
-                step_streamline_residual,
-                # Streamline the normalization layers, i.e., transposed batch norm
-                step_streamline_norms,
-                # Another round using the default streamlining steps
-                # Note: Triggers a verification step
-                "step_streamline",
-                # New conversion of the scaled dot-product attention pattern
+                # Prepares the QONNX graph to be consumed by FINN: Cleanup, lowering
+                # and Quant to MultiThreshold conversion
+                prepare_graph(range_info=range_info),
+                # Unified exhaustive streamlining of complex model topologies
+                # including attention, residuals and splits
+                step_streamline,
+                # conversion of the scaled dot-product attention pattern to
+                # hardware, including cleanup and data layout squeezing
                 step_convert_attention_to_hw,
-                # Another tidy-up step to remove unnecessary dimensions and
-                # operations after converting the attention operators to HLS
-                step_tidy_up_post_attention,
                 # Convert the elementwise binary operations to hardware operators.
                 # These include for example adding residual branches and positional
                 # encoding
                 step_convert_elementwise_binary_to_hw,
-                # Convert the Gather layer realizing the input token embedding to
-                # the FINN hardware implementation, i.e., the Lookup layer
+                # Convert Lookup layers, e.g., token embedding, to hardware custom
+                # operators
                 step_convert_lookup_to_hw,
+                # Convert Split and Concat operators to hardware, e.g., splits
+                # contained in the GLU activation
+                step_convert_split_concat_to_hw,
+                # Convert depth-wise convolution MatMuls to VVUs
+                step_convert_depth_wise_to_hw,
                 # Properly replicate the stream feeding the query, key and value
                 # projections
                 step_replicate_streams,
@@ -997,7 +1016,7 @@ class bench_transformer(bench):
                 # StreamingFIFOs are used
                 # node_by_node_rtlsim,
 
-                test_step_insert_tlastmarker, # required for instrumentation_wrapper
+                #test_step_insert_tlastmarker, # required for instrumentation_wrapper
 
                 "step_create_stitched_ip",
 
