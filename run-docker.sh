@@ -103,8 +103,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
-
-DOCKER_INTERACTIVE=""
+# Default to non-interactive runs, set DOCKER_INTERACTIVE="-it"
+: "${DOCKER_INTERACTIVE=""}"
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
@@ -132,7 +132,6 @@ elif [ "$1" = "notebook" ]; then
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
   FINN_DOCKER_EXTRA+="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
-  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
@@ -140,13 +139,14 @@ elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
   FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
-#  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
   DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
+   # Overwrite the default, container only should always be interactive as it
+   # drops us into a bash prompt...
    DOCKER_INTERACTIVE="-it"
 else
   gecho "Running container with passed arguments"
