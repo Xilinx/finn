@@ -32,6 +32,7 @@ import os
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from enum import Enum
+from qonnx.util.range_analysis import RangeInfo
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
@@ -359,6 +360,9 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
+
+    #: If specified, input range information for scaled-int range analysis
+    input_range_info: Optional[List[RangeInfo]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
