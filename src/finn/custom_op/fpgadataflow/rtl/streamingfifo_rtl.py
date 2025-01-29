@@ -134,11 +134,11 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # create a npy file for the input of the node
 
-            # Make sure the inpout has the right container datatype
-            if inp.dtype != np.float32:
+            # Make sure the input has the right container datatype
+            if inp.dtype is not np.float32:
                 # Issue a warning to make the user aware of this type-cast
                 warnings.warn(
-                    f"{node.name}: Changing input datatype from "
+                    f"{node.name}: Changing input container datatype from "
                     f"{inp.dtype} to {np.float32}"
                 )
                 # Convert the input to floating point representation as the

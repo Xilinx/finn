@@ -28,6 +28,7 @@
 
 import numpy as np
 import os
+import warnings
 from math import ceil, log2
 from qonnx.core.datatype import DataType
 
@@ -273,7 +274,18 @@ class Lookup_hls(Lookup, HLSBackend):
             )
 
         inp = context[node.input[0]]
-        # assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
+
+        # Make sure the input has the right container datatype
+        if inp.dtype is not np.float32:
+            # Issue a warning to make the user aware of this type-cast
+            warnings.warn(
+                f"{node.name}: Changing input container datatype from "
+                f"{inp.dtype} to {np.float32}"
+            )
+            # Convert the input to floating point representation as the
+            # container datatype
+            inp = inp.astype(np.float32)
+
         assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
         odt = self.get_output_datatype()
