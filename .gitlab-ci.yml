@@ -1,0 +1,128 @@
+stages:
+  - sync
+  - singularity_build
+  - test
+
+variables:
+  TEST_SUITE:
+    description: "Select test suite to run"
+    value: "full"
+    options:
+      - "quicktest"
+      - "main"
+      - "rtlsim"
+      - "end2end"
+      - "full"
+  CPU_CORES:
+    description: "Select number of CPU cores and test workers"
+    value: "8"
+  SLURM_TIMEOUT:
+    description: "Select SLURM timeout"
+    value: "3-0" # [days-hours]
+  SLURM_PARTITION:
+    description: "Slurm partition (e.g., normal, largemem, fpga, gpu)"
+    value: "normal"
+  SLURM_QOS:
+    description: "Optional QoS option (include --qos, e.g., --qos express)"
+    value: ""
+  SINGULARITY_IMG_SELECT:
+    value: "finn_dev.sif"
+
+workflow:
+  rules:
+    # Run pipeline for GitHub PRs to dev (does not support PRs from forks)
+    - if: $CI_PIPELINE_SOURCE == "external_pull_request_event" && $CI_EXTERNAL_PULL_REQUEST_TARGET_BRANCH_NAME == "dev"
+    # Run pipeline for pushes to dev
+    - if: $CI_COMMIT_BRANCH == "dev"
+    # Run pipeline if manually triggered via API or web GUI
+    - if: $CI_PIPELINE_SOURCE == "api"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    # Run pipeline if scheduled (only for nightly sync of finn-dev)
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+Sync finn-dev:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: sync
+  tags:
+    # Run where full Docker + Singularity is available
+    - image_build
+  rules:
+    # Only run on a schedule
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - mkdir -p ../github_clone && cd ../github_clone
+    - rm -rf finn-plus # Ensure we do a fresh clone (TODO: better way to handle this on job level?)
+    - git clone git@github.com:eki-project/finn-plus.git && cd finn-plus
+    - git remote add upstream https://github.com/Xilinx/finn.git
+    - git checkout finn-dev
+    - git pull upstream dev
+    - git push origin finn-dev
+
+Singularity Image Build:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: singularity_build
+  tags:
+    # Run where full Docker + Singularity is available
+    - image_build
+  rules:
+    # Do not run on a schedule
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    # Only run if relevant files changed relative to dev branch
+    - changes:
+        paths:
+          - requirements.txt
+          - docker/Dockerfile.finn
+          - docker/finn_entrypoint.sh
+          - docker/quicktest.sh
+        compare_to: "dev"
+  script:
+    - docker build --no-cache -f docker/Dockerfile.finn --tag=finn_docker_export .
+    - apptainer build --force finn_singularity_image.sif docker-daemon://finn_docker_export:latest
+    - rsync -vh finn_singularity_image.sif $PATH_SINGULARITY_IMG_BUILD/finn-plus/finn_$CI_COMMIT_REF_SLUG.sif
+  after_script: # Clean caches
+    - echo 'y' | docker image prune
+    - echo 'y' | docker builder prune
+    - echo 'y' | apptainer cache clean
+
+FINN Test Suite 2022.2:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: test
+  rules:
+    # Do not run on a schedule
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    # Select different Singularity image if it deviates from default (dev branch)
+    - changes:
+        paths:
+          - requirements.txt
+          - docker/Dockerfile.finn
+          - docker/finn_entrypoint.sh
+          - docker/quicktest.sh
+        compare_to: "dev"
+      variables:
+        SINGULARITY_IMG_SELECT: "finn_$CI_COMMIT_REF_SLUG.sif"
+    # Always run, as long as there was no prior failure
+    - when: on_success
+  variables:
+    SCHEDULER_PARAMETERS: "-A $PROJECT_ACCOUNT -p $SLURM_PARTITION -t $SLURM_TIMEOUT $SLURM_QOS --nodes 1 --ntasks 1 --cpus-per-task $CPU_CORES --exclusive"
+    PYTEST_PARALLEL: "$CPU_CORES"
+    FINN_SINGULARITY: "$PATH_SINGULARITY_IMG/finn-plus/$SINGULARITY_IMG_SELECT"
+    FINN_XILINX_VERSION: "2022.2"
+  before_script:
+    - cp -dfR .. $PATH_WORKDIR # Copy to working directory (e.g. RAMdisk)
+    - cd $PATH_WORKDIR/finn-plus
+    - module load system singularity
+  script:
+    - ./run-docker.sh quicktest.sh $TEST_SUITE
+
+FINN Test Suite 2024.1:
+  extends: FINN Test Suite 2022.2
+  variables:
+    FINN_XILINX_VERSION: "2024.1"
