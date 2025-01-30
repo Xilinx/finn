@@ -139,6 +139,15 @@ class QuantActBaseHandler(ABC):
         graph.value_info.append(thresh_tensor)
         model.set_initializer(thresh_tensor.name, thresholds)
 
+        # try to determine MultiThreshold data layout based on
+        # input layout (not always possible)
+        mt_layout = model.get_tensor_layout(self._q_node.input[0])
+        q_data_layout = "NCHW"
+        if mt_layout is None or mt_layout[1] == "C":
+            q_data_layout = "NCHW"
+        elif mt_layout[-1] == "C":
+            q_data_layout = "NHWC"
+
         # Insert MultiThreshold node
         outp_trans_node = helper.make_node(
             "MultiThreshold",
@@ -146,6 +155,7 @@ class QuantActBaseHandler(ABC):
             [n.output[0]],
             out_dtype="FLOAT32",
             domain="qonnx.custom_op.general",
+            data_layout=q_data_layout,
         )
         graph.node.insert(running_node_index, outp_trans_node)
         running_node_index += 1
