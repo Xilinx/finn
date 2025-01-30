@@ -223,7 +223,8 @@ class StreamingMaxPool(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = self.onnx_opset_version
+        # ceil_mode needs at least opset 10
+        opset_version = self.onnx_opset_version if self.onnx_opset_version >= 10 else 10
         opset_imports = [helper.make_opsetid("", opset_version)]
         onnx_kwargs = {"opset_imports": opset_imports}
         model_mp = qonnx_make_model(graph_mp, **onnx_kwargs)
