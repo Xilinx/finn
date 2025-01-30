@@ -29,7 +29,6 @@
 
 import numpy as np
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
@@ -135,22 +134,12 @@ def step_convert_to_channels_last(model: ModelWrapper, cfg: DataflowBuildConfig)
 
 def step_convert_to_thresholds(model: ModelWrapper, cfg: DataflowBuildConfig):
     # TODO to be replaced by the new threshold conversion methodology when it's ready
+    model = model.transform(InferDataLayouts())
     model = model.transform(
         ConvertQONNXtoFINN(
             filter_function=default_filter_function_generator(max_multithreshold_bit_width=8)
         )
     )
-    # need to switch generated MultiThreshold mode to channels-last
-    # TODO do this before ConvertQONNXtoFINN?
-    model = model.transform(InferDataLayouts())
-    for node in model.get_nodes_by_op_type("MultiThreshold"):
-        mt_layout = model.get_tensor_layout(node.input[0])
-        if mt_layout is None:
-            continue
-        elif mt_layout[-1] == "C":
-            getCustomOp(node).set_nodeattr("data_layout", "NHWC")
-        else:
-            continue
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.FactorOutMulSignMagnitude())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
