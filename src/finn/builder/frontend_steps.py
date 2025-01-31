@@ -179,11 +179,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # typical layers for convnets / vision
     model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferStreamingMaxPool())
+    # TODO replace by passthrough inference to keep shape semantics intact
     model = model.transform(RemoveCNVtoFCFlatten())
     # standalone elementwise ops, activations and quantizers
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    # DuplicateStreams for forking outputs
+    model = model.transform(to_hw.InferDuplicateStreamsLayer())
     # get rid of Tranpose -> Tranpose identity seq
     # TODO this should not be necessary after chans-last conversion
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
