@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -141,6 +142,27 @@ class ConvolutionInputGenerator(HWCustomOp):
         node = self.onnx_node
         # data type stays the same
         dtype = model.get_tensor_datatype(node.input[0])
+
+        # Test for changing input datatype
+        if dtype != self.get_nodeattr("inputDataType"):
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: inputDataType changing from"
+                f" {self.get_nodeattr('inputDataType')} to {dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("inputDataType", dtype.name)
+
+        # Test for changing output datatype
+        if dtype != self.get_nodeattr("outputDataType"):
+            # Issue a warning message
+            warnings.warn(
+                f"{node.name}: outputDataType changing from"
+                f" {self.get_nodeattr('outputDataType')} to {dtype}"
+            )
+            # Set the new datatype attribute
+            self.set_nodeattr("outputDataType", dtype.name)
+        # Propagate the datatype through the model graph
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):

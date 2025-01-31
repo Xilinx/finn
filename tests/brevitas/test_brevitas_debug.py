@@ -35,6 +35,7 @@ import onnx.numpy_helper as nph
 import os
 import torch
 from brevitas.export import export_qonnx
+from brevitas.quant_tensor import _unpack_quant_tensor
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
@@ -90,7 +91,7 @@ def test_brevitas_debug(QONNX_FINN_conversion):
     else:
         assert len(names_common) == 8
     for dbg_name in names_common:
-        tensor_pytorch = dbg_hook.values[dbg_name].value.detach().numpy()
+        tensor_pytorch = _unpack_quant_tensor(dbg_hook.values[dbg_name]).detach().numpy()
         tensor_finn = output_dict[dbg_name]
         assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
     os.remove(finn_onnx)
