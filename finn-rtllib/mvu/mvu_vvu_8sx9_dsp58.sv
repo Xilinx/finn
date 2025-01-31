@@ -61,14 +61,31 @@ module mvu_vvu_8sx9_dsp58 #(
 	output  logic vld,
     output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
-	import  mvu_pkg::*;
-
 	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
 		1 ||
 `endif
 		FORCE_BEHAVIORAL;
+
+	//-----------------------------------------------------------------------
+	// Startup Recovery Watchdog
+	//  The DSP slice needs 100ns of recovery time after initial startup before
+	//  being able to ingest input properly. This watchdog discovers violating
+	//  stimuli during simulation and produces a corresponding warning.
+	if(1) begin : blkRecoveryWatch
+		logic  Dirty = 1;
+		initial begin
+			#100ns;
+			Dirty <= 0;
+		end
+
+		always_ff @(posedge clk) begin
+			assert(!Dirty || rst || !en || zero) else begin
+				$warning("%m: Feeding input during DSP startup recovery. Expect functional errors.");
+			end
+		end
+	end : blkRecoveryWatch
 
 //-------------------- Declare global signals --------------------\\
 	localparam int unsigned CHAINLEN = (SIMD+2)/3;
@@ -91,12 +108,6 @@ module mvu_vvu_8sx9_dsp58 #(
 		end
 	end
 	assign vld = L[0];
-	initial begin
-		if(mvu_pipeline_depth("mvu_vvu_8sx9_dsp58", SIMD, SEGMENTLEN) < $bits(L)) begin
-			$error("%m: Outdated pipeline depth computation.");
-			$stop;
-		end
-	end
 
 //-------------------- Shift register for ZERO flag --------------------\\
 	logic Z [0:MAX_PIPELINE_STAGES-2] = '{default:0}; // We need MAX_PIPELINE_STAGES-1 pipeline stages (note: INMODE is buffered inside DSP fabric)
