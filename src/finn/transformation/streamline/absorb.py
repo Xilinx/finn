@@ -112,7 +112,7 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                     # convenient attribute manipulation
                     threshold_op = getCustomOp(node)
                     # Shift the output bias of the thresholding operator
-                    out_bias = threshold_op.get_node_attr("out_bias") + bias
+                    out_bias = threshold_op.get_nodeattr("out_bias") + bias
                     # Derive the new output range due to shifting the bias
                     # Note: We count thresholds steps on top of the bias
                     new_min = out_bias
@@ -137,7 +137,7 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                         continue
 
                     # Remember the old datatype for some further checks and info
-                    old_odt = threshold_op.get_node_attr("out_dtype")
+                    old_odt = threshold_op.get_nodeattr("out_dtype")
 
                     # Check whether the datatype changes as this is something
                     # the "user" should be aware of
