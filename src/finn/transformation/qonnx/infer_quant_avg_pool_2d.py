@@ -212,9 +212,9 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                         ibits = math.floor(math.log(2**trunc_in_bits / (k_s * k_s), 2))
                         # Get sign
                         signed = _get_signed_from_upstream(model, t_node)
-                        # ToDo: Change this to NHWC,
-                        #  when the channels last layout comes around.
-                        data_layout = "NCHW"
+                        data_layout = (
+                            "NHWC" if n.domain == "qonnx.custom_op.channels_last" else "NCHW"
+                        )
 
                         # Insert scale nodes, QuantAvgPool2d node and required tensors
                         scale = model.get_initializer(t_node.input[1])
@@ -239,6 +239,9 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                             [act_scale_div_tensor.name],
                         )
                         graph.node.insert(running_node_index, scale_div_node)
+                        model.set_tensor_shape(
+                            act_scale_div_tensor.name, model.get_tensor_shape(n.input[0])
+                        )
                         running_node_index += 1
 
                         act_scale_mul_tensor = helper.make_tensor_value_info(
