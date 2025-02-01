@@ -72,7 +72,12 @@ def test_frontend_flow(model_name):
     filename = download_model(model_name, do_cleanup=True, add_preproc=True)
     assert os.path.isfile(filename), f"Download for model {model_name} failed"
     x, golden_y = get_golden_in_and_output(model_name, preprocesing=True)
-    output_dir = make_build_dir("test_frontend_flow_%s_" % model_name)
+    debug = True
+    if debug:
+        output_dir = os.environ["FINN_BUILD_DIR"] + "/test_frontend_flow_%s" % model_name
+        os.makedirs(output_dir, exist_ok=True)
+    else:
+        output_dir = make_build_dir("test_frontend_flow_%s_" % model_name)
     x_filename = output_dir + "/x.npy"
     golden_y_filename = output_dir + "/golden_y.npy"
     np.save(x_filename, x)
@@ -98,3 +103,5 @@ def test_frontend_flow(model_name):
         assert os.path.isfile(step_checkpoint), step_checkpoint + " not found"
         step_ok_fname = output_dir + "/verification_output/verify_" + step_name + "_0_SUCCESS.npy"
         assert os.path.isfile(step_ok_fname), step_ok_fname + " not found"
+    if not debug:
+        os.unlink(output_dir)
