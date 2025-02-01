@@ -34,6 +34,7 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.transformation.streamline import Streamline
 from qonnx.util.range_analysis import RangeInfo
 from warnings import warn
@@ -140,6 +141,7 @@ def step_convert_to_thresholds(model: ModelWrapper, cfg: DataflowBuildConfig):
             filter_function=default_filter_function_generator(max_multithreshold_bit_width=8)
         )
     )
+    model = model.transform(RemoveIdentityOps())
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.FactorOutMulSignMagnitude())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
@@ -179,6 +181,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # typical layers for convnets / vision
     model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(to_hw.InferPool())
     # TODO replace by passthrough inference to keep shape semantics intact
     model = model.transform(RemoveCNVtoFCFlatten())
     # standalone elementwise ops, activations and quantizers
