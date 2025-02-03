@@ -86,7 +86,7 @@ RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
 COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
 RUN if [ -z "$SKIP_XRT" ];then \
-    apt install -y /tmp/$XRT_DEB_VERSION.deb && \
+    apt update && apt install -y /tmp/$XRT_DEB_VERSION.deb && \
     rm /tmp/$XRT_DEB_VERSION.deb; fi
 
 # versioned Python package requirements for FINN compiler
