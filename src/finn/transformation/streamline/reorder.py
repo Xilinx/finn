@@ -33,6 +33,7 @@ from copy import deepcopy
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_node
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -41,6 +42,9 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
+
+# Groups node inputs by dynamic vs. initializer category
+from finn.transformation.util import group_inputs_by_category
 
 
 class MoveAddPastMul(Transformation):
@@ -92,13 +96,27 @@ class MoveAddPastMul(Transformation):
                     graph.node.insert(node_ind + 1, new_add)
                     # replace add value
                     model.set_initializer(add_weight_name, BA)
+                    # Delete the datatype annotation of the parameter tensor
+                    # TODO: Maybe we should derive the new type properly...
+                    model.set_tensor_datatype(add_weight_name, None)
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later. This prevents shapes from propagating
+                    # backwards.
+                    # Note: Do not delete annotation for the input tensor, as
+                    # this prevents future shape inference.
+                    model.set_tensor_shape(middle_name, None)
+                    model.set_tensor_shape(end_name, None)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
-
+        # Note: Running shape inference is necessary as shape
+        # annotations have been deleted above
         model = model.transform(InferShapes())
-        return (model, graph_modified)
+        # Note. Running datatype inference is necessary as datatype
+        # annotations have been deleted above
+        model = model.transform(InferDataTypes())
+        return model, graph_modified
 
 
 # Tests whether a tensor is a scalar, i.e., whether all dimensions are 1
@@ -592,6 +610,98 @@ class MoveMulPastMaxPool(Transformation):
         return (model, graph_modified)
 
 
+class MoveLinearPastEltwiseAdd(Transformation):
+    """Move linear operations (mul, add) past elementwise add operations where possible.
+    Specifically,matches and transforms the following patterns:
+    (x*C) + (y*C) -> (x + y) * C
+    (x+A) + (y+B) -> (x + y) + (A + B)
+    where x and y are dynamic inputs, A, B, C are constant tensors (in general).
+    """
+
+    def move_node(self, graph, n, prod0, prod1, node_ind):
+        # found! move one of the muls to output, remove the other one
+        lin0_in0 = prod0.input[0]
+        lin1_in0 = prod1.input[0]
+        in0 = n.input[0]
+        out = n.output[0]
+        # TODO: check shapes don't change through scalar mul or add
+        # connect the eltwise add inputs to mul inputs
+        n.input[0] = lin0_in0
+        n.input[1] = lin1_in0
+        # connect mul0 output to eltwise add output
+        prod0.output[0] = out
+        # connect the input of mul0 and output of eltwise add together
+        n.output[0] = in0
+        prod0.input[0] = in0
+        # move prod0 node past eltwise add node, and remove prod1
+        graph.node.remove(prod1)
+        graph.node.remove(prod0)
+        graph.node.insert(node_ind - 2, prod0)
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        nodes = [n for n in graph.node]
+        for n in nodes:
+            node_ind += 1
+            if n.op_type == "Add":
+                # check for tensors on both inputs (eltwise add)
+                # scalar add has an initializer on one input
+                in0 = n.input[0]
+                in1 = n.input[1]
+                if in0 is None or in1 is None:
+                    continue
+                A = model.get_initializer(in0)
+                B = model.get_initializer(in1)
+                if A is not None or B is not None:
+                    continue
+                # check for mul with same initializer on both inputs
+                prod0 = model.find_producer(in0)
+                prod1 = model.find_producer(in1)
+                # Also check case when both branches are empty and come
+                # from the same node: (prod0 == prod1)
+                # Other transform should handle that
+                if prod0 is None or prod1 is None or (prod0 == prod1):
+                    continue
+                if len(prod0.input) < 2 or len(prod1.input) < 2:
+                    continue
+                init0 = model.get_initializer(prod0.input[1])
+                init1 = model.get_initializer(prod1.input[1])
+                # if either initializer is None, skip
+                if init0 is None or init1 is None:
+                    continue
+                if prod0.op_type == "Mul" and prod1.op_type == "Mul":
+                    if np.array_equal(init0, init1):
+                        self.move_node(graph, n, prod0, prod1, node_ind)
+                        # Delete shape annotations of connecting tensors to be
+                        # re-done later. This prevents wrong shape propagation,
+                        # for example in cases where the Add broadcasts shapes.
+                        model.set_tensor_shape(n.output[0], None)
+                        model.set_tensor_shape(prod0.output[0], None)
+                        node_ind -= 1
+                        graph_modified = True
+                elif prod0.op_type == "Add" and prod1.op_type == "Add":
+                    init = init0 + init1
+                    # update initializer of prod0, which we'll move
+                    model.set_initializer(prod0.input[1], init)
+                    self.move_node(graph, n, prod0, prod1, node_ind)
+                    # Delete shape annotations of connecting tensors to be
+                    # re-done later. This prevents wrong shape propagation,
+                    # for example in cases where the Add broadcasts shapes.
+                    model.set_tensor_shape(n.output[0], None)
+                    model.set_tensor_shape(prod0.output[0], None)
+                    node_ind -= 1
+                    graph_modified = True
+                else:
+                    continue
+        # Note: Running shape inference is necessary as shape annotations have
+        # been deleted above
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        return model, graph_modified
+
+
 class MoveScalarLinearPastInvariants(Transformation):
     """Move scalar linear operations (mul, add) past functions which are invariant
     to them. Specifically, matches and transforms the following patterns:
@@ -605,9 +715,11 @@ class MoveScalarLinearPastInvariants(Transformation):
     # Op-types of currently supported invariants
     SUPPORTED_INVARIANTS = {
         "GlobalAveragePool",
+        "Identity",
         "Reshape",
         "Transpose",
         "Flatten",
+        "Expand",
         "Slice",
         "Squeeze",
         "Unsqueeze",
@@ -634,7 +746,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                 if prod0 is None:
                     continue
 
-                if prod0.op_type in ["Mul", "Add", "Div"]:
+                if prod0.op_type in ["Mul", "Div", "Add", "Sub"]:
                     # Cannot handle fork-nodes, try MoveLinearPastFork first
                     if model.is_fork_node(prod0):
                         warnings.warn(
@@ -1604,3 +1716,728 @@ class MoveMulPastJoinConcat(MoveAffinePastJoinConcat):
 class MoveAddPastJoinConcat(MoveAffinePastJoinConcat):
     def __init__(self):
         super().__init__(["Add"])
+
+
+# Moves a Squeeze operation past MultiThresholds
+# TODO: extend to all operations invariant to or compatible with squeezing
+class MoveSqueezePastMultiThreshold(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Squeeze operation types
+            if node.op_type == "Squeeze":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Squeeze is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to MultiThreshold
+                if successor.op_type in {"MultiThreshold"}:
+                    # Get names of all tensors involved in connecting the nodes
+                    inp = node.input[0]  # noqa: Duplicate
+                    mid = node.output[0]
+                    out = successor.output[0]
+                    # Rewire the graph to feed original into the MultiThreshold
+                    # node first
+                    successor.input[0] = inp
+                    # Repurpose the middle tensor for the output of the
+                    # MultiThreshold
+                    successor.output[0] = mid
+                    # The Squeeze operator now gets the middle tensor as its
+                    # input
+                    node.input[0] = mid
+                    # Squeeze now produces the original output tensor
+                    node.output[0] = out
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later
+                    model.set_tensor_shape(mid, None)
+                    model.set_tensor_shape(out, None)
+                    # Track whether the graph has been modified, never
+                    # resets to False
+                    graph_modified = True
+                    # Break the loop after deleting shape annotations to
+                    # immediately re-do these before changing the next
+                    # operator
+                    break
+        # Need to redo the shape inference after potentially deleting them
+        model = model.transform(InferShapes())  # noqa: Shadows model
+        # Return the transformed model and indicate whether the graph
+        # actually has been transformed
+        return model, graph_modified
+
+
+# Moves a Squeeze operation past MatMul
+# TODO: extend to all operations invariant to or compatible with squeezing
+class MoveSqueezePastMatMul(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Squeeze operation types
+            if node.op_type == "Squeeze":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Squeeze is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to MatMul
+                # TODO: Check behavior for multi-dimensional and potentially
+                #  broadcasting MatMuls...
+                if successor.op_type in {"MatMul"}:
+                    # Get names of all tensors involved in  # noqa: Duplicate
+                    # connecting the nodes
+                    inp = node.input[0]  # noqa: Duplicate
+                    mid = node.output[0]
+                    out = successor.output[0]
+                    # Rewire the graph to feed original into the MultiThreshold
+                    # node first
+                    successor.input[0] = inp
+                    # Repurpose the middle tensor for the output of the
+                    # MultiThreshold
+                    successor.output[0] = mid
+                    # The Squeeze operator now gets the middle tensor as its
+                    # input
+                    node.input[0] = mid
+                    # Squeeze now produces the original output tensor
+                    node.output[0] = out
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later
+                    model.set_tensor_shape(mid, None)
+                    model.set_tensor_shape(out, None)
+                    # Track whether the graph has been modified, never
+                    # resets to False
+                    graph_modified = True
+                    # Break the loop after deleting shape annotations to
+                    # immediately re-do these before changing the next
+                    # operator
+                    break
+        # Need to redo the shape inference after potentially deleting them
+        model = model.transform(InferShapes())  # noqa: Shadows model
+        # Return the transformed model and indicate whether the graph
+        # actually has been transformed
+        return model, graph_modified
+
+
+# Moves a transpose operator past elementwise addition or multiplication
+class MoveTransposePastEltwise(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Transpose operation types
+            if node.op_type == "Transpose":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Transpose is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to elementwise add and mul operations
+                if successor.op_type in {"Add", "Mul"}:
+                    # Get names of all tensors involved in connecting the nodes
+                    inp = node.input[0]
+                    mid = node.output[0]
+                    out = successor.output[0]
+
+                    # y = x^T + a <=> y = (x + a^T)^T
+
+                    # Assume left-to-right order of input to the Add operator
+                    xt, a = successor.input
+                    # Check whether the assumption holds true
+                    if xt != mid:
+                        # Leaves only the option of a and xt commuting
+                        xt, a = a, xt
+                    # If this assumption still does not hold true, something is
+                    # wrong with the graph
+                    assert xt == mid, f"Messed up graph pattern at {node.name}"
+
+                    # Get the (optional) permutation indices of the transpose in
+                    # case it is a multi-axis transpose
+                    perm = get_by_name(node.attribute, "perm")
+                    # Convert permutation indices to list of integers
+                    perm = list(perm.ints) if perm is not None else None
+
+                    # Inverse permutation needs to be applied to the initializer
+                    # fmt: off
+                    inverse_perm = None if not perm else [
+                        perm.index(i) for i in range(len(perm))
+                    ]
+                    # fmt: on
+
+                    # This transformation does only apply to Add nodes where the
+                    # second input is a constant initializer
+                    if (value := model.get_initializer(a)) is not None:
+                        # Do not transpose scalar or effectively scalar
+                        # initializers
+                        if not (value.shape is None or all(x == 1 for x in value.shape)):
+                            # Transpose the initializer and re-insert into the
+                            # model
+                            # fmt: off
+                            model.set_initializer(
+                                a, value.transpose(inverse_perm)
+                            )
+                            # fmt: on
+                        # Rewire the graph to feed original input and the
+                        # transposed initializer into the Add node first
+                        successor.input[:] = [inp, a]
+                        # Repurpose the middle tensor for the output of the
+                        # addition
+                        successor.output[0] = mid
+                        # The Transpose operator now gets the middle tensor as
+                        # its input
+                        node.input[0] = mid
+                        # Transpose now produces the original output tensor
+                        node.output[0] = out
+                        # Delete the shape annotation of the connecting tensors
+                        # to be re-done later
+                        model.set_tensor_shape(inp, None)
+                        model.set_tensor_shape(mid, None)
+                        model.set_tensor_shape(out, None)
+                        # Track whether the graph has been modified, never
+                        # resets to False
+                        graph_modified = True
+                        # Break the loop after deleting shape annotations to
+                        # immediately re-do these before changing the next
+                        # operator
+                        break
+        # Need to redo the shape inference after potentially removing nodes
+        model = model.transform(InferShapes())  # noqa: Shadows model
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
+# Moves elementwise additions past MatMul operations: Applicable if each
+# operation has one initializer input
+class MoveAddPastMatMul(Transformation):
+    # Applies the transform to a whole model graph  # noqa: Duplicate
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Add operations
+            if node.op_type == "Add":
+                # If the add is a join operation, we do not have a constant
+                # added to the input
+                if model.is_join_node(node):
+                    # Skip transforming this
+                    continue
+                # If the Add is a fork operation we should first distribute the
+                # Add into the branches
+                if model.is_fork_node(node):
+                    # Issue a warning to make the use aware of this potential
+                    # transformation if the fork is moved first
+                    warnings.warn(
+                        f"{self.__class__.__name__}:"
+                        f" Skipping near match: {node.name} is a fork-node,"
+                        f" try MoveLinearPastFork first"
+                    )
+                    # Skip transforming this node as moving this would lead
+                    # to messed up or detached graph
+                    continue
+                # Decompose the inputs into the dynamic and the constant
+                # initializer input
+                (x_name,), (c_name,) = group_inputs_by_category(node, model)
+                # Now check the successor node which must be a MatMul
+                consumer = model.find_direct_successors(node)
+                # If there is no consumer, this Add seems to be last node of the
+                # graph
+                if not consumer:
+                    # Skip transforming this
+                    continue
+                # There must be exactly one consumer now
+                consumer = consumer[0]
+                # This transformation only applies to Add in front of MatMul
+                if not consumer.op_type == "MatMul":
+                    # Skip this if not MatMul
+                    continue
+                # MatMul may not be a join operation to apply this
+                # transformation
+                if model.is_join_node(consumer):
+                    # Skip transforming without warning (there is nothing we can
+                    # do about this)
+                    continue
+                # Decompose the inputs to the MatMul to get the weight tensor
+                # name (the other input is the output of the Add)
+                _, (w_name,) = group_inputs_by_category(consumer, model)
+                # Read the weights and the constant addition tensor
+                w = model.get_initializer(w_name)
+                c = model.get_initializer(c_name)
+                # Determine whether the weights are the left or right input to
+                # the MatMul
+                left = w_name == consumer.input[0]
+                # Apply the weights to the constant tensor
+                c = np.matmul(w, c) if left else np.matmul(c, w)
+                # Insert the transformed tensor back into the mode as an
+                # initializer
+                model.set_initializer(c_name, c)
+                # The connecting tensors of this pattern
+                inp = x_name
+                mid = node.output[0]
+                out = consumer.output[0]
+                # Rewire the graph pattern connecting the input to the MatMul
+                # and the MatMul output to the Add node
+                consumer.input[1 if left else 0] = inp
+                # The Add now produces the original MatMul output
+                node.output[0] = out
+                # The middel tensor connects to the Add input
+                node.input[0 if node.input[0] == x_name else 1] = mid
+                # The MatMul feeds the middle tensors
+                consumer.output[0] = mid
+                # Delete the shape annotation of the connecting tensors
+                # to be re-done later
+                model.set_tensor_shape(mid, None)
+                model.set_tensor_shape(out, None)
+                # Delete the type annotations of the connecting tensors
+                # to be re-done later
+                # model.set_tensor_datatype(mid, None)
+                # model.set_tensor_datatype(out, None)
+                # Track whether the graph has been modified, never
+                # resets to False
+                graph_modified = True
+                # Break the loop after deleting shape annotations to
+                # immediately re-do these before changing the next
+                # operator
+                break
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
+
+
+# Moves constant elementwise multiplication past another joining multiplication
+class MoveConstMulPastJoinMul(Transformation):
+    # Applies the transform to a whole model graph  # noqa: Duplicate
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Mul operation types
+            if node.op_type == "Mul":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Squeeze is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to Multiplications
+                if successor.op_type in {"Mul"}:
+                    # Applies only if the second multiplication is a join-node
+                    if model.is_join_node(successor):
+                        # Get names of all tensors involved in connecting the
+                        # nodes
+                        inp = node.input[0]  # noqa: Duplicate
+                        mid = node.output[0]
+                        out = successor.output[0]
+                        # Need to match the correct input of the joining second
+                        # multiplication
+                        for i, name in enumerate(successor.input):
+                            # If the successors input currently matches the
+                            # intermediate tensors, this input needs to be
+                            # rewired
+                            if name == mid:
+                                # Rewire the graph to feed original into the
+                                # second Mul node first
+                                successor.input[i] = inp
+                                # Note: Do not break here as it is perfectly
+                                # legal to connect the same tensor multiple
+                                # times to different inputs
+                        # Repurpose the middle tensor for the output of the
+                        # second Mul
+                        successor.output[0] = mid
+                        # The first Mul operator now gets the middle tensor as
+                        # its input
+                        node.input[0] = mid
+                        # The first Mul now produces the original output tensor
+                        node.output[0] = out
+                        # Delete the shape annotation of the connecting tensors
+                        # to be re-done later
+                        model.set_tensor_shape(mid, None)
+                        model.set_tensor_shape(out, None)
+                        # Track whether the graph has been modified, never
+                        # resets to False
+                        graph_modified = True
+                        # Break the loop after deleting shape annotations to
+                        # immediately re-do these before changing the next
+                        # operator
+                        break
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
+
+
+# Moves elementwise multiplication past elementwise addition if one input to
+# each of the operators is a known constant
+# Note: Reverse of MoveAddPastMul
+class MoveMulPastAdd(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Mul operation types
+            if node.op_type == "Mul":
+                # Currently does not handle fork- or join-nodes
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If Squeeze is the final operation in the graph, there might
+                # be no successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Applies to additions
+                if successor.op_type in {"Add"}:
+                    # The addition may not join as we need to know the second
+                    # input
+                    if not model.is_join_node(successor):
+                        # Get the constant initializer tensors for both
+                        # operations: y = s * x + b
+                        _, s_name = group_inputs_by_category(node, model)
+                        _, b_name = group_inputs_by_category(successor, model)
+                        # Skip if either node has no constant initializer
+                        if not s_name or not b_name:
+                            # Skip without warning ok?
+                            continue
+                        # There must be exactly one constant per operations
+                        assert len(s_name) == 1, f"To many constant inputs for {node}"
+                        assert len(b_name) == 1, f"To many constant inputs for {successor}"
+                        # Now read the initializer tensors
+                        s = model.get_initializer(*s_name)
+                        b = model.get_initializer(*b_name)
+                        # Update the addition initializer according to the
+                        # distributive law
+                        model.set_initializer(*b_name, b / s)
+                        # Get names of all tensors involved in connecting the
+                        # nodes
+                        inp = node.input[0]  # noqa: Duplicate
+                        mid = node.output[0]
+                        out = successor.output[0]
+                        # Rewire the graph to feed original input into the
+                        # Add node first
+                        successor.input[0] = inp
+                        # Repurpose the middle tensor for the output of the Add
+                        successor.output[0] = mid
+                        # The Mul operator now gets the middle tensor as its
+                        # input
+                        node.input[0] = mid
+                        # Mul now produces the original output tensor
+                        node.output[0] = out
+                        # Delete the shape annotation of the connecting tensors
+                        # to be re-done later
+                        model.set_tensor_shape(mid, None)
+                        model.set_tensor_shape(out, None)
+                        # Track whether the graph has been modified, never
+                        # resets to False
+                        graph_modified = True
+                        # Break the loop after deleting shape annotations to
+                        # immediately re-do these before changing the next
+                        # operator
+                        break
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
+
+
+# Moves scalar linear elementwise operations past fork nodes, applies to Add,
+# Mul, Sub, Div, etc.
+class MoveScalarLinearPastFork(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Mul-like and Add-like operation types
+            if node.op_type in {"Add", "Sub", "Mul", "Div"}:
+                # Only handles non-joining forks for now
+                if not model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # Only handles one forking output for now
+                if len(node.output) > 1:
+                    # Softly skip this node
+                    continue
+                # Left and right side of the operation
+                (inp,), (const,) = group_inputs_by_category(node, model)
+                # Test whether the node initializer is a scalar...
+                if not is_scalar(model.get_initializer(const)):
+                    # Softly skip this node
+                    continue
+                # We need to insert a replica of this operation in front of each
+                # consumer node
+                for consumer in model.find_direct_successors(node):
+                    # Create an exact replica of this operator
+                    copy = deepcopy(node)
+                    # Insert a new unique tensor connecting the output of the
+                    # copy to the consumer
+                    copy.output[0] = model.make_new_valueinfo_name()
+                    # The original node might be connecting to multiple inputs
+                    # of the consumer...
+                    for idx, inp in enumerate(consumer.input):
+                        # Find each instance of connection from original node
+                        if inp == node.output[0]:
+                            # Rewire to connect to the replica
+                            consumer.input[idx] = copy.output[0]
+                    # Insert the new replica node into the graph
+                    graph.node.insert(index + 1, copy)
+                # Remove the original node from the graph
+                graph.node.remove(node)
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
+
+
+# Moves scalar linear channel-wise operations past fork nodes, applies to Add,
+# Mul, Sub, Div, etc.
+class MoveChannelwiseLinearPastFork(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Mul-like and Add-like operation types
+            if node.op_type in {"Add", "Sub", "Mul", "Div"}:
+                # Only handles non-joining forks for now
+                if not model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # Only handles one forking output for now
+                if len(node.output) > 1:
+                    # Softly skip this node
+                    continue
+
+                # Left and right side of the operation
+                (inp,), (const,) = group_inputs_by_category(node, model)
+
+                # First try to consider the tensor layout of the input for
+                # determining the number of input channels
+                layout = model.get_tensor_layout(inp)
+                # If there is no layout annotation, guess based on rank of the
+                # tensor
+                if layout is None:
+                    # Maps tensor rank to layout annotation
+                    rank_to_layout = {0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"}
+                    # Lookup the layout required by this input shape
+                    layout = rank_to_layout[len(model.get_tensor_shape(inp))]
+                # If there is a layout annotation, use this to determine the
+                # index of the channel dimension
+                if layout is not None and "C" in layout:
+                    # Lookup the index in list
+                    cdim = layout.index("C")
+                # If no layout has been annotated or there is no channel
+                # dimension, fall back to the previous default assumption
+                else:
+                    # Assume the channels to be in axis 1
+                    cdim = 1
+                    # Issue a warning to the user, so they are aware of this
+                    warnings.warn(
+                        f"{self.__class__.__name__}: No layout for {inp}:"
+                        f" Assuming channel dimension at index {cdim}"
+                    )
+
+                # Tests whether two shapes can be broadcast according to NumPy
+                # semantics
+                def can_broadcast_to(lhs, rhs):
+                    # Broadcasting might raise an exception
+                    try:
+                        # Try broadcasting the shapes
+                        if np.broadcast_to(np.zeros(lhs), rhs).shape == rhs:
+                            # These tensors can be broadcast, preserving the
+                            # left-hand-side shape
+                            return True
+                        # These tensors cannot be broadcast
+                        return False
+                    # Failing to broadcast the tensors raises ValueError
+                    except ValueError:
+                        # These tensors cannot be broadcast
+                        return False
+
+                # Per-tensor or per-channel means we have some parameter tensor
+                # which can be broadcast to the channel dimension of the output
+                if not can_broadcast_to(
+                    model.get_tensor_shape(const), (model.get_tensor_shape(node.output[0])[cdim],)
+                ):
+                    # Issue a warning to the user, so they are aware of this
+                    warnings.warn(f"{self.__class__.__name__}: Not channel-wise {const}:")
+                    # Softly skip this node
+                    continue
+
+                # We need to insert a replica of this operation in front of each
+                # consumer node
+                for consumer in model.find_direct_successors(node):
+                    # Create an exact replica of this operator
+                    copy = deepcopy(node)
+                    # Insert a new unique tensor connecting the output of the
+                    # copy to the consumer
+                    copy.output[0] = model.make_new_valueinfo_name()
+                    # The original node might be connecting to multiple inputs
+                    # of the consumer...
+                    for idx, inp in enumerate(consumer.input):
+                        # Find each instance of connection from original node
+                        if inp == node.output[0]:
+                            # Rewire to connect to the replica
+                            consumer.input[idx] = copy.output[0]
+                    # Insert the new replica node into the graph
+                    graph.node.insert(index + 1, copy)
+                # Remove the original node from the graph
+                graph.node.remove(node)
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
+
+
+# Moves scale factor, i.e., scalar Mul and Div, past Im2Col (and Col2Im): These
+# cannot be handled by MoveScalarLinearPastInvariants as potential padding makes
+# Add-Im2Col not commute to Im2Col-Add
+class MoveScalesPastIm2Col(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Applies to Mul operation types
+            if node.op_type in {"Mul", "Div"}:
+                # Cannot handle fork- or join-multiplications
+                if model.is_fork_node(node) or model.is_join_node(node):
+                    # Softly skip this node
+                    continue
+                # Only handles one forking output for now
+                if len(node.output) > 1:
+                    # Softly skip this node
+                    continue
+                # The first input must be dynamically received from upstream
+                if model.get_initializer(node.input[0]) is not None:
+                    # Softly skip this node
+                    continue
+                # Test whether the node initializer is a scalar...
+                if not is_scalar(model.get_initializer(node.input[1])):
+                    # Softly skip this node
+                    continue
+                # As this is not a fork-node, there can be at most one successor
+                successor = model.find_direct_successors(node)
+                # If this is the final operation in the graph, there might be no
+                # successor
+                if successor is None:
+                    # Softly skip this node
+                    continue
+                # Now there is exactly one successor which needs to be extracted
+                # from the list
+                successor = successor[0]
+                # Handle both, Im2Col and the inverse Col2Im, as well as padding
+                if successor.op_type in {"Im2Col", "Col2Im", "Pad"}:
+                    # Get names of all tensors involved in connecting the
+                    # nodes
+                    inp = node.input[0]  # noqa: Duplicate
+                    mid = node.output[0]
+                    out = successor.output[0]
+                    # Rewire the graph to feed original input into the
+                    # Add node first
+                    successor.input[0] = inp
+                    # Repurpose the middle tensor for the output of the Add
+                    successor.output[0] = mid
+                    # The Mul operator now gets the middle tensor as its
+                    # input
+                    node.input[0] = mid
+                    # Mul now produces the original output tensor
+                    node.output[0] = out
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later
+                    model.set_tensor_shape(mid, None)
+                    model.set_tensor_shape(out, None)
+                    # Track whether the graph has been modified, never
+                    # resets to False
+                    graph_modified = True
+                    # Break the loop after deleting shape annotations to
+                    # immediately re-do these before changing the next
+                    # operator
+                    break
+        # Redo datatype and shape annotations
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the transformation
+        # needs to be applied again
+        return model, graph_modified
