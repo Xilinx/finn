@@ -33,7 +33,6 @@ import os
 import shutil
 import warnings
 from copy import deepcopy
-from distutils.dir_util import copy_tree
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -656,7 +655,9 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
         )
         # TODO copy all ip sources into output dir? as zip?
-        copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+        shutil.copytree(
+            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        )
         print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
@@ -761,7 +762,7 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         driver_dir = cfg.output_dir + "/driver"
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
-        copy_tree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+        shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
     return model
 
@@ -863,8 +864,8 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
-        copy_tree(bitfile_dir, deploy_dir + "/bitfile")
-        copy_tree(driver_dir, deploy_dir + "/driver")
+        shutil.copytree(bitfile_dir, deploy_dir + "/bitfile", dirs_exist_ok=True)
+        shutil.copytree(driver_dir, deploy_dir + "/driver", dirs_exist_ok=True)
     return model
 
 

@@ -88,7 +88,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
-: ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --always --tags --dirty).$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
@@ -103,8 +103,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
 : ${FINN_DOCKER_NO_CACHE="0"}
-
-DOCKER_INTERACTIVE=""
+# Default to interactive runs, for non-interactive set DOCKER_INTERACTIVE=""
+: "${DOCKER_INTERACTIVE="-it"}"
 
 # Catch FINN_DOCKER_EXTRA options being passed in without a trailing space
 FINN_DOCKER_EXTRA+=" "
@@ -132,7 +132,6 @@ elif [ "$1" = "notebook" ]; then
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
   FINN_DOCKER_EXTRA+="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
-  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
@@ -140,13 +139,14 @@ elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
   FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
-  DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
   DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
+   # Overwrite: container only should always be interactive as it drops us into
+   # a bash prompt...
    DOCKER_INTERACTIVE="-it"
 else
   gecho "Running container with passed arguments"
@@ -181,7 +181,11 @@ gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
+  # Need to ensure this is done within the finn/ root folder:
+  OLD_PWD=$(pwd)
+  cd $SCRIPTPATH
   ./fetch-repos.sh
+  cd $OLD_PWD
 fi
 
 # If xrt path given, copy .deb file to this repo
@@ -212,7 +216,7 @@ fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_BASE="docker run -t --rm $DOCKER_INTERACTIVE --tty --init --hostname $DOCKER_INST_NAME "
+DOCKER_BASE="docker run --rm $DOCKER_INTERACTIVE --init --hostname $DOCKER_INST_NAME "
 DOCKER_EXEC="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-w $SCRIPTPATH "
 DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "

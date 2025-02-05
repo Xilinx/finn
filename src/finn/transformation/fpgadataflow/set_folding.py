@@ -120,7 +120,7 @@ class SetFolding(Transformation):
             "ConvolutionInputGenerator_rtl",
             # Streaming Split and Concat are SIMD operations
             "StreamingSplit_hls",
-            "StreamingConcat_hls"
+            "StreamingConcat_hls",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
