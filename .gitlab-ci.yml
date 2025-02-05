@@ -1,21 +1,26 @@
 stages:
   - sync
   - singularity_build
+  - load_deps
   - test
 
 variables:
+  PIPELINE_NAME:
+    description: "Optional name to better identify this pipeline"
+    value: ""
   TEST_SUITE:
     description: "Select test suite to run"
     value: "full"
     options:
+      - "none"
       - "quicktest"
-      - "main"
-      - "rtlsim"
-      - "end2end"
       - "full"
   CPU_CORES:
     description: "Select number of CPU cores and test workers"
     value: "8"
+  PARALLEL_JOBS:
+    description: "Number of parallel Slurm array jobs per Benchmark job"
+    value: "2"
   SLURM_TIMEOUT:
     description: "Select SLURM timeout"
     value: "3-0" # [days-hours]
@@ -25,10 +30,14 @@ variables:
   SLURM_QOS:
     description: "Optional QoS option (include --qos, e.g., --qos express)"
     value: ""
-  SINGULARITY_IMG_SELECT:
-    value: "finn_dev.sif"
+  MANUAL_CFG_PATH:
+    description: "Use this config file instead of configs stored in the repo. Path must be accessible to runner"
+    value: ""
+  FINN_XILINX_VERSION:
+    value: "2022.2"
 
 workflow:
+  name: '$PIPELINE_NAME'
   rules:
     # Run pipeline for GitHub PRs to dev (does not support PRs from forks)
     - if: $CI_PIPELINE_SOURCE == "external_pull_request_event" && $CI_EXTERNAL_PULL_REQUEST_TARGET_BRANCH_NAME == "dev"
@@ -84,10 +93,44 @@ Singularity Image Build:
     - docker build --no-cache -f docker/Dockerfile.finn --tag=finn_docker_export .
     - apptainer build --force finn_singularity_image.sif docker-daemon://finn_docker_export:latest
     - rsync -vh finn_singularity_image.sif $PATH_SINGULARITY_IMG_BUILD/finn-plus/finn_$CI_COMMIT_REF_SLUG.sif
+    - echo SINGULARITY_IMG_SELECT=finn_$CI_COMMIT_REF_SLUG.sif > FINN_environment.env
   after_script: # Clean caches
     - echo 'y' | docker image prune
     - echo 'y' | docker builder prune
     - echo 'y' | apptainer cache clean
+  # Save env var selecting Singularity image to be used in subsequent jobs
+  artifacts:
+    reports:
+      dotenv: FINN_environment.env
+
+Fetch Repos:
+  id_tokens:
+    CI_JOB_JWT:
+      aud: https://git.uni-paderborn.de
+  stage: load_deps
+  tags:
+    - login
+  rules:
+    # Do not run on a schedule
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+    # Otherwise run
+    - when: always
+  cache:
+    key: $CI_COMMIT_SHA
+    paths:
+      - deps
+  variables:
+    SINGULARITY_IMG_SELECT: "finn_dev.sif" # default, may be overwritten by dotenv artifact
+  script:
+    - ./fetch-repos.sh
+    # Workaround for https://gitlab.com/gitlab-org/gitlab/-/issues/349538
+    # Passing artifacts from optional parent jobs to child pipelines is not supported
+    # Therefore, we pass the dotenv artifact from "Singularity Image Build" through this job
+    - echo SINGULARITY_IMG_SELECT=$SINGULARITY_IMG_SELECT > FINN_environment_passthrough.env
+  artifacts:
+    reports:
+      dotenv: FINN_environment_passthrough.env
 
 FINN Test Suite 2022.2:
   id_tokens:
@@ -98,29 +141,36 @@ FINN Test Suite 2022.2:
     # Do not run on a schedule
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    # Select different Singularity image if it deviates from default (dev branch)
-    - changes:
-        paths:
-          - requirements.txt
-          - docker/Dockerfile.finn
-          - docker/finn_entrypoint.sh
-          - docker/quicktest.sh
-        compare_to: "dev"
-      variables:
-        SINGULARITY_IMG_SELECT: "finn_$CI_COMMIT_REF_SLUG.sif"
+    # Do not run if test suite has been deselected
+    - if: $TEST_SUITE == "none"
+      when: never
     # Always run, as long as there was no prior failure
     - when: on_success
+  cache:
+    key: $CI_COMMIT_SHA
+    policy: pull
+    paths:
+      - deps
   variables:
     SCHEDULER_PARAMETERS: "-A $PROJECT_ACCOUNT -p $SLURM_PARTITION -t $SLURM_TIMEOUT $SLURM_QOS --nodes 1 --ntasks 1 --cpus-per-task $CPU_CORES --exclusive"
     PYTEST_PARALLEL: "$CPU_CORES"
-    FINN_SINGULARITY: "$PATH_SINGULARITY_IMG/finn-plus/$SINGULARITY_IMG_SELECT"
     FINN_XILINX_VERSION: "2022.2"
   before_script:
     - cp -dfR .. $PATH_WORKDIR # Copy to working directory (e.g. RAMdisk)
     - cd $PATH_WORKDIR/finn-plus
+    - chmod 755 ./test.sh
     - module load system singularity
+    - ulimit -s unlimited # Increase stack size limit
+    - export FINN_SINGULARITY=$PATH_SINGULARITY_IMG/finn-plus/$SINGULARITY_IMG_SELECT
   script:
-    - ./run-docker.sh quicktest.sh $TEST_SUITE
+    - ./run-docker.sh ./test.sh $TEST_SUITE
+  artifacts:
+    name: "test_reports"
+    when: always
+    paths:
+      - reports/
+    reports:
+      junit: reports/*.xml
 
 FINN Test Suite 2024.1:
   extends: FINN Test Suite 2022.2
