@@ -81,7 +81,9 @@ Singularity Image Build:
     # Do not run on a schedule
     - if: $CI_PIPELINE_SOURCE == "schedule"
       when: never
-    # Only run if relevant files changed relative to dev branch
+    # Always run for dev branch to ensure default image is up to date
+    - if: $CI_COMMIT_REF_SLUG == "dev"
+    # For other branches only run if relevant files changed relative to dev branch
     - changes:
         paths:
           - requirements.txt
