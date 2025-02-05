@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
+from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
 )
@@ -71,6 +72,7 @@ custom_op["LabelSelect_hls"] = LabelSelect_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
+custom_op["StreamingSplit_hls"] = StreamingSplit_hls
 custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls

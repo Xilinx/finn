@@ -1211,21 +1211,24 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn(
+                        "Inputs with undefined datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
+                    warnings.warn(
+                        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1233,11 +1236,78 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
-                    ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    name="StreamingConcat_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferSplitLayer(Transformation):
+    """Convert suitable Split nodes (operating on last/-1 axis)
+    into StreamingConcat HW layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Split":
+                split_param = node.input[1]
+                if model.get_initializer(split_param) is None:
+                    warnings.warn("Split param not constant, skipping InferSplitLayer()")
+                    continue
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
+                    continue
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    warnings.warn(
+                        "StreamingSplit supports only last axis, skipping InferSplitLayer()"
+                    )
+                    continue
+                # only one input allowed (two including split_param)
+                if len(node.input) != 2:
+                    warnings.warn("Only one input allowed, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if the input is static
+                if model.get_initializer(node.input[0]) is not None:
+                    warnings.warn("Static input detected, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if inputs are not integers
+                if not model.get_tensor_datatype(node.input[0]).is_integer():
+                    warnings.warn("Non-integer input detected, skipping InferSplitLayer()")
+                    continue
+                # ready for conversion
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.output]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                new_node = helper.make_node(
+                    "StreamingSplit",
+                    node.input,
+                    node.output,
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="StreamingSplit_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataType=model.get_tensor_datatype(node.input[0]).name,
+                    numInputVectors=inp_vec,
+                    outFIFODepths=[2] * len(node.output),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
