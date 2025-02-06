@@ -41,8 +41,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_relu_act_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -55,7 +54,8 @@ def test_brevitas_act_export_relu(
     b_act = QuantReLU(
         bit_width=abits,
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_relu")
+    m_path = os.path.join(build_dir, "test_brevitas_relu_act_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
@@ -70,7 +70,6 @@ def test_brevitas_act_export_relu(
     expected = b_act.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)
 
 
 @pytest.mark.brevitas_export
@@ -88,7 +87,8 @@ def test_brevitas_act_export_relu_channel(
         scaling_per_output_channel=True,
         per_channel_broadcastable_shape=(1, ch, 1, 1),
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_relu_channel")
+    m_path = os.path.join(build_dir, "test_brevitas_relu_act_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
@@ -103,4 +103,3 @@ def test_brevitas_act_export_relu_channel(
     expected = b_act.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

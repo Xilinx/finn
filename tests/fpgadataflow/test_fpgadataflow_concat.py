@@ -52,7 +52,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_concat_model(i_shapes, idt):
+def make_concat_model(i_shapes, idts):
     class ConcatModel(nn.Module):
         def forward(self, *args):
             return torch.cat(args, -1)
@@ -67,20 +67,25 @@ def make_concat_model(i_shapes, idt):
     torch.onnx.export(torch_model, input_t, model_bytes, opset_version=11)
     model = onnx.ModelProto.FromString(model_bytes.getvalue())
     model = ModelWrapper(model)
-    for inp in model.graph.input:
+    for inp, idt in zip(model.graph.input, idts):
         model.set_tensor_datatype(inp.name, idt)
     return model
 
 
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.parametrize("idt", [DataType["INT4"]])
+# input datatypes and expected inferred out datatype
+@pytest.mark.parametrize(
+    "test_idts", [([DataType["INT3"], DataType["UINT4"], DataType["UINT6"]], DataType["INT7"])]
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_concat(exec_mode, idt):
+def test_fpgadataflow_concat(exec_mode, test_idts):
+    idts = test_idts[0]
+    exp_odt = test_idts[1]
     i_shapes = [(1, 2, 4), (1, 2, 6), (1, 2, 1)]
-    i_data = [gen_finn_dt_tensor(idt, x) for x in i_shapes]
-    model = make_concat_model(i_shapes, idt)
+    i_data = [gen_finn_dt_tensor(idt, x) for x, idt in zip(i_shapes, idts)]
+    model = make_concat_model(i_shapes, idts)
     assert len(i_shapes) == len(model.graph.input)
     assert len(model.graph.output) == 1
     exp_oshape = list(i_shapes[0][:-1]) + [sum(x[-1] for x in i_shapes)]
@@ -96,6 +101,7 @@ def test_fpgadataflow_concat(exec_mode, idt):
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
+    assert model.get_tensor_datatype(model.graph.output[0].name) == exp_odt
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -120,12 +126,13 @@ def test_fpgadataflow_concat(exec_mode, idt):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_concat_stitchedip():
-    idt = DataType["INT4"]
+    idts = [DataType["INT3"], DataType["UINT4"], DataType["UINT6"]]
+    exp_odt = DataType["INT7"]
     fpga_part = "xc7z020clg400-1"
     clk_ns = 10
     i_shapes = [(1, 2, 4), (1, 2, 6), (1, 2, 1)]
-    i_data = [gen_finn_dt_tensor(idt, x) for x in i_shapes]
-    model = make_concat_model(i_shapes, idt)
+    i_data = [gen_finn_dt_tensor(idt, x) for x, idt in zip(i_shapes, idts)]
+    model = make_concat_model(i_shapes, idts)
     assert len(i_shapes) == len(model.graph.input)
     assert len(model.graph.output) == 1
     exp_oshape = list(i_shapes[0][:-1]) + [sum(x[-1] for x in i_shapes)]
@@ -141,6 +148,7 @@ def test_fpgadataflow_concat_stitchedip():
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
+    assert model.get_tensor_datatype(model.graph.output[0].name) == exp_odt
     model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "StreamingConcat_hls"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
