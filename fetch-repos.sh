@@ -29,7 +29,7 @@
 
 QONNX_COMMIT="4b731dbf3120316f11ae1c4b298ceaf9e73f21b3"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
-BREVITAS_COMMIT="d4834bd2a0fad3c1fbc0ff7e1346d5dcb3797ea4"
+BREVITAS_COMMIT="003f9f4070c20639790c7b406a28612a089fc502"
 PYVERILATOR_COMMIT="ce0a08c20cb8c1d1e84181d6f392390f846adbd1"
 CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 HLSLIB_COMMIT="5c5ad631e3602a8dd5bd3399a016477a407d6ee7"
@@ -42,7 +42,7 @@ EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
 
 QONNX_URL="https://github.com/iksnagreb/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
-BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
+BREVITAS_URL="https://github.com/iksnagreb/brevitas.git"
 PYVERILATOR_URL="https://github.com/maltanar/pyverilator.git"
 CNPY_URL="https://github.com/rogersce/cnpy.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
