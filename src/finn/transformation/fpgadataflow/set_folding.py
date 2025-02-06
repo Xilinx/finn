@@ -27,12 +27,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# Inspect information on Python objects like modules
+import inspect
 import numpy as np
 import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 
+# Import the elementwise binary operation module to extract names of all
+# specializations (which require PE parallelism to be configured)
+import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls as elementwise_binary_hls
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -42,6 +47,15 @@ def divisors(num):
     for x in range(1, num + 1):
         if (num % x) == 0:
             yield x
+
+
+# Find the op-type names for all HLS specializations of elementwise binary
+# operations
+ELEMENTWISE_BINARY_OPS = [
+    op_type
+    for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
+    if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
+]
 
 
 class SetFolding(Transformation):
@@ -92,7 +106,7 @@ class SetFolding(Transformation):
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
-            if cyc < self.target_cycles_per_frame:
+            if cyc <= self.target_cycles_per_frame:
                 # finish if target met
                 break
 
@@ -107,6 +121,9 @@ class SetFolding(Transformation):
             "Thresholding_hls",
             "Thresholding_rtl",
             "ReplicateStream_hls",
+            *ELEMENTWISE_BINARY_OPS,
+            "Squeeze_hls",
+            "Unsqueeze_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
@@ -115,9 +132,13 @@ class SetFolding(Transformation):
         simd_ops = [
             "DownSampler_hls",
             "FMPadding_hls",
+            "FMPadding_rtl",
             "FMPadding_Pixel_hls",
             "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
+            # Streaming Split and Concat are SIMD operations
+            "StreamingSplit_hls",
+            "StreamingConcat_hls",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -139,7 +160,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.target_cycles_per_frame:
+                    if cyc <= self.target_cycles_per_frame:
                         # finish if target met
                         break
                     if (
@@ -225,7 +246,16 @@ class SetFolding(Transformation):
                         # depthwise SWGs are handled separately
                         continue
                 else:
-                    max_simd = node_inst.get_nodeattr("NumChannels")
+                    # Note: Keep original behavior for all custom-ops defining
+                    # the NumChannels attribute as it is
+                    try:
+                        max_simd = node_inst.get_nodeattr("NumChannels")
+                    # Note: Some of the recent additions do not define the
+                    # NumChannels attribute
+                    except AttributeError:
+                        # We can extract the channels from the normal, i.e., not
+                        # folded, shape of the input in these cases
+                        max_simd = node_inst.get_normal_input_shape()[-1]
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)

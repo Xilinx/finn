@@ -35,4 +35,21 @@
     https://pytest.org/latest/plugins.html
 """
 
-# import pytest
+import pytest
+
+import onnxruntime as ort
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_onnxruntime(request):
+    # Attempt to work around onnxruntime issue on Slurm-managed clusters:
+    # See https://github.com/microsoft/onnxruntime/issues/8313
+    # This seems to happen only when assigned CPU cores are not contiguous
+    _default_session_options = ort.capi._pybind_state.get_default_session_options()
+
+    def get_default_session_options_new():
+        _default_session_options.inter_op_num_threads = 1
+        _default_session_options.intra_op_num_threads = 1
+        return _default_session_options
+
+    ort.capi._pybind_state.get_default_session_options = get_default_session_options_new

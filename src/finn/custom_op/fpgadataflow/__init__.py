@@ -27,7 +27,43 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# The base class of all generic custom operations before specializing to either
+# HLS or RTL backend
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+
+# Dictionary of HWCustomOp implementations
+custom_op = dict()
+
+
+# Registers a class into the custom_op dictionary
+# Note: This must be defined first, before importing any custom op
+# implementation to avoid "importing partially initialized module" issues.
+def register_custom_op(cls):
+    # The class must actually implement HWCustomOp
+    assert issubclass(cls, HWCustomOp), f"{cls} must subclass {HWCustomOp}"
+    # Insert the class into the custom_op dictionary by its name
+    custom_op[cls.__name__] = cls  # noqa: Some weird type annotation issue?
+    # Pass through the class unmodified
+    return cls
+
+
+# flake8: noqa
+# Disable linting from here, as all import will be flagged E402 and maybe F401
+
+
+# Import the submodule containing specializations of ElementwiseBinaryOperation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.elementwise_binary
+
+# Import the submodule containing the Squeeze operation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.squeeze
+
+# Import the submodule containing the Unsqueeze operation
+import finn.custom_op.fpgadataflow.unsqueeze
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
+from finn.custom_op.fpgadataflow.attention import ScaledDotProductAttention
+from finn.custom_op.fpgadataflow.attention_heads import MergeMultiHeads, SplitMultiHeads
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
@@ -42,6 +78,8 @@ from finn.custom_op.fpgadataflow.labelselect import LabelSelect
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.pool import Pool
+from finn.custom_op.fpgadataflow.replicate_stream import ReplicateStream
+from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
@@ -54,14 +92,6 @@ from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
-
-from finn.custom_op.fpgadataflow.attention import ScaledDotProductAttention
-from finn.custom_op.fpgadataflow.attention_heads import (
-    SplitMultiHeads, MergeMultiHeads
-)
-from finn.custom_op.fpgadataflow.replicate_stream import ReplicateStream
-
-custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
@@ -83,6 +113,7 @@ custom_op["LabelSelect"] = LabelSelect
 custom_op["Lookup"] = Lookup
 custom_op["Pool"] = Pool
 custom_op["StreamingConcat"] = StreamingConcat
+custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["StreamingMaxPool"] = StreamingMaxPool

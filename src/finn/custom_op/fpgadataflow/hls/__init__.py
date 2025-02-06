@@ -26,6 +26,45 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# The base class of all HWCustomOp specializations to HLS backend implementation
+from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+
+# The base class of all generic custom operations before specializing to either
+# HLS or RTL backend
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+
+# Dictionary of HLSBackend implementations
+custom_op = dict()
+
+
+# Registers a class into the custom_op dictionary
+# Note: This must be defined first, before importing any custom op
+# implementation to avoid "importing partially initialized module" issues.
+def register_custom_op(cls):
+    # The class must actually implement HWCustomOp
+    assert issubclass(cls, HWCustomOp), f"{cls} must subclass {HWCustomOp}"
+    # The class must also implement the HLSBackend
+    assert issubclass(cls, HLSBackend), f"{cls} must subclass {HLSBackend}"
+    # Insert the class into the custom_op dictionary by its name
+    custom_op[cls.__name__] = cls  # noqa: Some weird type annotation issue?
+    # Pass through the class unmodified
+    return cls
+
+
+# flake8: noqa
+# Disable linting from here, as all import will be flagged E402 and maybe F401
+
+# Import the submodule containing specializations of ElementwiseBinaryOperation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls
+
+# Import the submodule containing the specialization of the Squeeze operation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.hls.squeeze_hls
+
+# Import the submodule containing the specialization of the Unsqueeze operation
+import finn.custom_op.fpgadataflow.hls.unsqueeze_hls
+
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.attention_heads_hls import (
     MergeMultiHeads_hls,
@@ -49,6 +88,7 @@ from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
 from finn.custom_op.fpgadataflow.hls.replicate_stream_hls import ReplicateStream_hls
+from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
 )
@@ -58,8 +98,6 @@ from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
 from finn.custom_op.fpgadataflow.hls.vectorvectoractivation_hls import VVAU_hls
-
-custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
@@ -77,6 +115,7 @@ custom_op["LabelSelect_hls"] = LabelSelect_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
+custom_op["StreamingSplit_hls"] = StreamingSplit_hls
 custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["StreamingMaxPool_hls"] = StreamingMaxPool_hls
