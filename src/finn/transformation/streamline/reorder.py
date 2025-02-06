@@ -93,13 +93,27 @@ class MoveAddPastMul(Transformation):
                     graph.node.insert(node_ind + 1, new_add)
                     # replace add value
                     model.set_initializer(add_weight_name, BA)
+                    # Delete the datatype annotation of the parameter tensor
+                    # TODO: Maybe we should derive the new type properly...
+                    model.set_tensor_datatype(add_weight_name, None)
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later. This prevents shapes from propagating
+                    # backwards.
+                    # Note: Do not delete annotation for the input tensor, as
+                    # this prevents future shape inference.
+                    model.set_tensor_shape(middle_name, None)
+                    model.set_tensor_shape(end_name, None)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
-
+        # Note: Running shape inference is necessary as shape
+        # annotations have been deleted above
         model = model.transform(InferShapes())
-        return (model, graph_modified)
+        # Note. Running datatype inference is necessary as datatype
+        # annotations have been deleted above
+        model = model.transform(InferDataTypes())
+        return model, graph_modified
 
 
 # Tests whether a tensor is a scalar, i.e., whether all dimensions are 1
@@ -657,6 +671,11 @@ class MoveLinearPastEltwiseAdd(Transformation):
                 if prod0.op_type == "Mul" and prod1.op_type == "Mul":
                     if np.array_equal(init0, init1):
                         self.move_node(graph, n, prod0, prod1, node_ind)
+                        # Delete shape annotations of connecting tensors to be
+                        # re-done later. This prevents wrong shape propagation,
+                        # for example in cases where the Add broadcasts shapes.
+                        model.set_tensor_shape(n.output[0], None)
+                        model.set_tensor_shape(prod0.output[0], None)
                         node_ind -= 1
                         graph_modified = True
                 elif prod0.op_type == "Add" and prod1.op_type == "Add":
@@ -664,12 +683,21 @@ class MoveLinearPastEltwiseAdd(Transformation):
                     # update initializer of prod0, which we'll move
                     model.set_initializer(prod0.input[1], init)
                     self.move_node(graph, n, prod0, prod1, node_ind)
+                    # Delete shape annotations of connecting tensors to be
+                    # re-done later. This prevents wrong shape propagation,
+                    # for example in cases where the Add broadcasts shapes.
+                    model.set_tensor_shape(n.output[0], None)
+                    model.set_tensor_shape(prod0.output[0], None)
                     node_ind -= 1
                     graph_modified = True
                 else:
                     continue
+
+        # Note: Running shape inference is necessary as shape annotations have
+        # been deleted above
         model = model.transform(InferShapes())
-        return (model, graph_modified)
+        model = model.transform(InferDataTypes())
+        return model, graph_modified
 
 
 class MoveScalarLinearPastInvariants(Transformation):
