@@ -35,7 +35,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
     """
-    Corresponds to finn-hlslib UpsampleNearestNeighbour_Batch function.
+    Corresponds to finn-hlslib UpsampleNearestNeighbour function.
     Upsampling is done with the Nearest Neighbour algorithm.
     The layer expects square feature maps for the in and output.
     """
@@ -78,7 +78,7 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         batch = self.get_nodeattr("numInputVectors")
         if is_2d:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
+                """UpsampleNearestNeighbour<OFMDim, IFMDim, IFMChannels,
                 ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
                 % (self.hls_sname(), self.hls_sname())
             ]

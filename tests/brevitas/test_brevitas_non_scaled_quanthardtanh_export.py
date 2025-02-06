@@ -43,8 +43,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -72,7 +71,8 @@ def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
         scaling_impl_type=ScalingImplType.CONST,
         narrow_range=narrow_range,
     )
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_qhardtanh_nonscaled")
+    m_path = os.path.join(build_dir, "test_brevitas_non_scaled_QuantHardTanh_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
@@ -85,4 +85,3 @@ def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_act.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

@@ -29,7 +29,7 @@
 exclude: '^docs/conf.py'
 
 default_language_version:
-    python: python3.10
+    python: python3
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -63,7 +63,7 @@ repos:
     args: [--line-length=100]
 
 - repo: https://github.com/PyCQA/flake8
-  rev: 6.0.0
+  rev: 6.1.0
   hooks:
   - id: flake8
     # black-compatible flake-8 config
