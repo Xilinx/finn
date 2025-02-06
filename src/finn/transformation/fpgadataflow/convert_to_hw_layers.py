@@ -1498,7 +1498,11 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 (WMEM * PE * SIMD) is violated."""
                 )
                 # see if we have any following thresholds
-                consumer = model.find_consumer(mm_output)
+                consumers = model.find_consumers(mm_output)
+                # Only a single consumer node can be absorbed. Absorbing one
+                # branch of a forking matmul would lead to detached nodes
+                # breaking the graph.
+                consumer = consumers[0] if len(consumers) == 1 else None
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     # TODO ensure integer thresholds?
                     # create MVTU (i.e. including activation)
@@ -1622,7 +1626,11 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                     (WMEM * PE * SIMD) is violated."""
                     )
                     # see if we have any following thresholds
-                    consumer = model.find_consumer(mm_output)
+                    consumers = model.find_consumers(mm_output)
+                    # Only a single consumer node can be absorbed. Absorbing one
+                    # branch of a forking matmul would lead to detached nodes
+                    # breaking the graph.
+                    consumer = consumers[0] if len(consumers) == 1 else None
                     if consumer is not None and consumer.op_type == "MultiThreshold":
                         # TODO ensure integer thresholds?
                         # create MVTU (i.e. including activation)
@@ -1776,7 +1784,11 @@ class InferVectorVectorActivation(Transformation):
                     # create node with pe=channels as default
                     pe = channels
                     # see if we have any following thresholds
-                    consumer = model.find_consumer(mm_output)
+                    consumers = model.find_consumers(mm_output)
+                    # Only a single consumer node can be absorbed. Absorbing one
+                    # branch of a forking matmul would lead to detached nodes
+                    # breaking the graph.
+                    consumer = consumers[0] if len(consumers) == 1 else None
                     if consumer is not None and consumer.op_type == "MultiThreshold":
                         # create VVAU (i.e. including activation)
                         mt_output = consumer.output[0]

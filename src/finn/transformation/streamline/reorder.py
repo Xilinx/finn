@@ -1938,7 +1938,10 @@ class MoveTransposePastEltwise(Transformation):
                     if (value := model.get_initializer(a)) is not None:
                         # Do not transpose scalar or effectively scalar
                         # initializers
-                        if not (value.shape is None or all(x == 1 for x in value.shape)):
+                        # fmt: off
+                        if not (value.shape is None or all(
+                                x == 1 for x in value.shape)):
+                            # fmt: on
                             # Transpose the initializer and re-insert into the
                             # model
                             # fmt: off

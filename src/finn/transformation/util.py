@@ -4,7 +4,6 @@
 
 # Protobuf onnx graph node type
 from onnx import NodeProto
-
 # QONNX wrapper of ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
 
