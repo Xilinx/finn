@@ -194,10 +194,16 @@ class MVAU_rtl(MVAU, RTLBackend):
                 % (node_name, clk2x_name, node_name, node_name, clk2x_name)
             )
         else:
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                % (node_name, clk_name, node_name, node_name)
-            )
+            if mem_mode == "internal_decoupled":
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, node_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
+                    % (node_name, clk_name, node_name)
+                )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency

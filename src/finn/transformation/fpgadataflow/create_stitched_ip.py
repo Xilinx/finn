@@ -328,6 +328,7 @@ class CreateStitchedIP(Transformation):
                     simulation glitches (e.g. dropping the first input sample
                     after reset)."""
                 )
+        global_inp_names = [inp.name for inp in model.graph.input]
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_hls_node(node) or is_rtl_node(
@@ -356,6 +357,9 @@ class CreateStitchedIP(Transformation):
                         "[get_bd_intf_pins %s/%s]"
                         % (producer.name, src_intf_name, node.name, dst_intf_name)
                     )
+                else:
+                    if node.input[i] not in global_inp_names:
+                        self.connect_s_axis_external(node, idx=i)
 
         # process external inputs and outputs in top-level graph input order
         for input in model.graph.input:
