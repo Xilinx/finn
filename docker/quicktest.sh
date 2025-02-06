@@ -11,8 +11,8 @@ elif [ $1 = "main" ]; then
   echo "Running main test suite: not (rtlsim or end2end) with pytest-xdist"
   pytest -k 'not (rtlsim or end2end)' --dist=loadfile -n $PYTEST_PARALLEL
 elif [ $1 = "rtlsim" ]; then
-  echo "Running rtlsim test suite with pytest-parallel"
-  pytest -k rtlsim --workers $PYTEST_PARALLEL
+  echo "Running rtlsim test suite with pytest-xdist"
+  pytest -k rtlsim --dist=loadfile -n $PYTEST_PARALLEL
 elif [ $1 = "end2end" ]; then
   echo "Running end2end test suite with no parallelism"
   pytest -k end2end

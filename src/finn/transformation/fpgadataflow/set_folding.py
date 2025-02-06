@@ -92,7 +92,7 @@ class SetFolding(Transformation):
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
-            if cyc < self.target_cycles_per_frame:
+            if cyc <= self.target_cycles_per_frame:
                 # finish if target met
                 break
 
@@ -106,6 +106,8 @@ class SetFolding(Transformation):
             "GlobalAccPool_hls",
             "Thresholding_hls",
             "Thresholding_rtl",
+            "Squeeze_hls",
+            "Unsqueeze_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
@@ -114,9 +116,13 @@ class SetFolding(Transformation):
         simd_ops = [
             "DownSampler_hls",
             "FMPadding_hls",
+            "FMPadding_rtl",
             "FMPadding_Pixel_hls",
             "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
+            # Streaming Split and Concat are SIMD operations
+            "StreamingSplit_hls",
+            "StreamingConcat_hls",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -138,7 +144,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.target_cycles_per_frame:
+                    if cyc <= self.target_cycles_per_frame:
                         # finish if target met
                         break
                     if (
@@ -215,7 +221,16 @@ class SetFolding(Transformation):
                         # depthwise SWGs are handled separately
                         continue
                 else:
-                    max_simd = node_inst.get_nodeattr("NumChannels")
+                    # Note: Keep original behavior for all custom-ops defining
+                    # the NumChannels attribute as it is
+                    try:
+                        max_simd = node_inst.get_nodeattr("NumChannels")
+                    # Note: Some of the recent additions do not define the
+                    # NumChannels attribute
+                    except AttributeError:
+                        # We can extract the channels from the normal, i.e., not
+                        # folded, shape of the input in these cases
+                        max_simd = node_inst.get_normal_input_shape()[-1]
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)

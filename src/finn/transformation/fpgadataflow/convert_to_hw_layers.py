@@ -32,6 +32,7 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
@@ -39,6 +40,9 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
+
+# Base class for all FINN custom ops, here just used for type-hinting
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
 class InferConvInpGen(Transformation):
@@ -1211,21 +1215,24 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn(
+                        "Inputs with undefined datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
+                    warnings.warn(
+                        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
+                    )
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1233,11 +1240,78 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
-                    ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    name="StreamingConcat_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferSplitLayer(Transformation):
+    """Convert suitable Split nodes (operating on last/-1 axis)
+    into StreamingConcat HW layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Split":
+                split_param = node.input[1]
+                if model.get_initializer(split_param) is None:
+                    warnings.warn("Split param not constant, skipping InferSplitLayer()")
+                    continue
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
+                    continue
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    warnings.warn(
+                        "StreamingSplit supports only last axis, skipping InferSplitLayer()"
+                    )
+                    continue
+                # only one input allowed (two including split_param)
+                if len(node.input) != 2:
+                    warnings.warn("Only one input allowed, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if the input is static
+                if model.get_initializer(node.input[0]) is not None:
+                    warnings.warn("Static input detected, skipping InferSplitLayer()")
+                    continue
+                # skip conversion if inputs are not integers
+                if not model.get_tensor_datatype(node.input[0]).is_integer():
+                    warnings.warn("Non-integer input detected, skipping InferSplitLayer()")
+                    continue
+                # ready for conversion
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.output]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                new_node = helper.make_node(
+                    "StreamingSplit",
+                    node.input,
+                    node.output,
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="StreamingSplit_" + node.name,
+                    SIMD=1,
+                    ChannelsPerStream=channels_per_stream,
+                    inputDataType=model.get_tensor_datatype(node.input[0]).name,
+                    numInputVectors=inp_vec,
+                    outFIFODepths=[2] * len(node.output),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1755,3 +1829,99 @@ class InferVectorVectorActivation(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+# Converts the Squeeze operation to the corresponding FINN custom operation
+class InferSqueeze(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Handles Squeeze ONNX operations
+            if node.op_type == "Squeeze":
+                # Skip already converted nodes
+                if node.domain == "finn.custom_op.fpgadataflow":
+                    # Skip without warning
+                    continue
+                # Transplant this operator into our FINN domain
+                node.domain = "finn.custom_op.fpgadataflow"  # noqa: Duplicate
+                # Now we can get the CustomOp wrapper instance providing easier
+                # attribute access
+                inst: HWCustomOp = getCustomOp(node)
+                # Set the backend attribute to mark this an operation supported
+                # to be implemented on an FPGA by FINN
+                inst.set_nodeattr("backend", "fpgadataflow")
+                # Ge the input and output tensor names
+                inp, out = node.input[0], node.output[0]
+                # Set input/output shape and datatype node attributes required
+                # by FINN custom op
+                inst.set_nodeattr("inp_dtype", str(model.get_tensor_datatype(inp)))
+                inst.set_nodeattr("inp_shape", model.get_tensor_shape(inp))
+                inst.set_nodeattr("out_dtype", str(model.get_tensor_datatype(out)))
+                inst.set_nodeattr("out_shape", model.get_tensor_shape(out))
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better/more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
+# Converts the Unsqueeze operation to the corresponding FINN custom operation
+class InferUnsqueeze(Transformation):
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Handles Squeeze ONNX operations
+            if node.op_type == "Unsqueeze":
+                # Skip already converted nodes  # noqa: Duplicate
+                if node.domain == "finn.custom_op.fpgadataflow":
+                    # Skip without warning
+                    continue
+                # Transplant this operator into our FINN domain
+                node.domain = "finn.custom_op.fpgadataflow"
+                # Now we can get the CustomOp wrapper instance providing easier
+                # attribute access
+                inst: HWCustomOp = getCustomOp(node)
+                # Set the backend attribute to mark this an operation supported
+                # to be implemented on an FPGA by FINN
+                inst.set_nodeattr("backend", "fpgadataflow")
+                # Ge the input and output tensor names
+                inp, out = node.input[0], node.output[0]
+                # Set input/output shape and datatype node attributes required
+                # by FINN custom op
+                inst.set_nodeattr("inp_dtype", str(model.get_tensor_datatype(inp)))
+                inst.set_nodeattr("inp_shape", model.get_tensor_shape(inp))
+                inst.set_nodeattr("out_dtype", str(model.get_tensor_datatype(out)))
+                inst.set_nodeattr("out_shape", model.get_tensor_shape(out))
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better/more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
