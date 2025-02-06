@@ -106,6 +106,8 @@ class SetFolding(Transformation):
             "GlobalAccPool_hls",
             "Thresholding_hls",
             "Thresholding_rtl",
+            "Squeeze_hls",
+            "Unsqueeze_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
