@@ -437,8 +437,7 @@ class QuantReluHandler(QuantActBaseHandler):
         num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
 
         assert (
-                thresholds.shape[0] == 1 or thresholds.shape[
-            0] == num_output_channels
+            thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
         ), """Quant node cannot be converted to MultiThreshold because only
             per tensor or per channel quantization supported."""
 

@@ -2,6 +2,9 @@
 # Disable formatter. This is deliberately formatted to stay within 80 characters
 # per line. Black, however, formats some lines going beyond this.
 
+# Copies of python objects, copy.deepcopy
+import copy
+
 # Numpy math and arrays
 import numpy as np
 
@@ -10,9 +13,6 @@ import os
 
 # Python warning subsystem
 import warnings
-
-# Copies of python objects, copy.deepcopy
-import copy
 
 # QONNX/FINN datatypes
 from qonnx.core.datatype import DataType
