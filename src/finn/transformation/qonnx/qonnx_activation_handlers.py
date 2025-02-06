@@ -139,6 +139,8 @@ class QuantActBaseHandler(ABC):
         graph.value_info.append(thresh_tensor)
         model.set_initializer(thresh_tensor.name, thresholds)
 
+        data_layout = model.get_tensor_layout(n.input[0])
+
         # Insert MultiThreshold node
         outp_trans_node = helper.make_node(
             "MultiThreshold",
@@ -153,6 +155,11 @@ class QuantActBaseHandler(ABC):
         # Get the MultiThreshold node instance to work with
         mt_node = graph.node[running_node_index - 1]
         mt_inst = getCustomOp(mt_node)
+
+        # Inherit the data layout from the input tensor if available
+        if data_layout is not None:
+            # Convert list to string representation of the data layout
+            mt_inst.set_nodeattr("data_layout", "".join(data_layout))
 
         # Set scale and bias
         # If these values are scalar then they can be set as attributes
@@ -395,12 +402,24 @@ class QuantReluHandler(QuantActBaseHandler):
                     else:
                         thresholds[c][t] = step / selu_scale
 
-        # First try to consider the tensor layout of the output for determining
-        # the number of output channels
-        layout = self._model.get_tensor_layout(self._q_node.output[0])
-        # If there is a layout annotation, use this to determine the index of
-        # the channel dimension
-        if layout is not None and "C" in layout:
+        # Get the shape of the input (should also be the output) tensor
+        # Note: Querying the input is more safe as we do not want to
+        # propagate shapes backwards by accident.
+        shape = self._model.get_tensor_shape(self._q_node.input[0])  # noqa
+        # First try to consider the tensor layout of the input for
+        # determining the number of output channels
+        layout = self._model.get_tensor_layout(self._q_node.input[0])
+        # If there is no layout annotation, guess based on rank of the
+        # tensor
+        # TODO: No support for Rank >= 5
+        if layout is None and len(shape) < 5:
+            # Maps tensor rank to layout annotation
+            rank_to_layout = {0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"}
+            # Lookup the layout required by this input shape
+            layout = rank_to_layout[len(shape)]
+        # If there is a layout annotation, use this to determine the index
+        # of the channel dimension
+        if layout is not None and "C" in layout:  # noqa: Duplicate
             # Lookup the index in list
             cdim = layout.index("C")
         # If no layout has been annotated or there is no channel dimension, fall
@@ -410,7 +429,7 @@ class QuantReluHandler(QuantActBaseHandler):
             cdim = 1
             # Issue a warning to the user, so they are aware of this
             warnings.warn(
-                f"No layout annotations for {self._q_node.output[0]}:"
+                f"No layout annotations for {self._q_node.input[0]}:"
                 f" Assuming channel dimension at index {cdim}"
             )
 
@@ -418,8 +437,7 @@ class QuantReluHandler(QuantActBaseHandler):
         num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
 
         assert (
-                thresholds.shape[0] == 1 or thresholds.shape[
-            0] == num_output_channels
+            thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
         ), """Quant node cannot be converted to MultiThreshold because only
             per tensor or per channel quantization supported."""
 
@@ -563,12 +581,24 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
-            # First try to consider the tensor layout of the output for
+            # Get the shape of the input (should also be the output) tensor
+            # Note: Querying the input is more safe as we do not want to
+            # propagate shapes backwards by accident.
+            shape = self._model.get_tensor_shape(self._q_node.input[0])
+            # First try to consider the tensor layout of the input for
             # determining the number of output channels
-            layout = self._model.get_tensor_layout(self._q_node.output[0])
+            layout = self._model.get_tensor_layout(self._q_node.input[0])  # noqa
+            # If there is no layout annotation, guess based on rank of the
+            # tensor
+            # TODO: No support for Rank >= 5
+            if layout is None and len(shape) < 5:
+                # Maps tensor rank to layout annotation
+                rank_to_layout = {0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"}
+                # Lookup the layout required by this input shape
+                layout = rank_to_layout[len(shape)]
             # If there is a layout annotation, use this to determine the index
             # of the channel dimension
-            if layout is not None and "C" in layout:
+            if layout is not None and "C" in layout:  # noqa: Duplicate
                 # Lookup the index in list
                 cdim = layout.index("C")
             # If no layout has been annotated or there is no channel dimension,
@@ -578,7 +608,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 cdim = 1
                 # Issue a warning to the user, so they are aware of this
                 warnings.warn(
-                    f"No layout annotations for {self._q_node.output[0]}:"
+                    f"No layout annotations for {self._q_node.input[0]}:"
                     f" Assuming channel dimension at index {cdim}"
                 )
 

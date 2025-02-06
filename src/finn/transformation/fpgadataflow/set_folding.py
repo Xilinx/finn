@@ -106,6 +106,8 @@ class SetFolding(Transformation):
             "GlobalAccPool_hls",
             "Thresholding_hls",
             "Thresholding_rtl",
+            "Squeeze_hls",
+            "Unsqueeze_hls",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
@@ -120,7 +122,7 @@ class SetFolding(Transformation):
             "ConvolutionInputGenerator_rtl",
             # Streaming Split and Concat are SIMD operations
             "StreamingSplit_hls",
-            "StreamingConcat_hls"
+            "StreamingConcat_hls",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring

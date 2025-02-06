@@ -322,7 +322,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 
 
 # board
-@pytest.mark.parametrize("board", ["U250"])
+@pytest.mark.parametrize("board", ["U280"])
 # clock period
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
