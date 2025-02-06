@@ -89,6 +89,11 @@ def make_single_multithresholding_modelwrapper(
 
     node_inp_list = ["inp", "thresh"]
 
+    # Maps tensor rank to layout annotation
+    rank_to_layout = {0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NHWC"}
+    # Lookup the layout required by this input shape
+    data_layout = rank_to_layout[len(num_input_vecs + [num_channels])]
+
     Multithresholding_node = helper.make_node(
         "MultiThreshold",
         node_inp_list,
@@ -97,7 +102,7 @@ def make_single_multithresholding_modelwrapper(
         out_dtype=output_data_type.name,
         out_bias=float(activation_bias),
         out_scale=1.0,
-        data_layout="NHWC",
+        data_layout=data_layout,
     )
 
     graph = helper.make_graph(
