@@ -29,15 +29,10 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
-
-# Protobuf onnx graph node type
-from onnx import NodeProto  # noqa
 from onnx import helper as oh
-# Protobuf onnx graph node type
-from onnx import NodeProto  # noqa
-# QONNX wrapper of ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.datatype import DataType
+
+# QONNX wrapper of ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -46,6 +41,9 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
 from finn.transformation.util import group_inputs_by_category
+
+# Protobuf onnx graph node type
+from onnx import NodeProto  # noqa
 
 
 # Note: Old name kept for compatibility reasons but actually allows to absorb
@@ -184,19 +182,6 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
         # Transformed model and indication whether the transformation should be
         # applied again
         return model, graph_modified
-
-
-# Groups inputs by categories, i.e., groups dynamic inputs first, followed by
-# initializers. Keeps order of inputs in each category.
-def group_inputs_by_category(node: NodeProto, model: ModelWrapper):  # noqa
-    # First select all dynamic inputs, which are those without initializer
-    # tensor
-    dynamics = [i for i in node.input if model.get_initializer(i) is None]
-    # Select all input which are initializers, which, by exclusion, are all
-    # those not among the dynamic inputs
-    initializers = [i for i in node.input if i not in dynamics]
-    # Return lists of dynamic anc initializer inputs
-    return dynamics, initializers
 
 
 class AbsorbAddIntoMultiThreshold(Transformation):
