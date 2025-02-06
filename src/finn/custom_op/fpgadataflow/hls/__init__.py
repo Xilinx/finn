@@ -54,12 +54,17 @@ def register_custom_op(cls):
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
+# Import the submodule containing specializations of ElementwiseBinaryOperation
+# Note: This will automatically register all decorated classes into this domain
+import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls
+
 # Import the submodule containing the specialization of the Squeeze operation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.hls.squeeze_hls
 
 # Import the submodule containing the specialization of the Unsqueeze operation
 import finn.custom_op.fpgadataflow.hls.unsqueeze_hls
+
 from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
