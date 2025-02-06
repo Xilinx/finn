@@ -296,7 +296,32 @@ class InferUpsample(Transformation):
                 if n.op_type == "Upsample":
                     scales = model.get_initializer(n.input[1])
                 else:
-                    scales = model.get_initializer(n.input[2])
+                    if len(n.input) == 2:
+                        # Resize version 10
+                        scales = model.get_initializer(n.input[1])
+                    elif len(n.input) == 3:
+                        # Resize version 11 and up (no size input)
+                        scales = model.get_initializer(n.input[2])
+                    elif len(n.input) == 4:
+                        # Resize version 11 and up
+                        scales_exists = (model.get_initializer(n.input[2]) is not None) and (
+                            len(model.get_initializer(n.input[2])) != 0
+                        )
+                        sizes_exists = (model.get_initializer(n.input[3]) is not None) and (
+                            len(model.get_initializer(n.input[3])) != 0
+                        )
+                        assert scales_exists ^ sizes_exists, (
+                            "%s: Either scales or the target output size must "
+                            "be specified. Specifying both is prohibited." % n.name
+                        )
+                        if scales_exists:
+                            # Scales input
+                            scales = model.get_initializer(n.input[2])
+                        else:
+                            # Convert sizes to scales
+                            sizes = model.get_initializer(n.input[3])
+                            data_input_size = model.get_tensor_shape(n.input[0])
+                            scales = sizes / data_input_size
                 in_shape = model.get_tensor_shape(n.input[0])
 
                 dt = model.get_tensor_datatype(n.input[0])
