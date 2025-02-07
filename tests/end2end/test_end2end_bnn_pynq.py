@@ -458,7 +458,7 @@ def pytest_generate_tests(metafunc):
             argvalues_scenario = [x[1] for x in items]
             argvalues.append(
                 pytest.param(
-                    *argvalues_scenario, marks=pytest.mark.xdist_group(name="group_%d" % i)
+                    *argvalues_scenario, marks=pytest.mark.xdist_group(name="bnn_pynq_%d" % i)
                 )
             )
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
