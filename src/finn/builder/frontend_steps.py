@@ -138,7 +138,9 @@ def step_convert_to_thresholds(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(InferDataLayouts())
     model = model.transform(
         ConvertQONNXtoFINN(
-            filter_function=default_filter_function_generator(max_multithreshold_bit_width=8)
+            filter_function=default_filter_function_generator(
+                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            )
         )
     )
     model = model.transform(RemoveIdentityOps())
