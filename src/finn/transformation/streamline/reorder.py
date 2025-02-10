@@ -594,6 +594,7 @@ class MoveLinearPastEltwiseAdd(Transformation):
         model = model.transform(InferShapes())
         return (model, graph_modified)
 
+
 class MoveLinearPastEltwiseMul(Transformation):
     """Move linear operations (mul) past elementwise mul operations where possible.
     Specifically,matches and transforms the following patterns:
@@ -627,7 +628,7 @@ class MoveLinearPastEltwiseMul(Transformation):
         nodes = [n for n in graph.node]
         for n in nodes:
             node_ind += 1
-            #checking if the operation is eltwisemul
+            # checking if the operation is eltwisemul
             if n.op_type == "Mul":
                 in0 = n.input[0]
                 in1 = n.input[1]
@@ -650,17 +651,18 @@ class MoveLinearPastEltwiseMul(Transformation):
                 if init0 is None or init1 is None:
                     continue
                 if prod0.op_type == "Mul" and prod1.op_type == "Mul":
-                    # Adding the update intializer condition 
-                    init = init0*init1                        
+                    # Adding the update intializer condition
+                    init = init0 * init1
                     # update initializer of prod0, the node which will move
-                    model.set_initializer(prod0.input[1],init) 
-                    self.move_node(graph,n,prod0,prod1,node_ind)
+                    model.set_initializer(prod0.input[1], init)
+                    self.move_node(graph, n, prod0, prod1, node_ind)
                     node_ind -= 1
                     graph_modified = True
                 else:
                     continue
         model = model.transform(InferShapes())
         return (model, graph_modified)
+
 
 class MoveScalarLinearPastInvariants(Transformation):
     """Move scalar linear operations (mul, add) past functions which are invariant
