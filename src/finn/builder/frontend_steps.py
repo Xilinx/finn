@@ -181,11 +181,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # input quantization (if any) as standalone threshold
     model = model.transform(to_hw.InferThresholdingLayer())
     # typical layers for convnets / vision
-    model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferStreamingMaxPool())
     model = model.transform(to_hw.InferPool())
-    # TODO replace by passthrough inference to keep shape semantics intact
-    model = model.transform(RemoveCNVtoFCFlatten())
+    model = model.transform(to_hw.InferConvInpGen())
     # standalone elementwise ops, activations and quantizers
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
@@ -195,6 +193,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # get rid of Tranpose -> Tranpose identity seq
     # TODO this should not be necessary after chans-last conversion
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
+    # TODO replace by passthrough inference to keep shape semantics intact
+    model = model.transform(RemoveCNVtoFCFlatten())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
 
