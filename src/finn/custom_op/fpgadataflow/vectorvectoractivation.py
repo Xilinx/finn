@@ -101,6 +101,7 @@ class VVAU(HWCustomOp):
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0, {0, 1}),
+            "pumpedMemory": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -836,6 +837,17 @@ class VVAU(HWCustomOp):
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            # if we need a 2x clock for either compute or memory, instantiate the 2x clk port
+            try:
+                pumped_compute = self.get_nodeattr("pumpedCompute")
+            except AttributeError:
+                pumped_compute = 0
+
+            if pumped_compute or self.get_nodeattr("pumpedMemory"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk2x_name))
+            else:
+                clk2x_name = None
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
@@ -883,6 +895,18 @@ class VVAU(HWCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
+            # if using 2x pumped memory, connect the memstreamer's 2x clk input
+            # to the 2x clock port. otherwise connect it to the regular clock port.
+            if self.get_nodeattr("pumpedMemory"):
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk2x_name, node_name, strm_inst)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, strm_inst)
+                )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)

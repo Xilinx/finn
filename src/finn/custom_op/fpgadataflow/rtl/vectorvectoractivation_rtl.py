@@ -48,7 +48,10 @@ class VVAU_rtl(VVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # Double-pumped DSPs enabled
+            "pumpedCompute": ("i", False, 0, {0, 1}),
+        }
         my_attrs.update(VVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
@@ -183,6 +186,21 @@ class VVAU_rtl(VVAU, RTLBackend):
                     self.get_nodeattr("gen_top_module"),
                     self.onnx_node.name,
                 )
+            )
+        # if using 2x pumped compute, connect the VVU's 2x clk input
+        # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
+            clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+            node_name = self.onnx_node.name
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+            )
+        else:
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                % (node_name, clk_name, node_name, node_name)
             )
 
     def generate_hdl(self, model, fpgapart, clk):
