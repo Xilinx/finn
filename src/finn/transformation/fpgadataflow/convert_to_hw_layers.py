@@ -1632,28 +1632,42 @@ class InferVectorVectorActivation(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
-        for n in graph.node:
+        for node in graph.node:
             node_ind += 1
-            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is not None:
-                sparsity = model.get_tensor_sparsity(n.input[1])
-                try:
-                    k_h, k_w = sparsity["dw"]["kernel_shape"]
-                except KeyError:
-                    raise Exception(
-                        n.name
-                        + """: sparsity annotation doesn't indicate that MatMul
-                        belongs to a depthwise convolution."""
-                    )
-
-                mm_input = n.input[0]
-                mm_weight = n.input[1]
-                mm_output = n.output[0]
+            if node.op_type == "MatMul":
+                # two ways in which we can infer MatMuls from depthwise convs:
+                # - sparsity annotation from LowerConvsToMatMul
+                # - producer is Im2Col with depthwise=1
+                sparsity = model.get_tensor_sparsity(node.input[1])
+                if not (sparsity is None):
+                    try:
+                        k_h, k_w = sparsity["dw"]["kernel_shape"]
+                    except KeyError:
+                        raise Exception(
+                            node.name
+                            + """: sparsity annotation doesn't indicate that MatMul
+                            belongs to a depthwise convolution."""
+                        )
+                else:
+                    # check if producer is Im2Col with depthwise=1
+                    producer = model.find_producer(node.input[0])
+                    if producer is None:
+                        continue
+                    if producer.op_type != "Im2Col":
+                        continue
+                    inst = getCustomOp(producer)
+                    if inst.get_nodeattr("depthwise") != 1:
+                        continue
+                    k_h, k_w = inst.get_nodeattr("kernel_size")
+                mm_input = node.input[0]
+                mm_weight = node.input[1]
+                mm_output = node.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
                 idt = model.get_tensor_datatype(mm_input)
                 wdt = model.get_tensor_datatype(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
-                    mm_output = n.output[0]
+                    mm_output = node.output[0]
                     W = model.get_initializer(mm_weight)
                     # infer dense weight tensor from sparse weight matrix
                     # kernel size (k_h, k_w) which was extracted above and the value of
@@ -1721,11 +1735,11 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
-                            name="VVAU_" + n.name,
+                            name="VVAU_" + node.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
-                        graph.node.remove(n)
+                        graph.node.remove(node)
                         graph.node.remove(consumer)
                         graph_modified = True
                     else:
@@ -1749,11 +1763,11 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
-                            name="VVAU_" + n.name,
+                            name="VVAU_" + node.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
-                        graph.node.remove(n)
+                        graph.node.remove(node)
                         graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())
