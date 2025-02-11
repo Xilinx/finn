@@ -120,6 +120,8 @@ else
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
 fi
 
+export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/qonnx-activations
+
 if [ -f "$HLS_PATH/settings64.sh" ];then
   # source Vitis HLS env.vars
   source $HLS_PATH/settings64.sh
