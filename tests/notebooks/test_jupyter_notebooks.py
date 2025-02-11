@@ -1,6 +1,7 @@
 import pytest
 
 import nbformat
+import os
 from nbconvert.preprocessors import ExecutePreprocessor
 
 from finn.util.basic import get_finn_root
@@ -80,8 +81,16 @@ bnn_notebooks = [
 @pytest.mark.parametrize(
     "notebook", basics_notebooks + advanced_notebooks + cyber_notebooks + bnn_notebooks
 )
-def test_notebook_exec(notebook):
+def test_notebook_exec(notebook, request):
     with open(notebook) as f:
+        # Set different NETRON_PORT for each xdist group to avoid conflicts
+        xdist_groups = ["notebooks_general", "notebooks_cybsec", "notebooks_cnv", "notebooks_tfc"]
+        for mark in request.node.own_markers:
+            if mark.name == "xdist_group":
+                group = mark.kwargs["name"]
+                os.environ["NETRON_PORT"] = str(8081 + xdist_groups.index(group))
+                break
+
         nb = nbformat.read(f, as_version=4)
         ep = ExecutePreprocessor(timeout=notebook_timeout_seconds, kernel_name="python3")
         try:
