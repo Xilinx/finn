@@ -232,7 +232,7 @@ class DataflowBuildConfig:
     #: Only relevant if target_fps is specified.
     #: Set this to a large value (e.g. 10000) if targeting full unfolding or
     #: very high performance.
-    mvau_wwidth_max: Optional[int] = 36
+    mvau_wwidth_max: Optional[int] = 1024
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HW layers,
