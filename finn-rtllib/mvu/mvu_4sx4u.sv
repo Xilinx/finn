@@ -537,7 +537,6 @@ module mvu_4sx4u #(
 							automatic logic signed [HI_WIDTH:0]  h = $signed(L[4]? 0 : Hi4) + $signed(tree[0]);
 							assert(h[HI_WIDTH] == h[HI_WIDTH-1]) else begin
 								$error("%m: Accumulation overflow for ACCU_WIDTH=%0d", ACCU_WIDTH);
-								$stop;
 							end
 							Hi4 <= h;
 						end

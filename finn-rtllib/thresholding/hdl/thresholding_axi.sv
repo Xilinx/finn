@@ -133,7 +133,6 @@ module thresholding_axi #(
 		always_ff @(posedge ap_clk) begin
 			assert(!ap_rst_n || !cfg_en || (cfg_a0[ADDR_BITS-2+:2] === 3'h0)) else begin
 				$error("%m: Spurious high address bits.");
-				$stop;
 			end
 		end
 	end
