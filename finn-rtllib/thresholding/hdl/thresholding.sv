@@ -343,7 +343,6 @@ module thresholding #(
 			if(aload) begin
 				assert(APtr < $signed(A_DEPTH-1)) else begin
 					$error("Overrun after failing stream guard.");
-					$stop;
 				end
 				foreach(pipe[pe])  ADat[0][pe] <= pipe[pe][N].ptr;
 				for(int unsigned  i = 1; i < A_DEPTH; i++)  ADat[i] <= ADat[i-1];
