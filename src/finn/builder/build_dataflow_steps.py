@@ -1,5 +1,5 @@
-# Copyright (c) 2020 Xilinx, Inc.
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2020-2022 Xilinx, Inc.
+# Copyright (C) 2022-2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -209,11 +209,13 @@ def verify_step(
                 res_str,
             )
             np.save(verification_output_fn, out_npy)
+
         if cfg.verify_save_rtlsim_waveforms:
-            vcd_path = model.get_metadata_prop("rtlsim_trace")
-            if vcd_path is not None and os.path.isfile(vcd_path):
-                new_vcd_path = vcd_path.replace(".vcd", "_%d.vcd" % b)
-                shutil.move(vcd_path, new_vcd_path)
+            wdb_path = model.get_metadata_prop("rtlsim_trace")
+            if wdb_path is not None and os.path.isfile(wdb_path):
+                new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
+                shutil.move(wdb_path, new_wdb_path)
+
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
@@ -585,7 +587,11 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     + "in FINN C++ verilator driver, falling back to Python"
                 )
             if cfg.fifosim_save_waveform:
-                model.set_metadata_prop("rtlsim_trace", "fifosim_trace.wdb")
+                report_dir = cfg.output_dir + "/report"
+                os.makedirs(report_dir, exist_ok=True)
+                model.set_metadata_prop(
+                    "rtlsim_trace", os.path.abspath(report_dir) + "/fifosim_trace.wdb"
+                )
             model = model.transform(
                 InsertAndSetFIFODepths(
                     cfg._resolve_fpga_part(),
@@ -596,9 +602,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                 )
             )
-            if cfg.fifosim_save_waveform:
-                # un-set rtlsim_trace to remove unwanted traces in later steps
-                model.set_metadata_prop("rtlsim_trace", "")
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
         else:
@@ -680,9 +683,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )
         if cfg.verify_save_rtlsim_waveforms:
-            report_dir = cfg.output_dir + "/report"
-            os.makedirs(report_dir, exist_ok=True)
-            verify_model.set_metadata_prop("rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir))
+            verify_out_dir = cfg.output_dir + "/verification_output"
+            os.makedirs(verify_out_dir, exist_ok=True)
+            abspath = os.path.abspath(verify_out_dir)
+            verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
@@ -699,6 +703,16 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         ), "rtlsim_perf needs stitched IP"
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
+        rtlsim_bs = int(cfg.rtlsim_batch_size)
+        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
+        assert rtlsim_bs > 0, "rtlsim batch size must be >0"
+        if cfg.verify_save_rtlsim_waveforms:
+            # set depth to 3 for layer-by-layer visibility
+            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            model.set_metadata_prop(
+                "rtlsim_trace",
+                "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
+            )
         # prepare ip-stitched rtlsim
         rtlsim_model = deepcopy(model)
         rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
@@ -710,17 +724,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "Multi-in/out streams currently not supported "
                 + "in FINN C++ verilator driver, falling back to Python"
             )
-        rtlsim_bs = int(cfg.rtlsim_batch_size)
-        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
         if force_python_rtlsim:
-            assert rtlsim_bs > 0, "rtlsim batch size must be >0"
-            if cfg.verify_save_rtlsim_waveforms:
-                # set depth to 3 for layer-by-layer visibility
-                os.environ["RTLSIM_TRACE_DEPTH"] = "3"
-                rtlsim_model.set_metadata_prop(
-                    "rtlsim_trace",
-                    "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs),
-                )
             rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
             # run with single input to get latency
             rtlsim_latency_dict = throughput_test_rtlsim(rtlsim_model, 1)
