@@ -37,6 +37,7 @@ from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.transformation.streamline import Streamline
 from qonnx.util.range_analysis import RangeInfo
+from quant_to_multithreshold import QuantToMultiThreshold
 from warnings import warn
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -133,7 +134,27 @@ def step_convert_to_channels_last(model: ModelWrapper, cfg: DataflowBuildConfig)
     return model
 
 
-def step_convert_to_thresholds(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(absorb.FactorOutMulSignMagnitude())
+    model = model.transform(absorb.Absorb1BitMulIntoMatMul())
+    model = model.transform(absorb.Absorb1BitMulIntoConv())
+
+    model = model.transform(
+        QuantToMultiThreshold(range_info=cfg.input_range_info[0], enum_rescale=1.0)
+    )
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataTypes())
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(InferDataTypes())
+
+    step_name = "step_convert_to_thresholds"
+    if step_name in cfg._resolve_verification_steps():
+        verify_step(model, cfg, step_name, need_parent=False)
+    return model
+
+
+def step_convert_to_thresholds_old(model: ModelWrapper, cfg: DataflowBuildConfig):
     # TODO to be replaced by the new threshold conversion methodology when it's ready
     model = model.transform(InferDataLayouts())
     model = model.transform(
