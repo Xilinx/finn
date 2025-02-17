@@ -576,14 +576,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
-            # multi-in/out streams currently not supported in our C++ verilator driver
-            model_multi_io = len(model.graph.input) > 1 or len(model.graph.output) > 1
-            force_python_sim = model_multi_io or cfg.force_python_rtlsim
-            if model_multi_io:
-                warnings.warn(
-                    "Multi-in/out streams currently not supported "
-                    + "in FINN C++ verilator driver, falling back to Python"
-                )
+            force_python_sim = cfg.force_python_rtlsim
             if cfg.fifosim_save_waveform:
                 model.set_metadata_prop("rtlsim_trace", "fifosim_trace.wdb")
             model = model.transform(
