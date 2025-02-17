@@ -261,7 +261,7 @@ class FactorOutMulSignMagnitude(Transformation):
 
 
 class Absorb1BitMulIntoMatMul(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding matrix
+    """Absorb bipolar or binary multiplications into the preceding matrix
     multiply."""
 
     def apply(self, model):
@@ -274,6 +274,11 @@ class Absorb1BitMulIntoMatMul(Transformation):
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
                 Wdt = model.get_tensor_datatype(matmul_weight_name)
+                if W is None:
+                    # see if we can find a weight quantizer
+                    q_cand = model.find_producer(matmul_weight_name)
+                    if q_cand is not None and q_cand.op_type == "Quant":
+                        W = model.get_initializer(q_cand.input[0])
                 assert W is not None, "Initializer for matmul weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
@@ -302,7 +307,7 @@ class Absorb1BitMulIntoMatMul(Transformation):
 
 
 class Absorb1BitMulIntoConv(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding convolution."""
+    """Absorb bipolar or binary multiplications into the preceding convolution."""
 
     def apply(self, model):
         graph = model.graph
@@ -314,6 +319,11 @@ class Absorb1BitMulIntoConv(Transformation):
                 conv_weight_name = n.input[1]
                 W = model.get_initializer(conv_weight_name)
                 Wdt = model.get_tensor_datatype(conv_weight_name)
+                if W is None:
+                    # see if we can find a weight quantizer
+                    q_cand = model.find_producer(conv_weight_name)
+                    if q_cand is not None and q_cand.op_type == "Quant":
+                        W = model.get_initializer(q_cand.input[0])
                 assert W is not None, "Initializer for conv weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
