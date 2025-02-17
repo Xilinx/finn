@@ -140,7 +140,13 @@ def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig
     model = model.transform(absorb.Absorb1BitMulIntoConv())
 
     model = model.transform(
-        QuantToMultiThreshold(range_info=cfg.input_range_info[0], enum_rescale=1.0)
+        QuantToMultiThreshold(
+            range_info=cfg.input_range_info[0],
+            enum_rescale=1.0,
+            quant_filter=default_filter_function_generator(
+                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            ),
+        )
     )
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
