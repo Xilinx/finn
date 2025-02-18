@@ -176,7 +176,7 @@ def rtlsim_exec_cppxsi(
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-        debug = not (trace_file is None) or trace_file != ""
+        debug = not (trace_file is None or trace_file == "")
         rtlsim_so = pyxsi_utils.compile_sim_obj(
             top_module_name, all_verilog_srcs, single_src_dir, debug=debug
         )
@@ -356,7 +356,7 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-        debug = not (trace_file is None) or trace_file != ""
+        debug = not (trace_file is None or trace_file == "")
         rtlsim_so = pyxsi_utils.compile_sim_obj(
             top_module_name, all_verilog_srcs, single_src_dir, debug=debug
         )
@@ -474,7 +474,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     backend = model.get_metadata_prop("rtlsim_backend")
     if backend == "pyverilator":
         rtlsim_exec_pyverilator(model, execution_context, pre_hook, post_hook)
-    elif backend == "pyxsi":
+    elif backend == "pyxsi" or backend is None:
         rtlsim_exec_pyxsi(model, execution_context, pre_hook, post_hook)
     else:
         assert False, f"Unrecognized rtlsim_backend value: {backend}"
