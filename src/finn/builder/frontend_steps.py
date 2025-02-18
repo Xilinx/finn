@@ -46,6 +46,9 @@ from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.builder.build_dataflow_steps import verify_step
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.infer_quant_avg_pool_2d import (
+    AvgPoolAndTruncToQuantAvgPool,
+)
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
 )
@@ -148,6 +151,9 @@ def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig
             ),
         )
     )
+    # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
+    model = model.transform(AvgPoolAndTruncToQuantAvgPool())
+    model = model.transform(RemoveIdentityOps())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
