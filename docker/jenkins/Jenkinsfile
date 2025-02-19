@@ -324,21 +324,17 @@ void runDockerPytestWithMarker(String marker, String testResultsFilename, String
   sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
 }
 
-def findBoardBuildFiles(String searchDir, String dirToFind) {
-  def result = sh(script: "find $searchDir -type d -name \"$dirToFind*\"", returnStdout: true).trim()
-  if (result.empty) {
-      error "Directory containing '$dirToFind' not found."
-  }
-	return result
-}
-
 void findCopyZip(String board, String findDir, String copyDir) {
-  def buildDir = findBoardBuildFiles(findDir, "hw_deployment_${board}")
-  sh "cp -r ${buildDir}/${board} ${copyDir}/"
-  dir(copyDir) {
-    sh "zip -r ${board}.zip ${board}/"
-    sh "mkdir -p ${env.ARTIFACT_DIR}/${copyDir}/"
-    sh "cp ${board}.zip ${env.ARTIFACT_DIR}/${copyDir}/"
+  sh "mkdir -p ${copyDir}"
+  try {
+    sh "cp -r ${findDir}/hw_deployment_*/${board} ${copyDir}/"
+    dir(copyDir) {
+      sh "zip -r ${board}.zip ${board}/"
+      sh "mkdir -p ${env.ARTIFACT_DIR}/${copyDir}/"
+      sh "cp ${board}.zip ${env.ARTIFACT_DIR}/${copyDir}/"
+    }
+  } catch (err) {
+    error "No ${board} hw_deployment_* build artifacts found in ${findDir}"
   }
 }
 
