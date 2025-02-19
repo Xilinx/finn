@@ -93,7 +93,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow")
+                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow -n ${env.NUM_PYTEST_WORKERS} --dist worksteal")
 
                 // Stash the test results file(s)
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
