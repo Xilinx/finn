@@ -40,7 +40,7 @@ RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
 PYXSI_COMMIT="941bb62a4a3cc2c8cf2a9b89187c60bb0b776658"
-ACTS_COMMIT="669bcc3b08a920a07c43f8ec66602197f4a57e63"
+ACTS_COMMIT="78c5dcaa3a6f40235f933f3ce650d64a2e4fc855"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -54,7 +54,7 @@ XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 PYXSI_URL="https://github.com/maltanar/pyxsi.git"
-ACTS_URL="https://github.com/maltanar/activations.git"
+ACTS_URL="https://github.com/iksnagreb/activations.git"
 
 
 QONNX_DIR="qonnx"
