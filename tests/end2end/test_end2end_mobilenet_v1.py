@@ -450,7 +450,6 @@ def test_end2end_mobilenet_set_fifo_depths():
             target_clk_ns,
             swg_exception=False,
             vivado_ram_style="auto",
-            force_python_sim=False,
         )
     )
     # perform FIFO splitting and shallow FIFO removal only after the final config

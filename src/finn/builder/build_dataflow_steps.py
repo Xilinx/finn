@@ -31,7 +31,6 @@ import json
 import numpy as np
 import os
 import shutil
-import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
@@ -75,7 +74,6 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
-from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -578,7 +576,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
-            force_python_sim = cfg.force_python_rtlsim
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
                 os.makedirs(report_dir, exist_ok=True)
@@ -591,7 +588,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_hls_clk_period(),
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
-                    force_python_sim=force_python_sim,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                 )
             )
@@ -706,37 +702,18 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "rtlsim_trace",
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
-        # prepare ip-stitched rtlsim
-        rtlsim_model = deepcopy(model)
-        rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
-        # multi-in/out streams currently not supported in our C++ verilator driver
-        model_multi_io = len(rtlsim_model.graph.input) > 1 or len(rtlsim_model.graph.output) > 1
-        force_python_rtlsim = cfg.force_python_rtlsim or model_multi_io
-        if model_multi_io:
-            warnings.warn(
-                "Multi-in/out streams currently not supported "
-                + "in FINN C++ verilator driver, falling back to Python"
-            )
-        if force_python_rtlsim:
-            rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
-            # run with single input to get latency
-            rtlsim_latency_dict = throughput_test_rtlsim(rtlsim_model, 1)
-            # run with batch to get stable-state throughput
-            rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
-            rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_dict["cycles"]
-        else:
-            rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs)
-            # keep keys consistent between the Python and C++-styles
-            cycles = rtlsim_perf_dict["cycles"]
-            clk_ns = float(model.get_metadata_prop("clk_ns"))
-            fclk_mhz = 1 / (clk_ns * 0.001)
-            runtime_s = (cycles * clk_ns) * (10**-9)
-            rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
-            rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
-            rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
-            for key, val in rtlsim_perf_dict.items():
-                if "max_count" in key:
-                    del rtlsim_perf_dict[key]
+        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs)
+        # keep keys consistent between the Python and C++-styles
+        cycles = rtlsim_perf_dict["cycles"]
+        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        fclk_mhz = 1 / (clk_ns * 0.001)
+        runtime_s = (cycles * clk_ns) * (10**-9)
+        rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
+        rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
+        rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
+        for key, val in rtlsim_perf_dict.items():
+            if "max_count" in key:
+                del rtlsim_perf_dict[key]
         # estimate stable-state throughput based on latency+throughput
         if rtlsim_bs == 1:
             rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict[
