@@ -169,7 +169,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
 
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(MinimizeAccumulatorWidth())
 
     for n in model.graph.node:

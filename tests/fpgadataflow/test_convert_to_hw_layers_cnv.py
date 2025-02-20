@@ -111,7 +111,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
         if is_fpgadataflow_node(node):
             inst = getCustomOp(node)
             inst.set_nodeattr("preferred_impl_style", "hls")
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     for node in model.graph.node:
         if node.op_type == "MVAU_hls":
             inst = getCustomOp(node)

@@ -246,7 +246,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
-    model = model.transform(SpecializeLayers(fpgapart=fpga_part))
+    model = model.transform(SpecializeLayers(fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model.save(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
@@ -353,6 +353,7 @@ def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
 

@@ -13,6 +13,7 @@
     "initial_python",
     "streamlined_python",
     "folded_hls_cppsim",
+    "node_by_node_rtlsim",
     "stitched_ip_rtlsim"
   ],
   "generate_outputs": [

@@ -98,7 +98,7 @@ def test_fpgadataflow_concat(exec_mode, idt):
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     assert model.graph.node[0].op_type == "StreamingConcat_hls"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     if exec_mode == "cppsim":
@@ -141,11 +141,11 @@ def test_fpgadataflow_concat_stitchedip():
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "StreamingConcat_hls"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
-    model = model.transform(SpecializeLayers())
+    model = model.transform(SpecializeLayers(fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(fpga_part, clk_ns))
     model = model.transform(HLSSynthIP())

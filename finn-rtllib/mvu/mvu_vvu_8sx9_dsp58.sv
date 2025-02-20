@@ -35,9 +35,10 @@ module mvu_vvu_8sx9_dsp58 #(
 	bit IS_MVU,
     int unsigned PE,
     int unsigned SIMD,
-    int unsigned ACTIVATION_WIDTH,
-    int unsigned WEIGHT_WIDTH,
-	int unsigned ACCU_WIDTH,
+	int unsigned  WEIGHT_WIDTH,
+	int unsigned  ACTIVATION_WIDTH,
+	int unsigned  ACCU_WIDTH,
+
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
 	bit FORCE_BEHAVIORAL = 0,
