@@ -33,7 +33,6 @@ import os
 import shutil
 import warnings
 from copy import deepcopy
-from distutils.dir_util import copy_tree
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -122,6 +121,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
@@ -280,7 +280,7 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
-        verify_step(model, cfg, "qonnx_to_finn_python", need_parent=False)
+        verify_step(model, cfg, "finn_onnx_python", need_parent=False)
 
     return model
 
@@ -504,6 +504,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth())
         model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(RoundAndClipThresholds())
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes())
     return model
@@ -528,6 +529,11 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
+
+    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        model = model.transform(PrepareRTLSim())
+        model = model.transform(SetExecMode("rtlsim"))
+        verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
 
@@ -650,7 +656,9 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
         )
         # TODO copy all ip sources into output dir? as zip?
-        copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+        shutil.copytree(
+            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        )
         print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
@@ -662,7 +670,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         estimate_network_performance = verify_model.analysis(dataflow_performance)
         prev_liveness = pyverilate_get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"])
+            int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
@@ -755,7 +763,7 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         driver_dir = os.path.join(cfg.output_dir, "driver")
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
-        copy_tree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+        shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
     return model
 
@@ -886,8 +894,8 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
-        copy_tree(bitfile_dir, deploy_dir + "/bitfile")
-        copy_tree(driver_dir, deploy_dir + "/driver")
+        shutil.copytree(bitfile_dir, deploy_dir + "/bitfile", dirs_exist_ok=True)
+        shutil.copytree(driver_dir, deploy_dir + "/driver", dirs_exist_ok=True)
     return model
 
 
