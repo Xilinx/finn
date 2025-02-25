@@ -30,7 +30,7 @@ import onnxruntime as rt
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
-
+from finn.util.basic import Characteristic_Node
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
@@ -182,54 +182,45 @@ class LabelSelect(HWCustomOp):
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
-        exp_cycles = nlabels / pe
+        K = self.get_nodeattr("K")
+        exp_cycles = nlabels // pe + K
         return int(exp_cycles)
 
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
+        # this depends on the kernel type, hls or rtl etc
 
+        # extract node attr
         num_in_words = self.get_nodeattr("Labels")
         PE = self.get_nodeattr("PE")
         K = self.get_nodeattr("K")
 
-        kwargs = (num_in_words, PE, K)
+        NF = num_in_words // PE
 
-        # assert True==False
+        output_delay = int(np.log2(num_in_words))+1
 
-        return kwargs
 
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        # Compute one period of the input characteristic function
+        read_k = Characteristic_Node(
+            "read only",
+            [(NF, [1,0])],
+            True)
+        
+        compute_k = Characteristic_Node(
+            "compute k",
+             [(output_delay,[0,0])],
+            True)
+                
+        write_k = Characteristic_Node(
+            "write k", 
+            [(K, [0,1])],
+            True)       
+        
+        labelselect_top = Characteristic_Node(
+            "Fill feature map",
+            [(1, read_k),
+             (1, compute_k), 
+             (1,write_k)],
+            False
+        )
 
-        (num_in_words, PE, K) = kwargs
-
-        # input
-        for i in range(0, int(num_in_words / PE) + 1):
-            txns.append(counter)
-            counter += 1
-            cycles += 1
-
-        return txns, cycles, counter
-
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        # Compute one period of the output characteristic function
-
-        (num_in_words, PE, K) = kwargs
-
-        windup_clocks = 4
-        for i in range(0, windup_clocks):
-            txns.append(counter)
-            cycles += 1
-
-        # first output period, computing Labels
-        for i in range(0, int(num_in_words / PE + K)):
-            txns.append(counter)
-            cycles += 1
-
-        # output the K labels which got selected
-        for j in range(0, K):
-            txns.append(counter)
-            cycles += 1
-            counter += 1
-
-        return txns, cycles, counter
+        return labelselect_top # top level phase of this node

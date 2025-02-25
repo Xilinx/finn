@@ -40,7 +40,7 @@ from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-
+from qonnx.transformation.infer_shapes import InferShapes
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -48,6 +48,16 @@ from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharact
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
+)
+
+# generate each node's files as necessary
+from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
+import qonnx.custom_op.registry as registry
+#def _codegen_single_node(node, model, fpgapart, clk):
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
 )
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
@@ -206,41 +216,101 @@ def crop_center(size, img):
 def compare_two_chr_funcs(a, b, relaxation):
     # relaxation determines how much leeway we allow for the
     # analytical implementation to be off from RTL ground truth
-    equal = True
+
+    # a = characteristic
+    # b = ground truth
     for inp in range(len(a)):
         for i in range(len(a[inp])):
-            if (a[inp][i] > (b[inp][i] + relaxation)) or (a[inp][i] < (b[inp][i] - relaxation)):
-                equal = False
-    return equal
+            start_internal_relaxation = min([relaxation,i])
+            end_internal_relaxation = min([relaxation, abs(len(a[inp])-i)])
+            if (a[inp][i] not in b[inp][i-start_internal_relaxation:i+end_internal_relaxation]):
+                return False
+    return True
 
 
-def get_characteristic_fnc(model, node, part, target_clk_ns, strategy):
+def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
     # If set to True: attempt to cache a pre-existing variant of the model
     # this is to avoid generating RTL multiple times during
     # test debugging
     caching = False
-    model_cache = None
 
+    model_cache = None
     if strategy == "rtlsim" and caching:
         build_dir = os.environ["FINN_BUILD_DIR"]
         for x in os.listdir(build_dir):
-            if x.startswith(str(node)):
+            if x.startswith(str(node0)):
                 model_cache = f"{build_dir}/{x}/model.onnx"
-
-        make_build_dir("build_fifosizing")
         if model_cache is not None:
             model = ModelWrapper(model_cache)
 
     if model_cache is None:
         model = model.transform(SpecializeLayers(part))
-        model = model.transform(MinimizeWeightBitWidth())
-        model = model.transform(MinimizeAccumulatorWidth())
+      # model = model.transform(MinimizeWeightBitWidth())
+      #  model = model.transform(MinimizeAccumulatorWidth())
         model = model.transform(GiveUniqueNodeNames())
-        if strategy == "rtlsim":
-            model = model.transform(PrepareIP(part, target_clk_ns))
+        #if strategy == "rtlsim":
+       #     model = model.transform(PrepareIP(part, target_clk_ns))
+
+        for node in model.graph.node:
+            inst = registry.getCustomOp(node)
+            if ((is_hls_node(node) or is_rtl_node(node)) 
+                and (inst.prepare_kwargs_for_characteristic_fx() is None 
+                    or strategy == "rtlsim")):
+        
+                _codegen_single_node(node, model,part, target_clk_ns)
+
+                op_type = node.op_type
+                if is_hls_node(node):
+                    try:
+                        # lookup op_type in registry of CustomOps
+                        
+                        # ensure that code is generated
+                        assert (
+                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                        ), """Node
+                        attribute "code_gen_dir_ipgen" is empty. Please run
+                        transformation PrepareIP first."""
+                        if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
+                            "code_gen_dir_ipgen"
+                        ) in inst.get_nodeattr("ipgen_path"):
+                            # call the compilation function for this node
+                            inst.ipgen_singlenode_code()
+                        else:
+                            warnings.warn("Using pre-existing IP for %s" % node.name)
+                        # ensure that executable path is now set
+                        assert (
+                            inst.get_nodeattr("ipgen_path") != ""
+                        ), """Transformation
+                        HLSSynthIP was not successful. Node attribute "ipgen_path"
+                        is empty."""
+                    except KeyError:
+                        # exception if op_type is not supported
+                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+        
+        model = model.transform(ReplaceVerilogRelPaths())
+
+
+        for node in model.graph.node:   
+            inst = registry.getCustomOp(node)
+            if ((is_hls_node(node) or is_rtl_node(node)) 
+                and (inst.prepare_kwargs_for_characteristic_fx() is None 
+                    or strategy == "rtlsim")):
+        
+                try:
+                    # lookup op_type in registry of CustomOps
+                    #inst = registry.getCustomOp(node)
+                    inst.prepare_rtlsim()
+                    # ensure that executable path is now set
+                    assert (
+                        inst.get_nodeattr("rtlsim_so") != ""
+                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
         model = model.transform(AnnotateCycles())
 
-        period = int(model.analysis(dataflow_performance)["max_cycles"] * 3 + 10)
+        period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
 
         model = model.transform(
             DeriveCharacteristic(
@@ -252,7 +322,53 @@ def get_characteristic_fnc(model, node, part, target_clk_ns, strategy):
             )
         )
         if caching:
-            tmp_caching_output_dir = make_build_dir(str(node))
+            tmp_caching_output_dir = make_build_dir(str(node0))
             model.save(tmp_caching_output_dir + "/model.onnx")
 
     return getCustomOp(model.graph.node[0])
+
+
+DEBUGGING = False
+def debug_chr_funcs(chr_in, 
+                    chr_out, 
+                    rtlsim_in, 
+                    rtlsim_out,
+                    direction):
+    
+
+    if DEBUGGING:
+        def concat_list(a):
+            b = []
+            current = a[0]
+            b.append(1)
+            for i in a[1:]:
+                if i == current:
+                    b[-1] += 1
+                else:
+                    b.append(1)
+                    current = i
+            return b
+
+        chr_in_concat = concat_list(chr_in[0])
+        chr_out_concat = concat_list(chr_out[0])
+        rtlsim_in_concat = concat_list(rtlsim_in[0])
+        rtlsim_out_concat = concat_list(rtlsim_out[0])
+
+
+        np.set_printoptions(threshold=np.inf)
+        if direction == "input":
+            print(f"\nchr IN:    {chr_in[:100]}, {len(chr_in[0])}")
+            print(f"rtlsim IN: {rtlsim_in[:100]}, {len(rtlsim_in[0])}")
+
+            print(f"chr IN CONCAT:    {chr_in_concat[:100]}, {len(chr_in_concat)}")
+            print(f"rtlsim IN CONCAT: {rtlsim_in_concat[:100]}, {len(rtlsim_in_concat)}")
+
+        elif direction == "output":
+            print(f"\nchr OUT:    {chr_out[:100]}, {len(chr_out[0])}")
+            print(f"rtlsim OUT: {rtlsim_out[:100]}, {len(rtlsim_out[0])}")
+
+
+            print(f"chr OUT CONCAT:    {chr_out_concat[:100]}, {len(chr_out_concat)}")
+            print(f"rtlsim OUT CONCAT: {rtlsim_out_concat[:100]}, {len(rtlsim_out_concat)}")
+    else:
+        return True

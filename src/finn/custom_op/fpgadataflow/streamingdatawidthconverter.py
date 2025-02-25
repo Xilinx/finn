@@ -32,7 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-
+from finn.util.basic import Characteristic_Node
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
 
@@ -186,6 +186,11 @@ class StreamingDataWidthConverter(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         context[node.output[0]] = output
 
+
+    def get_exp_cycles(self):
+        return np.prod(self.get_folded_input_shape()) + np.prod(self.get_folded_output_shape())
+
+
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
         inw = self.get_instream_width()
@@ -215,144 +220,207 @@ class StreamingDataWidthConverter(HWCustomOp):
 
         return int(cnt_luts + cset_luts)
 
+
     def prepare_kwargs_for_characteristic_fx(self):
+
+        # function for the old DWC version
+        # newer version will need a separate, much more
+        # complicated function
+
         numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
         numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
         numReps = int(np.prod(self.get_folded_input_shape()[:1]))
 
-        inWidth = self.get_nodeattr("inWidth")
-        outWidth = self.get_nodeattr("outWidth")
+       # inWidth = self.get_nodeattr("inWidth")
+       # outWidth = self.get_nodeattr("outWidth")
 
-        kwargs = (numInWords, numOutWords, inWidth, outWidth, numReps)
-
-        # assert True==False
-        return kwargs
-
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        (numInWords, numOutWords, inWidth, outWidth, numReps) = kwargs
-
-        # HYPER PARAMETERS WHICH MAY CHANGE OVER TIME
-        windup_clocks_up_convert_input = 4
-
-        windup_clocks_down_convert_input = 3
-
-        windup_clocks_down_convert_output = 4
-        windup_clocks_equal_convert_output = 3
-
-        if numInWords < windup_clocks_up_convert_input:
-            windup_clocks_up_convert_input = numInWords
-
-        if numInWords < windup_clocks_down_convert_input:
-            windup_clocks_down_convert_input = numInWords
-
-        if numOutWords < windup_clocks_down_convert_output:
-            windup_clocks_down_convert_output = numOutWords
-
-        if numOutWords < windup_clocks_equal_convert_output:
-            windup_clocks_equal_convert_output = numOutWords
-
-        # first input period
-        tracker = 0
-        maximum = numReps * numInWords
-
-        if numReps > 1:
-            # loop windup
-            for i in range(2):
-                txns.append(counter)
-                counter += 1
-                cycles += 1
-                tracker += 1
-
-        for j in range(0, numReps):
-            for i in range(0, numInWords):
-                if tracker < maximum:
-                    txns.append(counter)
-                    counter += 1
-                    cycles += 1
-                    tracker += 1
-            for i in range(0, 1):
-                txns.append(counter)
-                cycles += 1
-
-        return txns, cycles, counter
-
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        (numInWords, numOutWords, inWidth, outWidth, numReps) = kwargs
-
-        # HYPER PARAMETERS WHICH MAY CHANGE
-        windup_clocks_up_convert_input = 3
-        windup_clocks_down_convert_input = 2
-
-        windup_clocks_down_convert_output = 3
-        windup_clocks_equal_convert_output = 2
-
-        if numInWords < windup_clocks_up_convert_input:
-            windup_clocks_up_convert_input = numInWords
-
-        if numInWords < windup_clocks_down_convert_input:
-            windup_clocks_down_convert_input = numInWords
-
-        if numOutWords < windup_clocks_down_convert_output:
-            windup_clocks_down_convert_output = numOutWords
-
-        if numOutWords < windup_clocks_equal_convert_output:
-            windup_clocks_equal_convert_output = numOutWords
-
-        # calculation to adjust for padding or cropping adding latency
-
-        if outWidth > inWidth:
-            higher = outWidth
-            lower = inWidth
+        if numInWords > numOutWords:
+            #iterations = numInWords // numOutWords
+            converting = "accumulate inputs"
         else:
-            higher = inWidth
-            lower = outWidth
+            #iterations = numOutWords // numInWords
+            converting = "split intputs"
 
-        if higher % lower != 0:
-            if numInWords * inWidth > numOutWords * outWidth:
-                pad = False
-            else:
-                pad = True
+        idle = Characteristic_Node(
+            "idle cycles",
+            [(1, [0,0])],
+            True)
+   
+        read_inputs = Characteristic_Node(
+            "read all words", 
+            [(numInWords,[1,0])],
+            True)     
 
+        write_outputs = Characteristic_Node(
+            "write all words", 
+            [(numOutWords,[0,1])],
+            True)     
+
+        up_convert_word = Characteristic_Node(
+            "up convert all words in a single transaction", 
+            [(1,read_inputs),
+            (1, write_outputs)],
+            False)
+
+        down_convert_word = Characteristic_Node(
+            "down convert all words in a single transaction", 
+            [(1,read_inputs),
+            (1, write_outputs)],
+            False)
+        
+        if converting == "accumulate inputs":
+            reps = Characteristic_Node(
+                "compute a set of DWCs with up conversion",
+                [(numReps,up_convert_word)],
+                False
+            )
         else:
-            pad = False
+            reps = Characteristic_Node(
+                "compute a set of DWCs with down conversion",
+                [(numReps,down_convert_word)],
+                False
+            )
 
-            # windup period
-            if inWidth == outWidth:
-                clock = windup_clocks_equal_convert_output
-            else:
-                clock = windup_clocks_up_convert_input
-            for i in range(0, clock):
-                txns.append(counter)
-                cycles += 1
-            # padding +=1
+        return reps
 
-            # first input period
+    # def prepare_kwargs_for_characteristic_fx_old(self):
+    #     numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
+    #     numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
+    #     numReps = int(np.prod(self.get_folded_input_shape()[:1]))
 
-            remainder = 0
+    #     inWidth = self.get_nodeattr("inWidth")
+    #     outWidth = self.get_nodeattr("outWidth")
 
-            for k in range(numReps):
-                # windup
-                txns.append(counter)
-                cycles += 1
+    #     kwargs = (numInWords, numOutWords, inWidth, outWidth, numReps)
 
-                for i in range(0, numOutWords):
-                    for j in range(0, int(np.floor(outWidth / inWidth))):
-                        if j != 0:
-                            txns.append(counter)
-                            cycles += 1
-                        remainder += inWidth
-                    #  padding +=1
+    #     # assert True==False
+    #     return kwargs
 
-                    if pad and remainder < outWidth:
-                        print(remainder)
-                        txns.append(counter)
-                        remainder += inWidth
-                        cycles += 1
+    # def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+    #     (numInWords, numOutWords, inWidth, outWidth, numReps) = kwargs
 
-                    txns.append(counter)
-                    cycles += 1
+    #     # HYPER PARAMETERS WHICH MAY CHANGE OVER TIME
+    #     windup_clocks_up_convert_input = 4
 
-                    counter += 1
-                    remainder -= outWidth
+    #     windup_clocks_down_convert_input = 3
 
-        return txns, cycles, counter
+    #     windup_clocks_down_convert_output = 4
+    #     windup_clocks_equal_convert_output = 3
+
+    #     if numInWords < windup_clocks_up_convert_input:
+    #         windup_clocks_up_convert_input = numInWords
+
+    #     if numInWords < windup_clocks_down_convert_input:
+    #         windup_clocks_down_convert_input = numInWords
+
+    #     if numOutWords < windup_clocks_down_convert_output:
+    #         windup_clocks_down_convert_output = numOutWords
+
+    #     if numOutWords < windup_clocks_equal_convert_output:
+    #         windup_clocks_equal_convert_output = numOutWords
+
+    #     # first input period
+    #     tracker = 0
+    #     maximum = numReps * numInWords
+
+    #     if numReps > 1:
+    #         # loop windup
+    #         for i in range(2):
+    #             txns.append(counter)
+    #             counter += 1
+    #             cycles += 1
+    #             tracker += 1
+
+    #     for j in range(0, numReps):
+    #         for i in range(0, numInWords):
+    #             if tracker < maximum:
+    #                 txns.append(counter)
+    #                 counter += 1
+    #                 cycles += 1
+    #                 tracker += 1
+    #         for i in range(0, 1):
+    #             txns.append(counter)
+    #             cycles += 1
+
+    #     return txns, cycles, counter
+
+    # def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+    #     (numInWords, numOutWords, inWidth, outWidth, numReps) = kwargs
+
+    #     # HYPER PARAMETERS WHICH MAY CHANGE
+    #     windup_clocks_up_convert_input = 3
+    #     windup_clocks_down_convert_input = 2
+
+    #     windup_clocks_down_convert_output = 3
+    #     windup_clocks_equal_convert_output = 2
+
+    #     if numInWords < windup_clocks_up_convert_input:
+    #         windup_clocks_up_convert_input = numInWords
+
+    #     if numInWords < windup_clocks_down_convert_input:
+    #         windup_clocks_down_convert_input = numInWords
+
+    #     if numOutWords < windup_clocks_down_convert_output:
+    #         windup_clocks_down_convert_output = numOutWords
+
+    #     if numOutWords < windup_clocks_equal_convert_output:
+    #         windup_clocks_equal_convert_output = numOutWords
+
+    #     # calculation to adjust for padding or cropping adding latency
+
+    #     if outWidth > inWidth:
+    #         higher = outWidth
+    #         lower = inWidth
+    #     else:
+    #         higher = inWidth
+    #         lower = outWidth
+
+    #     if higher % lower != 0:
+    #         if numInWords * inWidth > numOutWords * outWidth:
+    #             pad = False
+    #         else:
+    #             pad = True
+
+    #     else:
+    #         pad = False
+
+    #         # windup period
+    #         if inWidth == outWidth:
+    #             clock = windup_clocks_equal_convert_output
+    #         else:
+    #             clock = windup_clocks_up_convert_input
+    #         for i in range(0, clock):
+    #             txns.append(counter)
+    #             cycles += 1
+    #         # padding +=1
+
+    #         # first input period
+
+    #         remainder = 0
+
+    #         for k in range(numReps):
+    #             # windup
+    #             txns.append(counter)
+    #             cycles += 1
+
+    #             for i in range(0, numOutWords):
+    #                 for j in range(0, int(np.floor(outWidth / inWidth))):
+    #                     if j != 0:
+    #                         txns.append(counter)
+    #                         cycles += 1
+    #                     remainder += inWidth
+    #                 #  padding +=1
+
+    #                 if pad and remainder < outWidth:
+    #                     print(remainder)
+    #                     txns.append(counter)
+    #                     remainder += inWidth
+    #                     cycles += 1
+
+    #                 txns.append(counter)
+    #                 cycles += 1
+
+    #                 counter += 1
+    #                 remainder -= outWidth
+
+    #     return txns, cycles, counter

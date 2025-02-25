@@ -299,3 +299,16 @@ class VVAU_rtl(VVAU, RTLBackend):
         self.set_nodeattr("rtlsim_so", sim.lib._name)
 
         return sim
+
+    def get_exp_cycles(self):
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        ch = self.get_nodeattr("Channels")
+        dim_h, dim_w = self.get_nodeattr("Dim")
+        k_h, k_w = self.get_nodeattr("Kernel")
+        # currently FINN supports for vvau a batch size of 1
+        batch_size = 1
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        exp_cycles = ((ch * k_h * k_w) / pe / simd) * batch_size * (dim_h * dim_w) / mmv
+        return int(exp_cycles)

@@ -39,6 +39,7 @@ from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+from finn.util.basic import Characteristic_Node
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
@@ -450,6 +451,7 @@ class MVAU(HWCustomOp):
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
+        
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
@@ -957,6 +959,7 @@ class MVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
 
+
     def prepare_kwargs_for_characteristic_fx(self):
         MW = self.get_nodeattr("MW")
         MH = self.get_nodeattr("MH")
@@ -964,58 +967,61 @@ class MVAU(HWCustomOp):
         SIMD = self.get_nodeattr("SIMD")
         PE = self.get_nodeattr("PE")
         numVectors = np.prod(self.get_nodeattr("numInputVectors"))
-        BURST_SIZE = int(MW / SIMD)
-        BURST_COUNT = int(MH / PE)
+        SF = int(MW / SIMD)
+        NF = int(MH / PE)
 
-        kwargs = (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors)
 
-        return kwargs
+        #exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
 
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors) = kwargs
 
-        tracker = 0
-        maximum = numVectors * BURST_SIZE
+        wind_up = 2 # might be 3 for output if being precise
+        output_delay = 5 # cycles before output starts writing when input is read
+        # can represent with two windups, but then
+        # input needs to be allowed to 'start early'
+        # possible solution is simply splitting into two
+        # top level phases. One for inputs and one for outputs
 
-        if numVectors > 1:
-            for i in range(2):
-                txns.append(counter)
-                counter += 1
-                cycles += 1
-                tracker += 1
 
-        for k in range(numVectors):
-            for j in range(BURST_SIZE):
-                if tracker < maximum:
-                    txns.append(counter)
-                    counter += 1
-                    cycles += 1
-                    tracker += 1
+        idle = Characteristic_Node(
+            "idle cycles",
+            [(1, [0,0])],
+            True)
+   
+        read_SIMD = Characteristic_Node(
+            "Read a burst of input", 
+            [(SF,[1,0])],
+            True)     
 
-            for i in range(BURST_COUNT - 1):
-                for j in range(BURST_SIZE):
-                    txns.append(counter)
-                    cycles += 1
+        write_one = Characteristic_Node(
+            "update output", 
+            [(1,[0,1])],
+            True)       
 
-        return txns, cycles, counter
+        write_PE = Characteristic_Node(
+            "iterate MW/SIMD and update an output", 
+            [
+            #(1, burst_compute),
+            (SF-1,idle),
+            (1, write_one)],
+            False)
 
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        (MW, MH, SIMD, PE, BURST_COUNT, BURST_SIZE, numVectors) = kwargs
+        feature_map = Characteristic_Node(
+            "Compute single feature map",
+            [(1, read_SIMD),
+             (output_delay,idle),
+             (1, write_one),
+            (NF-1,write_PE)],
+            False)
+        
+        all_feature_maps = Characteristic_Node(
+            "compute set of feature maps",
+            [(wind_up,idle),
+            (numVectors,feature_map)],
+            False
+        )
 
-        windup_clocks = 3
+        return all_feature_maps
 
-        for i in range(0, windup_clocks):
-            txns.append(counter)
-            cycles += 1
-
-        for k in range(numVectors):
-            for i in range(BURST_COUNT):
-                for j in range(BURST_SIZE):
-                    txns.append(counter)
-                    cycles += 1
-                counter += 1
-
-        return txns, cycles, counter
 
     def derive_characteristic_fxns(
         self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None

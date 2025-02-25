@@ -31,7 +31,7 @@ import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
-
+from finn.util.basic import Characteristic_Node
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
@@ -265,39 +265,87 @@ class Thresholding(HWCustomOp):
         pe = self.get_nodeattr("PE")
         return num_channels // pe
 
+
+
     def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        # this depends on the kernel type, hls or rtl etc
+
+        # when testing, PE cannot be higher than 1 due to
+        # an unknown bug.
+
+        # parameters
+        reps = 1
         NumChannels = self.get_nodeattr("NumChannels")
         PE = self.get_nodeattr("PE")
-        reps = 1
-        ImgDim = int(np.prod(list(self.get_nodeattr("numInputVectors"))))
-        NF = int(NumChannels / PE)
+        ImgDim = np.prod(list(self.get_nodeattr("numInputVectors")))
+        act = DataType[self.get_nodeattr("outputDataType")]
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl","hls"], "Implementation style must be \'rtl\' or \'hls\'"
+        
+        NF = NumChannels // PE
+        total_iterations = reps * ImgDim * NF
 
-        TOTAL_ITERATIONS = reps * ImgDim * NF
 
-        kwargs = (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF)
+        if IMPL_STYLE == "hls":
+            output_delay = 4
+        else:
+            if act == DataType["BIPOLAR"]:
+                output_delay = 4
+            else:
+                output_delay = 12
 
-        return kwargs
 
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF) = kwargs
-        for i in range(0, TOTAL_ITERATIONS):
-            txns.append(counter)
-            counter += 1
-            cycles += 1
 
-        return txns, cycles, counter
 
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        (TOTAL_ITERATIONS, NumChannels, PE, reps, ImgDim, NF) = kwargs
 
-        windup = 6
-        for i in range(0, windup):
-            txns.append(counter)
-            cycles += 1
-        # first input period
-        for i in range(0, TOTAL_ITERATIONS):
-            txns.append(counter)
-            counter += 1
-            cycles += 1
+        if total_iterations > output_delay:
+            # we write out full input and delay
 
-        return txns, cycles, counter
+            # phase definitions
+            rush_in = Characteristic_Node(
+                "Rush-in",
+                [(output_delay, [1,0])],
+                True)
+            
+            compute = Characteristic_Node(
+                "Compute",
+                [(total_iterations-output_delay, [1,1])],
+                True)
+                    
+            rush_out = Characteristic_Node(
+                "Rush-out", 
+                [(output_delay, [0,1])],
+                True)   
+            
+            threshold = Characteristic_Node(
+                "Thresholding Top",
+                [(1, rush_in),
+                (1, compute),
+                (1, rush_out)],
+                False
+            )            
+
+        else:    
+            # phase definitions
+
+            rush_in = Characteristic_Node(
+                "Rush-in",
+                [(total_iterations, [1,0]),
+                (output_delay-total_iterations, [0,0])],
+                True)
+            
+            compute = Characteristic_Node(
+                "Compute",
+                [(total_iterations, [0,1])],
+                True)
+                    
+
+            threshold = Characteristic_Node(
+                "Thresholding Top",
+                [(1, rush_in),
+                (1, compute)],
+                False
+            )
+
+        return threshold # top level phase of this node

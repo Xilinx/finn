@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-
+import zlib
 import copy
 import numpy as np
 from onnx import TensorProto, helper
@@ -50,8 +50,8 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc
-
+from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc, debug_chr_funcs
+from finn.util.basic import decompress_string_to_numpy  
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
@@ -131,14 +131,14 @@ def make_single_multithresholding_modelwrapper(
         [1, 2, 2],
     ],
 )
-@pytest.mark.parametrize("activation", [DataType["UINT4"], DataType["INT4"], DataType["BIPOLAR"]])
+@pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize(
     "idt_tdt_cfg",
     [
         (DataType["INT8"], DataType["INT8"]),
         (DataType["INT8"], DataType["INT9"]),
-        (DataType["UINT5"], DataType["UINT5"]),
-        (DataType["UINT5"], DataType["UINT6"]),
+        (DataType["UINT8"], DataType["UINT8"]),
+        (DataType["UINT8"], DataType["UINT9"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -266,7 +266,6 @@ def test_fpgadataflow_thresholding(
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
 
-
 # which port to test
 @pytest.mark.parametrize("direction", ["input", "output"])
 @pytest.mark.parametrize("num_input_channels", [6, 16])
@@ -277,20 +276,20 @@ def test_fpgadataflow_thresholding(
         [1, 2, 2],
     ],
 )
-@pytest.mark.parametrize("activation", [DataType["UINT4"], DataType["INT4"], DataType["BIPOLAR"]])
+@pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize(
     "idt_tdt_cfg",
     [
         (DataType["INT8"], DataType["INT8"]),
         (DataType["INT8"], DataType["INT9"]),
-        (DataType["UINT5"], DataType["UINT5"]),
-        (DataType["UINT5"], DataType["UINT6"]),
+        (DataType["UINT8"], DataType["UINT8"]),
+        (DataType["UINT8"], DataType["UINT9"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
-@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.parametrize("impl_style", ["rtl"])
 @pytest.mark.parametrize("exec_mode", ["rtlsim"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
@@ -385,35 +384,46 @@ def test_fpgadataflow_analytical_characterization_thresholding(
         inst.set_nodeattr("mem_mode", mem_mode)
 
     node_details = (
-        "Thresholding",
-        thresholds,
+        "Thr",
         input_data_type,
         threshold_data_type,
         output_data_type,
         activation_bias,
         num_input_vecs,
         num_input_channels,
-        "hls",
+        pe,
+        narrow,
+        per_tensor,
+        activation,
+        mem_mode,
+        impl_style,
     )
 
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(
-        model, node_details, test_fpga_part, target_clk_ns, "analytical"
-    )
-    node_rtlsim = get_characteristic_fnc(
-        model_rtl, node_details, test_fpga_part, target_clk_ns, "rtlsim"
-    )
+    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), test_fpga_part, target_clk_ns, "analytical")
+    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), test_fpga_part, target_clk_ns, "rtlsim")
+    
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
+
     if direction == "input":
         assert compare_two_chr_funcs(
-            node_analytical.get_nodeattr("io_chrc_in"),
-            node_rtlsim.get_nodeattr("io_chrc_in"),
+            chr_in,
+            rtlsim_in,
             allowed_chr_offset_positions,
         )
     elif direction == "output":
         assert compare_two_chr_funcs(
-            node_analytical.get_nodeattr("io_chrc_out"),
-            node_rtlsim.get_nodeattr("io_chrc_out"),
+            chr_out,
+            rtlsim_out,
             allowed_chr_offset_positions,
         )

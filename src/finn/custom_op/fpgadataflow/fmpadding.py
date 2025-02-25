@@ -29,10 +29,11 @@
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
+from finn.util.basic import Characteristic_Node
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
-
+    
 class FMPadding(HWCustomOp):
     """Abstraction layer for HW impplementation of FMPadding.
     Pads input image by given amount."""
@@ -173,53 +174,60 @@ class FMPadding(HWCustomOp):
 
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
-        ImgDim = self.get_nodeattr("ImgDim")
-        Padding = self.get_nodeattr("Padding")
-        NewDim = [ImgDim[0] + Padding[0] + Padding[2], ImgDim[1] + Padding[1] + Padding[3]]
-        NumChannels = self.get_nodeattr("NumChannels")
+        # this depends on the kernel type, hls or rtl etc
+
+        # extract node attr
+        IMGDIM = self.get_nodeattr("ImgDim")
+        PADDING = self.get_nodeattr("Padding")
+        NUMCHANNELS = self.get_nodeattr("NumChannels")
         SIMD = self.get_nodeattr("SIMD")
-        TOTAL_ELS = np.prod(NewDim)
-        NF = int(NumChannels / SIMD)
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl","hls"], "Implementation style must be \'rtl\' or \'hls\'"
+        
+        # compute new parameters
+        NEWDIM = [IMGDIM[0] + PADDING[0] + PADDING[2], IMGDIM[1] + PADDING[1] + PADDING[3]]
+        TOTAL_ELS = np.prod(NEWDIM)
+        NF = int(NUMCHANNELS / SIMD)
+        y_padding_top, x_padding_left, y_padding_bottom, x_padding_right = PADDING
+        y_dim = IMGDIM[0]
+        x_dim = IMGDIM[1]
+        
 
-        kwargs = (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF)
+        if IMPL_STYLE == "hls" and NF == 1:
+            loop_overhead = 1
+        else:
+            loop_overhead = 0
 
-        return kwargs
+        ch_pad = Characteristic_Node(
+            "Channel_Pad",
+            [(NF, [0,1]), 
+             (loop_overhead,[0,0])],
+            True)
+        
+        ch_pass = Characteristic_Node(
+            "Channel_Pass",
+            [(NF, [1,1]), 
+             (loop_overhead,[0,0])],
+            True)
+                
+        x_inner_line = Characteristic_Node(
+            "Fill X full inner line", 
+            [(x_padding_left,ch_pad),
+             (x_dim,ch_pass),
+             (x_padding_right,ch_pad)],
+            False)       
 
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        # Compute one period of the input characteristic function
+        x_outer_line = Characteristic_Node(
+            "Pad X outer line",
+            [(x_padding_left+x_dim+x_padding_right,ch_pad)],
+            False)
+        
+        fmpadding = Characteristic_Node(
+            "FMPadding Top",
+            [(y_padding_top,x_outer_line),
+             (y_dim,x_inner_line), 
+             (y_padding_bottom,x_outer_line)],
+            False
+        )
 
-        (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF) = kwargs
-
-        for y in range(0, NewDim[0]):
-            for x in range(0, NewDim[1]):
-                for k in range(NF):
-                    txns.append(counter)
-                    if (
-                        Padding[0] <= y
-                        and (y < (NewDim[0] - Padding[2]))
-                        and Padding[1] <= x
-                        and (x < (NewDim[1] - Padding[3]))
-                    ):
-                        counter += 1
-                    cycles += 1
-                if NF == 1:  # loop end delay when fully unrolled
-                    txns.append(counter)
-                    cycles += 1
-
-        return txns, cycles, counter
-
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        # Compute one period of the output characteristic function
-
-        (ImgDim, NewDim, Padding, NumChannels, SIMD, TOTAL_ELS, NF) = kwargs
-
-        for i in range(0, TOTAL_ELS):
-            for j in range(NF):
-                txns.append(counter)
-                counter += 1
-                cycles += 1
-            if NF == 1:  # loop end delay when fully unrolled
-                txns.append(counter)
-                cycles += 1
-
-        return txns, cycles, counter
+        return fmpadding # top level phase of this node

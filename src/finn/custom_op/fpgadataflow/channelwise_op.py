@@ -32,7 +32,7 @@ import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model
-
+from finn.util.basic import Characteristic_Node
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
@@ -233,40 +233,63 @@ class ChannelwiseOp(HWCustomOp):
         result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
+    # def prepare_kwargs_for_characteristic_fx(self):
+    #     # key parameters
+    #     PE = self.get_nodeattr("PE")
+    #     NumChannels = self.get_nodeattr("NumChannels")
+    #     NF = int(NumChannels / PE)
+    #     dim = np.prod(self.get_folded_output_shape()[1:-1])
+    #     # assert True == False
+    #     kwargs = (NF, dim)
+
+    #     # assert True==False
+
+    #     return kwargs
+
+    # def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+    #     # Compute one period of the input characteristic function
+
+    #     (NF, dim) = kwargs
+
+    #     for k in range(dim):
+    #         txns.append(counter)
+    #         counter += 1
+    #         cycles += 1
+
+    #     #
+    #     return txns, cycles, counter
+
+    # def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+    #     # Compute one period of the output characteristic function
+
+    #     (NF, dim) = kwargs
+
+    #     for k in range(dim):
+    #         txns.append(counter)
+    #         counter += 1
+    #         cycles += 1
+
+    #     return txns, cycles, counter
+
+
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
+
         PE = self.get_nodeattr("PE")
         NumChannels = self.get_nodeattr("NumChannels")
         NF = int(NumChannels / PE)
         dim = np.prod(self.get_folded_output_shape()[1:-1])
-        # assert True == False
-        kwargs = (NF, dim)
 
-        # assert True==False
+        pass_channelwise = Characteristic_Node(
+            "passing channelwise layer", 
+            [(dim, [1,1])],
+            True)       
 
-        return kwargs
+        
+        channelwise_top = Characteristic_Node(
+            "compute pool",
+            [(1, pass_channelwise)],
+            False
+        )
 
-    def characteristic_fx_input(self, txns, cycles, counter, kwargs):
-        # Compute one period of the input characteristic function
-
-        (NF, dim) = kwargs
-
-        for k in range(dim):
-            txns.append(counter)
-            counter += 1
-            cycles += 1
-
-        #
-        return txns, cycles, counter
-
-    def characteristic_fx_output(self, txns, cycles, counter, kwargs):
-        # Compute one period of the output characteristic function
-
-        (NF, dim) = kwargs
-
-        for k in range(dim):
-            txns.append(counter)
-            counter += 1
-            cycles += 1
-
-        return txns, cycles, counter
+        return channelwise_top # top level phase of this node

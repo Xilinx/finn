@@ -235,7 +235,7 @@ class StreamingMaxPool(HWCustomOp):
         result = np.transpose(result, (0, 2, 3, 1))
         context[node.output[0]] = result
 
-    def prepare_kwargs_for_characteristic_fx(self):
+    def prepare_kwargs_for_characteristic_fx_old(self):
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
         ceil_mode = self.get_nodeattr("CeilMode")
         output_size = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)

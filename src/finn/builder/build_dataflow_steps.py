@@ -63,6 +63,16 @@ from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
 )
+
+# generate each node's files as necessary
+from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
+import qonnx.custom_op.registry as registry
+#def _codegen_single_node(node, model, fpgapart, clk):
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
@@ -547,7 +557,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     Coherency with config file node naming is ensured by calling
     `GiveUniqueNodeNames`.
     """
-
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
@@ -555,7 +564,63 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(AnnotateCycles())
 
-            period = int(model.analysis(dataflow_performance)["max_cycles"] * 3 + 10)
+            for node in model.graph.node:
+                inst = registry.getCustomOp(node)
+                if ((is_hls_node(node) or is_rtl_node(node)) 
+                    and (inst.prepare_kwargs_for_characteristic_fx() is None 
+                     or cfg.characteristic_function_strategy == "rtlsim")):
+                    
+                    _codegen_single_node(node, model, cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+
+                    op_type = node.op_type
+                    if is_hls_node(node):
+                        try:
+                            # lookup op_type in registry of CustomOps
+                            
+                            # ensure that code is generated
+                            assert (
+                                inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                            ), """Node
+                            attribute "code_gen_dir_ipgen" is empty. Please run
+                            transformation PrepareIP first."""
+                            if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
+                                "code_gen_dir_ipgen"
+                            ) in inst.get_nodeattr("ipgen_path"):
+                                # call the compilation function for this node
+                                inst.ipgen_singlenode_code()
+                            else:
+                                warnings.warn("Using pre-existing IP for %s" % node.name)
+                            # ensure that executable path is now set
+                            assert (
+                                inst.get_nodeattr("ipgen_path") != ""
+                            ), """Transformation
+                            HLSSynthIP was not successful. Node attribute "ipgen_path"
+                            is empty."""
+                        except KeyError:
+                            # exception if op_type is not supported
+                            raise Exception("Custom op_type %s is currently not supported." % op_type)
+            
+            model = model.transform(ReplaceVerilogRelPaths())
+            for node in model.graph.node:   
+                inst = registry.getCustomOp(node)
+                if ((is_hls_node(node) or is_rtl_node(node)) 
+                    and (inst.prepare_kwargs_for_characteristic_fx() is None 
+                     or cfg.characteristic_function_strategy == "rtlsim")):
+            
+                    try:
+                        # lookup op_type in registry of CustomOps
+                        #inst = registry.getCustomOp(node)
+                        inst.prepare_rtlsim()
+                        # ensure that executable path is now set
+                        assert (
+                            inst.get_nodeattr("rtlsim_so") != ""
+                        ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                    except KeyError:
+                        # exception if op_type is not supported
+                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
             model = model.transform(
                 DeriveCharacteristic(
                     model,
@@ -565,6 +630,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_hls_clk_period(),
                 )
             )
+
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
@@ -641,6 +707,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     # model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
     # model = model.transform(HLSSynthIP())
+
     return model
 
 

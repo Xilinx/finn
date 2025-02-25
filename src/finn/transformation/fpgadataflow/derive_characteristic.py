@@ -30,9 +30,10 @@
 
 import qonnx.custom_op.registry as registry
 import warnings
+import zlib
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
-
+from finn.util.basic import decompress_string_to_numpy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -151,7 +152,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 prod = registry.getCustomOp(node)
                 assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
-                prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
+                prod_chrc = decompress_string_to_numpy(prod.get_nodeattr("io_chrc_out"))[0]
                 assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
                 if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
@@ -168,7 +169,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                         out_fifo_depths.append(self.io_fifo_depth)
                         continue
                     cons = registry.getCustomOp(cons_node)
-                    cons_chrc = cons.get_nodeattr("io_chrc_in")[0]
+                    cons_chrc = decompress_string_to_numpy(cons.get_nodeattr("io_chrc_in"))[0]
                     # find minimum phase shift satisfying the constraint
                     pshift_min = period - 1
                     for pshift_cand in range(period):
