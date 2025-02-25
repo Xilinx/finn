@@ -213,7 +213,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     # only number of transactions, no real data
     # TODO add support for multiple I/O streams
     ctx = {
-        "global_in": n_inferences,
+        iname: n_inferences,
     }
     # create C++ code snippet for postprocessing:
     # grab maxcount values from FIFOs, dump into existing results file
