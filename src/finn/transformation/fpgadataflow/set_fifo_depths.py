@@ -27,11 +27,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import warnings
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -51,7 +49,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
-from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
+from finn.util.pyverilator import verilator_fifosim
 
 
 def reset_implementation(node):
@@ -215,7 +213,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     # only number of transactions, no real data
     # TODO add support for multiple I/O streams
     ctx = {
-        "global_in": n_inferences,
+        iname: n_inferences,
     }
 
     # create C++ code snippet for postprocessing:
@@ -257,7 +255,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
         ctx,
         dummy_data_mode=True,
         postproc_cpp=fifo_log,
-	iter_progress_cpp=fifo_iter_log,
+        iter_progress_cpp=fifo_iter_log,
         timeout_cycles=max_iters,
         throttle_cycles=throttle_cycles,
     )
@@ -316,9 +314,8 @@ class InsertAndSetFIFODepths(Transformation):
         max_depth=None,
         swg_exception=False,
         vivado_ram_style="auto",
-        force_python_sim=False,
         fifosim_input_throttle=True,
-        cfg_n_inferences=None
+        cfg_n_inferences=None,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -327,7 +324,6 @@ class InsertAndSetFIFODepths(Transformation):
         self.max_depth = max_depth
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
-        self.force_python_sim = force_python_sim
         self.fifosim_input_throttle = fifosim_input_throttle
         self.cfg_n_inferences = cfg_n_inferences
 
@@ -400,97 +396,42 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
-        if self.force_python_sim:
-            # do rtlsim in Python for FIFO sizing
-            # calculate input frequency (number of cycles for each input word)
-            first_node = getCustomOp(model.graph.node[0])
-            ncycles_per_input = max(
-                1,
-                int(
-                    math.ceil(
-                        perf["max_cycles"]
-                        / (
-                            np.prod(first_node.get_folded_input_shape())
-                            / first_node.get_folded_input_shape()[-1]
-                        )
-                    )
-                ),
-            )
-
-            # set sufficiently large threshold for 1 image to  fully execute and exit
-            ncycles = int(latency + max_cycles)
-
-            # prepare pyverilator model
-            sim = pyverilate_stitched_ip(model)
-
-            reset_rtlsim(sim)
-            toggle_clk(sim)
-
-            # set all input valids to 0 and output readies to 1
-            # set input data to some constant
-            set_signal(sim, "tvalid", 0)
-            set_signal(sim, "tready", 1)
-            set_signal(sim, "tdata", 0)
-
-            output_detected = False
-            while ncycles > 0:
-                toggle_clk(sim)
-                # set/unset valids
-                if ncycles % ncycles_per_input == 0:
-                    set_signal(sim, "tvalid", 1)
-                else:
-                    set_signal(sim, "tvalid", 0)
-
-                # since latency estimation is very pessimistic, detect first output
-                # and fast-forward the sim
-                if get_signal(sim, "tvalid") != 0 and not output_detected:
-                    ncycles = max_cycles
-                    output_detected = True
-                else:
-                    ncycles = ncycles - 1
-
-            if not output_detected:
-                warnings.warn("No output detected, calculated FIFO depths may not be correct")
+        # do rtlsim in C++ for FIFO sizing
+        # use the rtlsim_backend metadata_prop to decide which backend to use
+        backend = model.get_metadata_prop("rtlsim_backend")
+        # determine # inputs for FIFO sizing according to topology type
+        swg_nodes = [
+            x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
+        ]
+        if len(swg_nodes) == 0:
+            # MLP, no layer overlap
+            # assuming half the nodes are now FIFOs, use half the # of
+            # nodes as # inputs to drive the simulation
+            n_inferences = int(len(model.graph.node) / 2)
         else:
-            # do rtlsim in C++ for FIFO sizing
-            # use the rtlsim_backend metadata_prop to decide which backend to use
-            backend = model.get_metadata_prop("rtlsim_backend")
-            # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [
-                x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
-            ]
-            if self.cfg_n_inferences is None:
-                if len(swg_nodes) == 0:
-                    # MLP, no layer overlap
-                    # assuming half the nodes are now FIFOs, use half the # of
-                    # nodes as # inputs to drive the simulation
-                    n_inferences = int(len(model.graph.node) / 2)
-                else:
-                    # convnet, two inputs are typically enough to fill entire
-                    # layer pipeline due to overlaps
-                    n_inferences = 2
-            else:
-                n_inferences = self.cfg_n_inferences
+            # convnet, two inputs are typically enough to fill entire
+            # layer pipeline due to overlaps
+            n_inferences = 2
 
-            # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-            max_iters = latency
+        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+        max_iters = latency * 1.1
 
-            # set up rate limit for input throttling
-            if self.fifosim_input_throttle:
-                first_node = getCustomOp(model.graph.node[0])
-                inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
-                throttle_cycles = max(0, perf["max_cycles"] - inp_fold)
-            else:
-                throttle_cycles = 0
+        # set up rate limit for input throttling
+        if self.fifosim_input_throttle:
+            first_node = getCustomOp(model.graph.node[0])
+            inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
+            throttle_cycles = max(0, max_cycles - inp_fold)
+        else:
+            throttle_cycles = 0
 
-            if backend in ["verilator", "pyverilator"]:
-                sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
-            elif backend is None or backend in ["xsi", "pyxsi"]:
-                sim = xsi_fifosim(
-                    model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
-                )
-            else:
-                assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
+        if backend in ["verilator", "pyverilator"]:
+            sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
+        elif backend is None or backend in ["xsi", "pyxsi"]:
+            sim = xsi_fifosim(
+                model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
+            )
+        else:
+            assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

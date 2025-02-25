@@ -178,8 +178,10 @@ def rtlsim_exec_cppxsi(
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None or trace_file == "")
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
@@ -225,6 +227,18 @@ def rtlsim_exec_cppxsi(
         is_double_pumped = ifnames["clk2x"] != []
     else:
         is_double_pumped = False
+    # if the IP is using other interfaces like AXI-lite, ensure
+    # the control signals are deasserted
+    deassert_signals = []
+    axilite_deassert_sigs = ["arvalid", "awvalid", "bready", "rready", "wvalid"]
+    if "axilite" in ifnames.keys() and ifnames["axilite"] != []:
+        for axilite_ifname in ifnames["axilite"]:
+            for axilite_sig in axilite_deassert_sigs:
+                deassert_signals.append("%s_%s" % (axilite_ifname, axilite_sig))
+    if "aximm" in ifnames.keys() and ifnames["aximm"] != []:
+        assert (
+            False
+        ), f"cppxsi sim doesn't know how to handle full AXI MM interfaces: {ifnames['aximm']}"
     clknames = "clk_and_clk2x" if is_double_pumped else "clk"
     instream_names = [x[0] for x in ifnames["s_axis"]]
     instream_names_str = "{" + ", ".join(['"' + x + '"' for x in instream_names]) + "}"
@@ -232,6 +246,7 @@ def rtlsim_exec_cppxsi(
     outstream_names_str = "{" + ", ".join(['"' + x + '"' for x in outstream_names]) + "}"
     instream_iters_str = "{" + ", ".join([str(x) for x in instream_iters]) + "}"
     outstream_iters_str = "{" + ", ".join([str(x) for x in outstream_iters]) + "}"
+    deassert_signals_str = "{" + ", ".join(['"' + str(x) + '"' for x in deassert_signals]) + "}"
     # fill in the template arguments for sim driver
     template_dict = {
         # number of input transactions per inference
@@ -247,6 +262,8 @@ def rtlsim_exec_cppxsi(
         # names of the top-level AXI streams and signals
         "INSTREAM_NAME": instream_names_str,
         "OUTSTREAM_NAME": outstream_names_str,
+        # names of control signals to be deasserted
+        "DEASSERT_SIGNAL_NAMES": deassert_signals_str,
         "CLK_NAME": "ap_clk",
         "CLK2X_NAME": "ap_clk2x",
         "CLKNAMES": clknames,
@@ -293,10 +310,12 @@ def rtlsim_exec_cppxsi(
     # important to specify LD_LIBRARY_PATH here for XSI to work correctly
     runsim_env = os.environ.copy()
     runsim_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
-    runsim_cmd = ["./rtlsim_xsi"]
+    runsim_cmd = ["bash", "run_rtlsim.sh"]
     with open(sim_base + "/run_rtlsim.sh", "w") as f:
-        f.write(f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi")
-    launch_process_helper(runsim_cmd, proc_env=runsim_env, cwd=sim_base)
+        f.write(
+            f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi > rtlsim_xsi_log.txt"
+        )
+    launch_process_helper(runsim_cmd, cwd=sim_base)
 
     # parse results file and return dict
     results_filename = sim_base + "/results.txt"
@@ -340,8 +359,10 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-
-        rtlsim_so = pyxsi_utils.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        debug = not (trace_file is None or trace_file == "")
+        rtlsim_so = pyxsi_utils.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+        )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
         sim_base, sim_rel = rtlsim_so
@@ -456,7 +477,7 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     backend = model.get_metadata_prop("rtlsim_backend")
     if backend == "pyverilator":
         rtlsim_exec_pyverilator(model, execution_context, pre_hook, post_hook)
-    elif backend == "pyxsi":
+    elif backend == "pyxsi" or backend is None:
         rtlsim_exec_pyxsi(model, execution_context, pre_hook, post_hook)
     else:
         assert False, f"Unrecognized rtlsim_backend value: {backend}"
