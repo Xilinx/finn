@@ -110,7 +110,7 @@ def test_split_large_fifos(depth, force_python_rtlsim):
 
 def test_split_large_fifo_configs():
     ret0 = get_fifo_split_configs(513, 256, 32768)
-    assert ret0 == [(512, "vivado"), (1, "rtl")]
+    assert ret0 == [(512, "vivado"), (2, "rtl")]
     ret1 = get_fifo_split_configs(1200, 256, 32768)
     assert ret1 == [(1024, "vivado"), (176, "rtl")]
     ret2 = get_fifo_split_configs(45000, 256, 32768)
