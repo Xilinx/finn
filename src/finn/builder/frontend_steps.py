@@ -34,6 +34,7 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.transformation.streamline import Streamline
 from qonnx.util.range_analysis import RangeInfo
@@ -130,6 +131,7 @@ def step_convert_to_channels_last(model: ModelWrapper, cfg: DataflowBuildConfig)
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
     # TODO add assertions/checks - how should these look?
     step_name = "step_convert_to_channels_last"
     if step_name in cfg._resolve_verification_steps():
@@ -138,9 +140,11 @@ def step_convert_to_channels_last(model: ModelWrapper, cfg: DataflowBuildConfig)
 
 
 def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(FoldTransposeIntoQuantInit())
     model = model.transform(absorb.FactorOutMulSignMagnitude())
     model = model.transform(absorb.Absorb1BitMulIntoMatMul())
     model = model.transform(absorb.Absorb1BitMulIntoConv())
+    model = model.transform(InferDataLayouts())
 
     model = model.transform(
         QuantToMultiThreshold(
