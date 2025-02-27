@@ -119,6 +119,15 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
    reg       i_b_reg  		    // - true iff !full
 	     /* synthesis syn_allow_retiming=0 */ ;
 
+	// Parameter Checking
+	initial begin
+		if(depth < 2) begin
+			$error("%m: FIFO depth must be two or higher.");
+			$finish;
+		end
+	end
+
+
    assign addr_full_ = (state_==state_more) && (addr_==depth-2);
 						// - queue full
    assign addr_zero_ = (addr==0);		// - queue contains 2 (or 1,0)

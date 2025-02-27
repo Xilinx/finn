@@ -66,6 +66,7 @@ def get_checkpoint_name(step):
         return build_dir + "/end2end_ext_weights_%s.onnx" % (step)
 
 
+@pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.end2end
 def test_end2end_ext_weights_download():
     if not os.path.isfile(onnx_zip_local):
@@ -75,6 +76,7 @@ def test_end2end_ext_weights_download():
     assert os.path.isfile(get_checkpoint_name("download"))
 
 
+@pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end

@@ -616,7 +616,7 @@ def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
     ret_final = []
     for cand_depth in ret_pass2:
         if cand_depth <= max_qsrl_depth:
-            ret_final.append((cand_depth, "rtl"))
+            ret_final.append((max(2, cand_depth), "rtl"))
         else:
             ret_final.append((cand_depth, "vivado"))
 
