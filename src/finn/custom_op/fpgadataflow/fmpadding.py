@@ -181,6 +181,7 @@ class FMPadding(HWCustomOp):
         PADDING = self.get_nodeattr("Padding")
         NUMCHANNELS = self.get_nodeattr("NumChannels")
         SIMD = self.get_nodeattr("SIMD")
+        batch_size = self.get_nodeattr("numInputVectors")
         IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
         assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
 
@@ -210,7 +211,7 @@ class FMPadding(HWCustomOp):
         )
 
         fmpadding = Characteristic_Node(
-            "FMPadding Top",
+            "FMPadding FM",
             [
                 (y_padding_top, x_outer_line),
                 (y_dim, x_inner_line),
@@ -219,4 +220,12 @@ class FMPadding(HWCustomOp):
             False,
         )
 
-        return fmpadding  # top level phase of this node
+        fmpadding_top = Characteristic_Node(
+            "FMPadding FM",
+            [
+                (batch_size, fmpadding),
+            ],
+            False,
+        )
+
+        return fmpadding_top  # top level phase of this node

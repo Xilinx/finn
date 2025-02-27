@@ -221,14 +221,17 @@ def compare_two_chr_funcs(a, b, relaxation):
     return True
 
 
+DEBUGGING = False
+CACHING = False
+
+
 def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
     # If set to True: attempt to cache a pre-existing variant of the model
     # this is to avoid generating RTL multiple times during
     # test debugging
-    caching = False
 
     model_cache = None
-    if strategy == "rtlsim" and caching:
+    if strategy == "rtlsim" and CACHING:
         build_dir = os.environ["FINN_BUILD_DIR"]
         for x in os.listdir(build_dir):
             if x.startswith(str(node0)):
@@ -313,14 +316,11 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
                 target_clk_ns,
             )
         )
-        if caching:
+        if CACHING:
             tmp_caching_output_dir = make_build_dir(str(node0))
             model.save(tmp_caching_output_dir + "/model.onnx")
 
     return getCustomOp(model.graph.node[0])
-
-
-DEBUGGING = False
 
 
 def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction):
