@@ -241,9 +241,13 @@ def test_fpgadataflow_analytical_characterization_streamingmaxpool(
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), part, target_clk_ns, "analytical")
-    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), part, target_clk_ns, "rtlsim")
-    
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
     if direction == "input":
         assert compare_two_chr_funcs(
             node_analytical.get_nodeattr("io_chrc_in"),

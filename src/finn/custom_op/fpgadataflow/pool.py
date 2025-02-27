@@ -32,6 +32,7 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.basic import Characteristic_Node
 
+
 class Pool(HWCustomOp):
     """Abstraction layer for HW implementation of Pool.
     Requires ConvolutionInputGenerator(depthwise == 1) to format its input
@@ -263,8 +264,6 @@ class Pool(HWCustomOp):
     #             cycles += 1
     #     return txns, cycles, counter
 
-
-
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
         Channels = self.get_nodeattr("Channels")
@@ -274,16 +273,8 @@ class Pool(HWCustomOp):
         # assert True == False
         NF = int(Channels / PE)
 
-        pass_pool = Characteristic_Node(
-            "passing pooling layer", 
-            [(NF, [1,1])],
-            True)       
+        pass_pool = Characteristic_Node("passing pooling layer", [(NF, [1, 1])], True)
 
-        
-        pool_top = Characteristic_Node(
-            "compute pool",
-            [(KernelSize, pass_pool)],
-            False
-        )
+        pool_top = Characteristic_Node("compute pool", [(KernelSize, pass_pool)], False)
 
-        return pool_top # top level phase of this node
+        return pool_top  # top level phase of this node

@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.basic import Characteristic_Node
+
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
 
@@ -186,10 +187,8 @@ class StreamingDataWidthConverter(HWCustomOp):
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         context[node.output[0]] = output
 
-
     def get_exp_cycles(self):
         return np.prod(self.get_folded_input_shape()) + np.prod(self.get_folded_output_shape())
-
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
@@ -220,9 +219,7 @@ class StreamingDataWidthConverter(HWCustomOp):
 
         return int(cnt_luts + cset_luts)
 
-
     def prepare_kwargs_for_characteristic_fx(self):
-
         # function for the old DWC version
         # newer version will need a separate, much more
         # complicated function
@@ -231,54 +228,32 @@ class StreamingDataWidthConverter(HWCustomOp):
         numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
         numReps = int(np.prod(self.get_folded_input_shape()[:1]))
 
-       # inWidth = self.get_nodeattr("inWidth")
-       # outWidth = self.get_nodeattr("outWidth")
+        # inWidth = self.get_nodeattr("inWidth")
+        # outWidth = self.get_nodeattr("outWidth")
 
-        if numInWords > numOutWords:
-            #iterations = numInWords // numOutWords
-            converting = "accumulate inputs"
-        else:
-            #iterations = numOutWords // numInWords
-            converting = "split intputs"
+        read_inputs = Characteristic_Node("read all words", [(numInWords, [1, 0])], True)
 
-        idle = Characteristic_Node(
-            "idle cycles",
-            [(1, [0,0])],
-            True)
-   
-        read_inputs = Characteristic_Node(
-            "read all words", 
-            [(numInWords,[1,0])],
-            True)     
-
-        write_outputs = Characteristic_Node(
-            "write all words", 
-            [(numOutWords,[0,1])],
-            True)     
+        write_outputs = Characteristic_Node("write all words", [(numOutWords, [0, 1])], True)
 
         up_convert_word = Characteristic_Node(
-            "up convert all words in a single transaction", 
-            [(1,read_inputs),
-            (1, write_outputs)],
-            False)
+            "up convert all words in a single transaction",
+            [(1, read_inputs), (1, write_outputs)],
+            False,
+        )
 
         down_convert_word = Characteristic_Node(
-            "down convert all words in a single transaction", 
-            [(1,read_inputs),
-            (1, write_outputs)],
-            False)
-        
-        if converting == "accumulate inputs":
+            "down convert all words in a single transaction",
+            [(1, read_inputs), (1, write_outputs)],
+            False,
+        )
+
+        if numInWords > numOutWords:
             reps = Characteristic_Node(
-                "compute a set of DWCs with up conversion",
-                [(numReps,up_convert_word)],
-                False
+                "compute a set of DWCs with up conversion", [(numReps, up_convert_word)], False
             )
         else:
             reps = Characteristic_Node(
-                "compute a set of DWCs with down conversion",
-                [(numReps,down_convert_word)],
-                False
+                "compute a set of DWCs with down conversion", [(numReps, down_convert_word)], False
             )
 
         return reps

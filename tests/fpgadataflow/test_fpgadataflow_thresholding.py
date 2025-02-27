@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import zlib
+
 import copy
 import numpy as np
 from onnx import TensorProto, helper
@@ -50,8 +50,13 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc, debug_chr_funcs
-from finn.util.basic import decompress_string_to_numpy  
+from finn.util.basic import decompress_string_to_numpy
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
+
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
@@ -266,6 +271,7 @@ def test_fpgadataflow_thresholding(
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
 
+
 # which port to test
 @pytest.mark.parametrize("direction", ["input", "output"])
 @pytest.mark.parametrize("num_input_channels", [6, 16])
@@ -402,16 +408,18 @@ def test_fpgadataflow_analytical_characterization_thresholding(
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), test_fpga_part, target_clk_ns, "analytical")
-    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), test_fpga_part, target_clk_ns, "rtlsim")
-    
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), test_fpga_part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), test_fpga_part, target_clk_ns, "rtlsim"
+    )
 
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
 
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
-
 
     debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 

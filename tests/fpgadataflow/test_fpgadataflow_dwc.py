@@ -28,14 +28,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
 import copy
-import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
-from finn.util.basic import decompress_string_to_numpy
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -47,7 +46,13 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc, debug_chr_funcs
+from finn.util.basic import decompress_string_to_numpy
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
+
 
 def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
@@ -181,12 +186,12 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
 @pytest.mark.parametrize(
     "config",
     [
-       ([1, 24], 6, 4, DataType["INT2"]),
-       ([1, 24], 4, 6, DataType["INT2"]),
-       # ([1, 4], 2, 4, DataType["BIPOLAR"]),
-       # ([1, 4], 4, 2, DataType["INT2"]),
-        #([1, 2, 8], 4, 4, DataType["INT2"]),
-        #([1, 2, 8], 8, 16, DataType["INT2"]),
+        ([1, 24], 6, 4, DataType["INT2"]),
+        ([1, 24], 4, 6, DataType["INT2"]),
+        # ([1, 4], 2, 4, DataType["BIPOLAR"]),
+        # ([1, 4], 4, 2, DataType["INT2"]),
+        # ([1, 2, 8], 4, 4, DataType["INT2"]),
+        # ([1, 2, 8], 8, 16, DataType["INT2"]),
     ],
 )
 @pytest.mark.parametrize("exec_mode", ["rtlsim"])
@@ -197,15 +202,10 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
 def test_fpgadataflow_analytical_characterization_dwc(direction, config, exec_mode, impl_style):
     shape, inWidth, outWidth, finn_dtype = config
 
-    test_fpga_part = "xc7z020clg400-1"
-    # generate input data
-    x = gen_finn_dt_tensor(finn_dtype, shape)
-    input_dict = prepare_inputs(x, finn_dtype)
-
     model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
     model = model.transform(SetExecMode("rtlsim"))
-    #model = model.transform(InferShapes())
-    #model = model.transform(SetExecMode(mode))
+    # model = model.transform(InferShapes())
+    # model = model.transform(SetExecMode(mode))
 
     node_details = ("DWC", shape, inWidth, outWidth, finn_dtype, impl_style)
     part = "xc7z020clg400-1"
@@ -213,15 +213,18 @@ def test_fpgadataflow_analytical_characterization_dwc(direction, config, exec_mo
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), part, target_clk_ns, "analytical")
-    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), part, target_clk_ns, "rtlsim")
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
 
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
 
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
-
 
     debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 

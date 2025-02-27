@@ -29,14 +29,15 @@
 import numpy as np
 import os
 import warnings
-import zlib
 from abc import abstractmethod
 from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import make_build_dir, pyverilate_get_liveness_threshold_cycles, compress_numpy_to_string, decompress_string_to_numpy
-from finn.util.fpgadataflow import is_hls_node
+from finn.util.basic import (
+    compress_numpy_to_string,
+    pyverilate_get_liveness_threshold_cycles,
+)
 
 try:
     from pyverilator import PyVerilator
@@ -91,7 +92,7 @@ class HWCustomOp(CustomOp):
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods
-            "io_chrc_in": ("s", False,""),
+            "io_chrc_in": ("s", False, ""),
             "io_chrc_out": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
@@ -366,7 +367,6 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-
     def prepare_kwargs_for_characteristic_fx(self):
         """Returns the characteristic function of a node, default is None and forces
         to skip the analytical characterization of the node and fallback to rtlsim.
@@ -399,8 +399,12 @@ class HWCustomOp(CustomOp):
 
     def derive_characteristic_fxns_analytically(self, period, override_rtlsim_dict):
         # Analytical flow
-        txns_in = {key: [] for (key, value) in override_rtlsim_dict["inputs"].items() if "in" in key}
-        txns_out = {key: [] for (key, value) in override_rtlsim_dict["outputs"].items() if "out" in key}
+        txns_in = {
+            key: [] for (key, value) in override_rtlsim_dict["inputs"].items() if "in" in key
+        }
+        txns_out = {
+            key: [] for (key, value) in override_rtlsim_dict["outputs"].items() if "out" in key
+        }
 
         all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
         all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
@@ -420,7 +424,7 @@ class HWCustomOp(CustomOp):
         # first period
         cycles = 0
 
-        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0,counter, cycles ,txn_in)
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
 
         txn_in += [counter] * (period - cycles)
         padding += period - cycles
@@ -428,10 +432,7 @@ class HWCustomOp(CustomOp):
         # second period
         cycles = period
 
-
-        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0,counter, cycles ,txn_in)
-
-
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
 
         txn_in += [counter] * (period * 2 - cycles)
         padding += period * 2 - cycles
@@ -448,14 +449,14 @@ class HWCustomOp(CustomOp):
         cycles = 0
         padding = 0
 
-        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1,counter, cycles ,txn_out)
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
 
         txn_out += [counter] * (period - cycles)
         padding += period - cycles
 
         cycles = period
 
-        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1,counter, cycles ,txn_out)
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
 
         txn_out += [counter] * (period * 2 - cycles)
         padding += period * 2 - cycles
@@ -465,11 +466,13 @@ class HWCustomOp(CustomOp):
         self.set_nodeattr("io_chrc_out", compressed_np_array)
         self.set_nodeattr("io_chrc_pads_out", padding)
 
-    def derive_characteristic_fxns_rtlsim(self, model, period, fpga_part, clk_period, override_rtlsim_dict=None):
+    def derive_characteristic_fxns_rtlsim(
+        self, model, period, fpga_part, clk_period, override_rtlsim_dict=None
+    ):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
-        
+
         if self.get_nodeattr("io_chrc_period") > 0:
             warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
             return
@@ -579,7 +582,7 @@ class HWCustomOp(CustomOp):
 
         compressed_np_array_out = compress_numpy_to_string(all_txns_out)
         self.set_nodeattr("io_chrc_out", compressed_np_array_out)
-        #self.set_nodeattr("io_chrc_in", zlib.compress(all_txns_in))
-        #self.set_nodeattr("io_chrc_out", zlib.compress(all_txns_out))
+        # self.set_nodeattr("io_chrc_in", zlib.compress(all_txns_in))
+        # self.set_nodeattr("io_chrc_out", zlib.compress(all_txns_out))
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)
         self.set_nodeattr("io_chrc_pads_out", all_pad_out)

@@ -28,7 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import zlib
+
 import copy
 import numpy as np
 import os
@@ -39,7 +39,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
-from finn.util.basic import decompress_string_to_numpy
+
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -49,8 +49,12 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pynq_part_map
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc, debug_chr_funcs
+from finn.util.basic import decompress_string_to_numpy, pynq_part_map
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -201,15 +205,18 @@ def test_fpgadataflow_analytical_characterization_fmpadding(
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), part, target_clk_ns, "analytical")
-    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), part, target_clk_ns, "rtlsim")
-    
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
 
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
-
 
     debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 

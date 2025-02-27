@@ -38,8 +38,9 @@ from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
-from finn.util.basic import Characteristic_Node
+
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
@@ -908,16 +909,15 @@ class VVAU(HWCustomOp):
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd
 
-
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
         IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
-        assert IMPL_STYLE in ["rtl","hls"], "Implementation style must be \'rtl\' or \'hls\'"
-        
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
         # does not support internal decoupled yet
-       # if self.get_nodeattr("mem_mode") == "internal_decoupled":
-       #     return None
-        
+        # if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        #     return None
+
         SIMD = self.get_nodeattr("SIMD")
         PE = self.get_nodeattr("PE")
         Channels = self.get_nodeattr("Channels")
@@ -928,19 +928,18 @@ class VVAU(HWCustomOp):
 
         if IMPL_STYLE == "rtl":
             SF = Kernel_2 // SIMD
-           # wind_up = 5
+        # wind_up = 5
         else:
             SF = Kernel_2 // SIMD
-            #wind_up = 7
+            # wind_up = 7
 
         print("impl: ", IMPL_STYLE)
         print("SIMD, PE, dim, KERNEL_2, CH, SF, NF:", SIMD, PE, Kernel_2, Channels, SF, NF)
-        print("dim:",numReps)
-        print("SIMD, PE:",SIMD, PE)
-        print("Kernel2:",Kernel_2)
-        print("Ch:",Channels)
+        print("dim:", numReps)
+        print("SIMD, PE:", SIMD, PE)
+        print("Kernel2:", Kernel_2)
+        print("Ch:", Channels)
 
-        
         # INNER = TOTAL_FOLD // SF
 
         # wind_up_stage = Characteristic_Node(
@@ -948,47 +947,33 @@ class VVAU(HWCustomOp):
         #     [(wind_up, [1,0])],
         #     True)
 
-
-                
-
         # the windup stage should also exist and delay the outputs
         # this requires the same pattern of limiting SF and is probably best done as a correction
         # after the feature map?
-        # alternative is to construct a split of first, middle and last sf, 
+        # alternative is to construct a split of first, middle and last sf,
         # with the first having a longer read phase (sf+windup-1) and the last (sf-windup-1)
 
+        write_out = Characteristic_Node("write out simd (1 for hls)", [(1, [1, 1])], True)
 
-        write_out = Characteristic_Node(
-            "write out simd (1 for hls)", 
-             [(1, [1,1])],
-            True)
-        
-        compute_one_sf = Characteristic_Node(
-            "read one SF input", 
-             [(1,[1,0])],
-            True)
+        compute_one_sf = Characteristic_Node("read one SF input", [(1, [1, 0])], True)
 
         compute_sf = Characteristic_Node(
-            "process SF-1 inputs", 
-             [(SF-1,compute_one_sf),
-              (1, write_out)],
-            False)
-                
-        compute_transaction = Characteristic_Node(
-            "Compute VVAU one transaction", 
-            [(NF, compute_sf),
-            ],
-            False)       
-
-        vvau_top = Characteristic_Node(
-            "Compute VVAU input set", 
-           [ (numReps, compute_transaction)],
-            False
+            "process SF-1 inputs", [(SF - 1, compute_one_sf), (1, write_out)], False
         )
 
-        return vvau_top # top level phase of this node
+        compute_transaction = Characteristic_Node(
+            "Compute VVAU one transaction",
+            [
+                (NF, compute_sf),
+            ],
+            False,
+        )
 
+        vvau_top = Characteristic_Node(
+            "Compute VVAU input set", [(numReps, compute_transaction)], False
+        )
 
+        return vvau_top  # top level phase of this node
 
     # def prepare_kwargs_for_characteristic_fx(self):
     #     # key parameters
@@ -1069,7 +1054,7 @@ class VVAU(HWCustomOp):
 
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode in ["internal_decoupled", "external"]:
-            #n_weight_inps = self.calc_wmem()
+            # n_weight_inps = self.calc_wmem()
             # num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["weights"] = [0 for i in range(1 * n_inps)]
 

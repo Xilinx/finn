@@ -30,8 +30,9 @@ import onnxruntime as rt
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
-from finn.util.basic import Characteristic_Node
+
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class LabelSelect(HWCustomOp):
@@ -197,30 +198,16 @@ class LabelSelect(HWCustomOp):
 
         NF = num_in_words // PE
 
-        output_delay = int(np.log2(num_in_words))+1
+        output_delay = int(np.log2(num_in_words)) + 1
 
+        read_k = Characteristic_Node("read only", [(NF, [1, 0])], True)
 
-        read_k = Characteristic_Node(
-            "read only",
-            [(NF, [1,0])],
-            True)
-        
-        compute_k = Characteristic_Node(
-            "compute k",
-             [(output_delay,[0,0])],
-            True)
-                
-        write_k = Characteristic_Node(
-            "write k", 
-            [(K, [0,1])],
-            True)       
-        
+        compute_k = Characteristic_Node("compute k", [(output_delay, [0, 0])], True)
+
+        write_k = Characteristic_Node("write k", [(K, [0, 1])], True)
+
         labelselect_top = Characteristic_Node(
-            "Fill feature map",
-            [(1, read_k),
-             (1, compute_k), 
-             (1,write_k)],
-            False
+            "Fill feature map", [(1, read_k), (1, compute_k), (1, write_k)], False
         )
 
-        return labelselect_top # top level phase of this node
+        return labelselect_top  # top level phase of this node

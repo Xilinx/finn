@@ -33,6 +33,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import qonnx.custom_op.registry as registry
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
@@ -40,37 +41,29 @@ from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.transformation.infer_shapes import InferShapes
+
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-
-# generate each node's files as necessary
-from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
-import qonnx.custom_op.registry as registry
-#def _codegen_single_node(node, model, fpgapart, clk):
+
+# def _codegen_single_node(node, model, fpgapart, clk):
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
-    MinimizeWeightBitWidth,
-)
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
+
+# generate each node's files as necessary
 from finn.util.basic import (
     alveo_default_platform,
     alveo_part_map,
     make_build_dir,
     pynq_part_map,
 )
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -221,9 +214,9 @@ def compare_two_chr_funcs(a, b, relaxation):
     # b = ground truth
     for inp in range(len(a)):
         for i in range(len(a[inp])):
-            start_internal_relaxation = min([relaxation,i])
-            end_internal_relaxation = min([relaxation, abs(len(a[inp])-i)])
-            if (a[inp][i] not in b[inp][i-start_internal_relaxation:i+end_internal_relaxation]):
+            start_internal_relaxation = min([relaxation, i])
+            end_internal_relaxation = min([relaxation, abs(len(a[inp]) - i)])
+            if a[inp][i] not in b[inp][i - start_internal_relaxation : i + end_internal_relaxation]:
                 return False
     return True
 
@@ -245,34 +238,35 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
 
     if model_cache is None:
         model = model.transform(SpecializeLayers(part))
-      # model = model.transform(MinimizeWeightBitWidth())
-      #  model = model.transform(MinimizeAccumulatorWidth())
+        # model = model.transform(MinimizeWeightBitWidth())
+        #  model = model.transform(MinimizeAccumulatorWidth())
         model = model.transform(GiveUniqueNodeNames())
-        #if strategy == "rtlsim":
-       #     model = model.transform(PrepareIP(part, target_clk_ns))
+        # if strategy == "rtlsim":
+        #     model = model.transform(PrepareIP(part, target_clk_ns))
 
         for node in model.graph.node:
             inst = registry.getCustomOp(node)
-            if ((is_hls_node(node) or is_rtl_node(node)) 
-                and (inst.prepare_kwargs_for_characteristic_fx() is None 
-                    or strategy == "rtlsim")):
-        
-                _codegen_single_node(node, model,part, target_clk_ns)
+            if (is_hls_node(node) or is_rtl_node(node)) and (
+                inst.prepare_kwargs_for_characteristic_fx() is None or strategy == "rtlsim"
+            ):
+                _codegen_single_node(node, model, part, target_clk_ns)
 
                 op_type = node.op_type
                 if is_hls_node(node):
                     try:
                         # lookup op_type in registry of CustomOps
-                        
+
                         # ensure that code is generated
                         assert (
                             inst.get_nodeattr("code_gen_dir_ipgen") != ""
                         ), """Node
                         attribute "code_gen_dir_ipgen" is empty. Please run
                         transformation PrepareIP first."""
-                        if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
-                            "code_gen_dir_ipgen"
-                        ) in inst.get_nodeattr("ipgen_path"):
+                        if not os.path.isdir(
+                            inst.get_nodeattr("ipgen_path")
+                        ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
+                            "ipgen_path"
+                        ):
                             # call the compilation function for this node
                             inst.ipgen_singlenode_code()
                         else:
@@ -286,19 +280,17 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception("Custom op_type %s is currently not supported." % op_type)
-        
+
         model = model.transform(ReplaceVerilogRelPaths())
 
-
-        for node in model.graph.node:   
+        for node in model.graph.node:
             inst = registry.getCustomOp(node)
-            if ((is_hls_node(node) or is_rtl_node(node)) 
-                and (inst.prepare_kwargs_for_characteristic_fx() is None 
-                    or strategy == "rtlsim")):
-        
+            if (is_hls_node(node) or is_rtl_node(node)) and (
+                inst.prepare_kwargs_for_characteristic_fx() is None or strategy == "rtlsim"
+            ):
                 try:
                     # lookup op_type in registry of CustomOps
-                    #inst = registry.getCustomOp(node)
+                    # inst = registry.getCustomOp(node)
                     inst.prepare_rtlsim()
                     # ensure that executable path is now set
                     assert (
@@ -329,14 +321,11 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy):
 
 
 DEBUGGING = False
-def debug_chr_funcs(chr_in, 
-                    chr_out, 
-                    rtlsim_in, 
-                    rtlsim_out,
-                    direction):
-    
 
+
+def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction):
     if DEBUGGING:
+
         def concat_list(a):
             b = []
             current = a[0]
@@ -354,7 +343,6 @@ def debug_chr_funcs(chr_in,
         rtlsim_in_concat = concat_list(rtlsim_in[0])
         rtlsim_out_concat = concat_list(rtlsim_out[0])
 
-
         np.set_printoptions(threshold=np.inf)
         if direction == "input":
             print(f"\nchr IN:    {chr_in[:100]}, {len(chr_in[0])}")
@@ -366,7 +354,6 @@ def debug_chr_funcs(chr_in,
         elif direction == "output":
             print(f"\nchr OUT:    {chr_out[:100]}, {len(chr_out[0])}")
             print(f"rtlsim OUT: {rtlsim_out[:100]}, {len(rtlsim_out[0])}")
-
 
             print(f"chr OUT CONCAT:    {chr_out_concat[:100]}, {len(chr_out_concat)}")
             print(f"rtlsim OUT CONCAT: {rtlsim_out_concat[:100]}, {len(rtlsim_out_concat)}")

@@ -32,8 +32,9 @@ import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model
-from finn.util.basic import Characteristic_Node
+
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
@@ -271,25 +272,13 @@ class ChannelwiseOp(HWCustomOp):
 
     #     return txns, cycles, counter
 
-
     def prepare_kwargs_for_characteristic_fx(self):
         # key parameters
 
-        PE = self.get_nodeattr("PE")
-        NumChannels = self.get_nodeattr("NumChannels")
-        NF = int(NumChannels / PE)
         dim = np.prod(self.get_folded_output_shape()[1:-1])
 
-        pass_channelwise = Characteristic_Node(
-            "passing channelwise layer", 
-            [(dim, [1,1])],
-            True)       
+        pass_channelwise = Characteristic_Node("passing channelwise layer", [(dim, [1, 1])], True)
 
-        
-        channelwise_top = Characteristic_Node(
-            "compute pool",
-            [(1, pass_channelwise)],
-            False
-        )
+        channelwise_top = Characteristic_Node("compute pool", [(1, pass_channelwise)], False)
 
-        return channelwise_top # top level phase of this node
+        return channelwise_top  # top level phase of this node

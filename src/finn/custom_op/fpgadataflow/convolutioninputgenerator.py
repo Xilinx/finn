@@ -279,9 +279,8 @@ class ConvolutionInputGenerator(HWCustomOp):
         inst.execute_node(context, model_im2col.graph)
 
     def prepare_kwargs_for_characteristic_fx(self):
+        return None  # needs to be reimplemented in new tree format
 
-        return None # needs to be reimplemented in new tree format
-    
         # key parameters
         IFMDim_x = self.get_nodeattr("IFMDim")[0]
         OFMDim_x = self.get_nodeattr("OFMDim")[0]

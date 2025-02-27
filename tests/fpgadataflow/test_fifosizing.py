@@ -28,10 +28,10 @@
 
 
 import pytest
+
 import json
 import shutil
 import torch
-import time
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -110,7 +110,6 @@ def test_fifosizing_linear(method, topology):
 
     model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
     model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx")
-    assert True == False
     assert len(model0.graph.node) == len(model1.graph.node)
     for i in range(len(model0.graph.node)):
         node0 = model0.graph.node[i]
@@ -123,7 +122,6 @@ def test_fifosizing_linear(method, topology):
 
     shutil.rmtree(tmp_output_dir)
     shutil.rmtree(tmp_output_dir_cmp)
-
 
 
 @pytest.mark.slow
@@ -147,7 +145,6 @@ def test_fifosizing_fast(method, topology):
         characterizatio_strategy_key = "analytical"
     else:
         characterizatio_strategy_key = "rtlsim"
-
 
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
@@ -185,19 +182,19 @@ def test_fifosizing_fast(method, topology):
     cfg_cmp.output_dir = tmp_output_dir_cmp
     cfg_cmp.auto_fifo_depths = False
     cfg_cmp.target_fps = None
-    cfg_cmp.steps=[
-            "step_qonnx_to_finn",
-            "step_tidy_up",
-            "step_streamline",
-            "step_convert_to_hw",
-            "step_create_dataflow_partition",
-            "step_specialize_layers",
-            "step_target_fps_parallelization",
-            "step_apply_folding_config",
-            "step_minimize_bit_width",
-            "step_generate_estimate_reports",
-            "step_set_fifo_depths",
-        ]
+    cfg_cmp.steps = [
+        "step_qonnx_to_finn",
+        "step_tidy_up",
+        "step_streamline",
+        "step_convert_to_hw",
+        "step_create_dataflow_partition",
+        "step_specialize_layers",
+        "step_target_fps_parallelization",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_set_fifo_depths",
+    ]
     cfg_cmp.folding_config_file = tmp_output_dir + "/final_hw_config.json"
     build.build_dataflow_cfg(tmp_output_dir_cmp + "/model.onnx", cfg_cmp)
 

@@ -29,7 +29,6 @@
 import pytest
 
 import copy
-import zlib
 import numpy as np
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
@@ -48,7 +47,7 @@ from qonnx.util.basic import (
     gen_finn_dt_tensor,
     qonnx_make_model,
 )
-from finn.util.basic import decompress_string_to_numpy  
+
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -69,7 +68,12 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc, debug_chr_funcs
+from finn.util.basic import decompress_string_to_numpy
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -624,13 +628,15 @@ def test_mvau_fifocharacterize_rtlsim(
     model = model.transform(PrepareRTLSim())
     model = model.transform(DeriveCharacteristic(exp_total_cycles))
 
-    model = model.transform(DeriveCharacteristic(
-        model,
-        exp_total_cycles,
-        "rtlsim",
-        "xczu7ev-ffvc1156-2-e",
-        5,
-    ))
+    model = model.transform(
+        DeriveCharacteristic(
+            model,
+            exp_total_cycles,
+            "rtlsim",
+            "xczu7ev-ffvc1156-2-e",
+            5,
+        )
+    )
 
     node_inst = getCustomOp(model.graph.node[0])
     period_attr = node_inst.get_nodeattr("io_chrc_period")
@@ -755,7 +761,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
-@pytest.mark.parametrize("idt", [ DataType["INT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 8])
 # synapse folding, -1 is maximum possible
@@ -807,15 +813,18 @@ def test_fpgadataflow_analytical_characterization_mvau(
     allowed_chr_offset_positions = 5
 
     model_rtl = copy.deepcopy(model)
-    node_analytical = get_characteristic_fnc(model, (*node_details,"analytical"), part, target_clk_ns, "analytical")
-    node_rtlsim = get_characteristic_fnc(model_rtl, (*node_details,"rtlsim"), part, target_clk_ns, "rtlsim")
-    
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
 
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
-
 
     debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 

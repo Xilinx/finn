@@ -30,9 +30,9 @@
 
 import qonnx.custom_op.registry as registry
 import warnings
-import zlib
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
+
 from finn.util.basic import decompress_string_to_numpy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
