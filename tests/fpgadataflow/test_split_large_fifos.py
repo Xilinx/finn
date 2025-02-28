@@ -63,7 +63,7 @@ def get_folding_cfg(depth=65536):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize("depth", [16384, 65536, 45000])
+@pytest.mark.parametrize("depth", [16384, 65536, 45000, 1537])
 @pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
 def test_split_large_fifos(depth, force_python_rtlsim):
     tmp_output_dir = fetch_test_model("tfc")
@@ -103,13 +103,14 @@ def test_split_large_fifos(depth, force_python_rtlsim):
         inst = getCustomOp(fifo_node)
         fifo_depth = inst.get_nodeattr("depth")
         assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
+        assert fifo_depth > 1
 
     shutil.rmtree(tmp_output_dir)
 
 
 def test_split_large_fifo_configs():
     ret0 = get_fifo_split_configs(513, 256, 32768)
-    assert ret0 == [(512, "vivado"), (1, "rtl")]
+    assert ret0 == [(512, "vivado"), (2, "rtl")]
     ret1 = get_fifo_split_configs(1200, 256, 32768)
     assert ret1 == [(1024, "vivado"), (176, "rtl")]
     ret2 = get_fifo_split_configs(45000, 256, 32768)

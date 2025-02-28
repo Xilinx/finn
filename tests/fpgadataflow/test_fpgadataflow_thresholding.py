@@ -50,6 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import decompress_string_to_numpy
 from finn.util.test import (
     compare_two_chr_funcs,
@@ -140,10 +141,8 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize(
     "idt_tdt_cfg",
     [
-        (DataType["INT8"], DataType["INT8"]),
-        (DataType["INT8"], DataType["INT9"]),
-        (DataType["UINT8"], DataType["UINT8"]),
-        (DataType["UINT8"], DataType["UINT9"]),
+        (DataType["INT8"], DataType["INT25"]),
+        (DataType["UINT5"], DataType["UINT8"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -152,6 +151,7 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("round_thresh", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -166,6 +166,7 @@ def test_fpgadataflow_thresholding(
     impl_style,
     exec_mode,
     mem_mode,
+    round_thresh,
 ):
     # the mem_mode parameter can only be used for the hls thresholding
     # so the test will only be executed once for impl_style=rtl and once skipped
@@ -241,6 +242,8 @@ def test_fpgadataflow_thresholding(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
+    if round_thresh is True:
+        model = model.transform(RoundAndClipThresholds())
     model = model.transform(GiveUniqueNodeNames())
 
     if impl_style == "hls":
