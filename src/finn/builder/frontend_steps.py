@@ -177,6 +177,10 @@ def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig
 
 
 def step_convert_to_thresholds_old(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if cfg.max_multithreshold_bit_width == 0:
+        # skip step entirely to avoid e.g. standalone eltwise mul being reabsorbed
+        # back into Quant nodes
+        return model
     model = model.transform(AbsorbQuantScale())
     model = model.transform(ConvertDivToMul())
     model = model.transform(InferDataLayouts())
