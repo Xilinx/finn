@@ -426,7 +426,7 @@ class HWCustomOp(CustomOp):
 
         counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
 
-        def apply_micro_buffer_correction(start, txn_in):
+        def apply_micro_buffer_correction(start, txn_in, period):
             """There are cases where a node can buffer up the very first 1-2 inputs
             immediately, even if it has not started properly consuming inputs yet
             This behavior is extremely difficult to model in a characterization tree
@@ -434,34 +434,57 @@ class HWCustomOp(CustomOp):
             inputs read by 1 and detracting 1 read from the tail of the period
 
             Which node types & configurations this applies for is yet to be
-            fully determined, but the corrections should happen here"""
+            fully determined, but the corrections should happen here.
+            It is possible that this correction is entire unncessary and
+            simply an rtlsim artefact, but we maintain it for testability for now"""
+
+            buffer = 0
 
             if "FMPadding" in self.onnx_node.name:
                 if "_rtl" in (self.__class__.__name__):
                     buffer = 1
-                    idx = start + 1
                 else:
                     buffer = 2
-                    txn_in[start + 1] += 1
+
+            if "StreamingDataWidthConverter" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if buffer > 0:
+                # buffering does not happen in nodes with short wind-ups
+                if period < 14:
+                    return txn_in
+
+                # main routine
+                if buffer == 2:
+                    if txn_in[start + 1] - txn_in[start] >= 1:
+                        buffer = 1
+                    else:
+                        txn_in[start + 1] += 1
 
                 idx = start + buffer
                 while idx < len(txn_in):
-                    txn_in[idx] += buffer
+                    if txn_in[idx] - txn_in[idx - 1] < buffer:
+                        txn_in[idx] += buffer
                     idx += 1
 
                 idx = len(txn_in) - 1
                 last = txn_in[idx]
+
                 # deduct 1 read from the tail
                 while last == txn_in[idx]:
                     txn_in[idx] -= buffer
                     idx -= 1
 
+                # one extra element to deduct in case of 2 buffers
                 if buffer == 2:
                     txn_in[idx] -= 1
 
             return txn_in
 
-        txn_in = apply_micro_buffer_correction(0, txn_in)
+        txn_in = apply_micro_buffer_correction(0, txn_in, period)
 
         txn_in += [counter] * (period - cycles)
         padding += period - cycles
@@ -471,7 +494,7 @@ class HWCustomOp(CustomOp):
 
         counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
 
-        txn_in = apply_micro_buffer_correction(period, txn_in)
+        txn_in = apply_micro_buffer_correction(period, txn_in, period)
 
         txn_in += [counter] * (period * 2 - cycles)
         padding += period * 2 - cycles

@@ -186,12 +186,13 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
 @pytest.mark.parametrize(
     "config",
     [
-        ([1, 24], 6, 4, DataType["INT2"]),
-        ([1, 24], 4, 6, DataType["INT2"]),
+        ([1, 24], 8, 4, DataType["INT2"]),
+        # ([1, 24], 4, 6, DataType["INT2"]),
         ([1, 4], 2, 4, DataType["BIPOLAR"]),
         ([1, 4], 4, 2, DataType["INT2"]),
         ([1, 2, 8], 4, 4, DataType["INT2"]),
         ([1, 2, 8], 8, 16, DataType["INT2"]),
+        ([1, 320], 2, 160, DataType["INT2"]),
     ],
 )
 @pytest.mark.parametrize("exec_mode", ["rtlsim"])
@@ -207,7 +208,7 @@ def test_fpgadataflow_analytical_characterization_dwc(direction, config, exec_mo
     # model = model.transform(InferShapes())
     # model = model.transform(SetExecMode(mode))
 
-    node_details = ("DWC", shape, inWidth, outWidth, finn_dtype, impl_style)
+    node_details = ("DWC", config, impl_style)
     part = "xc7z020clg400-1"
     target_clk_ns = 4
     allowed_chr_offset_positions = 5

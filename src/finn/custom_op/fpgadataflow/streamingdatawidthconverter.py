@@ -220,43 +220,85 @@ class StreamingDataWidthConverter(HWCustomOp):
         return int(cnt_luts + cset_luts)
 
     def prepare_kwargs_for_characteristic_fx(self):
-        # function for the old DWC version
-        # newer version will need a separate, much more
-        # complicated function
+        """Characteristic function of the non-general DWC
+        variant."""
 
-        numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
-        numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
-        numReps = int(np.prod(self.get_folded_input_shape()[:1]))
+        numReps = int(np.prod(self.get_folded_input_shape()[:-1]))
 
-        # inWidth = self.get_nodeattr("inWidth")
-        # outWidth = self.get_nodeattr("outWidth")
+        inWidth = self.get_nodeattr("inWidth")
+        outWidth = self.get_nodeattr("outWidth")
 
-        read_inputs = Characteristic_Node("read all words", [(numInWords, [1, 0])], True)
+        print("\nin,out widths:", inWidth, outWidth)
+        print("inshape:", self.get_folded_input_shape())
+        print("outshape:", self.get_folded_output_shape())
 
-        write_outputs = Characteristic_Node("write all words", [(numOutWords, [0, 1])], True)
+        wind_up = 1
 
-        up_convert_word = Characteristic_Node(
-            "up convert all words in a single transaction",
-            [(1, read_inputs), (1, write_outputs)],
-            False,
-        )
+        idle = Characteristic_Node("idle", [(1, [0, 0])], True)
 
-        down_convert_word = Characteristic_Node(
-            "down convert all words in a single transaction",
-            [(1, read_inputs), (1, write_outputs)],
-            False,
-        )
+        if inWidth > outWidth:
+            # down-conversion
+            if inWidth % outWidth != 0:
+                return None  # no support for gcd partial conversion yet
 
-        if numInWords > numOutWords:
-            reps = Characteristic_Node(
-                "compute a set of DWCs with up conversion", [(numReps, up_convert_word)], False
+            writes_per_read = inWidth // outWidth
+            # read 1, write many, repeats for in-word count
+
+            read_input = Characteristic_Node("read 1 word", [(1, [1, 0])], True)
+
+            write_output = Characteristic_Node("write words", [(writes_per_read, [0, 1])], True)
+
+            down_convert_word = Characteristic_Node(
+                "down convert all words in a single transaction",
+                [(1, read_input), (1, write_output)],
+                False,
             )
+
+            numReps = int(np.prod(self.get_folded_input_shape()[:-1]))
+
+            dwc_top = Characteristic_Node(
+                "compute a set of DWCs with down conversion",
+                [(wind_up, idle), (numReps, down_convert_word)],
+                False,
+            )
+
+        elif inWidth < outWidth:
+            # up-conversion
+
+            if outWidth % inWidth != 0:
+                return None  # no support for gcd partial conversion yet
+
+            reads_per_write = outWidth // inWidth
+            # read 1, write many, repeats for in-word count
+
+            read_input = Characteristic_Node("read words", [(reads_per_write, [1, 0])], True)
+
+            write_output = Characteristic_Node("write 1 word", [(1, [0, 1])], True)
+
+            up_convert_word = Characteristic_Node(
+                "down convert all words in a single transaction",
+                [(1, read_input), (1, write_output)],
+                False,
+            )
+
+            numReps = int(np.prod(self.get_folded_output_shape()[:-1]))
+            dwc_top = Characteristic_Node(
+                "compute a set of DWCs with up conversion",
+                [(wind_up, idle), (numReps, up_convert_word)],
+                False,
+            )
+
         else:
-            reps = Characteristic_Node(
-                "compute a set of DWCs with down conversion", [(numReps, down_convert_word)], False
-            )
+            # pass-through
 
-        return reps
+            numReps = int(np.prod(self.get_folded_input_shape()[:-1]))
+
+            pass_through = Characteristic_Node("pass-through", [(1, [1, 1])], True)
+
+            dwc_top = Characteristic_Node(
+                "DWC pass-through, no conversion", [(wind_up, idle), (numReps, pass_through)], False
+            )
+        return dwc_top
 
     # def prepare_kwargs_for_characteristic_fx_old(self):
     #     numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
