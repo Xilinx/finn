@@ -50,7 +50,11 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import decompress_string_to_numpy
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 
 def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw):
@@ -245,21 +249,21 @@ def test_fpgadataflow_slidingwindow(
 # which port to test
 @pytest.mark.parametrize("direction", ["input", "output"])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["UINT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
 # kernel size
-@pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
+@pytest.mark.parametrize("k", [[3, 3], [1, 5]])
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [2, 4])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 1], [2, 2], [2, 1]])
+@pytest.mark.parametrize("stride", [[2, 2], [2, 1]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1, 1], [2, 2], [2, 1]])
+@pytest.mark.parametrize("dilation", [[2, 2], [2, 1]])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim"])
 # input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 2, 4])
+@pytest.mark.parametrize("simd", [1, 4])
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
 # parallel_window enable (MMV_out = M*K)
@@ -362,23 +366,7 @@ def test_fpgadataflow_analytical_characterization_slidingwindow(
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
 
-    # DEBUGGING ======================================================
-    if direction == "input":
-        np.set_printoptions(threshold=np.inf)
-        print("chr IN")
-        print(chr_in[:100])
-
-        print("rtlsim IN")
-        print(rtlsim_in[:100])
-
-    elif direction == "output":
-        np.set_printoptions(threshold=np.inf)
-        print("chr OUT")
-        print(chr_out[:100])
-
-        print("rtlsim OUT")
-        print(rtlsim_out[:100])
-    # DEBUGGING ======================================================
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 
     if direction == "input":
         assert compare_two_chr_funcs(

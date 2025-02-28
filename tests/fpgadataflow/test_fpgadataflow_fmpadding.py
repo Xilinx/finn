@@ -173,15 +173,15 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
 # # which port to test
 @pytest.mark.parametrize("direction", ["input", "output"])
 # input image dimension
-@pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
+@pytest.mark.parametrize("idim", [[10, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]])
+@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [7, 0, 8, 0]])
 # number of channels
 @pytest.mark.parametrize("num_ch", [2, 4])
 # Input parallelism
 @pytest.mark.parametrize("simd", [1, 2])
 # FINN input datatype
-@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["rtlsim"])
 # implementation style

@@ -49,7 +49,11 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import decompress_string_to_numpy
-from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 
 def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
@@ -232,23 +236,7 @@ def test_fpgadataflow_analytical_characterization_channelwise_ops(
     rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
     rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
 
-    # DEBUGGING ======================================================
-    if direction == "input":
-        np.set_printoptions(threshold=np.inf)
-        print("chr IN")
-        print(chr_in[:100])
-
-        print("rtlsim IN")
-        print(rtlsim_in[:100])
-
-    elif direction == "output":
-        np.set_printoptions(threshold=np.inf)
-        print("chr OUT")
-        print(chr_out[:100])
-
-        print("rtlsim OUT")
-        print(rtlsim_out[:100])
-    # DEBUGGING ======================================================
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
 
     if direction == "input":
         assert compare_two_chr_funcs(
