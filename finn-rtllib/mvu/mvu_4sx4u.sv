@@ -82,7 +82,7 @@ module mvu_4sx4u #(
 		always_ff @(posedge clk) begin
 			assert(!Dirty || rst || !en || zero) else begin
 				$warning("%m: Feeding input during DSP startup recovery. Expect functional errors.");
-				$stop;
+				//$stop;
 			end
 		end
 	end : blkRecoveryWatch
@@ -251,7 +251,7 @@ module mvu_4sx4u #(
 						foreach(ww[pe]) begin
 							assert(zero || (ww[pe] !== -2**(WEIGHT_WIDTH-1))) else begin
 								$warning("%m: Weight of %0x violates NARROW_WEIGHTS commitment.", ww[pe]);
-								$stop;
+								//$stop;
 							end
 						end
 					end

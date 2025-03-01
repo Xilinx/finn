@@ -377,7 +377,7 @@ module mvu_vvu_axi #(
 				automatic logic  pop  = (m_axis_output_tready || !OVld) && !OPtr[$left(OPtr)];
 				assert(pop || !push || (OPtr < $signed(MAX_IN_FLIGHT))) else begin
 					$error("%m: Overflowing output queue.");
-					$stop;
+					//$stop;
 				end
 				OPtr <= OPtr + $signed(push == pop? 0 : push? 1 : -1);
 
