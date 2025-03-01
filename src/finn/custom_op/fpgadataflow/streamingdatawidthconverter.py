@@ -33,8 +33,9 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
-# does not do anything at the ONNX node-by-node level, and input-output
-# tensor shapes are the same. performs data width conversion at the rtlsim level
+# Performs transformations of input shapes to output shapes at both cppsim and rtlsim level
+# Does padding and cropping if shapes mismatch using an intermediate inWidth+OutWidth buffer
+# which is filled with zeroes. Only in hls-lib right now.
 
 
 class StreamingDataWidthConverter(HWCustomOp):
@@ -42,8 +43,9 @@ class StreamingDataWidthConverter(HWCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # shape of input/output tensors
-            "shape": ("ints", True, []),
+            # shapes of input/output tensors
+            "in_shape": ("ints", True, []),
+            "out_shape": ("ints", True, []),
             # bit width of input and output streams
             "inWidth": ("i", True, 0),
             "outWidth": ("i", True, 0),
@@ -62,21 +64,38 @@ class StreamingDataWidthConverter(HWCustomOp):
         return DataType[self.get_nodeattr("dataType")]
 
     def get_normal_input_shape(self, ind=0):
-        ishape = self.get_nodeattr("shape")
+        ishape = self.get_nodeattr("in_shape")
         return ishape
 
+
+    def get_num_in_words(self):
+        shape = self.get_nodeattr("in_shape")
+        out_els = self.get_nodeattr("inWidth") / self.get_output_datatype().bitwidth()
+        num_words = int(shape[-1] // out_els)
+        return num_words
+    
+    def get_num_words(self):
+        shape = self.get_nodeattr("out_shape")
+        out_els = self.get_nodeattr("outWidth") / self.get_input_datatype().bitwidth()
+        num_words = int(shape[-1] // out_els)
+        return num_words
+
     def get_normal_output_shape(self, ind=0):
-        oshape = self.get_nodeattr("shape")
+        oshape = self.get_nodeattr("out_shape")
         return oshape
 
     def get_iowidth_lcm(self):
         iwidth = self.get_nodeattr("inWidth")
         owidth = self.get_nodeattr("outWidth")
+
         return int(np.lcm(iwidth, owidth))
 
     def needs_lcm(self):
         iwidth = self.get_nodeattr("inWidth")
         owidth = self.get_nodeattr("outWidth")
+
+        # offset the resizing to get true values for DWC
+
         maxwidth = max(iwidth, owidth)
         minwidth = min(iwidth, owidth)
         return maxwidth % minwidth != 0
@@ -101,29 +120,30 @@ class StreamingDataWidthConverter(HWCustomOp):
             new_shape.append(i)
         new_shape.append(int(ichannels // ielems))
         new_shape.append(ielems)
+
         dummy_t = dummy_t.reshape(new_shape)
+
         return dummy_t.shape
 
     def get_folded_output_shape(self, ind=0):
         self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
+
         oshape = self.get_normal_output_shape()
-        dummy_t = np.random.randn(*oshape)
+
         obits = self.get_output_datatype().bitwidth()
         assert (
             owidth % obits == 0
         ), """DWC output width must be divisible by
         input element bitwidth"""
-        oelems = int(owidth // obits)
+        oelems = int((owidth) // obits)
         ochannels = oshape[-1]
         new_shape = []
         for i in oshape[:-1]:
             new_shape.append(i)
         new_shape.append(int(ochannels // oelems))
         new_shape.append(oelems)
-        dummy_t = dummy_t.reshape(new_shape)
-
-        return dummy_t.shape
+        return tuple(new_shape)
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -140,6 +160,7 @@ class StreamingDataWidthConverter(HWCustomOp):
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
+
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == tuple(exp_ishape), "Unexpect input shape for StreamingDWC."
         return super().make_const_shape_op(oshape)
@@ -177,40 +198,33 @@ class StreamingDataWidthConverter(HWCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
-        exp_shape = self.get_normal_input_shape()
+        in_shape = self.get_normal_input_shape()
+        out_shape = self.get_normal_output_shape()
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == tuple(exp_shape), "Input shape does not match expected shape."
+        assert inp.shape == tuple(in_shape), "Input shape does not match expected shape."
 
-        output = inp
-        output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
+        output = np.zeros((out_shape), dtype=np.float32)
+        if out_shape[-1] > in_shape[-1]:
+            output[..., : in_shape[-1]] = inp[..., : in_shape[-1]]
+        else:
+            output[..., : out_shape[-1]] = inp[..., : out_shape[-1]]
+
+        output = np.asarray([output], dtype=np.float32).reshape(*out_shape)
         context[node.output[0]] = output
 
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs"""
-        inw = self.get_instream_width()
-        outw = self.get_outstream_width()
+    
+    def get_exp_cycles(self):
+        # highly conservative estimate, since in the worst case we assume
+        # one additional cycle spent for each word when we have a passthrough
+        # situation of identical input and output word counts.
+        num_out_words = int(np.prod(self.get_folded_output_shape()[-2:-1]))
+        num_in_words = int(np.prod(self.get_folded_input_shape()[-2:-1]))
 
-        minw = min(inw, outw)
-        maxw = max(inw, outw)
-
-        # sometimes widths aren't directly divisible
-        # this requires going up from input width to least common multiple
-        # then down to output width
-        intw = abs(maxw * minw) // math.gcd(maxw, minw)
-
-        # we assume a shift-based implementation
-        # even if we don't use LUTs explicitly, we make some unavailable
-        # to other logic because they're tied into the DWC control sets
-
-        cnt_luts = 0
-        cset_luts = 0
-
-        if inw != intw:
-            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
-            cset_luts += intw
-        if intw != outw:
-            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
-            cset_luts += outw
-
-        return int(cnt_luts + cset_luts)
+        max_words = max(num_in_words,num_out_words)
+        min_words = min(num_in_words,num_out_words)
+        
+        exp_cycles = max_words + min_words
+    
+        return int(exp_cycles)
+    

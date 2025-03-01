@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
 from qonnx.core.datatype import DataType
@@ -41,7 +42,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
-    """Class that corresponds to finn-hlslib StreamingDataWidthConverter_Batch
+    """Class that corresponds to finn-hlslib StreamingDataWidthConverterGeneralized_Batch
     function."""
 
     def get_nodeattr_types(self):
@@ -54,22 +55,27 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
 
     def defines(self, var):
-        numReps = 1
-        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
+        # in cases of convolution input generator and downsampling,
+        # we have a 4D input and padding / cropping can only happen
+        # for the final 2 dimensions,
+        # so we use numReps to represent the first 2 dimensions
+        # + batching if shape[0] != 1
+        numReps = int(np.prod(self.get_folded_input_shape()[:-2]))
+
+        # assuming folded shapes are at least 2 dim-long
+        numInWords = int(np.prod(self.get_folded_input_shape()[-2:-1]))
+        numOutWords = int(np.prod(self.get_folded_output_shape()[-2:-1]))
+
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
+
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
             "#define NumInWords %d " % numInWords,
+            "#define NumOutWords %d " % numOutWords,
             "#define numReps %d" % numReps,
         ]
-        if self.needs_lcm():
-            lcmWidth = self.get_iowidth_lcm()
-            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
-            numLCMToOut = numInWords // (lcmWidth / inWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
-            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
@@ -78,6 +84,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
                 self.get_instream_width(), self.hls_sname(), self.hls_sname()
             )
         )
+
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
                 self.get_outstream_width(), self.hls_sname(), self.hls_sname()
@@ -86,22 +93,12 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
     def docompute(self):
         # TODO continue with fxns below, they are copy-pasted
-        op = "StreamingDataWidthConverter_Batch"
-        if self.needs_lcm():
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
-                    self.get_iowidth_lcm()
-                ),
-                "%s<InWidth, LCMWidth, NumInWords>(in0_%s, intermediate, numReps);"
-                % (op, self.hls_sname()),
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out_%s, numReps);"
-                % (op, self.hls_sname()),
-            ]
-        else:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0_%s, out_%s, numReps);"
-                % (op, self.hls_sname(), self.hls_sname())
-            ]
+        op = "StreamingDataWidthConverterGeneralized_Batch"
+
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            "%s<InWidth, OutWidth, NumInWords,NumOutWords" % op
+            + ">(in0_%s, out_%s, numReps);" % (self.hls_sname(), self.hls_sname())
+        ]
 
     def blackboxfunction(self):
         in_packed_bits = self.get_instream_width()
@@ -127,8 +124,6 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
-        if self.needs_lcm():
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -160,14 +155,40 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         else:
             export_idt = self.get_input_datatype()
         # reshape input into folded shape
+
         reshaped_input = inp.reshape(folded_ishape)
-        # make copy before saving array
-        reshaped_input = reshaped_input.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
+        exp_shape = self.get_normal_output_shape()
+
         if mode == "cppsim":
-            output = inp
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
+            # cppsim simply passes through the values because
+            # the DWC fails some test cases due to
+            # endianness differences in the cppsim flow
+            # of passing numpy arrays. TODO: Fix?
+            # Essentially need to fix cppsim to reverse
+            # endian and then back same as rtlsim
+            # for this particular (and maybe all) cases
+            # only shows up for the DWC, since when a word
+            # leftover appears when breaking down larger in
+            # words to smaller out words, the remainder should
+            # now be the LSB, but is the other way around on the
+            # cpp output.
+
+            in_shape = self.get_normal_input_shape()
+            out_shape = self.get_normal_output_shape()
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert inp.shape == tuple(in_shape), "Input shape does not match expected shape."
+
+            # initialize as zeroes to introduce padding if needed
+            output = np.zeros((out_shape), dtype=np.float32)
+            if out_shape[-1] > in_shape[-1]:
+                output[..., : in_shape[-1]] = inp[..., : in_shape[-1]]
+            else:
+                output[..., : out_shape[-1]] = inp[..., : out_shape[-1]]
+
+            output = np.asarray([output], dtype=np.float32).reshape(*out_shape)
             context[node.output[0]] = output
 
         elif mode == "rtlsim":
@@ -182,15 +203,19 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
+
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
+
             rtlsim_output_to_npy(
                 rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
             )
+
             # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(exp_shape)
+            output_pre_reshape = np.load(out_npy_path)
+            output = np.asarray([output_pre_reshape], dtype=np.float32).reshape(exp_shape)
             context[node.output[0]] = output
+
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -207,3 +232,33 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             exp_shape
         ), """Output
         shape doesn't match expected shape, should be same as input shape"""
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+
+        # TODO: This calculation does not currently take into account the extra
+        # tracking variables, nor the muxing of one of the stream ports to the buffer
+        # which shifts according to how many elements are in the buffer
+        # the true LUT cost is between 2*(inw+outw) and 10*(inw+outw)
+
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+
+        # we use an intermediate buffer of size inwidth+outwidth
+        intw = inw + outw
+
+        # we assume a shift-based implementation
+        # even if we don't use LUTs explicitly, we make some unavailable
+        # to other logic because they're tied into the DWC control sets
+
+        cnt_luts = 0
+        cset_luts = 0
+
+        cnt_luts += abs(math.ceil(math.log(intw / inw, 2)))
+
+        cset_luts += intw + outw
+
+        # generalized DWC cost penalty, this value is temporary
+        cnt_luts *= 8
+
+        return int(cnt_luts + cset_luts)
