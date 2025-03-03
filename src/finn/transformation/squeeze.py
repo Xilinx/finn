@@ -204,9 +204,10 @@ class Squeeze(Transformation):
                     continue
                 # Add a new marker attribute to not squeeze this node again
                 node.attribute.append(oh.make_attribute("squeezed", True))
+
                 # Get the shape of the input tensor to seek for input
                 # dimensions of size 1
-                shape = model.get_tensor_shape(
+                shape = model.get_tensor_shape(  # noqa: Duplicate
                     # fmt: off
                     node.input[0], fix_missing_init_shape=True
                     # fmt: on
@@ -233,18 +234,37 @@ class Squeeze(Transformation):
                     # Specify the axes to unsqueeze
                     axes=axes,
                 )
+
+                # Get the shape of the output tensor to seek for input
+                # dimensions of size 1
+                shape = model.get_tensor_shape(  # noqa: Duplicate
+                    # fmt: off
+                    node.output[0], fix_missing_init_shape=True
+                    # fmt: on
+                )
+                # Skip if there is no shape
+                if shape is None:
+                    continue
+                # Get the axes to be squeezed, i.e., dimensions of size 1
+                axes = [dim for dim, size in enumerate(shape) if size == 1]
+                # To be compatible with ONNX opset >= 13, the axes to
+                # unsqueeze/squeeze need to be provided as an input
+                axes_output = model.make_new_valueinfo_name()
+                # Set the axes as an initializer list
+                model.set_initializer(axes_output, np.asarray(axes))
                 # Instantiate a squeeze operator adapting from unsqueezed
                 # 4-dimensional layout back to the squeezed layout
                 squeeze = oh.make_node(
                     # Squeeze ONNX operators
                     "Squeeze",
                     # Create a new input tensor
-                    inputs=[model.make_new_valueinfo_name(), axes_input],
+                    inputs=[model.make_new_valueinfo_name(), axes_output],
                     # Inherit the output tensor from the Im2Col operation
                     outputs=node.output,
                     # Specify the axes to squeeze
                     axes=axes,
                 )
+
                 # Rewire the input/output to/from the Im2Col operator to connect
                 # the Unsqueeze/Squeeze wrapper
                 node.input[0] = unsqueeze.output[0]
@@ -282,7 +302,9 @@ class Squeeze(Transformation):
         for inp in global_inputs:
             # Get the shape of the tensor to seek for dimensions of size 1
             shape = model.get_tensor_shape(  # noqa: Duplicate
+                # fmt: off
                 inp, fix_missing_init_shape=True
+                # fmt: on
             )
             # Skip if there is no shape and skip squeezing 0d or 1d tensors
             if shape is None or len(shape) <= 1:
@@ -326,7 +348,9 @@ class Squeeze(Transformation):
         for out in global_outputs:
             # Get the shape of the tensor to seek for dimensions of size 1
             shape = model.get_tensor_shape(  # noqa: Duplicate
+                # fmt: off
                 out, fix_missing_init_shape=True
+                # fmt: on
             )
             # Skip if there is no shape and skip squeezing 0d or 1d tensors
             if shape is None or len(shape) <= 1:
