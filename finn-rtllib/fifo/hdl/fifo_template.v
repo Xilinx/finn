@@ -29,44 +29,53 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-module $TOP_MODULE_NAME$(
-//- Global Control ------------------
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET = ap_rst_n" *)
-(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-input   ap_clk,
-(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
-input   ap_rst_n,
+module $TOP_MODULE_NAME$ (
+	//- Global Control ------------------
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET = ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
+	input	ap_clk,
+	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
+	input	ap_rst_n,
 
-output $COUNT_RANGE$ count,
-output $COUNT_RANGE$ maxcount,
+	//- AXI Stream - Input --------------
+	output	in0_V_TREADY,
+	input	in0_V_TVALID,
+	input $IN_RANGE$  in0_V_TDATA,
 
-//- AXI Stream - Input --------------
-output   in0_V_TREADY,
-input   in0_V_TVALID,
-input  $IN_RANGE$ in0_V_TDATA,
+	//- AXI Stream - Output --------------
+	input	out_V_TREADY,
+	output	out_V_TVALID,
+	output $OUT_RANGE$  out_V_TDATA,
 
-//- AXI Stream - Output --------------
-input   out_V_TREADY,
-output   out_V_TVALID,
-output  $OUT_RANGE$ out_V_TDATA
+	// Statistics
+	output $COUNT_RANGE$  count,
+	output $COUNT_RANGE$  maxcount
 );
 
-Q_srl #(
-.depth($DEPTH$),
-.width($WIDTH$)
-)
-impl
-(
- .clock(ap_clk),
- .reset(!ap_rst_n),
- .count(count),
- .maxcount(maxcount),
- .i_d(in0_V_TDATA),
- .i_v(in0_V_TVALID),
- .i_r(in0_V_TREADY),
- .o_d(out_V_TDATA),
- .o_v(out_V_TVALID),
- .o_r(out_V_TREADY)
-);
+	// Fill State Statistics (pruned by synthesis if not used)
+	reg $COUNT_RANGE$  Count    = 0;
+	reg $COUNT_RANGE$  MaxCount = 0;
+	wire  inc = in0_V_TVALID && in0_V_TREADY;
+	wire  dec = out_V_TVALID && out_V_TREADY;
+	wire $COUNT_RANGE$  count_nxt = Count + ((inc == dec)? 0 : inc? 1 : -1);
+	always @(posedge clk) begin
+		if(!ap_rst_n) begin
+			Count    <= 0;
+			MaxCount <= 0;
+		end
+		else begin
+			Count <= count_nxt;
+			if(count_nxt > MaxCount)  MaxCount <= count_nxt;
+		end
+	end
+	assign	count = Count;
+	assign	maxcount = MaxCount;
+
+	// Actual FIFO Implementation
+	fifo #(.DEPTH($DEPTH$), .WIDTH($WIDTH$)) impl (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(out_V_TDATA), .ovld(out_V_TVALID), .ordy(out_V_TREADY)
+	);
 
 endmodule
