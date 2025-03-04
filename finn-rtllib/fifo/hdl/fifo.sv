@@ -32,7 +32,7 @@ module fifo #(
 	if(DEPTH < 2) begin : genTooSmall
 		// Error out on impossible FIFO size
 		initial begin
-			$error("%m: FIFO DEPTH=%0d is smaller than 2.", DEPTH);
+			$error("%m: FIFO DEPTH=%0d is smaller than minimum of 2.", DEPTH);
 			$finish;
 		end
 	end :genTooSmall
@@ -159,7 +159,10 @@ module fifo #(
 
 		// Bulk Memory Storage
 		localparam int unsigned  A_BITS = $clog2(DEPTH - 8);
-		typedef logic [A_BITS:0]  ptr_t;  // pointers with extra generational bit
+		typedef struct packed signed { // pointers with extra generational bit
+			logic                gen;	// Generational Differentiator
+			logic  [A_BITS-1:0]  ptr;	// Actual Address Pointer
+		} ptr_t;
 		(* RAM_STYLE = STYLE *)
 		data_t  Mem[2**A_BITS];
 		ptr_t  WPtr = 0;
@@ -176,8 +179,8 @@ module fifo #(
 
 		always_ff @(posedge clk) begin
 			// Non-resettable OCRAM
-			if(we)  Mem[WPtr[A_BITS-1:0]] <= idat;
-			RdDat[0] <= Mem[RPtr[A_BITS-1:0]];
+			if(we)  Mem[WPtr.ptr] <= idat;
+			RdDat[0] <= Mem[RPtr.ptr];
 			for(int unsigned  i = 1; i < RD_LATENCY; i++)  RdDat[i] <= RdDat[i-1];
 		end
 		always_ff @(posedge clk) begin
