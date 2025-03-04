@@ -5,7 +5,7 @@ gspread==3.6.0
 importlib-resources==6.1.0
 ipython==8.12.2
 numpy==1.24.1
-onnx==1.16.0
+onnx==1.17.0
 onnxoptimizer
 onnxruntime==1.18.1
 pre-commit==3.3.2

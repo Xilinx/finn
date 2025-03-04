@@ -28,6 +28,7 @@
 
 import numpy as np
 import os
+import warnings
 from math import ceil, log2
 from qonnx.core.datatype import DataType
 
@@ -86,31 +87,6 @@ class Lookup_hls(Lookup, HLSBackend):
             my_defines.append("#define InputType %s" % elem_hls_type)
             my_defines.append("#define EmbeddingType %s" % emb_hls_type)
         self.code_gen_dict["$DEFINES$"] = my_defines
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "int64_t"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -273,7 +249,18 @@ class Lookup_hls(Lookup, HLSBackend):
             )
 
         inp = context[node.input[0]]
-        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
+
+        # Make sure the input has the right container datatype
+        if inp.dtype is not np.float32:
+            # Issue a warning to make the user aware of this type-cast
+            warnings.warn(
+                f"{node.name}: Changing input container datatype from "
+                f"{inp.dtype} to {np.float32}"
+            )
+            # Convert the input to floating point representation as the
+            # container datatype
+            inp = inp.astype(np.float32)
+
         assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
         odt = self.get_output_datatype()

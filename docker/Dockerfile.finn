@@ -118,6 +118,7 @@ RUN pip install pytest-metadata==1.7.0
 RUN pip install pytest-html==3.0.0
 RUN pip install pytest-html-merger==0.0.8
 RUN pip install pytest-cov==4.1.0
+RUN pip install pyyaml==6.0.1
 
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster

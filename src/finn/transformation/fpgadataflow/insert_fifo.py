@@ -202,6 +202,8 @@ class InsertFIFO(Transformation):
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
                     if fifo_depth > 2 or self.create_shallow_fifos:
+                        # Ensure that create shallow fifo condition doesn't create depth=1 fifos
+                        fifo_depth = max(fifo_depth, 2)
                         # create fifo node
                         fifo_output_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
@@ -264,11 +266,13 @@ class InsertFIFO(Transformation):
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
                     if fifo_depth > 2 or self.create_shallow_fifos:
+                        # Ensure that create shallow fifo condition doesn't create depth=1 fifos
+                        fifo_depth = max(fifo_depth, 2)
                         # create fifo node
                         fifo_input_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             n0_tensor_dtype,
-                            n0.get_normal_output_shape(),
+                            n0.get_normal_output_shape(out_ind),
                         )
                         graph.value_info.append(fifo_input_tensor)
                         model.set_tensor_datatype(fifo_input_tensor.name, dtype)
@@ -294,7 +298,7 @@ class InsertFIFO(Transformation):
                         graph.node.append(fifo_node)
 
                         # set fifo output tensor as new input tensor of second node
-                        final_node.output[0] = fifo_input_tensor.name
+                        final_node.output[out_ind] = fifo_input_tensor.name
                     else:
                         warnings.warn(
                             """Output FIFO for %s has depth %d and won't
