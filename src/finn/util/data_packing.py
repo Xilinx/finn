@@ -417,7 +417,9 @@ def packed_bytearray_to_finnpy(
 
     """
 
-    if (not issubclass(type(packed_bytearray), np.ndarray)) or packed_bytearray.dtype != np.uint8:
+    if (
+        not issubclass(type(packed_bytearray), np.ndarray)
+    ) or packed_bytearray.dtype != np.uint8:
         raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
@@ -432,20 +434,28 @@ def packed_bytearray_to_finnpy(
         target_bits."""
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
-    # handle no-packing cases (if fast_mode) via casting to save on compute
-    out_is_byte = target_bits in [8, 16]
-    double_reverse = reverse_inner and reverse_endian
-    if out_is_byte and double_reverse and fast_mode:
-        no_unpad = np.prod(packed_bytearray.shape) == np.prod(output_shape)
-        if no_unpad:
-            as_np_type = packed_bytearray.view(dtype.to_numpy_dt())
-            return as_np_type.reshape(output_shape).astype(np.float32)
+
     if reverse_endian:
         packed_bytearray = np.flip(packed_bytearray, axis=-1)
-    # convert innermost dim of byte array to hex strings
-    packed_hexstring = np.apply_along_axis(npbytearray2hexstring, packed_dim, packed_bytearray)
-    ret = unpack_innermost_dim_from_hex_string(
-        packed_hexstring, dtype, output_shape, packed_bits, reverse_inner
-    )
 
-    return ret
+    ret = packed_bytearray.astype(np.int32)
+
+    mask = 2 ** (target_bits - 1) if dtype.name.startswith('INT') else 0 # sign bit mask
+    result = np.zeros(output_shape).astype(np.int32)
+    inner_dim_elements = result.shape[-1]
+    packing = packed_bytearray.shape[-1]
+
+    for i in range(inner_dim_elements):
+        if packing:
+            for fold in range(packing):
+                result[:, :, :, :, i] += ret[:, :, :, :, packing*i + fold] << (packing - 1 - fold) * 8
+        else:
+            result = ret
+        # uint > int if necessary
+        if mask:
+            result[:, :, :, :, i] = -(result[:, :, :, :, i] & mask) + (result[:, :, :, :, i] & ~mask)
+    
+    if reverse_inner:
+        result = np.flip(result, -1)
+
+    return result.astype(np.float32)
