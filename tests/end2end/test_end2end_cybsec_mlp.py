@@ -79,6 +79,7 @@ class CybSecMLPForExport(nn.Module):
         return out_final
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
     assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
@@ -143,6 +144,7 @@ def test_end2end_cybsec_mlp_export():
     assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
