@@ -320,7 +320,6 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
     # create directory for deployment files
     deployment_dir = deploy_dir_root + "/" + board + "/" + model_title
     os.makedirs(deployment_dir)
-    model.set_metadata_prop("pynq_deployment_dir", deployment_dir)
 
     # get and copy necessary files
     # .bit and .hwh file
