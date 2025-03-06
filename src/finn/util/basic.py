@@ -103,16 +103,6 @@ def get_rtlsim_trace_depth():
         return 1
 
 
-def get_remote_vivado():
-    """Return the address of the remote Vivado synthesis server as set by the,
-    REMOTE_VIVADO environment variable, otherwise return None"""
-
-    try:
-        return os.environ["REMOTE_VIVADO"]
-    except KeyError:
-        return None
-
-
 def get_finn_root():
     "Return the root directory that FINN is cloned into."
 
