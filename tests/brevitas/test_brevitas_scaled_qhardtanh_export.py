@@ -29,7 +29,7 @@
 import pytest
 
 import numpy as np
-import onnx  # noqa
+import onnx  # isort: split
 import os
 import torch
 from brevitas.core.quant import QuantType

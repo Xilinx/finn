@@ -1,32 +1,41 @@
 # Testing framework
 import pytest
 
+# isort: off
 # Protobuf onnx graph node type
 from onnx import TensorProto
+
 # Helper for creating ONNX nodes
 from onnx import helper as oh
 
+# isort: on
+
 # QONNX/FINN datatypes
 from qonnx.core.datatype import DataType
+
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
+
 # Execute onnx model graphs
 from qonnx.core.onnx_exec import execute_onnx
+
 # Registry of all QONNX CustomOps
 from qonnx.custom_op.registry import getCustomOp
-# Utility for wrapping onnx graphs and generating tensor of FINN datatypes
-from qonnx.util.basic import qonnx_make_model, gen_finn_dt_tensor
 
 # Graph transformation giving unique names to each node in a QONNX model graph
 from qonnx.transformation.general import GiveUniqueNodeNames
 
+# Utility for wrapping onnx graphs and generating tensor of FINN datatypes
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+
 # FINN graph transformations for preparing simulation (cppsim or rtlsim)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
@@ -67,20 +76,18 @@ def mock_replicate_streams(num_inputs, num_elems, pe, num, dtype):
         # Number of elements to process in parallel
         PE=pe,
         # Number of inputs to be processed sequentially
-        num_inputs=num_inputs
+        num_inputs=num_inputs,
     )
     # Shape of the input and each output
     shape = [*num_inputs, num_elems]
     # Construct the input tensor value info
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     # Construct output tensor value infos
-    out = [oh.make_tensor_value_info(
-        f"out{i}", TensorProto.FLOAT, shape) for i in range(num)
-    ]
+    out = [oh.make_tensor_value_info(f"out{i}", TensorProto.FLOAT, shape) for i in range(num)]
     # Create a graph connecting the node to the inputs and outputs
     graph = oh.make_graph([node], inputs=[inp], outputs=out, name="replicate")
     # Wrap the ONNX graph in QONNX model wrapper
-    model = ModelWrapper(qonnx_make_model(graph, producer_name='replicate'))
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="replicate"))
 
     # Add datatype annotation to the value info of input tensor
     model.set_tensor_datatype("inp", DataType[dtype])
@@ -93,9 +100,7 @@ def mock_replicate_streams(num_inputs, num_elems, pe, num, dtype):
 
 
 # Number of inputs to be processed sequentially
-@pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
-)
+@pytest.mark.parametrize("num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]])  # noqa Duplicate
 # Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
 # Number of elements to process in parallel
@@ -113,9 +118,7 @@ def test_replicate_stream_python(num_inputs, num_elems, pe, num, dtype):
     model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
-    context = {
-        "inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))
-    }
+    context = {"inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))}
 
     # Set model execution mode to python simulation
     model = model.transform(SetExecMode("python"))
@@ -133,9 +136,7 @@ def test_replicate_stream_python(num_inputs, num_elems, pe, num, dtype):
 
 
 # Number of inputs to be processed sequentially
-@pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
-)
+@pytest.mark.parametrize("num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]])  # noqa Duplicate
 # Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
 # Number of elements to process in parallel
@@ -155,9 +156,7 @@ def test_replicate_stream_cppsim(num_inputs, num_elems, pe, num, dtype):
     model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
-    context = {
-        "inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))
-    }
+    context = {"inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))}
 
     # Specializes all nodes to be implemented as HLS backend
     model = specialize_hls(model)
@@ -180,9 +179,7 @@ def test_replicate_stream_cppsim(num_inputs, num_elems, pe, num, dtype):
 
 
 # Number of inputs to be processed sequentially
-@pytest.mark.parametrize(  # noqa Duplicate
-    "num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]]
-)
+@pytest.mark.parametrize("num_inputs", [[8], [1, 8], [2, 8], [2, 2, 8]])  # noqa Duplicate
 # Number of input elements in the last dimension
 @pytest.mark.parametrize("num_elems", [32])
 # Number of elements to process in parallel
@@ -202,9 +199,7 @@ def test_replicate_stream_rtlsim(num_inputs, num_elems, pe, num, dtype):
     model = mock_replicate_streams(num_inputs, num_elems, pe, num, dtype)
 
     # Prepare the execution context
-    context = {
-        "inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))
-    }
+    context = {"inp": gen_finn_dt_tensor(DataType[dtype], (*num_inputs, num_elems))}
 
     # Specializes all nodes to be implemented as HLS backend
     model = specialize_hls(model)

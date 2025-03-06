@@ -30,16 +30,14 @@ import clize
 import json
 import logging
 import os
-import pdb  # NOQA
+
+import pdb  # isort: split
 import sys
 import time
 import traceback
 from qonnx.core.modelwrapper import ModelWrapper
 
-from finn.builder.build_dataflow_config import (
-    DataflowBuildConfig,
-    default_build_dataflow_steps,
-)
+from finn.builder.build_dataflow_config import DataflowBuildConfig, default_build_dataflow_steps
 from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
 
 
