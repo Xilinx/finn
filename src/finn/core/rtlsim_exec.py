@@ -190,9 +190,10 @@ def rtlsim_exec_cppxsi(
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
     # prepare the C++ sim driver template
-    fifosim_cpp_fname = get_finn_root() + "/src/finn/qnn-data/cpp/xsi_simdriver.cpp"
-    with open(fifosim_cpp_fname, "r") as f:
-        fifosim_cpp_template = f.read()
+    finnxsi_dir = get_finn_root() + "/finn_xsi"
+    fifosim_config_fname = finnxsi_dir + "/rtlsim_config.hpp.template"
+    with open(fifosim_config_fname, "r") as f:
+        fifsom_config_template = f.read()
 
     instream_iters = []
     outstream_iters = []
@@ -215,85 +216,71 @@ def rtlsim_exec_cppxsi(
 
     # retrieve the number of inputs from execution_context
     n_inferences = execution_context[model.graph.input[0].name]
-    # determine according to presence of clk2x
     ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
     assert not (
         ifnames is None
     ), "Couldn't find stitched-IP interface names, did you run IP stitching first?"
     ifnames = eval(ifnames)
-    if "clk2x" in ifnames.keys():
-        is_double_pumped = ifnames["clk2x"] != []
-    else:
-        is_double_pumped = False
-    # if the IP is using other interfaces like AXI-lite, ensure
-    # the control signals are deasserted
-    deassert_signals = []
-    axilite_deassert_sigs = ["arvalid", "awvalid", "bready", "rready", "wvalid"]
-    if "axilite" in ifnames.keys() and ifnames["axilite"] != []:
-        for axilite_ifname in ifnames["axilite"]:
-            for axilite_sig in axilite_deassert_sigs:
-                deassert_signals.append("%s_%s" % (axilite_ifname, axilite_sig))
     if "aximm" in ifnames.keys() and ifnames["aximm"] != []:
         assert (
             False
         ), f"cppxsi sim doesn't know how to handle full AXI MM interfaces: {ifnames['aximm']}"
-    clknames = "clk_and_clk2x" if is_double_pumped else "clk"
     instream_names = [x[0] for x in ifnames["s_axis"]]
-    instream_names_str = "{" + ", ".join(['"' + x + '"' for x in instream_names]) + "}"
     outstream_names = [x[0] for x in ifnames["m_axis"]]
-    outstream_names_str = "{" + ", ".join(['"' + x + '"' for x in outstream_names]) + "}"
-    instream_iters_str = "{" + ", ".join([str(x) for x in instream_iters]) + "}"
-    outstream_iters_str = "{" + ", ".join([str(x) for x in outstream_iters]) + "}"
-    deassert_signals_str = "{" + ", ".join(['"' + str(x) + '"' for x in deassert_signals]) + "}"
-    # fill in the template arguments for sim driver
+    instream_descrs = [
+        (instream_names[i], instream_iters[i], instream_iters[i] + throttle_cycles)
+        for i in range(len(instream_names))
+    ]
+    instream_descrs_str = str(instream_descrs).replace("[", "").replace("]", "")
+    instream_descrs_str = instream_descrs_str.replace("(", "{").replace(")", "}")
+    instream_descrs_str = instream_descrs_str.replace("'", '"')
+
+    outstream_descrs = [
+        (outstream_names[i], outstream_iters[i], outstream_iters[i])
+        for i in range(len(outstream_names))
+    ]
+    outstream_descrs_str = str(outstream_descrs).replace("[", "").replace("]", "")
+    outstream_descrs_str = outstream_descrs_str.replace("(", "{").replace(")", "}")
+    outstream_descrs_str = outstream_descrs_str.replace("'", '"')
+
+    # fill in the template arguments for sim config
     template_dict = {
-        # number of input transactions per inference
-        "ITERS_PER_INPUT": instream_iters_str,
-        # number of output transactions per inference
-        "ITERS_PER_OUTPUT": outstream_iters_str,
         # number of inferences
         "N_INFERENCES": n_inferences,
         # max number of cycles to wait for output activity before timeout
-        "MAX_ITERS": timeout_cycles,
+        "TIMEOUT_CYCLES": timeout_cycles,
         # name of the top-level HDL module
         "TOP_MODULE_NAME": top_module_name,
-        # names of the top-level AXI streams and signals
-        "INSTREAM_NAME": instream_names_str,
-        "OUTSTREAM_NAME": outstream_names_str,
-        # names of control signals to be deasserted
-        "DEASSERT_SIGNAL_NAMES": deassert_signals_str,
-        "CLK_NAME": "ap_clk",
-        "CLK2X_NAME": "ap_clk2x",
-        "CLKNAMES": clknames,
-        "NRST_NAME": "ap_rst_n",
+        # top-level AXI stream descriptors
+        "ISTREAM_DESC": instream_descrs_str,
+        "OSTREAM_DESC": outstream_descrs_str,
         # control tracing and trace filename
         "TRACE_FILE": "NULL" if trace_file is None else f'"{trace_file}"',
-        "TRACE_CMD": "" if trace_file is None else "top->trace_all();",
         # code to post-process final sim status to extract more data
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
-        # input throttling for rate limit
-        "THROTTLE_CYCLES": throttle_cycles,
+        # log file for xsi (not the sim driver)
+        "XSIM_LOG_FILE": '"xsi.log"',
     }
     for key, val in template_dict.items():
-        fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
-    with open(sim_base + "/rtlsim_xsi.cpp", "w") as f:
-        f.write(fifosim_cpp_template)
+        fifsom_config_template = fifsom_config_template.replace(f"@{key}@", str(val))
+    with open(sim_base + "/rtlsim_config.hpp", "w") as f:
+        f.write(fifsom_config_template)
 
     vivado_incl_dir = get_vivado_root() + "/data/xsim/include"
-    xsi_include_dir = get_finn_root() + "/deps/pyxsi/src"
     # launch g++ to compile the rtlsim executable
     build_cmd = [
         "g++",
-        f"-I{xsi_include_dir}",
+        f"-I{finnxsi_dir}",
         f"-I{vivado_incl_dir}",
-        "-std=c++14",
+        f"-I{sim_base}",
+        "-std=c++17",
         "-O3",
         "-o",
         "rtlsim_xsi",
-        "rtlsim_xsi.cpp",
-        f"{xsi_include_dir}/xsi_loader.cpp",
+        f"{finnxsi_dir}/rtlsim_xsi.cpp",
+        f"{finnxsi_dir}/xsi_finn.cpp",
         "-ldl",
         "-lrt",
     ]
