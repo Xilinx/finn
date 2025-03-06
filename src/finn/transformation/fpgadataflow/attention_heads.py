@@ -34,11 +34,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name, remove_by_name
 
 # Utility function for transforming ONNX graphs
-from finn.transformation.util import (
-    is_reshape_transpose,
-    is_transpose_reshape,
-    op_types,
-)
+from finn.transformation.util import is_reshape_transpose, is_transpose_reshape, op_types
 
 
 # Infers reshaping of attention heads, i.e., converts the Reshape and transpose

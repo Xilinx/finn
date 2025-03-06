@@ -33,11 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    rtlsim_output_to_npy,
-)
+from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)

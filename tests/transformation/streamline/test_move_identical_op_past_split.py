@@ -35,10 +35,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import (
-    MoveScalarLinearPastSplit,
-    MoveTransposePastSplit,
-)
+from finn.transformation.streamline.reorder import MoveScalarLinearPastSplit, MoveTransposePastSplit
 
 
 def create_split_model(identical_op):

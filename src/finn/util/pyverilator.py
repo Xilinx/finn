@@ -32,11 +32,7 @@ import shutil
 from pyverilator import PyVerilator
 from qonnx.custom_op.registry import getCustomOp
 
-from finn.util.basic import (
-    get_rtlsim_trace_depth,
-    launch_process_helper,
-    make_build_dir,
-)
+from finn.util.basic import get_rtlsim_trace_depth, launch_process_helper, make_build_dir
 
 
 def make_single_source_file(filtered_verilog_files, target_file):

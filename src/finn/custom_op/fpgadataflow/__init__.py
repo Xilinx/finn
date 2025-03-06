@@ -66,9 +66,7 @@ from finn.custom_op.fpgadataflow.attention import ScaledDotProductAttention
 from finn.custom_op.fpgadataflow.attention_heads import MergeMultiHeads, SplitMultiHeads
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
-from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
-    ConvolutionInputGenerator,
-)
+from finn.custom_op.fpgadataflow.convolutioninputgenerator import ConvolutionInputGenerator
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
@@ -80,12 +78,8 @@ from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.replicate_stream import ReplicateStream
 from finn.custom_op.fpgadataflow.split import StreamingSplit
-from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
-    StreamingDataflowPartition,
-)
-from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
-    StreamingDataWidthConverter,
-)
+from finn.custom_op.fpgadataflow.streamingdataflowpartition import StreamingDataflowPartition
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter import StreamingDataWidthConverter
 from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool

@@ -34,9 +34,7 @@ from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantIn
 from qonnx.transformation.remove import RemoveIdentityOps
 
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
-from finn.transformation.qonnx.infer_quant_avg_pool_2d import (
-    AvgPoolAndTruncToQuantAvgPool,
-)
+from finn.transformation.qonnx.infer_quant_avg_pool_2d import AvgPoolAndTruncToQuantAvgPool
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
     default_filter_function_generator,

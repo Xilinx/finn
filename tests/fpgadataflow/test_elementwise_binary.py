@@ -68,15 +68,14 @@ from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
     InferThresholdingLayer,
 )
+
 # Synthesizes HLS code generated from an operator to IP block
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+
 # Bit-width optimization transformations
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
-    MinimizeWeightBitWidth,
-)
+from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import MinimizeWeightBitWidth
+
 # Transformations preparing the operators for C++ and RTL simulation
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP

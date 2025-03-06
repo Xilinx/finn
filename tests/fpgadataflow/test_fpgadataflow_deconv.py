@@ -46,12 +46,8 @@ from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferQuantizedMatrixVectorActivation,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
-    InferPixelPaddingDeconv,
-)
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
+from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import InferPixelPaddingDeconv
+from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim

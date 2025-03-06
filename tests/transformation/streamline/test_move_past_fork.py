@@ -35,10 +35,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import (
-    MoveLinearPastFork,
-    MoveTransposePastFork,
-)
+from finn.transformation.streamline.reorder import MoveLinearPastFork, MoveTransposePastFork
 
 
 @pytest.mark.streamline

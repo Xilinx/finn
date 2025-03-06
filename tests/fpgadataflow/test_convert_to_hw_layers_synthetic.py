@@ -34,11 +34,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    SortGraph,
-)
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames, SortGraph
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -59,10 +55,7 @@ from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
 )
-from finn.transformation.streamline.reorder import (
-    MoveAddPastMul,
-    MoveScalarLinearPastInvariants,
-)
+from finn.transformation.streamline.reorder import MoveAddPastMul, MoveScalarLinearPastInvariants
 from finn.util.test import soft_verify_topk
 
 export_onnx_path = "test_output_synthetic.onnx"
