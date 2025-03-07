@@ -112,17 +112,26 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                         # break here
                         continue
 
-                    # Flatten effectively scalar bias tensors and extract to
-                    # have "plain" scalar
-                    bias = bias.flatten()[0]
                     # CustomOp instance of the thresholding node required for
                     # convenient attribute manipulation
                     threshold_op = getCustomOp(node)
+                    # Remember the old datatype for some further checks and info
+                    old_odt = threshold_op.get_nodeattr("out_dtype")
+                    # Get the number of bits currently used to represent the
+                    # output values
+                    bits = DataType[old_odt].bitwidth()  # noqa: bitwidth?
+                    # Check whether these thresholds have been generated from a
+                    # narrow range quantizer
+                    narrow = int(thresholds.shape[-1] < (2**bits - 1))
+
+                    # Flatten effectively scalar bias tensors and extract to
+                    # have "plain" scalar
+                    bias = bias.flatten()[0]
                     # Shift the output bias of the thresholding operator
                     out_bias = threshold_op.get_nodeattr("out_bias") + bias
                     # Derive the new output range due to shifting the bias
                     # Note: We count thresholds steps on top of the bias
-                    new_min = out_bias
+                    new_min = out_bias - narrow
                     new_max = out_bias + thresholds.shape[-1]
 
                     # Allows the signedness to change depending on the new
@@ -142,9 +151,6 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                         )
                         # Skip to the next candidate node
                         continue
-
-                    # Remember the old datatype for some further checks and info
-                    old_odt = threshold_op.get_nodeattr("out_dtype")
 
                     # Check whether the datatype changes as this is something
                     # the "user" should be aware of
