@@ -751,9 +751,22 @@ class ElementwiseBitwiseXor_hls(  # noqa: Class name does not follow
 ):
     pass
 
-# TODO: ElementwiseBitShift_hls - Requires extra attribute selecting the
-#  direction
 
+# ElementwiseBitShift_hls - Requires extra attribute selecting the direction
+@register_custom_op
+class ElementwiseBitShift_hls(  # noqa: Class name does not follow
+    # CapWords convention
+    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseBitShift
+):
+    # We need to resolve the attribute types due to multiple inheritance
+    def get_nodeattr_types(self):
+        # Start from parent operator class attributes
+        attrs = elementwise_binary.ElementwiseBitShift.get_nodeattr_types(self)
+        # Add the HLSBackend default attributes on top
+        attrs.update(HLSBackend.get_nodeattr_types(self))
+        # Add/Specialize implementation specific attributes here...
+        # Return the updated attributes dictionary
+        return attrs
 
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some

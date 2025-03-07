@@ -221,6 +221,8 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # integers (actually floats as the container type)
         # Note: This is relevant for logical ops, ==, <=, >=, etc.
         # Note: Somehow QONNX does not like boolean tensors
+        # context[node.output[0]] = out.astype(self.out_dtype.to_numpy_dt())
+        # TODO: Apparently it is not? Verify this behavior...
         context[node.output[0]] = out.astype(np.float32)
 
     # Executes elementwise operation in C++ simulation
@@ -796,7 +798,44 @@ class ElementwiseBitwiseXor(ElementwiseBinaryOperation):
         # of a signed type.
         return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
 
-# TODO: ElementwiseBitShift - Requires extra attribute selecting the direction
+
+# ElementwiseBitShift - Requires extra attribute selecting the direction
+@register_custom_op
+class ElementwiseBitShift(ElementwiseBinaryOperation):
+    # Defines attributes which must be present on this node
+    def get_nodeattr_types(self):
+        # Start from parent operator class attributes
+        attrs = ElementwiseBinaryOperation.get_nodeattr_types(self)
+        # Update attributes dictionary for new custom operator
+        attrs.update({
+            # Direction of the bit-shift
+            "direction": ("s", True, "", {"LEFT", "RIGHT"}),
+        })
+        # Return updated attribute dictionary
+        return attrs
+
+    @property
+    def npy_op(self):
+        return {
+            "LEFT": np.left_shift, "RIGHT": np.right_shift
+        }[self.get_nodeattr("direction")]
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        return {
+            "LEFT": "({0} << {1})", "RIGHT": "({0} >> {1})"
+        }[self.get_nodeattr("direction")]
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    # Derives the output data type just as annotated...
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # The attributes decide the output datatype
+        return DataType[self.get_nodeattr("out_dtype")]
 
 
 # # Derive a specialization to implement elementwise power of two inputs
