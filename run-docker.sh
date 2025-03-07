@@ -83,7 +83,6 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
-: ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
@@ -143,16 +142,6 @@ elif [ -z "$1" ]; then
 else
   gecho "Running container with passed arguments"
   DOCKER_CMD="$@"
-fi
-
-
-if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
-  gecho "nvidia-docker detected, enabling GPUs"
-  if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
-    FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
-  else
-    FINN_DOCKER_EXTRA+="--gpus all "
-  fi
 fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
