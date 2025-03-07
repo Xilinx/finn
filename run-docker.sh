@@ -144,8 +144,6 @@ else
   DOCKER_CMD="$@"
 fi
 
-VIVADO_HLS_LOCAL=$VIVADO_PATH
-
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
 mkdir -p $FINN_SSH_KEY_DIR
