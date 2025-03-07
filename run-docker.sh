@@ -156,7 +156,6 @@ if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
 fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
 
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
@@ -168,7 +167,6 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $FINN_XILINX_PATH into $FINN_XILINX_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
@@ -211,7 +209,6 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
