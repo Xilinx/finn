@@ -170,7 +170,7 @@ def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(InferDataTypes())
 
-    step_name = "step_convert_to_thresholds"
+    step_name = "step_convert_to_thresholds_new"
     if step_name in cfg._resolve_verification_steps():
         verify_step(model, cfg, step_name, need_parent=False)
     return model
@@ -205,7 +205,7 @@ def step_convert_to_thresholds_old(model: ModelWrapper, cfg: DataflowBuildConfig
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(InferDataTypes())
 
-    step_name = "step_convert_to_thresholds"
+    step_name = "step_convert_to_thresholds_old"
     if step_name in cfg._resolve_verification_steps():
         verify_step(model, cfg, step_name, need_parent=False)
     return model
