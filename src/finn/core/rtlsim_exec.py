@@ -255,7 +255,7 @@ def rtlsim_exec_cppxsi(
         "ISTREAM_DESC": instream_descrs_str,
         "OSTREAM_DESC": outstream_descrs_str,
         # control tracing and trace filename
-        "TRACE_FILE": "NULL" if trace_file is None else f'"{trace_file}"',
+        "TRACE_FILE": "nullptr" if trace_file is None else f'"{trace_file}"',
         # code to post-process final sim status to extract more data
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
