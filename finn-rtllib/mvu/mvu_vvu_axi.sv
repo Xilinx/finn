@@ -196,8 +196,8 @@ module mvu_vvu_axi #(
 		uwire dsp_p_t  dsp_p;
 
 		if(!PUMPED_COMPUTE) begin : genUnpumpedCompute
-			assign	dsp_last = alast && avld && !idle;
 			assign	dsp_zero = idle || !s_axis_weights_tvalid || !avld;
+			assign	dsp_last = alast && !dsp_zero;
 			assign	dsp_w = mvu_w;
 			assign	dsp_a = amvau_i;
 
@@ -206,19 +206,36 @@ module mvu_vvu_axi #(
 		end : genUnpumpedCompute
 		else begin : genPumpedCompute
 
-			// Identify second fast cycle just before active slow clock edge
-			logic  Active = 0;
-			if(1) begin : blkActive
-				uwire  clk_lut[2];	// Put some LUT delay on the input from the fast clock net
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut0(.O(clk_lut[0]), .I0(ap_clk));
-				(* DONT_TOUCH = "TRUE", HLUTNM = "CLK_LUT" *) LUT1 #(.INIT(2'b10)) lut1(.O(clk_lut[1]), .I0(clk_lut[0]));
-				always_ff @(posedge ap_clk2x)  Active <= clk_lut[1];
-			end : blkActive
-
 			// The input for a slow cycle is split across two fast cycles along the SIMD dimension.
 			//	- Both fast cycles are controlled by the same enable state.
 			//	- A zero cycle is duplicated across both fast cycles.
 			//	- The last flag must be restricted to the second fast cycle.
+			//                ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐
+			//  clk         ──┘     └─────┘     └─────┘     └─────┘     └─────┘     └
+			//              ──┐
+			//  rst           └──────────────────────────────────────────────────────
+			//                ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌──┐  ┌
+			//  clk2x       ──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘  └──┘
+			//                      ┌─────┐     ┌─────┐     ┌─────┐     ┌─────┐     ┌
+			//  Active      ────────┘     └─────┘     └─────┘     └─────┘     └─────┘
+			//
+			//              ─────────────\ /─────────\ /─────────\ /─────────\ /─────
+			//  Data (slow)    XXX        X {Hi0,Lo0} X {Hi1,Lo1} X {Hi2,Lo2} X {Hi3,
+			//              ─────────────/ \─────────/ \─────────/ \─────────/ \─────
+			//                                        ┌───────────┐
+			//  Last (slow) ──────────────────────────┘           └──────────────────
+			//              ───────────────────\ /───\ /───\ /───\ /───\ /───\ /───\
+			//  Data (fast)    XXX              X Lo0 X Hi0 X Lo1 X Hi1 X Lo2 X Hi2 X
+			//              ───────────────────/ \───/ \───/ \───/ \───/ \───/ \───/
+			//                                                    ┌─────┐
+			//  Last (fast) ──────────────────────────────────────┘     └────────────
+
+			// Identify second fast cycle just before active slow clock edge
+			logic  Active = 0;
+			always_ff @(posedge clk2x) begin
+				if(rst)  Active <= 0;
+				else     Active <= !Active;
+			end
 
 			dsp_w_t  W = 'x;
 			for(genvar  pe = 0; pe < PE; pe++) begin : genPERegW
@@ -256,8 +273,9 @@ module mvu_vvu_axi #(
 					Last <= 0;
 				end
 				else begin
-					Zero <= idle || !s_axis_weights_tvalid || !avld;
-					Last <= alast && avld && !idle && Active;
+					automatic logic  zero = idle || !s_axis_weights_tvalid || !avld;
+					Zero <= zero;
+					Last <= alast && !zero && Active;
 				end
 			end
 
