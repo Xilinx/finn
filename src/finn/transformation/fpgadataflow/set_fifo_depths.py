@@ -413,6 +413,10 @@ class InsertAndSetFIFODepths(Transformation):
             # layer pipeline due to overlaps
             n_inferences = 2
 
+        # Override the number of inferences if cfg_n_inferences is set
+        if self.cfg_n_inferences is not None:
+            n_inferences = self.cfg_n_inferences
+
         # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
         max_iters = latency * 1.1
 
