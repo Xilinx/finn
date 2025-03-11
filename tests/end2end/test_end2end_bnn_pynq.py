@@ -770,11 +770,11 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         n_nodes = len(model.graph.node)
         perf_est = model.analysis(dataflow_performance)
-        ret_b1 = throughput_test_rtlsim(model, batchsize=1)
+        ret_b1 = throughput_test_rtlsim(model, target_clk_ns, batchsize=1)
         latency = int(ret_b1["cycles"])
         cycles_per_sample_est = perf_est["max_cycles"]
         batchsize = 2 * n_nodes
-        ret = throughput_test_rtlsim(model, batchsize=batchsize)
+        ret = throughput_test_rtlsim(model, target_clk_ns, batchsize=batchsize)
         res_cycles = ret["cycles"]
         est_cycles = latency + cycles_per_sample_est * batchsize
         assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
