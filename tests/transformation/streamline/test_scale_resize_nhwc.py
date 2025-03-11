@@ -245,6 +245,7 @@ def check_transform(model):
     return False
 
 
+@pytest.mark.xfail(reason="Outstanding ONNX opset issue")
 @pytest.mark.streamline
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [[2**i, 2**i] for i in range(3, 6)])

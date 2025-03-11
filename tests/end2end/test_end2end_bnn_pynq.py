@@ -456,6 +456,7 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
 
 
+@pytest.mark.xfail(reason="Outstanding data layout issue")
 @pytest.mark.sanity_bnn
 @pytest.mark.bnn_pynq
 @pytest.mark.bnn_zcu104

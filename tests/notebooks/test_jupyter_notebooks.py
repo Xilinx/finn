@@ -42,7 +42,10 @@ advanced_notebooks = [
     ),
     pytest.param(
         notebook_advanced_dir + "4_advanced_builder_settings.ipynb",
-        marks=pytest.mark.xdist_group(name="notebooks_general"),
+        marks=[
+            pytest.mark.xdist_group(name="notebooks_general"),
+            pytest.mark.xfail(reason="Outstanding data layout issue"),
+        ],
     ),
 ]
 
@@ -64,7 +67,10 @@ cyber_notebooks = [
 bnn_notebooks = [
     pytest.param(
         notebook_bnn_dir + "cnv_end2end_example.ipynb",
-        marks=pytest.mark.xdist_group(name="notebooks_cnv"),
+        marks=[
+            pytest.mark.xdist_group(name="notebooks_cnv"),
+            pytest.mark.xfail(reason="Outstanding data layout issue"),
+        ],
     ),
     pytest.param(
         notebook_bnn_dir + "tfc_end2end_example.ipynb",

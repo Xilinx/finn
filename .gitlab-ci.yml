@@ -174,7 +174,7 @@ FINN Test Suite 2022.2:
     reports:
       junit: reports/*.xml
 
-FINN Test Suite 2024.1:
+FINN Test Suite 2024.2:
   extends: FINN Test Suite 2022.2
   variables:
-    FINN_XILINX_VERSION: "2024.1"
+    FINN_XILINX_VERSION: "2024.2"
