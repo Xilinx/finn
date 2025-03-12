@@ -715,15 +715,17 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 )
             rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
             # run with single input to get latency
-            rtlsim_latency_dict = throughput_test_rtlsim(rtlsim_model, 1)
+            rtlsim_latency_dict = throughput_test_rtlsim(rtlsim_model, cfg.synth_clk_period_ns, 1)
             # run with batch to get stable-state throughput
-            rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+            rtlsim_perf_dict = throughput_test_rtlsim(
+                rtlsim_model, cfg.synth_clk_period_ns, rtlsim_bs
+            )
             rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_dict["cycles"]
         else:
             rtlsim_perf_dict = verilator_fifosim(model, rtlsim_bs)
             # keep keys consistent between the Python and C++-styles
             cycles = rtlsim_perf_dict["cycles"]
-            clk_ns = float(model.get_metadata_prop("clk_ns"))
+            clk_ns = cfg.synth_clk_period_ns
             fclk_mhz = 1 / (clk_ns * 0.001)
             runtime_s = (cycles * clk_ns) * (10**-9)
             rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
@@ -741,7 +743,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             total_cycles = rtlsim_perf_dict["cycles"]
             latency_cycles = rtlsim_perf_dict["latency_cycles"]
             stablestate_cycles = total_cycles - latency_cycles
-            clk_ns = float(model.get_metadata_prop("clk_ns"))
+            clk_ns = cfg.synth_clk_period_ns
             fclk_mhz = 1 / (clk_ns * 0.001)
             runtime_s = (stablestate_cycles * clk_ns) * (10**-9)
             rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_bs / runtime_s

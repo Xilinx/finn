@@ -378,7 +378,6 @@ class CreateStitchedIP(Transformation):
         tcl.extend(self.connect_cmds)
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
-        model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
