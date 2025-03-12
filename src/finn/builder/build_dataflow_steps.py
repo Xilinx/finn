@@ -702,7 +702,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "rtlsim_trace",
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
-        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs)
+        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+        model = model.transform(AnnotateCycles())
+        perf = model.analysis(dataflow_performance)
+        latency = perf["critical_path_cycles"]
+        max_iters = latency * 1.1 + 20
+        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
         clk_ns = float(model.get_metadata_prop("clk_ns"))
