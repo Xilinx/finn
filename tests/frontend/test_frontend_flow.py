@@ -51,17 +51,19 @@ frontend_test_networks = [
 frontend_steps = [
     step_tidy_up,
     fe_steps.step_aggregate_scale_bias,
+    fe_steps.step_convert_to_thresholds_new,
+    fe_steps.step_convert_to_thresholds_old,
     fe_steps.step_lower_convs_to_matmul,
     fe_steps.step_convert_to_channels_last,
-    fe_steps.step_convert_to_thresholds,
     fe_steps.step_convert_to_hw,
 ]
 
 frontend_step_names_verify = [
     "step_aggregate_scale_bias",
+    "step_convert_to_thresholds_new",
+    "step_convert_to_thresholds_old",
     "step_lower_convs_to_matmul",
     "step_convert_to_channels_last",
-    "step_convert_to_thresholds",
     "step_convert_to_hw",
 ]
 
