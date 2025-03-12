@@ -31,6 +31,7 @@
 import inspect
 import numpy as np
 import warnings
+from itertools import product
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -100,15 +101,67 @@ class SetFolding(Transformation):
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
         self.two_pass_relaxation = two_pass_relaxation
+        self.possible_foldings = {}
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
+        node_possible_foldings = []
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
+            node_possible_foldings.append((int(val), int(cyc)))
+        if not (node_inst.onnx_node.name in self.possible_foldings.keys()):
+            self.possible_foldings[node_inst.onnx_node.name] = {attr_name: node_possible_foldings}
+
+        for val, cyc in node_possible_foldings:
             if cyc < self.target_cycles_per_frame:
+                node_inst.set_nodeattr(attr_name, val)
                 # finish if target met
                 break
+
+    def eval_multi_attribute_vals(self, node_inst, max_vals, attr_names):
+        # set all attributes to 1 to start
+        for attr_name in attr_names:
+            node_inst.set_nodeattr(attr_name, 1)
+        # get all possible combinations
+        all_combinations = list(product(*[divisors(max_val) for max_val in max_vals]))
+        node_possible_foldings = []
+        for comb in all_combinations:
+            for i, attr_name in enumerate(attr_names):
+                node_inst.set_nodeattr(attr_name, comb[i])
+            cyc = node_inst.get_exp_cycles()
+            node_possible_foldings.append((comb, cyc))
+        if not (node_inst.onnx_node.name in self.possible_foldings.keys()):
+            self.possible_foldings[node_inst.onnx_node.name] = {
+                str(attr_names): node_possible_foldings
+            }
+        # set all attributes to 1 again
+        # (this fxn is only for generating alternatives, not picking one)
+        for attr_name in attr_names:
+            node_inst.set_nodeattr(attr_name, 1)
+        return self.possible_foldings[node_inst.onnx_node.name]
+
+    def filter_configs(self, node_possible_configs):
+        candidate_solutions = []
+        for possible_config in node_possible_configs:
+            attr, cycles = possible_config
+            if self.target_cycles_per_frame >= cycles:
+                candidate_solutions.append(possible_config)
+        return candidate_solutions
+
+    def penalize_cycles(self, config):
+        return self.target_cycles_per_frame - config[1]
+
+    def penalize_pesimd_config(self, config):
+        return (self.target_cycles_per_frame - config[1]) + abs(config[0][0] - config[0][1])
+
+    def pick_pesimd_config(self, node_inst, max_vals, attr_names):
+        all_solutions = self.eval_multi_attribute_vals(node_inst, max_vals, attr_names)
+        candidate_solutions = self.filter_configs(all_solutions["['PE', 'SIMD']"])
+        cands_min_waste = sorted(candidate_solutions, key=self.penalize_pesimd_config)
+        top_cand = cands_min_waste[0]
+        node_inst.set_nodeattr("PE", top_cand[0][0])
+        node_inst.set_nodeattr("SIMD", top_cand[0][1])
 
     def apply(self, model):
         graph = model.graph
@@ -147,10 +200,12 @@ class SetFolding(Transformation):
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
                 node_inst.set_nodeattr("SIMD", 1)
+                self.pick_pesimd_config(node_inst, [max_pe, max_simd], ["PE", "SIMD"])
+                # self.eval_multi_attribute_vals(node_inst, [max_pe, max_simd], ["PE", "SIMD"])
                 # increase SIMD until either we meet
                 # the target or weight stream becomes
                 # too wide
-                for simd_val in divisors(max_simd):
+                """ for simd_val in divisors(max_simd):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
@@ -165,7 +220,7 @@ class SetFolding(Transformation):
                         node_inst.set_nodeattr("SIMD", prev_simd_val)
                         break
                 # increase PE until target met or reached max_pe
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                self.optimize_attribute_val(node_inst, max_pe, "PE") """
             elif op_type in pe_ops:
                 # Note: Keep original behavior for all custom-ops defining the
                 # NumChannels attribute as it is
@@ -183,20 +238,18 @@ class SetFolding(Transformation):
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type in ["VVAU_hls", "VVAU_rtl"]:
-                    node_inst.set_nodeattr("SIMD", 1)
+                node_inst.set_nodeattr("PE", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                if op_type in ["VVAU_hls", "VVAU_rtl"]:
+                    max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
+                    node_inst.set_nodeattr("SIMD", 1)
+                    self.pick_pesimd_config(node_inst, [max_pe, max_simd], ["PE", "SIMD"])
+                else:
+                    self.optimize_attribute_val(node_inst, max_pe, "PE")
                 # increase SIMD for VVAU once PE is exhausted
                 pe = node_inst.get_nodeattr("PE")
                 cyc = node_inst.get_exp_cycles()
-                if (
-                    op_type in ["VVAU_hls", "VVAU_rtl"]
-                    and pe == max_pe
-                    and cyc > self.target_cycles_per_frame
-                ):
-                    max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+
                 # also set the folding of the upsteam DW SWU
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
