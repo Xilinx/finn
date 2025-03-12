@@ -33,11 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    rtlsim_output_to_npy,
-)
+from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
@@ -200,9 +196,9 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
         elif func == "cmp_ge":
             func_str = "comp::greater_equal<%s, %s>" % (idt_hls, pdt_hls)
         elif func == "add":
-            func_str = "comp::add<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
+            func_str = "comp::add<%s, %s, %s>" % (pdt_hls, idt_hls, odt_hls)
         elif func == "mul":
-            func_str = "comp::mul<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
+            func_str = "comp::mul<%s, %s, %s>" % (pdt_hls, idt_hls, odt_hls)
         else:
             raise Exception(
                 """Invalid value for attribute Func! Is currently set to: {}

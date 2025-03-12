@@ -35,10 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import qonnx_make_model
 
-from finn.analysis.fpgadataflow.res_estimation import (
-    res_estimation,
-    res_estimation_complete,
-)
+from finn.analysis.fpgadataflow.res_estimation import res_estimation, res_estimation_complete
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 test_fpga_part = "xczu3eg-sbva484-1-e"

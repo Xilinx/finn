@@ -31,6 +31,7 @@ import pytest
 
 import numpy as np
 import onnx
+import os
 import torch
 from io import BytesIO
 from qonnx.core.datatype import DataType
@@ -72,6 +73,7 @@ def make_concat_model(i_shapes, idts):
     return model
 
 
+@pytest.mark.xfail("2022" in os.environ["VITIS_PATH"], reason="Fails with older Vitis HLS versions")
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input datatypes and expected inferred out datatype
 @pytest.mark.parametrize(
@@ -122,6 +124,7 @@ def test_fpgadataflow_concat(exec_mode, test_idts):
     assert (exp_out == ret_sim[oname]).all()
 
 
+@pytest.mark.xfail("2022" in os.environ["VITIS_PATH"], reason="Fails with older Vitis HLS versions")
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow

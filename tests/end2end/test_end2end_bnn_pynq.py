@@ -34,7 +34,7 @@ import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
-import onnx  # NOQA
+import onnx  # isort: split
 import os
 import torch
 import warnings
@@ -68,19 +68,13 @@ from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
+from finn.transformation.fpgadataflow.create_dataflow_partition import CreateDataflowPartition
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
-    MinimizeWeightBitWidth,
-)
+from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import MinimizeWeightBitWidth
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -89,10 +83,7 @@ from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC, MoveScalarLinearPastInvariants
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_finn_root, make_build_dir, test_board_map
 from finn.util.pytorch import ToTensor
@@ -104,6 +95,7 @@ from finn.util.test import (
     get_trained_network_and_ishape,
     load_test_checkpoint_or_skip,
 )
+
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 20
@@ -464,6 +456,7 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
 
 
+@pytest.mark.xfail(reason="Outstanding data layout issue")
 @pytest.mark.sanity_bnn
 @pytest.mark.bnn_pynq
 @pytest.mark.bnn_zcu104

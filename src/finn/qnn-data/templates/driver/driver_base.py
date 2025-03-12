@@ -34,10 +34,7 @@ from pynq.ps import Clocks
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.util.data_packing import (
-    finnpy_to_packed_bytearray,
-    packed_bytearray_to_finnpy,
-)
+from finn.util.data_packing import finnpy_to_packed_bytearray, packed_bytearray_to_finnpy
 
 # Driver base class for FINN-generated dataflow accelerators.
 # The particulars of the generated accelerator are specified via the

@@ -36,10 +36,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
-from finn.transformation.streamline import (
-    MoveScalarAddPastMatMul,
-    MoveScalarMulPastMatMul,
-)
+from finn.transformation.streamline import MoveScalarAddPastMatMul, MoveScalarMulPastMatMul
 
 
 @pytest.mark.streamline

@@ -30,9 +30,7 @@
 import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import ReplaceVerilogRelPaths
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 try:

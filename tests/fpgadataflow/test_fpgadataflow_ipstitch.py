@@ -40,9 +40,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
+from finn.transformation.fpgadataflow.create_dataflow_partition import CreateDataflowPartition
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -322,7 +320,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 
 
 # board
-@pytest.mark.parametrize("board", ["U280"])
+@pytest.mark.parametrize("board", ["U55C"])
 # clock period
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external

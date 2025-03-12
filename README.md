@@ -1,4 +1,4 @@
-<img src=https://cs.uni-paderborn.de/fileadmin-eim/informatik/fg/ce/MiscImages/finn-plus_logo.png width=196/> 
+<img src=https://cs.uni-paderborn.de/fileadmin-eim/informatik/fg/ce/MiscImages/finn-plus_logo.png width=196/>
 
 # Dataflow Compiler for Fast, Scalable Quantized Neural Network Inference on FPGAs
 

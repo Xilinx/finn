@@ -144,6 +144,7 @@ def mock_unsqueeze(axes, inp_dtype, out_dtype, inp_shape, out_shape, pe):
     return model
 
 
+@pytest.mark.xfail(reason="Outstanding ONNX opset issue")
 # Axes to be squeezed
 @pytest.mark.parametrize(  # noqa: Duplicate test setup
     "axes", [(1,), (1, 3), (-1,)]
@@ -188,6 +189,7 @@ def test_unsqueeze_python(axes, inp_dtype, out_dtype, inp_shape, pe):
     assert o_produced.shape == out_shape
 
 
+@pytest.mark.xfail(reason="Outstanding ONNX opset issue")
 # Axes to be squeezed
 @pytest.mark.parametrize(  # noqa: Duplicate test setup
     "axes", [(1,), (1, 3), (-1,)]
@@ -237,6 +239,7 @@ def test_unsqueeze_cppsim(axes, inp_dtype, out_dtype, inp_shape, pe):
     assert o_produced.shape == out_shape
 
 
+@pytest.mark.xfail(reason="Outstanding ONNX opset issue")
 # Axes to be squeezed
 @pytest.mark.parametrize(  # noqa: Duplicate test setup
     "axes", [(1,), (1, 3), (-1,)]

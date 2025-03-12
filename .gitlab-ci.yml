@@ -17,16 +17,16 @@ variables:
       - "full"
   CPU_CORES:
     description: "Select number of CPU cores and test workers"
-    value: "8"
+    value: "64"
   PARALLEL_JOBS:
     description: "Number of parallel Slurm array jobs per Benchmark job"
     value: "2"
   SLURM_TIMEOUT:
     description: "Select SLURM timeout"
-    value: "3-0" # [days-hours]
+    value: "2-0" # [days-hours]
   SLURM_PARTITION:
     description: "Slurm partition (e.g., normal, largemem, fpga, gpu)"
-    value: "normal"
+    value: "largemem"
   SLURM_QOS:
     description: "Optional QoS option (include --qos, e.g., --qos express)"
     value: ""
@@ -174,7 +174,7 @@ FINN Test Suite 2022.2:
     reports:
       junit: reports/*.xml
 
-FINN Test Suite 2024.1:
+FINN Test Suite 2024.2:
   extends: FINN Test Suite 2022.2
   variables:
-    FINN_XILINX_VERSION: "2024.1"
+    FINN_XILINX_VERSION: "2024.2"

@@ -32,13 +32,10 @@ from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import (
-    MoveScalarLinearPastSplit,
-    MoveTransposePastSplit,
-)
+from finn.transformation.streamline.reorder import MoveScalarLinearPastSplit, MoveTransposePastSplit
 
 
 def create_split_model(identical_op):
@@ -95,7 +92,7 @@ def create_split_model(identical_op):
         value_info=[op_out],
     )
 
-    model = oh.make_model(graph)
+    model = qonnx_make_model(graph)
     model = ModelWrapper(model)
     model.set_initializer(split_init.name, np.array(split, dtype=np.int64))
     if identical_op == "Mul" or identical_op == "Add":
@@ -116,7 +113,7 @@ transform_dict = {
 @pytest.mark.streamline
 # Permutation of transpose node
 @pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add"])
-def test_move_identical_op_past_join_concat(identical_op):
+def test_move_identical_op_past_split(identical_op):
     model = create_split_model(identical_op)
     # build_dir = os.environ["FINN_BUILD_DIR"]
     # model.save(join(build_dir, "split_pytest_model_{}.onnx".format(identical_op)))

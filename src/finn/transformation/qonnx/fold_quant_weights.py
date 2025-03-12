@@ -165,7 +165,7 @@ class FoldQuantWeights(Transformation):
                         successor = successor[0]
                         succ_output_name = successor.output[0]
 
-                        output_shape = model.get_tensor_shape(successor.output[0])
+                        # output_shape = model.get_tensor_shape(successor.output[0])
                         act_mul_tensor = helper.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
