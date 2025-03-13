@@ -705,7 +705,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
-        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        clk_ns = cfg.synth_clk_period_ns
         fclk_mhz = 1 / (clk_ns * 0.001)
         runtime_s = (cycles * clk_ns) * (10**-9)
         rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
@@ -723,7 +723,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             total_cycles = rtlsim_perf_dict["cycles"]
             latency_cycles = rtlsim_perf_dict["latency_cycles"]
             stablestate_cycles = total_cycles - latency_cycles
-            clk_ns = float(model.get_metadata_prop("clk_ns"))
+            clk_ns = cfg.synth_clk_period_ns
             fclk_mhz = 1 / (clk_ns * 0.001)
             runtime_s = (stablestate_cycles * clk_ns) * (10**-9)
             rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_bs / runtime_s
