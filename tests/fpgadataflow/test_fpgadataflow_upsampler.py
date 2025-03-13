@@ -86,10 +86,11 @@ _to_chan_first_args = (0, 3, 1, 2)
 
 
 class PyTorchTestModel(nn.Module):
-    def __init__(self, upscale_factor=2):
+    def __init__(self, upscale_factor=2, size_factor=None):
         super(PyTorchTestModel, self).__init__()
         self.m = nn.Upsample(
             scale_factor=upscale_factor,
+            size=size_factor,
             mode="nearest",
         )
 
@@ -103,27 +104,38 @@ class PyTorchTestModel(nn.Module):
 # spatial dim input feature map
 @pytest.mark.parametrize("IFMDim", [3, 5])
 # upscaling factor
-@pytest.mark.parametrize("scale", [2, 3])
+@pytest.mark.parametrize("scaling", [("size", 15), ("size", 30), ("scale", 2), ("scale", 3)])
 # Number of input/output channels
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # whether to use 1D or 2D square testcases
 @pytest.mark.parametrize("is_1d", [False, True])
+# Onnx opset version
+@pytest.mark.parametrize("onnx_opset", [11, 13])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d):
+def test_fpgadataflow_upsampler(dt, IFMDim, scaling, NumChannels, exec_mode, is_1d, onnx_opset):
     tmpdir = make_build_dir("upsample_export_")
     atol = 1e-3
+    scaling_method, value = scaling
     if is_1d:
         input_shape = (1, NumChannels, IFMDim, 1)
-        upscale_factor = (scale, 1)
+        factor = (value, 1)
     else:
         input_shape = (1, NumChannels, IFMDim, IFMDim)
-        upscale_factor = (scale, scale)
+        factor = (value, value)
+
+    if scaling_method == "scale":
+        size_factor = None
+        upscale_factor = factor
+    elif scaling_method == "size":
+        upscale_factor = None
+        size_factor = factor
+
     # Create the test model and inputs for it
-    torch_model = PyTorchTestModel(upscale_factor=upscale_factor)
+    torch_model = PyTorchTestModel(upscale_factor=upscale_factor, size_factor=size_factor)
     test_in = torch.arange(0, np.prod(np.asarray(input_shape)))
     # Limit the input to values valid for the given datatype
     test_in %= dt.max() - dt.min() + 1
@@ -135,7 +147,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d
     # Get golden PyTorch and ONNX inputs
     golden_torch_float = torch_model(test_in)
     export_path = f"{tmpdir}/Upsample_exported.onnx"
-    export_qonnx(torch_model, torch.randn(input_shape), export_path, opset_version=11)
+    export_qonnx(torch_model, torch.randn(input_shape), export_path, opset_version=onnx_opset)
     qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
     model = model.transform(ConvertQONNXtoFINN())

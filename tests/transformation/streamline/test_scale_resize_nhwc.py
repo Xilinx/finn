@@ -5,6 +5,7 @@ import onnx
 import onnx.helper as oh
 import qonnx.core.data_layout as DataLayout
 from onnx import TensorProto
+from onnx.helper import make_opsetid
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
@@ -15,7 +16,7 @@ import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MakeScaleResizeNHWC
 
 
-def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
+def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt, onnx_opset):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
@@ -54,7 +55,9 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_up, param, roi],
     )
 
-    model = qonnx_make_model(graph, producer_name="resize_model1")
+    model = qonnx_make_model(
+        graph, producer_name="resize_model1", opset_imports=[make_opsetid("", onnx_opset)]
+    )
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -66,7 +69,7 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     return model
 
 
-def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
+def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt, onnx_opset):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim[0], ifm_dim[1], ifm_ch])
@@ -105,7 +108,9 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_tr, param, roi],
     )
 
-    model = qonnx_make_model(graph, producer_name="resize_model2")
+    model = qonnx_make_model(
+        graph, producer_name="resize_model2", opset_imports=[make_opsetid("", onnx_opset)]
+    )
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -117,7 +122,7 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
     return model
 
 
-def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
+def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt, onnx_opset):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim[0], ifm_dim[1], ifm_ch])
@@ -168,7 +173,9 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_up, outp_tr, param, roi],
     )
 
-    model = qonnx_make_model(graph, producer_name="resize_model3")
+    model = qonnx_make_model(
+        graph, producer_name="resize_model3", opset_imports=[make_opsetid("", onnx_opset)]
+    )
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -180,7 +187,7 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     return model
 
 
-def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
+def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt, onnx_opset):
     ofm_dim_h = sizes[2]
     ofm_dim_w = sizes[3]
     inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
@@ -198,9 +205,16 @@ def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
     )
     outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch])
 
+    if onnx_opset == 11:
+        inputs = ["inp", "roi", "scales", "sizes"]
+    elif onnx_opset == 13:
+        inputs = ["inp", "roi", "", "sizes"]
+    else:
+        raise Exception("Unsupported opset version")
+
     resize_node = oh.make_node(
         "Resize",
-        inputs=["inp", "roi", "scales", "sizes"],
+        inputs=inputs,
         outputs=["outp_up"],
         name="Resize1",
         mode=mode,
@@ -214,15 +228,24 @@ def create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt):
         perm=[0, 2, 3, 1],
     )
 
+    if onnx_opset == 11:
+        value_info = [outp_up, roi, scales, param]
+    elif onnx_opset == 13:
+        value_info = [outp_up, roi, param]
+    else:
+        raise Exception("Unsupported opset version")
+
     graph = oh.make_graph(
         nodes=[resize_node, transpose_node],
         name="resize_graph",
         inputs=[inp],
         outputs=[outp],
-        value_info=[outp_up, roi, scales, param],
+        value_info=value_info,
     )
 
-    model = qonnx_make_model(graph, producer_name="resize_model4")
+    model = qonnx_make_model(
+        graph, producer_name="resize_model4", opset_imports=[make_opsetid("", onnx_opset)]
+    )
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -245,7 +268,6 @@ def check_transform(model):
     return False
 
 
-@pytest.mark.xfail(reason="Outstanding ONNX opset issue")
 @pytest.mark.streamline
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [[2**i, 2**i] for i in range(3, 6)])
@@ -261,19 +283,23 @@ def check_transform(model):
 @pytest.mark.parametrize("mode", ["nearest"])
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
-def test_scale_resize_nhwc(ifm_dim, ifm_ch, sizes, scales, mode, idt):
+# Onnx opset version
+@pytest.mark.parametrize("onnx_opset", [11, 13])
+def test_scale_resize_nhwc(ifm_dim, ifm_ch, sizes, scales, mode, idt, onnx_opset):
     # create models
-    resize_model1 = create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
-    resize_model2 = create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt)
-    resize_model3 = create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
-    resize_model4 = create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt)
+    resize_model1 = create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt, onnx_opset)
+    resize_model2 = create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt, onnx_opset)
+    resize_model3 = create_transpose_resize_transpose(
+        ifm_dim, ifm_ch, scales, mode, idt, onnx_opset
+    )
+    resize_model4 = create_resize_transpose_sizes(ifm_dim, ifm_ch, sizes, mode, idt, onnx_opset)
 
     # set initializers
     resize_model1.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model2.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model3.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model4.set_initializer("sizes", np.array(sizes, dtype=np.int64))
-    resize_model4.set_initializer("scales", np.array([], dtype=np.float32))
+    resize_model4.set_initializer("scales", np.array([], dtype=np.float32))  # Opset 11
 
     # generate input tensor for testing
     input_tensor_nchw = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
