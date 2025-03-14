@@ -123,14 +123,22 @@ class MakeCPPDriver(Transformation):
         # * Creating the driver dir if it doesnt exist yet
         if not os.path.isdir(self.driver_dir):
             os.mkdir(self.driver_dir)
+        else:
+            try:
+                shutil.rmtree(self.driver_dir)
+            except Exception as e:
+                print(f"Failed to delete {self.driver_dir}. Reason: {e}")
+                raise e
+            os.mkdir(self.driver_dir)
 
         # Get the base C++ driver repo
-        def run_command(command, cwd=None):
+        def run_command(command, cwd=None, debug=False):
             try:
                 result = subprocess.run(
                     shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
                 )
-                print(result.stdout)  # Print the output for debugging purposes
+                if debug:
+                    print(result.stdout)  # Print the output for debugging purposes
             except subprocess.CalledProcessError as e:
                 print(f"Error running command: {' '.join(command)}")
                 raise e
