@@ -26,25 +26,25 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import json
 import numpy as np
 import os
 import qonnx
+import shlex
 import shutil
-import warnings
 import subprocess
-import json
-from string import Template
-from typing import Dict, List, Tuple
-from multiprocessing import cpu_count
+import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
+from string import Template
+from typing import Dict, Tuple
 
-from finn.builder.build_dataflow_config import CPPDriverTransferType
-from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 import finn.util
 import finn.util.data_packing as dpk
+from finn.builder.build_dataflow_config import CPPDriverTransferType
+from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import (
     hexstring2npbytearray,
@@ -52,6 +52,7 @@ from finn.util.data_packing import (
 )
 
 from . import template_driver
+
 
 def to_external_tensor(init, w_dtype):
     """Return an appropriately formatted and packed numpy byte array for given
@@ -67,137 +68,183 @@ def to_external_tensor(init, w_dtype):
 
     return ext_weight
 
+
 class MakeCPPDriver(Transformation):
     # TODO: Enable multiple input types! Now only assumes the first one
     def resolve_dt_name(s: str) -> str:
         s = s.replace("DataType[", "").replace("]", "")
-        print("Converting tensor datatype " + str(s))
+        print(f"Converting tensor datatype {s}")
         if s in ["BINARY", "TERNARY", "BIPOLAR"]:
             return "Datatype" + s[0] + s[1:].lower()
         elif s.startswith("U"):
-                return "DatatypeUint<" + s.replace("UINT", "") + ">"
+            return "DatatypeUint<" + s.replace("UINT", "") + ">"
         elif s.startswith("I"):
-                return "DatatypeInt<" + s.replace("INT", "") + ">"
+            return "DatatypeInt<" + s.replace("INT", "") + ">"
         elif "FLOAT" in s:
             return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
         elif "FIXED" in s:
             return "DatatypeFixed" + s.replace("FIXED", "")
         else:
-            return "UNKNOWN_DATATYPE_ERROR_BY_FINN_COMPILER"
+            raise RuntimeError(f"Unknown datatype for C++ Driver:{s}")
 
-    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, build_driver: bool, cpp_template_dir: str, output_dir: str, run_name: str = "RUN_ID"):
+    def __init__(
+        self,
+        platform: str,
+        transfer_mode: CPPDriverTransferType,
+        build_dir: str,
+        version: str,
+        driver_dir,
+    ):
         super().__init__()
-        self.run_name = run_name
         self.platform: str = platform
         self.transfer_mode: CPPDriverTransferType = transfer_mode
-        self.build_driver: bool = build_driver
-        self.cpp_template_dir = cpp_template_dir
-        self.output_dir = output_dir
+        self.build_dir = build_dir
+        self.version = version
+        self.driver_dir = driver_dir
+
+        # Define variables for the repository URL and commit hash
+        self.repository_url = "https://github.com/eki-project/finn-cpp-driver.git"
+        if version == "latest" or version is None:
+            self.commit_hash = "HEAD"
+        else:
+            self.commit_hash = version
 
         # Locations of files
-        self.xclbin_path = os.path.join(output_dir, "bitfile", "finn-accel.xclbin")
-        self.template_target_dir = os.path.join(output_dir, "finn-cpp-driver")
-        self.json_path = os.path.join(output_dir, "driver", "cppdconfig.json")
-        self.header_path = os.path.join(output_dir, "driver", "FinnDriverUsedDatatypes.h")
-        self.finn_driver_exec_path = os.path.join(output_dir, "driver", "finn")
+        self.xclbin_path = os.path.join(self.build_dir, "bitfile", "finn-accel.xclbin")
+        self.json_path = os.path.join(self.driver_dir, "acceleratorconfig.json")
+        self.header_path = os.path.join(self.driver_dir, "AcceleratorDatatypes.h")
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         driver_shapes: Dict = get_driver_shapes(model)
-        ext_weight_dma_cnt: int
-        weights_dir: str
+        ext_weight_dma_cnt: int  # noqa
+        weights_dir: str  # noqa
         # ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
 
-        #* Creating the driver dir if it doesnt exist yet
-        driver_dir = os.path.join(self.output_dir, "driver")
-        if not os.path.isdir(driver_dir):
-            os.mkdir(driver_dir)
+        # * Creating the driver dir if it doesnt exist yet
+        if not os.path.isdir(self.driver_dir):
+            os.mkdir(self.driver_dir)
 
-        #* Copying the finn-cpp-driver into the output folder to have a clean template every run
-        if os.path.isdir(self.template_target_dir):
-            subprocess.run("rm -rf " + self.template_target_dir, shell=True, stdout=subprocess.PIPE)
-        print("Copying finn-cpp-driver from " + self.cpp_template_dir + " to " + self.template_target_dir)
-        subprocess.run(f"cp -r {self.cpp_template_dir} {self.template_target_dir}", shell=True, stdout=subprocess.PIPE)
+        # Get the base C++ driver repo
+        def run_command(command, cwd=None):
+            try:
+                result = subprocess.run(
+                    shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
+                )
+                print(result.stdout)  # Print the output for debugging purposes
+            except subprocess.CalledProcessError as e:
+                print(f"Error running command: {' '.join(command)}")
+                raise e
 
-        #* Writing the header file
-        inputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["idt"][0].replace("'", ""))#.get_canonical_name())
-        outputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["odt"][0].replace("'", ""))#.get_canonical_name())
-        print(f"Writing input header file for run with name {self.run_name}. Used datatypes will be {inputDatatype} and {outputDatatype}!")
-        with open(os.path.join(self.cpp_template_dir, "src", "FINNCppDriver", "config", "FinnDriverUsedDatatypes.h.in"), 'r') as f_in:
+        # Step-by-step equivalent of the provided bash script
+        run_command("git init", cwd=self.driver_dir)
+        run_command(f"git remote add origin {self.repository_url}", cwd=self.driver_dir)
+        run_command(f"git fetch origin {self.commit_hash} --depth=1", cwd=self.driver_dir)
+        run_command("git checkout FETCH_HEAD", cwd=self.driver_dir)
+        run_command("git submodule update --init --recursive", cwd=self.driver_dir)
+        run_command("./buildDependencies.sh", cwd=self.driver_dir)
+
+        # * Writing the header file
+        inputDatatype: str = MakeCPPDriver.resolve_dt_name(
+            driver_shapes["idt"][0].replace("'", "")
+        )  # .get_canonical_name())
+        outputDatatype: str = MakeCPPDriver.resolve_dt_name(
+            driver_shapes["odt"][0].replace("'", "")
+        )  # .get_canonical_name())
+        print(
+            f"Writing input header file: Used datatypes\
+                will be {inputDatatype} and {outputDatatype}!"
+        )
+        with open(
+            os.path.join(
+                self.driver_dir, "src", "FINNCppDriver", "config", "FinnDriverUsedDatatypes.h.in"
+            ),
+            "r",
+        ) as f_in:
             header = f_in.read()
             template_handler = Template(header)
-            templated_str = template_handler.substitute(inputDatatype=inputDatatype,outputDatatype=outputDatatype)
-            with open(self.header_path, 'w+') as f:
+            templated_str = template_handler.substitute(
+                inputDatatype=inputDatatype, outputDatatype=outputDatatype
+            )
+            with open(self.header_path, "w+") as f:
                 f.write(templated_str)
-                
+
         print("Successfully created config header file.")
 
-
-        #* Writing the json file
+        # * Writing the json file
         # TODO: Update this for multi-fpga usage (more than one device!)
         # Path of the xclbin in the finn compiler project
         # Get kernel names using xclbinutil
-        assert shutil.which("xclbinutil") is not None, "xclbinutil not in PATH or not installed. Required to read kernel names for driver config!"
-        subprocess.run(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", shell=True)
+
+        if shutil.which("xclbinutil") is None:
+            raise RuntimeError(
+                "xclbinutil not in PATH or not installed.\
+                Required to read kernel names for driver config!"
+            )
+        subprocess.run(
+            f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json",
+            shell=True,
+        )
         ips = None
         with open("ip_layout.json") as f:
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
 
         # Get only ips that are kernels
-        isIO = lambda x: x["m_type"] == "IP_KERNEL" and x["m_base_address"] != "not_used" and ("idma" in x["m_name"] or "odma" in x["m_name"])
+        isIO = (
+            lambda x: x["m_type"] == "IP_KERNEL"
+            and x["m_base_address"] != "not_used"
+            and ("idma" in x["m_name"] or "odma" in x["m_name"])
+        )
         idmas = [x["m_name"] for x in ips if isIO(x) and "idma" in x["m_name"]]
         odmas = [x["m_name"] for x in ips if isIO(x) and "odma" in x["m_name"]]
-        
-        def formatKernelName(kname:str):
+
+        def formatKernelName(kname: str):
             kparts = kname.split(":")
-            return kparts[0]+":{"+kparts[1]+"}"
+            return kparts[0] + ":{" + kparts[1] + "}"
 
         # Create idma and odma entries
         jsonIdmas = []
         jsonOdmas = []
         for i in range(len(driver_shapes["idma_names"])):
-            jsonIdmas.append({
-                "kernelName": [formatKernelName(name) for name in idmas if driver_shapes["idma_names"][i] in name][0],
-                "normalShape": driver_shapes["ishape_normal"][i],
-                "foldedShape": driver_shapes["ishape_folded"][i],
-                "packedShape": driver_shapes["ishape_packed"][i]
-            })
+            jsonIdmas.append(
+                {
+                    "kernelName": [
+                        formatKernelName(name)
+                        for name in idmas
+                        if driver_shapes["idma_names"][i] in name
+                    ][0],
+                    "normalShape": driver_shapes["ishape_normal"][i],
+                    "foldedShape": driver_shapes["ishape_folded"][i],
+                    "packedShape": driver_shapes["ishape_packed"][i],
+                }
+            )
         for i in range(len(driver_shapes["odma_names"])):
-            jsonOdmas.append({
-                "kernelName": [formatKernelName(name) for name in odmas if driver_shapes["odma_names"][i] in name][0],
-                "normalShape": driver_shapes["oshape_normal"][i],
-                "foldedShape": driver_shapes["oshape_folded"][i],
-                "packedShape": driver_shapes["oshape_packed"][i]
-            })
+            jsonOdmas.append(
+                {
+                    "kernelName": [
+                        formatKernelName(name)
+                        for name in odmas
+                        if driver_shapes["odma_names"][i] in name
+                    ][0],
+                    "normalShape": driver_shapes["oshape_normal"][i],
+                    "foldedShape": driver_shapes["oshape_folded"][i],
+                    "packedShape": driver_shapes["oshape_packed"][i],
+                }
+            )
 
-        data = [] 
-        data.append({
-            "xrtDeviceIndex": 0,
-            "xclbinPath":os.path.abspath(self.xclbin_path),
-
-            "name": "MainDevice",
-            "idmas": jsonIdmas,
-            "odmas": jsonOdmas
-        })
-        with open(self.json_path, 'w+') as f:
+        data = []
+        data.append(
+            {
+                "xrtDeviceIndex": 0,
+                "xclbinPath": os.path.abspath(self.xclbin_path),
+                "name": "MainDevice",
+                "idmas": jsonIdmas,
+                "odmas": jsonOdmas,
+            }
+        )
+        with open(self.json_path, "w+") as f:
             f.write(json.dumps(data, indent=4))
-            
+
         print("Created runtime json config file")
-
-        #* Compilation
-        if(self.build_driver == True):
-            #TODO: build dependencies
-            build_path = os.path.join(self.template_target_dir, "build")
-            if not os.path.isdir(build_path):
-                os.mkdir(build_path)
-            n_procs = cpu_count()
-            compile_result = subprocess.run(f"cmake -DCMAKE_BUILD_TYPE=Release -DFINN_HEADER_LOCATION=\"{self.header_path}\" -DFINNC_ENABLE_SANITIZERS=Off ..;make -j{n_procs}", shell=True, cwd=build_path, capture_output=True)
-            print(compile_result.stdout.decode('utf-8'),flush=True)
-            print(compile_result.stderr.decode('utf-8'),flush=True)
-            assert compile_result.returncode == 0, "[MakeCPPDriver - Transformation] Compilation failed!"
-            print("Compiled C++ driver successfully.")
-
-            #* Copy exec back 
-            shutil.copy(os.path.join(build_path, "src", "finn"), self.finn_driver_exec_path)
 
         # TODO: Generating weight files
         # weights_dir = output_dir + "/runtime_weights"

@@ -131,8 +131,7 @@ default_build_dataflow_steps = [
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
-    "step_make_pynq_driver",
-    "step_make_cpp_driver",
+    "step_make_driver",
     "step_deployment_package",
 ]
 
@@ -361,15 +360,16 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
+    # TODO: This should be unified with the host/HBM memory selection process!
     #: Determine which type of data transfer the driver should use.
     #: Stream streams the data directly into the pipeline, memory_buffered writes
     #: to board memory first
-    cpp_driver_transfer_type: Optional[CPPDriverTransferType] = None
+    cpp_driver_transfer_type: Optional[CPPDriverTransferType] = "memory_buffered"
 
-    #: If set to True, the C++ Driver will be build inside the container during synthesis
-    #: Otherwise, building the C++ driver will be skipped
-    # TODO: Change container to make build during synthesis possible
-    cpp_driver_build_during_synthesis: Optional[bool] = False
+    #: Determine if the C++ driver should be generated instead of the PYNQ driver
+    #: If set to latest newest version will be used
+    #: If set to commit hash specified version will be used
+    cpp_driver_version: Optional[str] = "latest"
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
