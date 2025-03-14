@@ -49,7 +49,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
-from finn.util.pyverilator import verilator_fifosim
 
 
 def reset_implementation(node):
@@ -374,8 +373,6 @@ class InsertAndSetFIFODepths(Transformation):
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         # do rtlsim in C++ for FIFO sizing
-        # use the rtlsim_backend metadata_prop to decide which backend to use
-        backend = model.get_metadata_prop("rtlsim_backend")
         # determine # inputs for FIFO sizing according to topology type
         swg_nodes = [
             x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
@@ -401,14 +398,7 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
-        if backend in ["verilator", "pyverilator"]:
-            sim = verilator_fifosim(model, n_inferences, max_iters=max_iters)
-        elif backend is None or backend in ["xsi", "pyxsi"]:
-            sim = xsi_fifosim(
-                model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
-            )
-        else:
-            assert False, f"Unrecognized backend for InsertAndSetFIFODepths: {backend}"
+        sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

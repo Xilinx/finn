@@ -682,7 +682,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Measure performance + latency of stitched-IP model in rtlsim (pyverilator).
+    """Measure performance + latency of stitched-IP model in rtlsim (xsi).
     Depends on the DataflowOutputType.STITCHED_IP output product.
     """
 

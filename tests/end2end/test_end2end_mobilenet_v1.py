@@ -540,9 +540,7 @@ def test_end2end_mobilenet_rtlsim_performance():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     report_dir = build_dir + "/report"
     os.makedirs(report_dir, exist_ok=True)
-    # multi-in/out streams currently not supported in our C++ verilator driver
     rtlsim_bs = 1
-
     rtlsim_perf_dict = throughput_test_rtlsim(model, batchsize=rtlsim_bs)
     # keep keys consistent between the Python and C++-styles
     cycles = rtlsim_perf_dict["cycles"]
