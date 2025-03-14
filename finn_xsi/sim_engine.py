@@ -141,7 +141,7 @@ class SimEngine:
                         return [self.vld.set(0), self.dat.clear()] if vld else None
 
                     # Feed next Value
-                    ret = [self.dat.set(val)]
+                    ret = [self.dat.set_hexstr(val)]
                     if not vld:
                         ret.append(self.vld.set(1))
                     if self.count_txns == self.throttle[0]:
