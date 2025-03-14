@@ -318,14 +318,18 @@ Port& Port::set_hexstr(std::string const &val) {
 		l  -= m;
 		si -= m;
 		for(unsigned  j = 0; j < m; j++) {
-			char const  c = *si++;
+			char  c = *si++;
 			a <<= 4;
 			b <<= 4;
 
 			if(('0' <= c) && c <= '9')  a |= c & 0xF;
 			else {
-				b |= 0xF;
-				if((c|0x20) != 'z')  a |= 0xF;
+				c |= 0x20;
+				if(('a' <= c) && (c <= 'f'))  a |= c - ('a'-10);
+				else {
+					b |= 0xF;
+					if(c != 'z')  a |= 0xF;
+				}
 			}
 		}
 		si -= m;
