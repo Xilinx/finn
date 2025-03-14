@@ -13,6 +13,22 @@
 import xsi
 
 
+# look for AXI-Stream signals both uppercase and lowercase
+def find_stream_ports(top, stream_prefix):
+    found_ports = []
+    suffixes = ["_tvalid", "_tready", "_tdata"]
+    for suffix in suffixes:
+        if ret := top.getPort(stream_prefix + suffix):
+            found_ports.append(ret)
+            continue
+        elif ret := top.getPort(stream_prefix + suffix.upper()):
+            found_ports.append(ret)
+            continue
+        else:
+            assert False, f"Could not find {stream_prefix} : {suffix}"
+    return found_ports
+
+
 class SimEngine:
     def __init__(self, kernel, design, log=None, wdb=None):
         top = xsi.Design(xsi.Kernel(kernel), design, log, wdb)
@@ -98,10 +114,10 @@ class SimEngine:
 
         class InputStreamer:
             def __init__(self, top, istream, values, throttle):
-                self.vld = top.getPort(istream + "_tvalid")
-                self.rdy = top.getPort(istream + "_tready")
-                self.dat = top.getPort(istream + "_tdata")
+                self.vld, self.rdy, self.dat = find_stream_ports(top, istream)
                 self.values = values
+                # stream width (in hex digits)
+                self.width = int(self.dat.width() / 4)
 
                 self.throttle = throttle
                 self.await_tick = 0
@@ -144,9 +160,7 @@ class SimEngine:
         class OutputCollector:
             def __init__(self, top, ostream, size):
                 self.size = size
-                self.vld = top.getPort(ostream + "_tvalid")
-                self.rdy = top.getPort(ostream + "_tready")
-                self.dat = top.getPort(ostream + "_tdata")
+                self.vld, self.rdy, self.dat = find_stream_ports(top, ostream)
                 self.buf = []
 
             def __iter__(self):
