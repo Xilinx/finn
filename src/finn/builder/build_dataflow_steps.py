@@ -57,7 +57,7 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.find_good_foldings import find_good_foldings
+from finn.analysis.fpgadataflow.find_good_foldings import all_possible_maclayer_targets
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
@@ -434,18 +434,9 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         os.makedirs(report_dir, exist_ok=True)
         with open(report_dir + "/possible_foldings.json", "w") as f:
             json.dump(folding_trf.possible_foldings, f, indent=2)
-        rtols = [0.1, 0.2, 0.4, 0.8]
-        with open(report_dir + "/good_foldings.txt", "w") as f:
-            for rtol in rtols:
-                good_foldings = find_good_foldings(folding_trf.possible_foldings, rtol=rtol)
-                good_foldings_lst = [f"II\t\tFPS@{cfg._resolve_hls_clk_period()}ns"]
-                ticks_per_s = 10**9 / cfg._resolve_hls_clk_period()
-                good_foldings_lst += [f"{x}\t\t{ticks_per_s/x}" for x in good_foldings]
-                f.write(
-                    f"Folding targets where MVU/VVU nodes are at most {rtol*100}% "
-                    "faster than target:\n\n"
-                )
-                f.write("\n".join(good_foldings_lst) + "\n\n")
+        with open(report_dir + "/joint_foldings.json", "w") as f:
+            joint_foldings = all_possible_maclayer_targets(folding_trf.possible_foldings)
+            json.dump(joint_foldings, f, indent=2)
 
         # extract the suggested configuration and save it as json
         hw_attrs = [

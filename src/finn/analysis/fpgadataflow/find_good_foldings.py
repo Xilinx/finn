@@ -34,6 +34,16 @@ def possible_targets(node_possible_configs):
     return set([x[1] for x in node_possible_configs[list(node_possible_configs.keys())[0]]])
 
 
+def all_possible_maclayer_targets(possible_foldings):
+    vau_only = {k: v for k, v in possible_foldings.items() if "VAU" in k}
+    ret = set()
+    for k, v in vau_only.items():
+        targets = possible_targets(v)
+        ret = ret.union(targets)
+    ret = sorted(list(ret))
+    return ret
+
+
 def targets_to_interval(targets, rtol):
     return [(x, x + rtol * x) for x in sorted(targets)]
 
