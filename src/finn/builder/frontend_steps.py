@@ -27,7 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import dataclasses
+import json
 import numpy as np
+import os
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 from qonnx.transformation.extract_quant_scale_zeropt import AbsorbQuantScale
@@ -62,6 +65,22 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 
+# enhanced JSON encoder that supports dumping RangeInfo from range analysis and
+# numpy arrays
+# TODO: move this to a common location
+class EnhancedJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if dataclasses.is_dataclass(obj):
+            return dataclasses.asdict(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+
 def step_aggregate_scale_bias(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Use scaled-int range analysis to compute aggregated scale and bias."""
 
@@ -90,11 +109,12 @@ def step_aggregate_scale_bias(model: ModelWrapper, cfg: DataflowBuildConfig):
         if isinstance(cfg.input_range_info, list):
             for ind, inp in enumerate(model.graph.input):
                 current_irange[inp.name] = cfg.input_range_info[ind]
-    model = model.transform(Streamline(irange=current_irange))
+    aggr_trn = Streamline(irange=current_irange)
+    model = model.transform(aggr_trn)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
-
+    # check for MAC-intensive nodes with non-integer inputs
     mac_intensive_optypes = ["Conv", "MatMul"]
     for node in model.graph.node:
         if node.op_type in mac_intensive_optypes:
@@ -152,15 +172,21 @@ def step_convert_to_thresholds_new(model: ModelWrapper, cfg: DataflowBuildConfig
     model = model.transform(absorb.Absorb1BitMulIntoConv())
     model = model.transform(InferDataLayouts())
 
-    model = model.transform(
-        QuantToMultiThreshold(
-            range_info=cfg.input_range_info[0],
-            enum_rescale=1.0,
-            quant_filter=default_filter_function_generator(
-                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
-            ),
-        )
+    trn = QuantToMultiThreshold(
+        range_info=cfg.input_range_info[0],
+        enum_rescale=1.0,
+        quant_filter=default_filter_function_generator(
+            max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+        ),
     )
+
+    model = model.transform(trn)
+    # save range dict for inspection
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+
+    with open(report_dir + "/range_analysis.json", "w") as f:
+        json.dump(trn.range_analysis_result, f, indent=2, cls=EnhancedJSONEncoder)
     # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
     model = model.transform(AvgPoolAndTruncToQuantAvgPool())
     model = model.transform(RemoveIdentityOps())
