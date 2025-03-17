@@ -59,6 +59,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # memory depth triggers for threshold storage
             "depth_trigger_uram": ("i", False, 0),
             "depth_trigger_bram": ("i", False, 0),
+            # if no triggers match, use this RAM_STYLE
+            "ram_style_fallback": ("s", False, "auto"),
             # enable uniform thres optimization
             # doesn't actually do anything yet, only
             # for resource estimations
@@ -280,9 +282,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
+        ram_style_fallback = self.get_nodeattr("ram_style_fallback")
         deep_pipeline = self.get_nodeattr("deep_pipeline")
         code_gen_dict["$DEPTH_TRIGGER_URAM$"] = [str(depth_trigger_uram)]
         code_gen_dict["$DEPTH_TRIGGER_BRAM$"] = [str(depth_trigger_bram)]
+        code_gen_dict["$RAM_STYLE_FALLBACK$"] = [f'"{ram_style_fallback}"']
         code_gen_dict["$DEEP_PIPELINE$"] = [str(deep_pipeline)]
         return code_gen_dict
 

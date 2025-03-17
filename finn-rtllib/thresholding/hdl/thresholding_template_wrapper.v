@@ -49,6 +49,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Force Use of On-Chip Memory Blocks
 	parameter  DEPTH_TRIGGER_URAM = $DEPTH_TRIGGER_URAM$,	// if non-zero, local mems of this depth or more go into URAM (prio)
 	parameter  DEPTH_TRIGGER_BRAM = $DEPTH_TRIGGER_BRAM$,	// if non-zero, local mems of this depth or more go into BRAM
+	parameter  RAM_STYLE_FALLBACK = $RAM_STYLE_FALLBACK$,	// if no triggers match, use this RAM_STYLE
 	parameter  DEEP_PIPELINE = $DEEP_PIPELINE$,	// [bit] extra pipeline stages for easier timing closure
 
 	parameter  O_BITS = $O_BITS$
