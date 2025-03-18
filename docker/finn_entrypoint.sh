@@ -65,8 +65,6 @@ cat <(tail -n +3 python_repos.txt) | while IFS=',' read -a arr ; do
     pip install --user -e ${FINN_ROOT}/deps/"${arr[0]}"
 done
 
-
-
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
   pip install --user -e ${FINN_ROOT}

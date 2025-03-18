@@ -129,8 +129,6 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
                 "{}/input_1.npy".format(code_gen_dir), export_idt1, nbits1
             )
             super().reset_rtlsim(sim)
-            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": rtlsim_inp0, "in1": rtlsim_inp1},
                 "outputs": {"out": []},

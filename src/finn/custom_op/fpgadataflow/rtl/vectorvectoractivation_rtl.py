@@ -35,11 +35,6 @@ from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
 from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
 
 class VVAU_rtl(VVAU, RTLBackend):
     """Class that corresponds to finn-rtl Vector Vector Unit."""
@@ -95,8 +90,6 @@ class VVAU_rtl(VVAU, RTLBackend):
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 super().reset_rtlsim(sim)
-                if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                    super().toggle_clk(sim)
 
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()

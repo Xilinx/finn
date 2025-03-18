@@ -55,7 +55,7 @@ from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 from finn.util.test import load_test_checkpoint_or_skip
 
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
