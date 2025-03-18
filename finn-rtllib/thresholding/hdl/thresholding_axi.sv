@@ -57,6 +57,7 @@ module thresholding_axi #(
 	// Force Use of On-Chip Memory Blocks
 	int unsigned  DEPTH_TRIGGER_URAM = 0,	// if non-zero, local mems of this depth or more go into URAM (prio)
 	int unsigned  DEPTH_TRIGGER_BRAM = 0,	// if non-zero, local mems of this depth or more go into BRAM
+	parameter  RAM_STYLE_FALLBACK = "auto",	// if no triggers match, use this RAM_STYLE
 	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
@@ -182,7 +183,7 @@ module thresholding_axi #(
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
-		.DEEP_PIPELINE(DEEP_PIPELINE)
+		.RAM_STYLE_FALLBACK(RAM_STYLE_FALLBACK), .DEEP_PIPELINE(DEEP_PIPELINE)
 	) impl (
 		.clk(ap_clk), .rst(!ap_rst_n),
 
