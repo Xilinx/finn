@@ -71,7 +71,8 @@ RUN apt-get update && \
     libboost-dev \
     libjansson-dev \
     libgetdata-dev \
-    libtinfo5
+    libtinfo5 \
+    g++-10
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
