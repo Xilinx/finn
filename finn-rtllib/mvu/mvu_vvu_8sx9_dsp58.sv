@@ -45,8 +45,7 @@ module mvu_vvu_8sx9_dsp58 #(
 
 	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD,
 	localparam int unsigned WEIGHT_ELEMENTS = PE*SIMD
-  )
-  (
+  )  (
     // Global Control
 	input   logic clk,
     input   logic rst,
@@ -68,6 +67,25 @@ module mvu_vvu_8sx9_dsp58 #(
 		1 ||
 `endif
 		FORCE_BEHAVIORAL;
+
+	//-----------------------------------------------------------------------
+	// Startup Recovery Watchdog
+	//  The DSP slice needs 100ns of recovery time after initial startup before
+	//  being able to ingest input properly. This watchdog discovers violating
+	//  stimuli during simulation and produces a corresponding warning.
+	if(1) begin : blkRecoveryWatch
+		logic  Dirty = 1;
+		initial begin
+			#100ns;
+			Dirty <= 0;
+		end
+
+		always_ff @(posedge clk) begin
+			assert(!Dirty || rst || !en || zero) else begin
+				$warning("%m: Feeding input during DSP startup recovery. Expect functional errors.");
+			end
+		end
+	end : blkRecoveryWatch
 
 //-------------------- Declare global signals --------------------\\
 	localparam int unsigned CHAINLEN = (SIMD+2)/3;
