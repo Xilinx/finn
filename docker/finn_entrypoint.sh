@@ -56,13 +56,13 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
-pip install --user -e ${FINN_ROOT}/deps/qonnx
-mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
+mv ${FINN_DEPS_DIR}/qonnx/pyproject.toml ${FINN_DEPS_DIR}/qonnx/pyproject.tmp
+pip install --user -e ${FINN_DEPS_DIR}/qonnx
+mv ${FINN_DEPS_DIR}/qonnx/pyproject.tmp ${FINN_DEPS_DIR}/qonnx/pyproject.toml
 
 cat <(tail -n +3 python_repos.txt) | while IFS=',' read -a arr ; do
     # extract line to $arr as array separated by ','
-    pip install --user -e ${FINN_ROOT}/deps/"${arr[0]}"
+    pip install --user -e ${FINN_DEPS_DIR}/deps/"${arr[0]}"
 done
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
@@ -107,15 +107,16 @@ fi
 if [ -z "${XILINX_VIVADO}" ]; then
   yecho "pyxsi will be unavailable since Vivado was not found"
 else
-  if [ -f "${FINN_ROOT}/deps/pyxsi/pyxsi.so" ]; then
-    gecho "Found pyxsi at ${FINN_ROOT}/deps/pyxsi/pyxsi.so"
+  if [ -f "${FINN_DEPS_DIR}/pyxsi/pyxsi.so" ]; then
+    gecho "Found pyxsi at ${FINN_DEPS_DIR}/pyxsi/pyxsi.so"
   else
     OLDPWD=$(pwd)
-    cd ${FINN_ROOT}/deps/pyxsi
+    OLDPWD=$(pwd)
+    cd ${FINN_DEPS_DIR}/pyxsi
     make
     cd $OLDPWD
   fi
-  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi:${FINN_ROOT}/deps/pyxsi/py
+  export PYTHONPATH=$PYTHONPATH:${FINN_DEPS_DIR}/pyxsi:${FINN_DEPS_DIR}/pyxsi/py
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
 fi
 
