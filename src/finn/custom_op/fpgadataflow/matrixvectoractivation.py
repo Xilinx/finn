@@ -219,10 +219,6 @@ class MVAU(HWCustomOp):
             )
         return info_messages
 
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -322,9 +318,15 @@ class MVAU(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_input_shape = tuple(vecs + [mw])
-        return normal_input_shape
+        if ind == 0:
+            vecs = list(self.get_nodeattr("numInputVectors"))
+            shape = tuple(vecs + [mw])
+        elif ind == 1:
+            mh = self.get_nodeattr("MH")
+            shape = tuple([mw, mh])
+        else:
+            raise Exception("Undefined input shape for requested input")
+        return shape
 
     def get_normal_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")

@@ -85,14 +85,7 @@ class DuplicateStreams(HWCustomOp):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        num_out = self.get_num_output_streams()
-        assert len(self.onnx_node.output) == num_out, "Unexpected number of outputs"
-
-        oshape = self.get_normal_output_shape()
-        ret = super().make_const_shape_op(oshape)
+        ret = super().make_shape_compatible_op(model)
         ret.output[:] = self.onnx_node.output
         return ret
 

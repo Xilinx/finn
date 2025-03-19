@@ -99,15 +99,6 @@ class StreamingEltwise(HWCustomOp):
     def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input1 shape."
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[1]))
-        assert ishape == exp_ishape, "Unexpected input2 shape."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt0 = model.get_tensor_datatype(node.input[0])

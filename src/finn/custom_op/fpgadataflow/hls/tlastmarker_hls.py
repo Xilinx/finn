@@ -219,6 +219,22 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
 
+    def get_input_datatype(self, ind=0):
+        # not supported
+        raise Exception("get_input_datatype not implemented for TlastMarker")
+
+    def get_output_datatype(self, ind=0):
+        # not supported
+        raise Exception("get_output_datatype not implemented for TlastMarker")
+
+    def get_normal_input_shape(self, ind=0):
+        # not supported
+        raise Exception("get_normal_input_shape not implemented for TlastMarker")
+
+    def get_normal_output_shape(self, ind=0):
+        # not supported
+        raise Exception("get_normal_input_shape not implemented for TlastMarker")
+
     def get_folded_input_shape(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         elem_width = self.get_nodeattr("ElemWidth")

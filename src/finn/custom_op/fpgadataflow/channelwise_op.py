@@ -108,11 +108,6 @@ class ChannelwiseOp(HWCustomOp):
         pe = self.get_nodeattr("PE")
         return chn // pe
 
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        # implement tensor with correct shape
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # check input datatype against property

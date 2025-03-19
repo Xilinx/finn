@@ -80,15 +80,6 @@ class StreamingConcat(HWCustomOp):
     def get_folded_output_shape(self, ind=0):
         return self.get_normal_output_shape()
 
-    def make_shape_compatible_op(self, model):
-        # check all input shapes
-        for i, inp in enumerate(self.onnx_node.input):
-            exp_ishape = self.get_normal_input_shape(i)
-            ishape = tuple(model.get_tensor_shape(inp))
-            assert ishape == exp_ishape, "Unexpected shape for " + inp
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         # check all input datatypes
         for i, inp in enumerate(self.onnx_node.input):

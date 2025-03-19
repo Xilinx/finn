@@ -98,6 +98,11 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_out": ("ints", False, []),
         }
 
+    def make_shape_compatible_op(self, model):
+        oshape = self.get_normal_output_shape()
+        # implement tensor with correct shape
+        return super().make_const_shape_op(oshape)
+
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
