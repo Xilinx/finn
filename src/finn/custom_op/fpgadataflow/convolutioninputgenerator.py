@@ -165,9 +165,6 @@ class ConvolutionInputGenerator(HWCustomOp):
         # Propagate the datatype through the model graph
         model.set_tensor_datatype(node.output[0], dtype)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]

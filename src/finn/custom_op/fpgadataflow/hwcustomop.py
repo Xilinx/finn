@@ -304,6 +304,12 @@ class HWCustomOp(CustomOp):
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
+    def verify_node(self):
+        """Can be implemented to verify that all attributes the node needs
+        are there and that particular attributes are set correctly. Can also
+        check if the number of inputs is equal to the expected number."""
+        pass
+
     def generate_params(self, model, path):
         """Function to generate parameters (i.e. weights and thresholds),
         is member function of HWCustomOp class but has to be filled

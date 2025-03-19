@@ -81,10 +81,6 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
         # not supported for datatype inference
         pass
 
-    def verify_node(self):
-        # TODO implement verify_node for TLastMarker
-        pass
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "ap_axi_sdata.h"']
 

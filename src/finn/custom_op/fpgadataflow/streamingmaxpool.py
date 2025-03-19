@@ -187,9 +187,6 @@ class StreamingMaxPool(HWCustomOp):
         # data type stays the same
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def execute_node(self, context, graph):
         # create a standard add node to help calculate the result
         node = self.onnx_node

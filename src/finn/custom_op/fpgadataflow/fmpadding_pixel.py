@@ -122,9 +122,6 @@ class FMPadding_Pixel(HWCustomOp):
         self.set_nodeattr("inputDataType", idt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]

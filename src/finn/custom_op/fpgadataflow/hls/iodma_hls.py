@@ -162,9 +162,6 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         self.set_nodeattr("dataType", idt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]

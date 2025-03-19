@@ -91,9 +91,6 @@ class StreamingFIFO(HWCustomOp):
         # data type stays the same
         model.set_tensor_datatype(node.output[0], idt)
 
-    def verify_node(self):
-        pass
-
     def get_verilog_top_module_intf_names(self):
         ret = super().get_verilog_top_module_intf_names()
         is_rtl = self.get_nodeattr("impl_style") == "rtl"

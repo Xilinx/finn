@@ -163,9 +163,6 @@ class VVAU(HWCustomOp):
 
         context[node.output[0]] = result
 
-    def verify_node(self):
-        pass
-
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
         return super().make_const_shape_op(oshape)

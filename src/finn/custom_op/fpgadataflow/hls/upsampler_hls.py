@@ -49,9 +49,6 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def verify_node(self):
-        pass
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "upsample.hpp"']
 

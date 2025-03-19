@@ -77,9 +77,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]

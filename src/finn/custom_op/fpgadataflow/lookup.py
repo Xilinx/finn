@@ -129,9 +129,6 @@ class Lookup(HWCustomOp):
         odt = DataType[self.get_nodeattr("EmbeddingType")]
         model.set_tensor_datatype(node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         ret = DataType[self.get_nodeattr("InputType")]
         return ret
