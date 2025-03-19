@@ -323,37 +323,37 @@ class HWCustomOp(CustomOp):
         by every node."""
         pass
 
+    @abstractmethod
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input stream ind."""
-        raise Exception("get_input_datatype not implemented for this op")
 
+    @abstractmethod
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output stream ind."""
-        raise Exception("get_output_datatype not implemented for this op")
 
+    @abstractmethod
     def get_normal_input_shape(self, ind=0):
         """Returns normal input shape if implemented."""
-        raise Exception("get_normal_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_normal_output_shape(self, ind=0):
         """Returns folded output shape if implemented."""
-        raise Exception("get_normal_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_input_shape(self, ind=0):
         """Returns folded input shape (according to synapse folding), if implemented."""
-        raise Exception("get_folded_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_output_shape(self, ind=0):
         """Returns folded output shape (according to neuron folding), if implemented."""
-        raise Exception("get_folded_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_instream_width(self, ind=0):
         """Returns input stream width, if implemented."""
-        raise Exception("get_instream_width not implemented for this op")
 
+    @abstractmethod
     def get_outstream_width(self, ind=0):
         """Returns output stream width, if implemented."""
-        raise Exception("get_outstream_width not implemented for this op")
 
     def get_instream_width_padded(self, ind=0):
         """Returns input stream width padded to a multiple of 8. This is required
