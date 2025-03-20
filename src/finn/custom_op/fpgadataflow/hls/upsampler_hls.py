@@ -76,28 +76,24 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
         if is_2d:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
-                % (self.hls_sname(), self.hls_sname())
+                ap_uint<Input_precision> > (in0_V, out_V, numReps);"""
             ]
         else:
             assert batch == 1, "1D upsampler currently needs numReps=1"
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_%s, out_%s);"""
-                % (self.hls_sname(), self.hls_sname())
+                ap_uint<Input_precision> > (in0_V, out_V);"""
             ]
 
     def blackboxfunction(self):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
             % (
                 self.onnx_node.name,
                 packed_hls_type,
-                self.hls_sname(),
                 packed_hls_type,
-                self.hls_sname(),
             )
         ]
 

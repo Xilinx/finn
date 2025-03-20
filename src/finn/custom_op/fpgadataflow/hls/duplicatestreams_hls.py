@@ -200,12 +200,10 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         n_outputs = self.get_num_output_streams()
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         for i in range(n_outputs):
-            out_name = "out%d_%s" % (i, self.hls_sname())
+            out_name = "out%d_V" % i
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<%d>> %s ("%s");'
                 % (self.get_outstream_width(), out_name, out_name)
@@ -215,11 +213,8 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         n_outputs = self.get_num_output_streams()
         ostreams = []
         for i in range(n_outputs):
-            ostreams.append("out%d_%s" % (i, self.hls_sname()))
-        dc = "DuplicateStreamsCustom(in0_%s, %s);" % (
-            self.hls_sname(),
-            ",".join(ostreams),
-        )
+            ostreams.append("out%d_V" % i)
+        dc = "DuplicateStreamsCustom(in0_V, %s);" % (",".join(ostreams),)
         self.code_gen_dict["$DOCOMPUTE$"] = [dc]
 
     def dataoutstrm(self):
@@ -236,7 +231,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         outstrm_code = []
 
         for i in range(n_outputs):
-            out_name = "out%d_%s" % (i, self.hls_sname())
+            out_name = "out%d_V" % i
             npy_out = "%s/output%d.npy" % (code_gen_dir, i)
             outstrm_code.append(
                 'apintstream2npy<%s, %s, %d, %s>(%s, %s, "%s");'
@@ -258,13 +253,12 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         inp_streams = []
         o_stream_w = self.get_outstream_width()
         i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0_%s" % (i_stream_w, self.hls_sname())
+        in_stream = "hls::stream<ap_uint<%d> > &in0_V" % i_stream_w
         inp_streams.append(in_stream)
         for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d_%s" % (
+            out_stream = "hls::stream<ap_uint<%d> > &out%d_V" % (
                 o_stream_w,
                 i,
-                self.hls_sname(),
             )
             inp_streams.append(out_stream)
 
@@ -277,11 +271,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
 
     def pragmas(self):
         n_outputs = self.get_num_output_streams()
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         for i in range(n_outputs):
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out%d_%s" % (i, self.hls_sname())
-            )
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out%d_V" % i)
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

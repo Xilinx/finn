@@ -198,7 +198,6 @@ class StreamingEltwise(HWCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
-        sname = self.hls_sname()
         swidth = self.get_instream_width_padded()
-        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
+        intf_names["s_axis"] = [(x + "_V", swidth) for x in ["in0", "in1"]]
         return intf_names

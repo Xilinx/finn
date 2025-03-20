@@ -174,39 +174,34 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         # Also notice that StreamingDataWidthConverter_Batch performs LE packing
 
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
                 npy_in,
-                self.hls_sname(),
             )
         )
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_{}, out_{}, 1);""".format(
+            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out_V, 1);""".format(
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_output_datatype().get_hls_datatype_str(),
-                self.hls_sname(),
-                self.hls_sname(),
             )
         ]
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}*{}>> &in0_{},
-                hls::stream<ap_uint<{}> > &out_{})""".format(
+            """void {}(hls::stream<ap_uint<{}*{}>> &in0_V,
+                hls::stream<ap_uint<{}> > &out_V)""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().bitwidth(),
-                self.hls_sname(),
                 self.get_output_datatype().bitwidth(),
-                self.hls_sname(),
             )
         ]

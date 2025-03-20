@@ -326,12 +326,6 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
-    def hls_sname(self):
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        return "V"
-
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""
         mode = self.get_nodeattr("exec_mode")
@@ -391,26 +385,24 @@ compilation transformations?
             packed_bits = self.get_instream_width()
             packed_hls_type = "ap_uint<%d>" % packed_bits
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+                'npy2apintstream<%s, %s, %d, %s>("%s", in0_V);'
                 % (
                     packed_hls_type,
                     elem_hls_type,
                     elem_bits,
                     npy_type,
                     npy_in,
-                    self.hls_sname(),
                 )
             )
         else:
             folded_shape = self.get_folded_input_shape()
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2vectorstream<%s, %s, %d>("%s", in0_%s, false);'
+                'npy2vectorstream<%s, %s, %d>("%s", in0_V, false);'
                 % (
                     elem_hls_type,
                     npy_type,
                     folded_shape[-1],
                     npy_in,
-                    self.hls_sname(),
                 )
             )
 
@@ -420,14 +412,10 @@ compilation transformations?
         by node."""
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
         )
 
     @abstractmethod
@@ -460,13 +448,12 @@ compilation transformations?
             packed_hls_type = "ap_uint<%d>" % packed_bits
 
             self.code_gen_dict["$DATAOUTSTREAM$"] = [
-                'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
+                'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s");'
                 % (
                     packed_hls_type,
                     elem_hls_type,
                     elem_bits,
                     npy_type,
-                    self.hls_sname(),
                     oshape_cpp_str,
                     npy_out,
                 )
@@ -498,12 +485,8 @@ compilation transformations?
     def pragmas(self):
         """Function to generate the pragma commands in c++,
         might need to be overwritten depending on custom op."""
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_ap_int_max_w(self):
@@ -521,10 +504,8 @@ compilation transformations?
 
     def timeout_condition(self):
         """Set timeout condition for HLS functions defined for one clock cycle"""
-        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out_{}.empty()".format(self.hls_sname())]
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out_V.empty()"]
 
     def timeout_read_stream(self):
         """Set reading output stream procedure for HLS functions defined for one clock cycle"""
-        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = [
-            "strm << out_{}.read();".format(self.hls_sname())
-        ]
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = ["strm << out_V.read();"]

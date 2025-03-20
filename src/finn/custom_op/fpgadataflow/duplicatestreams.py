@@ -148,12 +148,9 @@ class DuplicateStreams(HWCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         n_outputs = self.get_num_output_streams()
-        sname = self.hls_sname()
         intf_names["m_axis"] = []
         for i in range(n_outputs):
-            intf_names["m_axis"].append(
-                ("out%d_%s" % (i, sname), self.get_outstream_width_padded())
-            )
+            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded()))
         return intf_names
 
     def derive_characteristic_fxns(self, period):

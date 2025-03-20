@@ -542,47 +542,47 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws_stride":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, Dilation1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                    OFMDim1, SIMD1, Stride1> (in0_V, out_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
 
@@ -609,13 +609,12 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
             multi_pixel_out = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", true, 1, %d);'
+            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", true, 1, %d);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
                 multi_pixel_out,
@@ -625,16 +624,16 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
     def blackboxfunction(self):
         if self.use_parallel_window_output():
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_V,
                     hls::stream<ap_uint<ConvKernelDim1_x*SIMD1*Input_precision1>>
-                    &out_{})""".format(
-                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                    &out_V)""".format(
+                    self.onnx_node.name
                 )
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
-                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out_{})""".format(
-                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_V,
+                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out_V)""".format(
+                    self.onnx_node.name
                 )
             ]

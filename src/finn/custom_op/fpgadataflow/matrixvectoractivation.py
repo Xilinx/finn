@@ -860,9 +860,8 @@ class MVAU(HWCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
         if mem_mode == "external":
-            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
+            intf_names["s_axis"].append(("weights_V", self.get_weightstream_width_padded()))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
@@ -881,7 +880,6 @@ class MVAU(HWCustomOp):
                     runtime_writable == 1
                 ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
-            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -925,8 +923,7 @@ class MVAU(HWCustomOp):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_%s]"
-                % (node_name, strm_inst, node_name, node_name, sname)
+                "[get_bd_intf_pins %s/%s/weights_V]" % (node_name, strm_inst, node_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"

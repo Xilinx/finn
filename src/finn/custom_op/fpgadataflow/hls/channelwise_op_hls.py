@@ -333,14 +333,13 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
                 npy_in,
-                self.hls_sname(),
             )
         )
 
@@ -357,12 +356,10 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
-            (in0_{}, out_{}, threshs, numReps);""".format(
+            (in0_V, out_V, threshs, numReps);""".format(
                 spatial_dim,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
-                self.hls_sname(),
-                self.hls_sname(),
             )
         ]
 
@@ -383,13 +380,12 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
@@ -397,24 +393,18 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                hls::stream<ap_uint<{}>> &out_{}
+            """void {}(hls::stream<ap_uint<{}>> &in0_V,
+                hls::stream<ap_uint<{}>> &out_V
                 )""".format(
                 self.onnx_node.name,
                 self.get_instream_width(),
-                self.hls_sname(),
                 self.get_outstream_width(),
-                self.hls_sname(),
             )
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         # the channelwise parameter tensor is acc_type [PE][TMEM][N_PARAMS_PER_CHANNEL]

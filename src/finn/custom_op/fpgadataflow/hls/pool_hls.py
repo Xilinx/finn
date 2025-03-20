@@ -99,14 +99,13 @@ class Pool_hls(Pool, HLSBackend):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
                 npy_in,
-                self.hls_sname(),
             )
         )
 
@@ -137,8 +136,8 @@ class Pool_hls(Pool, HLSBackend):
 
         self.code_gen_dict["$DOCOMPUTE$"] += [
             """Pool_batch<Channels, PE, KernelSize,Slice<{} >, Slice< {} > >
-        (in0_{}, out_{}, pool_fxn, OFMDimTotal*numReps);""".format(
-                i_hls_dt, o_hls_dt, self.hls_sname(), self.hls_sname()
+        (in0_V, out_V, pool_fxn, OFMDimTotal*numReps);""".format(
+                i_hls_dt, o_hls_dt
             )
         ]
 
@@ -158,13 +157,12 @@ class Pool_hls(Pool, HLSBackend):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -177,13 +175,11 @@ class Pool_hls(Pool, HLSBackend):
         packed_obits = self.get_outstream_width()
         packed_out_hls_type = "ap_uint<%d>" % packed_obits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
             % (
                 self.onnx_node.name,
                 packed_in_hls_type,
-                self.hls_sname(),
                 packed_out_hls_type,
-                self.hls_sname(),
             )
         ]
 

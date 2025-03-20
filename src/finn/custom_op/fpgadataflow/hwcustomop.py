@@ -123,9 +123,8 @@ class HWCustomOp(CustomOp):
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        sname = self.hls_sname()
-        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
+        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
@@ -222,16 +221,15 @@ class HWCustomOp(CustomOp):
             sim.start_vcd_trace(trace_file)
         inputs = inp
         outputs = []
-        sname = self.hls_sname()
-        o_ready = "out_" + sname + "_TREADY"
-        o_valid = "out_" + sname + "_TVALID"
-        o_data = "out_" + sname + "_TDATA"
-        in0_ready = "in0_" + sname + "_TREADY"
-        in0_valid = "in0_" + sname + "_TVALID"
-        in0_data = "in0_" + sname + "_TDATA"
-        in1_ready = "in1_" + sname + "_TREADY"
-        in1_valid = "in1_" + sname + "_TVALID"
-        in1_data = "in1_" + sname + "_TDATA"
+        o_ready = "out_V_TREADY"
+        o_valid = "out_V_TVALID"
+        o_data = "out_V_TDATA"
+        in0_ready = "in0_V_TREADY"
+        in0_valid = "in0_V_TVALID"
+        in0_data = "in0_V_TDATA"
+        in1_ready = "in1_V_TREADY"
+        in1_valid = "in1_V_TVALID"
+        in1_data = "in1_V_TDATA"
 
         sim.io[o_ready] = 1
 
@@ -292,9 +290,6 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
 
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
-
         trace_file = self.get_nodeattr("rtlsim_trace")
         if trace_file == "default":
             trace_file = self.onnx_node.name + ".vcd"
@@ -304,7 +299,7 @@ class HWCustomOp(CustomOp):
             io_dict,
             num_out_values,
             trace_file=trace_file,
-            sname=sname,
+            sname="_V_",
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -394,7 +389,7 @@ class HWCustomOp(CustomOp):
         )
         sim = self.get_rtlsim()
         # signal name
-        sname = "_" + self.hls_sname() + "_"
+        sname = "_V_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:

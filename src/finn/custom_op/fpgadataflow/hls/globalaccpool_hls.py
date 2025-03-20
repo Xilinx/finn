@@ -152,25 +152,21 @@ class GlobalAccPool_hls(GlobalAccPool, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_{}, out_{}, 1);""".format(
+            """AccPool_Batch<{}, {}, {}, {}, {}> (in0_V, out_V, 1);""".format(
                 self.get_normal_input_shape()[1],
                 self.get_nodeattr("NumChannels"),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_nodeattr("PE"),
                 self.get_output_datatype().get_hls_datatype_str(),
-                self.hls_sname(),
-                self.hls_sname(),
             )
         ]
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                hls::stream<ap_uint<{}>> &out_{})""".format(
+            """void {}(hls::stream<ap_uint<{}>> &in0_V,
+                hls::stream<ap_uint<{}>> &out_V)""".format(
                 self.onnx_node.name,
                 self.get_instream_width(),
-                self.hls_sname(),
                 self.get_outstream_width(),
-                self.hls_sname(),
             )
         ]

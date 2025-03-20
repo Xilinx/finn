@@ -142,9 +142,8 @@ class AddStreams(HWCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
-        sname = self.hls_sname()
         swidth = self.get_instream_width_padded()
-        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
+        intf_names["s_axis"] = [(x, swidth) for x in ["in0_V", "in1_V"]]
         return intf_names
 
     def derive_characteristic_fxns(self, period):

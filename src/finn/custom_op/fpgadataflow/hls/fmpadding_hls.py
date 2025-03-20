@@ -112,8 +112,8 @@ class FMPadding_hls(FMPadding, HLSBackend):
             hls_call = "FMPadding_Batch"
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ImgDim1, OutputDim1, PaddingBefore1, PaddingBehind1, NumChannels1, SIMD1,
-                {}> (in0_{}, out_{}, numReps);""".format(
-                    hls_call, in_t, self.hls_sname(), self.hls_sname()
+                {}> (in0_V, out_V, numReps);""".format(
+                    hls_call, in_t
                 )
             ]
         else:
@@ -121,8 +121,8 @@ class FMPadding_hls(FMPadding, HLSBackend):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<OutputDim1_x, OutputDim1_y, PaddingLeft1, PaddingRight1,
                 PaddingTop1, PaddingBottom1, NumChannels1,
-                SIMD1, {}> (in0_{}, out_{}, numReps);""".format(
-                    hls_call, in_t, self.hls_sname(), self.hls_sname()
+                SIMD1, {}> (in0_V, out_V, numReps);""".format(
+                    hls_call, in_t
                 )
             ]
 
@@ -130,13 +130,11 @@ class FMPadding_hls(FMPadding, HLSBackend):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
             % (
                 self.onnx_node.name,
                 packed_hls_type,
-                self.hls_sname(),
                 packed_hls_type,
-                self.hls_sname(),
             )
         ]
 

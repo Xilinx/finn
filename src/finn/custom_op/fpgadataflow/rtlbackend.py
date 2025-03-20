@@ -55,10 +55,3 @@ class RTLBackend(ABC):
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         self.generate_hdl(model, fpgapart, clk)
-
-    # TODO: Implement alternative
-    def hls_sname(self):
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        return "V"

@@ -76,8 +76,8 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         hls_call = "FMPadding_Pixel_Nonsquare"
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<OutputDim_x, OutputDim_y, Stride_x, Stride_y, NumChannels,
-            SIMD, {}> (in0_{}, out_{});""".format(
-                hls_call, in_t, self.hls_sname(), self.hls_sname()
+            SIMD, {}> (in0_V, out_V);""".format(
+                hls_call, in_t
             )
         ]
 
@@ -85,13 +85,11 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
             % (
                 self.onnx_node.name,
                 packed_hls_type,
-                self.hls_sname(),
                 packed_hls_type,
-                self.hls_sname(),
             )
         ]
 

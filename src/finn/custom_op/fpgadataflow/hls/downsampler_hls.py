@@ -73,23 +73,20 @@ class DownSampler_hls(DownSampler, HLSBackend):
 
     def docompute(self):
         dim_var = "1D" if (self.get_nodeattr("is1D") == 1) else "2D"
-        sname = self.hls_sname()
         self.code_gen_dict["$DOCOMPUTE$"] = [
             f"""ConvolutionInputGenerator_{dim_var}_kernel1<IFMChannels, Input_precision,
-            IFMDim, SIMD,Stride> (in0_{sname}, out_{sname}, numReps);"""
+            IFMDim, SIMD,Stride> (in0_V, out_V, numReps);"""
         ]
 
     def blackboxfunction(self):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
             % (
                 self.onnx_node.name,
                 packed_hls_type,
-                self.hls_sname(),
                 packed_hls_type,
-                self.hls_sname(),
             )
         ]
 

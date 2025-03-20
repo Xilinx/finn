@@ -199,7 +199,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             packed_hls_type = "ap_uint<%d>" % packed_bits
             npy_in = "%s/input_%d.npy" % (code_gen_dir, i)
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", in%d_%s);'
+                'npy2apintstream<%s, %s, %d, %s>("%s", in%d_V);'
                 % (
                     packed_hls_type,
                     elem_hls_type,
@@ -207,7 +207,6 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
                     npy_type,
                     npy_in,
                     i,
-                    self.hls_sname(),
                 )
             )
 
@@ -217,14 +216,12 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         for i in range(n_inputs):
             packed_bits = self.get_instream_width(i)
             packed_hls_type = "ap_uint<%d>" % packed_bits
-            stream_name = "in%d_%s" % (i, self.hls_sname())
+            stream_name = "in%d_V" % i
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<%s> %s ("%s");' % (packed_hls_type, stream_name, stream_name)
             )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -232,12 +229,9 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         n_inputs = self.get_n_inputs()
         in_streams = []
         for i in range(n_inputs):
-            in_streams.append("in%d_%s" % (i, self.hls_sname()))
+            in_streams.append("in%d_V" % i)
         in_stream_names = ",".join(in_streams)
-        comp_call = "StreamingConcat(%s, out_%s, NumReps);" % (
-            in_stream_names,
-            self.hls_sname(),
-        )
+        comp_call = "StreamingConcat(%s, out_V, NumReps);" % (in_stream_names,)
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def blackboxfunction(self):
@@ -245,13 +239,10 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         in_streams = []
         for i in range(n_inputs):
             iwidth = self.get_instream_width(i)
-            in_streams.append("hls::stream<ap_uint<%d>> &in%d_%s" % (iwidth, i, self.hls_sname()))
+            in_streams.append("hls::stream<ap_uint<%d>> &in%d_V" % (iwidth, i))
         in_streams = ",".join(in_streams)
         total_width = self.get_input_datatype().bitwidth() * self.get_total_elems()
-        out_stream = "hls::stream<ap_uint<%d>> &out_%s" % (
-            total_width,
-            self.hls_sname(),
-        )
+        out_stream = "hls::stream<ap_uint<%d>> &out_V" % (total_width,)
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
@@ -259,9 +250,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         n_inputs = self.get_n_inputs()
         pragmas = []
         for i in range(n_inputs):
-            pragmas.append("#pragma HLS INTERFACE axis port=in%d_%s" % (i, self.hls_sname()))
+            pragmas.append("#pragma HLS INTERFACE axis port=in%d_V" % i)
         self.code_gen_dict["$PRAGMAS$"] = pragmas
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

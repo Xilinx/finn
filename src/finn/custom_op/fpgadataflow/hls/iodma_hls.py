@@ -241,22 +241,20 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             # DWCs depend on AXI MM and out interface width
             if strmw == intfw:
                 # case 0: AXI MM width = out width, no DWCs needed
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    dma_inst_template % ("in0_" + self.hls_sname(), "out_" + self.hls_sname())
-                ]
+                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0_V", "out_V")]
             elif (strmw % intfw == 0) or (intfw % strmw == 0):
                 # case 1: AXI MM width divisible by out width or vice versa
                 # single DWC + single extra stream needed
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     "hls::stream<ap_uint<%d> > dma2dwc;" % intfw,
-                    dma_inst_template % ("in0_" + self.hls_sname(), "dma2dwc"),
+                    dma_inst_template % ("in0_V", "dma2dwc"),
                     dwc_inst_template
                     % (
                         intfw,
                         strmw,
                         total_bits // intfw,
                         "dma2dwc",
-                        "out_" + self.hls_sname(),
+                        "out_V",
                     ),
                 ]
             else:
@@ -266,7 +264,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     "hls::stream<ap_uint<%d> > dma2lcm;" % intfw,
                     "hls::stream<ap_uint<%d> > lcm2out;" % width_lcm,
-                    dma_inst_template % ("in0_" + self.hls_sname(), "dma2lcm"),
+                    dma_inst_template % ("in0_V", "dma2lcm"),
                     dwc_inst_template
                     % (intfw, width_lcm, total_bits // intfw, "dma2lcm", "lcm2out"),
                     dwc_inst_template
@@ -275,7 +273,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                         strmw,
                         total_bits // width_lcm,
                         "lcm2out",
-                        "out_" + self.hls_sname(),
+                        "out_V",
                     ),
                 ]
         elif direction == "out":
@@ -283,9 +281,7 @@ class IODMA_hls(HWCustomOp, HLSBackend):
             # DWCs depend on AXI MM and out interface width
             if strmw == intfw:
                 # case 0: in width = AXI MM width, no DWCs needed
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    dma_inst_template % ("in0_" + self.hls_sname(), "out_" + self.hls_sname())
-                ]
+                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0_V", "out_V")]
             elif (strmw % intfw == 0) or (intfw % strmw == 0):
                 # case 1: AXI MM width divisible by in width or vice versa
                 # single DWC + single extra stream needed
@@ -296,10 +292,10 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                         strmw,
                         intfw,
                         total_bits // strmw,
-                        "in0_" + self.hls_sname(),
+                        "in0_V",
                         "dwc2dma",
                     ),
-                    dma_inst_template % ("dwc2dma", "out_" + self.hls_sname()),
+                    dma_inst_template % ("dwc2dma", "out_V"),
                 ]
             else:
                 # case 2: AXI MM width not divisible by out width or vice versa
@@ -313,12 +309,12 @@ class IODMA_hls(HWCustomOp, HLSBackend):
                         strmw,
                         width_lcm,
                         total_bits // strmw,
-                        "in0_" + self.hls_sname(),
+                        "in0_V",
                         "in2lcm",
                     ),
                     dwc_inst_template
                     % (width_lcm, intfw, total_bits // width_lcm, "in2lcm", "lcm2dma"),
-                    dma_inst_template % ("lcm2dma", "out_" + self.hls_sname()),
+                    dma_inst_template % ("lcm2dma", "out_V"),
                 ]
         else:
             raise Exception("Unknown IODMA direction: %s" % direction)
@@ -331,24 +327,20 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         direction = self.get_nodeattr("direction")
         if direction == "in":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(%s *in0_%s, hls::stream<%s > &out_%s, unsigned int numReps)"
+                "void %s(%s *in0_V, hls::stream<%s > &out_V, unsigned int numReps)"
                 % (
                     self.onnx_node.name,
                     packed_hls_type_in,
-                    self.hls_sname(),
                     packed_hls_type_out,
-                    self.hls_sname(),
                 )
             ]
         elif direction == "out":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_%s, %s *out_%s, unsigned int numReps)"
+                "void %s(hls::stream<%s > &in0_V, %s *out_V, unsigned int numReps)"
                 % (
                     self.onnx_node.name,
                     packed_hls_type_in,
-                    self.hls_sname(),
                     packed_hls_type_out,
-                    self.hls_sname(),
                 )
             ]
         else:
@@ -366,32 +358,28 @@ class IODMA_hls(HWCustomOp, HLSBackend):
         if direction == "in":
             if intfname == "":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    "#pragma HLS INTERFACE m_axi offset=slave port=in0_" + self.hls_sname()
+                    "#pragma HLS INTERFACE m_axi offset=slave port=in0_V"
                 )
             else:
                 self.code_gen_dict["$PRAGMAS$"].append(
                     "#pragma HLS INTERFACE m_axi offset=slave port=%s" % (intfname)
                 )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE s_axilite port=in0_%s bundle=control" % (self.hls_sname())
+                "#pragma HLS INTERFACE s_axilite port=in0_V bundle=control"
             )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-            )
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
         elif direction == "out":
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-            )
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in0_V")
             if intfname == "":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    "#pragma HLS INTERFACE m_axi offset=slave port=out_" + self.hls_sname()
+                    "#pragma HLS INTERFACE m_axi offset=slave port=out_V"
                 )
             else:
                 self.code_gen_dict["$PRAGMAS$"].append(
                     "#pragma HLS INTERFACE m_axi offset=slave port=%s" % (intfname)
                 )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE s_axilite port=out_%s bundle=control" % (self.hls_sname())
+                "#pragma HLS INTERFACE s_axilite port=out_V bundle=control"
             )
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")

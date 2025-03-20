@@ -417,14 +417,13 @@ class Thresholding_hls(Thresholding, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
                 npy_in,
-                self.hls_sname(),
             )
         )
         mem_mode = self.get_nodeattr("mem_mode")
@@ -438,34 +437,29 @@ class Thresholding_hls(Thresholding, HLSBackend):
             npy_in = "%s/thresholds.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights_%s, false, ImgDim1);'
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights_V, false, ImgDim1);'
                 % (
                     packed_hls_type,
                     elem_hls_type,
                     elem_bits,
                     npy_type,
                     npy_in,
-                    self.hls_sname(),
                 )
             )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
         )
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> weights_{} ("weights_{}");'.format(
-                    self.get_weightstream_width(), self.hls_sname(), self.hls_sname()
+                'hls::stream<ap_uint<{}>> weights_V ("weights_V");'.format(
+                    self.get_weightstream_width()
                 )
             )
 
@@ -475,11 +469,9 @@ class Thresholding_hls(Thresholding, HLSBackend):
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Thresholding_Batch<ImgDim1, NumChannels1, PE1, {}, {}>
-                (in0_{}, out_{}, threshs, numReps);""".format(
+                (in0_V, out_V, threshs, numReps);""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
-                    self.hls_sname(),
-                    self.hls_sname(),
                 )
             ]
         elif mem_mode == "internal_decoupled":
@@ -488,13 +480,10 @@ class Thresholding_hls(Thresholding, HLSBackend):
             # - for synth the unit runs continuously anyway (ap_ctrl_none)
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ImgDim1, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0_{}, out_{}, weights_{}, numReps);""".format(
+                (in0_V, out_V, weights_V, numReps);""".format(
                     "Thresholding_Stream_Batch",
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
-                    self.hls_sname(),
-                    self.hls_sname(),
-                    self.hls_sname(),
                 )
             ]
         else:
@@ -517,13 +506,12 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
@@ -532,41 +520,32 @@ class Thresholding_hls(Thresholding, HLSBackend):
     def blackboxfunction(self):
         if self.get_nodeattr("mem_mode") == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                    hls::stream<ap_uint<{}>> &out_{}
+                """void {}(hls::stream<ap_uint<{}>> &in0_V,
+                    hls::stream<ap_uint<{}>> &out_V
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
-                    self.hls_sname(),
                     self.get_outstream_width(),
-                    self.hls_sname(),
                 )
             ]
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                    hls::stream<ap_uint<{}>> &weights_{},
-                    hls::stream<ap_uint<{}>> &out_{}
+                """void {}(hls::stream<ap_uint<{}>> &in0_V,
+                    hls::stream<ap_uint<{}>> &weights_V,
+                    hls::stream<ap_uint<{}>> &out_V
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
-                    self.hls_sname(),
                     self.get_weightstream_width(),
-                    self.hls_sname(),
                     self.get_outstream_width(),
-                    self.hls_sname(),
                 )
             ]
         else:
             raise Exception("Unrecognized mem_mode")
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         if self.get_nodeattr("mem_mode") == "internal_embedded":
@@ -602,9 +581,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                         )
                     )
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
-            )
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=weights_V")
 
     def code_generation_ipi(self):
         cmd = []
@@ -613,7 +590,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         if mem_mode == "internal_decoupled":
             node_name = self.onnx_node.name
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -659,8 +635,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_%s]"
-                % (node_name, strm_inst, node_name, node_name, sname)
+                "[get_bd_intf_pins %s/%s/weights_V]" % (node_name, strm_inst, node_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
