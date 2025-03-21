@@ -37,7 +37,8 @@ def test_finnxsi():
     i1 = [1, 2, 3, 4]
     exp = [x - y for x, y in zip(i0, i1)]
     io_dict = {"inputs": {"in0": i0, "in1": i1}, "outputs": {"out": []}}
-    cycles = finnxsi.rtlsim_multi_io(sim, io_dict, 4, "_V")
+    sname = "_V_"
+    cycles = finnxsi.rtlsim_multi_io(sim, io_dict, 4, sname)
     output = io_dict["outputs"]["out"]
     assert output == exp
     assert cycles == 8

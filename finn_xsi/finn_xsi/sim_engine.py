@@ -16,7 +16,7 @@ import xsi
 # look for AXI-Stream signals both uppercase and lowercase
 def find_stream_ports(top, stream_prefix):
     found_ports = []
-    suffixes = ["_tvalid", "_tready", "_tdata"]
+    suffixes = ["tvalid", "tready", "tdata"]
     for suffix in suffixes:
         if ret := top.getPort(stream_prefix + suffix):
             found_ports.append(ret)
