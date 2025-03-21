@@ -249,8 +249,6 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
-    verify_model.set_metadata_prop("rtlsim_backend", "pyxsi")
-    # TODO make configurable
     # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
     return verify_model
 

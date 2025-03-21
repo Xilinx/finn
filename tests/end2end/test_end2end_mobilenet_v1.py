@@ -516,7 +516,6 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
 
     # set top-level prop for stitched-ip rtlsim and launch
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     ret_rtlsim_ip = execute_onnx(model, inp_dict, True)
     res_rtlsim_ip = ret_rtlsim_ip[out_name]
     np.save(build_dir + "/end2end_mobilenet_result_rtlsim_ip.npy", res_rtlsim_ip)

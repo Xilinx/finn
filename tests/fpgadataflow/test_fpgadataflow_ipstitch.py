@@ -240,7 +240,6 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     )
     model.set_metadata_prop("rtlsim_trace", "whole_trace.wdb")
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
     x = gen_finn_dt_tensor(idt, ishape)
