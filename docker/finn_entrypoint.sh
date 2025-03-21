@@ -63,8 +63,6 @@ mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
 pip install --user -e ${FINN_ROOT}/deps/finn-experimental
 # brevitas
 pip install --user -e ${FINN_ROOT}/deps/brevitas
-# pyverilator
-pip install --user -e ${FINN_ROOT}/deps/pyverilator
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
@@ -113,7 +111,6 @@ else
   else
     OLDPWD=$(pwd)
     cd ${FINN_ROOT}/deps/pyxsi
-    touch .dockerenv
     make
     cd $OLDPWD
   fi

@@ -53,24 +53,18 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize(
-    "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
-)
+@pytest.mark.parametrize("method", ["largefifo_rtlsim", "characterize"])
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
-    force_python_rtlsim = "python" in method
-    method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
     tmp_output_dir = fetch_test_model(topology)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
-        auto_fifo_strategy=method_key,
+        auto_fifo_strategy=method,
         target_fps=10000 if topology == "tfc" else 1000,
-        force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         rtlsim_batch_size=100 if topology == "tfc" else 2,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,

@@ -300,7 +300,6 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # loop through experiment configurations
     for exp_cfg in exp_cfgs:
@@ -546,7 +545,6 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # Simulate 1 FM for each dimension in the series
     for i, ifm_dim in enumerate(ifm_dim_series):

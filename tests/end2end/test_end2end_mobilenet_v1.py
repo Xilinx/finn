@@ -106,6 +106,7 @@ extra_fold = 1
 first_layer_res_type = "dsp"
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_export():
     # export preprocessing
@@ -163,6 +164,7 @@ def test_end2end_mobilenet_export():
     assert os.path.isfile(build_dir + "/end2end_mobilenet_preproc.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     preproc_model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_preproc.onnx")
@@ -185,6 +187,7 @@ def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     model.save(build_dir + "/end2end_mobilenet_tidy.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_tidy.onnx")
@@ -214,6 +217,7 @@ def test_end2end_mobilenet_streamline():
     assert len(model.get_nodes_by_op_type("Mul")) == 0  # no Mul ops remain
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_lowering():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_streamlined.onnx")
@@ -227,6 +231,7 @@ def test_end2end_mobilenet_lowering():
     model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_convert_to_hw_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
@@ -243,6 +248,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
     model.save(build_dir + "/end2end_mobilenet_hw_layers.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_specialize_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_layers.onnx")
@@ -252,6 +258,7 @@ def test_end2end_mobilenet_specialize_layers():
     model.save(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_create_dataflow_partition():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_specialize_layers.onnx")
@@ -265,6 +272,7 @@ def test_end2end_mobilenet_create_dataflow_partition():
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_folding():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
@@ -348,6 +356,7 @@ def test_end2end_mobilenet_folding():
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.end2end
 def test_end2end_mobilenet_minimize_bit_width():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
@@ -357,6 +366,7 @@ def test_end2end_mobilenet_minimize_bit_width():
     model.save(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -393,6 +403,7 @@ def test_end2end_mobilenet_cppsim():
     # assert np.isclose(golden_prob, res_cppsim_prob[0, 0, 0, :5]).all()
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -403,6 +414,7 @@ def test_end2end_mobilenet_ipgen():
     model.save(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -439,6 +451,7 @@ def test_end2end_mobilenet_rtlsim():
     # assert np.isclose(golden_prob, res_rtlsim_prob[0, 0, 0, :5]).all()
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -450,7 +463,6 @@ def test_end2end_mobilenet_set_fifo_depths():
             target_clk_ns,
             swg_exception=False,
             vivado_ram_style="auto",
-            force_python_sim=False,
         )
     )
     # perform FIFO splitting and shallow FIFO removal only after the final config
@@ -465,6 +477,7 @@ def test_end2end_mobilenet_set_fifo_depths():
     model.save(build_dir + "/end2end_mobilenet_set_fifo_depths.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -481,6 +494,7 @@ def test_end2end_mobilenet_stitched_ip():
     model.save(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -502,7 +516,6 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
 
     # set top-level prop for stitched-ip rtlsim and launch
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     ret_rtlsim_ip = execute_onnx(model, inp_dict, True)
     res_rtlsim_ip = ret_rtlsim_ip[out_name]
     np.save(build_dir + "/end2end_mobilenet_result_rtlsim_ip.npy", res_rtlsim_ip)
@@ -518,6 +531,7 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
     # assert np.isclose(golden_prob, res_rtlsim_ip_prob[0, 0, 0, :5]).all()
 
 
+@pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
@@ -525,13 +539,11 @@ def test_end2end_mobilenet_rtlsim_performance():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     report_dir = build_dir + "/report"
     os.makedirs(report_dir, exist_ok=True)
-    # multi-in/out streams currently not supported in our C++ verilator driver
     rtlsim_bs = 1
-
     rtlsim_perf_dict = throughput_test_rtlsim(model, batchsize=rtlsim_bs)
     # keep keys consistent between the Python and C++-styles
     cycles = rtlsim_perf_dict["cycles"]
-    clk_ns = float(model.get_metadata_prop("clk_ns"))
+    clk_ns = target_clk_ns
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10**-9)
     rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000

@@ -42,11 +42,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
 
 class Thresholding_rtl(Thresholding, RTLBackend):
     """Class that corresponds to finn-rtllib 'thresholding' function."""
@@ -306,7 +301,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         # Set the 'gen_top_module' attribute for use later
-        # by PyVerilator and IPI generation
+        # by xsi and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
 
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl"
@@ -371,7 +366,6 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     raise Exception("Unexpected input found for Thresholding_rtl")
                 in_ind += 1
 
-            # Create a PyVerilator wrapper of the RTLSim .so
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             rtlsim_inp = npy_to_rtlsim_input(
@@ -381,13 +375,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 "inputs": {"in0": rtlsim_inp},
                 "outputs": {"out": []},
             }
-            trace_file = self.get_nodeattr("rtlsim_trace")
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-
             super().reset_rtlsim(sim)
-            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim)
             self.rtlsim_multi_io(sim, io_dict)
             super().close_rtlsim(sim)
             rtlsim_output = io_dict["outputs"]["out"]

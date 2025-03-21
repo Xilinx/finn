@@ -29,7 +29,6 @@
 
 import numpy as np
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -133,10 +132,6 @@ class StreamingConcat(HWCustomOp):
             inp_values.append(context[inp])
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
-
-    def get_instream_width_padded(self, ind=0):
-        in_width = self.get_instream_width(ind)
-        return roundup_to_integer_multiple(in_width, 8)
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

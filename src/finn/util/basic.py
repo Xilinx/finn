@@ -81,6 +81,7 @@ alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 part_map = {**pynq_part_map, **alveo_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
 def get_rtlsim_trace_depth():
@@ -100,16 +101,6 @@ def get_rtlsim_trace_depth():
         return int(os.environ["RTLSIM_TRACE_DEPTH"])
     except KeyError:
         return 1
-
-
-def get_remote_vivado():
-    """Return the address of the remote Vivado synthesis server as set by the,
-    REMOTE_VIVADO environment variable, otherwise return None"""
-
-    try:
-        return os.environ["REMOTE_VIVADO"]
-    except KeyError:
-        return None
 
 
 def get_finn_root():

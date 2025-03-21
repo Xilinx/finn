@@ -34,12 +34,6 @@ from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
-
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
@@ -97,8 +91,6 @@ class MVAU_rtl(MVAU, RTLBackend):
                 nbits = self.get_instream_width()
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 super().reset_rtlsim(sim)
-                if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                    super().toggle_clk(sim)
                 if mem_mode in ["external", "internal_decoupled"]:
                     wnbits = self.get_weightstream_width()
                     export_wdt = self.get_weight_datatype()

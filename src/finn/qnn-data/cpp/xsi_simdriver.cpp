@@ -144,14 +144,17 @@ std::string logic_val_to_string(s_xsi_vlog_logicval* value, size_t n_bits) {
 
 // top-level sim object for the simulation
 Xsi::Loader *top;
-// mapping of port names to port numbers
+// mapping of port names to port numbers and directions
 map<string, int> port_map;
+map<string, int> port_dir;
 
 // walk the top-level IO interfaces to populate the port_map
 void populate_port_map() {
     for(int i=0; i<top->num_ports(); i++) {
         string port_name = top->get_str_property_port(i, xsiNameTopPort);
         port_map[port_name] = i;
+        int pd = top->get_int_property_port(i, xsiDirectionTopPort);
+        port_dir[port_name] = pd;
     }
 }
 
@@ -230,11 +233,28 @@ inline void toggle_clk_and_clk2x() {
 void reset() {
     clear_bool("@CLK_NAME@");
     clear_bool("@NRST_NAME@");
-    toggle_@CLKNAMES@();
-    toggle_@CLKNAMES@();
+    for(unsigned i = 0; i < 16; i++) toggle_@CLKNAMES@();
     set_bool("@NRST_NAME@");
     toggle_@CLKNAMES@();
     toggle_@CLKNAMES@();
+}
+
+void clear_signal(string name) {
+    int port_id = port_map[name];
+    int n_bits = top->get_int_property_port(port_id, xsiHDLValueSize);
+    size_t n_logicvals = roundup_int_div(n_bits, 32);
+    s_xsi_vlog_logicval *buf = new s_xsi_vlog_logicval[n_logicvals];
+    string zeros_str = std::string(n_bits, '0');
+    string_to_logic_val(zeros_str, buf);
+    top->put_value(port_map[name], buf);
+    delete [] buf;
+}
+
+void clear_all_input_signals() {
+    for(int i=0; i<top->num_ports(); i++) {
+        string port_name = top->get_str_property_port(i, xsiNameTopPort);
+        if(port_dir[port_name] == xsiInputPort) clear_signal(port_name);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -259,6 +279,7 @@ int main(int argc, char *argv[]) {
     unsigned n_inferences = @N_INFERENCES@;
     unsigned max_iters = @MAX_ITERS@;
 
+    clear_all_input_signals();
     reset();
 
     vector<unsigned> n_in_txns(instream_names.size(), 0), n_out_txns(outstream_names.size(), 0);
@@ -399,19 +420,25 @@ int main(int argc, char *argv[]) {
     cout << "Timeout? " << timeout << endl;
 
     ofstream results_file;
-    results_file.open("results.txt", ios::out | ios::trunc);
-    results_file << "N_IN_TXNS" << "\t" << total_n_in_txns << endl;
-    results_file << "N_OUT_TXNS" << "\t" << total_n_out_txns << endl;
-    results_file << "cycles" << "\t" << iters << endl;
-    results_file << "N" << "\t" << n_inferences << endl;
-    results_file << "latency_cycles" << "\t" << latency << endl;
-    results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
-    results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
-    results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
-    // optionally, extract more data from final status
-    @POSTPROC_CPP@
-    results_file.close();
-    top->close();
+    try {
+        results_file.open("results.txt", ios::out | ios::trunc);
+        results_file << "N_IN_TXNS" << "\t" << total_n_in_txns << endl;
+        results_file << "N_OUT_TXNS" << "\t" << total_n_out_txns << endl;
+        results_file << "cycles" << "\t" << iters << endl;
+        results_file << "N" << "\t" << n_inferences << endl;
+        results_file << "latency_cycles" << "\t" << latency << endl;
+        results_file << "TIMEOUT" << "\t" << (timeout ? 1 : 0) << endl;
+        results_file << "INPUT_DONE" << "\t" << (input_done ? 1 : 0) << endl;
+        results_file << "OUTPUT_DONE" << "\t" << (output_done ? 1 : 0) << endl;
+        // optionally, extract more data from final status
+        @POSTPROC_CPP@
+        results_file.close();
+        top->close();
+    } catch(...) {
+        cout << "Caught exception, maybe FIFO maxcounts were invalid? Enable tracing and check waveform." << endl;
+        results_file.close();
+        top->close();
+    }
 
     return 0;
 }
