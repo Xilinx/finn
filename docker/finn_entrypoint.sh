@@ -131,7 +131,7 @@ else
     make
     cd $OLDPWD
   fi
-  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/finn_xsi/xsi.so
+  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/finn_xsi
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
 fi
 
