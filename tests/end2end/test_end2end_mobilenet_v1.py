@@ -547,7 +547,7 @@ def test_end2end_mobilenet_rtlsim_performance():
     rtlsim_perf_dict = throughput_test_rtlsim(model, batchsize=rtlsim_bs)
     # keep keys consistent between the Python and C++-styles
     cycles = rtlsim_perf_dict["cycles"]
-    clk_ns = float(model.get_metadata_prop("clk_ns"))
+    clk_ns = target_clk_ns
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10**-9)
     rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
