@@ -125,7 +125,7 @@ else
     gecho "Found finnxsi at ${FINN_ROOT}/finn_xsi/xsi.so"
   else
     OLDPWD=$(pwd)
-    cd ${FINN_ROOT}/finn_xsi/xsi.so
+    cd ${FINN_ROOT}/finn_xsi
     make
     cd $OLDPWD
   fi
