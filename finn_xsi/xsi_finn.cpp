@@ -216,8 +216,11 @@ std::string Port::as_binstr() const {
 
 	s_xsi_vlog_logicval const *si = buf();
 	std::string::iterator      di = res.end();
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 	uint32_t  a;
 	uint32_t  b;
+#pragma GCC diagnostic push
 	for(unsigned  i = 0; i < w; i++) {
 		if((i & 31) == 0) {
 			a = si->aVal;
