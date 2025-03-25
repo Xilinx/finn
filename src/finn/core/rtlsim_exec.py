@@ -400,8 +400,7 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
 
 
 def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
-    """Use XSI to execute given model with stitched IP, depending
-    on the rtlsim_backend metadata_prop on the model. The execution
+    """Use XSI to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
     specified to observe/alter the state of the circuit, receiving the
     sim object as their first argument:
