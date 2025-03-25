@@ -186,7 +186,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out_V, 1);""".format(
+            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_V, out0_V, 1);""".format(
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
@@ -198,7 +198,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}*{}>> &in0_V,
-                hls::stream<ap_uint<{}> > &out_V)""".format(
+                hls::stream<ap_uint<{}> > &out0_V)""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().bitwidth(),

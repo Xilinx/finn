@@ -236,7 +236,7 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
             'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -258,7 +258,7 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
             out_hls_type,
         )
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}, {}>(in0_V, in1_V, out_V, {});""".format(
+            """{}<{}, {}, {}, {}, {}, {}>(in0_V, in1_V, out0_V, {});""".format(
                 "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
@@ -273,7 +273,7 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}>> &in0_V, hls::stream<ap_uint<{}>> &in1_V,
-                hls::stream<ap_uint<{}>> &out_V)""".format(
+                hls::stream<ap_uint<{}>> &out0_V)""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
                 self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
@@ -284,5 +284,5 @@ class StreamingEltwise_hls(StreamingEltwise, HLSBackend):
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

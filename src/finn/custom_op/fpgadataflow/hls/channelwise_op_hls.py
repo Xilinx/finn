@@ -356,7 +356,7 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
-            (in0_V, out_V, threshs, numReps);""".format(
+            (in0_V, out0_V, threshs, numReps);""".format(
                 spatial_dim,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
@@ -380,7 +380,7 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -394,7 +394,7 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}>> &in0_V,
-                hls::stream<ap_uint<{}>> &out_V
+                hls::stream<ap_uint<{}>> &out0_V
                 )""".format(
                 self.onnx_node.name,
                 self.get_instream_width(),
@@ -404,7 +404,7 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         # the channelwise parameter tensor is acc_type [PE][TMEM][N_PARAMS_PER_CHANNEL]

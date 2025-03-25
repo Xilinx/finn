@@ -415,7 +415,7 @@ compilation transformations?
             'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     @abstractmethod
@@ -448,7 +448,7 @@ compilation transformations?
             packed_hls_type = "ap_uint<%d>" % packed_bits
 
             self.code_gen_dict["$DATAOUTSTREAM$"] = [
-                'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s");'
+                'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s");'
                 % (
                     packed_hls_type,
                     elem_hls_type,
@@ -486,7 +486,7 @@ compilation transformations?
         """Function to generate the pragma commands in c++,
         might need to be overwritten depending on custom op."""
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_ap_int_max_w(self):
@@ -504,8 +504,8 @@ compilation transformations?
 
     def timeout_condition(self):
         """Set timeout condition for HLS functions defined for one clock cycle"""
-        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out_V.empty()"]
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = ["out0_V.empty()"]
 
     def timeout_read_stream(self):
         """Set reading output stream procedure for HLS functions defined for one clock cycle"""
-        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = ["strm << out_V.read();"]
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = ["strm << out0_V.read();"]

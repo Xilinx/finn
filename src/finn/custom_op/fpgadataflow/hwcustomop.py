@@ -124,7 +124,7 @@ class HWCustomOp(CustomOp):
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
         intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_V", self.get_outstream_width_padded())]
+        intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
@@ -221,9 +221,9 @@ class HWCustomOp(CustomOp):
             sim.start_vcd_trace(trace_file)
         inputs = inp
         outputs = []
-        o_ready = "out_V_TREADY"
-        o_valid = "out_V_TVALID"
-        o_data = "out_V_TDATA"
+        o_ready = "out0_V_TREADY"
+        o_valid = "out0_V_TVALID"
+        o_data = "out0_V_TDATA"
         in0_ready = "in0_V_TREADY"
         in0_valid = "in0_V_TVALID"
         in0_data = "in0_V_TDATA"

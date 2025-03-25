@@ -75,14 +75,14 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         commands = []
         o_stream_w = self.get_outstream_width()
         i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0" % (i_stream_w)
+        in_stream = "hls::stream<ap_uint<%d> > &in0_V" % (i_stream_w)
         inp_streams.append(in_stream)
-        commands.append("ap_uint<%d> e = in0.read();" % i_stream_w)
+        commands.append("ap_uint<%d> e = in0_V.read();" % i_stream_w)
         iters = self.get_number_output_values() // self.get_num_output_streams()
         for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d" % (o_stream_w, i)
+            out_stream = "hls::stream<ap_uint<%d> > &out%d_V" % (o_stream_w, i)
             inp_streams.append(out_stream)
-            cmd = "out%d.write(e);" % i
+            cmd = "out%d_V.write(e);" % i
             commands.append(cmd)
 
         impl_hls_code = []

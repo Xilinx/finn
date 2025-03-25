@@ -136,7 +136,7 @@ class Pool_hls(Pool, HLSBackend):
 
         self.code_gen_dict["$DOCOMPUTE$"] += [
             """Pool_batch<Channels, PE, KernelSize,Slice<{} >, Slice< {} > >
-        (in0_V, out_V, pool_fxn, OFMDimTotal*numReps);""".format(
+        (in0_V, out0_V, pool_fxn, OFMDimTotal*numReps);""".format(
                 i_hls_dt, o_hls_dt
             )
         ]
@@ -157,7 +157,7 @@ class Pool_hls(Pool, HLSBackend):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -175,7 +175,7 @@ class Pool_hls(Pool, HLSBackend):
         packed_obits = self.get_outstream_width()
         packed_out_hls_type = "ap_uint<%d>" % packed_obits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
             % (
                 self.onnx_node.name,
                 packed_in_hls_type,

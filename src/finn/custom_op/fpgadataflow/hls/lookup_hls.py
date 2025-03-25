@@ -104,7 +104,7 @@ class Lookup_hls(Lookup, HLSBackend):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", %s);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", %s);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -121,11 +121,11 @@ class Lookup_hls(Lookup, HLSBackend):
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0_V, out_V, embeddings);"""
+                InputType, EmbeddingType >(in0_V, out0_V, embeddings);"""
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>(in0_V, out_V, mem, size, oob_count,
+                """StreamingLookup_ext<EmbeddingSize>(in0_V, out0_V, mem, size, oob_count,
                 oob_irq);"""
             ]
 
@@ -137,7 +137,7 @@ class Lookup_hls(Lookup, HLSBackend):
         packed_output_hls_type = "ap_uint<%d>" % obits
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
+                "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
                 % (
                     self.onnx_node.name,
                     packed_input_hls_type,
@@ -148,7 +148,7 @@ class Lookup_hls(Lookup, HLSBackend):
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void "
                 + self.onnx_node.name
-                + "(hls::stream<T_SRC> &in0_V, hls::stream<T_DST> &out_V, "
+                + "(hls::stream<T_SRC> &in0_V, hls::stream<T_DST> &out0_V, "
                 + "T_DST const *const  mem, unsigned const size, "
                 + "unsigned &oob_count, bool &oob_irq)"
             ]
@@ -156,7 +156,7 @@ class Lookup_hls(Lookup, HLSBackend):
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
         my_pragmas = ["#pragma HLS INTERFACE axis port=in0_V"]
-        my_pragmas.append("#pragma HLS INTERFACE axis port=out_V")
+        my_pragmas.append("#pragma HLS INTERFACE axis port=out0_V")
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if mem_mode == "internal_embedded":
             my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")

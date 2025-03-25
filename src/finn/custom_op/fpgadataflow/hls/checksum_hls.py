@@ -249,7 +249,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
         # set drain = false for cppsim
@@ -257,7 +257,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_V, out_V, chk, drain);"""
+            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_V, out0_V, chk, drain);"""
         ]
 
     def dataoutstrm(self):
@@ -277,7 +277,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -294,14 +294,14 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_V,
-            hls::stream<T> &out_V, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
+            hls::stream<T> &out0_V, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
                 self.onnx_node.name
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS interface axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=chk bundle=checksum"
         )

@@ -199,13 +199,13 @@ class AddStreams_hls(AddStreams, HLSBackend):
             'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
         hls_call = "AddStreams_Batch"
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}> (in0_V, in1_V, out_V, 1);""".format(
+            """{}<{}, {}, {}, {}, {}> (in0_V, in1_V, out0_V, 1);""".format(
                 hls_call,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().get_hls_datatype_str(),
@@ -218,7 +218,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}>> &in0_V, hls::stream<ap_uint<{}>> &in1_V,
-                hls::stream<ap_uint<{}>> &out_V)""".format(
+                hls::stream<ap_uint<{}>> &out0_V)""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
@@ -229,5 +229,5 @@ class AddStreams_hls(AddStreams, HLSBackend):
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

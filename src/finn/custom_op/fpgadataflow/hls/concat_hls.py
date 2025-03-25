@@ -61,7 +61,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             inp_streams.append(inp_stream)
             cmd = "in%d.read()" % i
             commands.append(cmd)
-        out_stream = "hls::stream<ap_uint<%d> > &out" % (total_bw)
+        out_stream = "hls::stream<ap_uint<%d> > &out0" % (total_bw)
         inp_streams.append(out_stream)
 
         impl_hls_code = []
@@ -79,7 +79,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         impl_hls_code.append("#else")
         impl_hls_code.append("out_elem = (" + ",".join(commands) + ");")
         impl_hls_code.append("#endif")
-        impl_hls_code.append("out.write(out_elem);")
+        impl_hls_code.append("out0.write(out_elem);")
         impl_hls_code.append("}")
         impl_hls_code.append("}")
         impl_hls_code = "\n".join(impl_hls_code)
@@ -132,7 +132,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            io_dict = {"inputs": {}, "outputs": {"out": []}}
+            io_dict = {"inputs": {}, "outputs": {"out0": []}}
             for i in range(n_inps):
                 nbits = self.get_instream_width(i)
                 rtlsim_inp = npy_to_rtlsim_input(
@@ -146,7 +146,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             super().toggle_clk(sim)
 
             self.rtlsim_multi_io(sim, io_dict)
-            rtlsim_output = io_dict["outputs"]["out"]
+            rtlsim_output = io_dict["outputs"]["out0"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -221,7 +221,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
                 'hls::stream<%s> %s ("%s");' % (packed_hls_type, stream_name, stream_name)
             )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -231,7 +231,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         for i in range(n_inputs):
             in_streams.append("in%d_V" % i)
         in_stream_names = ",".join(in_streams)
-        comp_call = "StreamingConcat(%s, out_V, NumReps);" % (in_stream_names,)
+        comp_call = "StreamingConcat(%s, out0_V, NumReps);" % (in_stream_names,)
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def blackboxfunction(self):
@@ -242,7 +242,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             in_streams.append("hls::stream<ap_uint<%d>> &in%d_V" % (iwidth, i))
         in_streams = ",".join(in_streams)
         total_width = self.get_input_datatype().bitwidth() * self.get_total_elems()
-        out_stream = "hls::stream<ap_uint<%d>> &out_V" % (total_width,)
+        out_stream = "hls::stream<ap_uint<%d>> &out0_V" % (total_width,)
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
@@ -252,5 +252,5 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         for i in range(n_inputs):
             pragmas.append("#pragma HLS INTERFACE axis port=in%d_V" % i)
         self.code_gen_dict["$PRAGMAS$"] = pragmas
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

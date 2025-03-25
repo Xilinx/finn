@@ -129,9 +129,9 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 "for(unsigned int i=0; i<NumItersPerImg; i++) {",
                 "#pragma HLS PIPELINE II=1",
-                "out_V.write(in0_V.read().get_data());"
+                "out0_V.write(in0_V.read().get_data());"
                 if use_qdma_axis
-                else "out_V.write(in0_V.read().data);}",
+                else "out0_V.write(in0_V.read().data);}",
             ]
 
         elif dyn_iters == 1:
@@ -147,14 +147,14 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
                 "t.set_data(in0_V.read());" if use_qdma_axis else "t.data = in0_V.read();",
                 "n = (numIters == 0 ? NumItersPerImg : numIters);",
                 "t.set_last(n==1);" if use_qdma_axis else "t.last = (n==1);",
-                "out_V.write(t);",
+                "out0_V.write(t);",
                 "} // end of cycle accurate region",
                 "// do one less iteration than spec since we already did one",
                 "for(unsigned int i=1; i<n; i++) {",
                 "#pragma HLS PIPELINE II=1",
                 "t.set_data(in0_V.read());" if use_qdma_axis else "t.data = in0_V.read();",
                 "t.set_last(i==(n-1));" if use_qdma_axis else "t.last = (i==(n-1));",
-                "out_V.write(t);",
+                "out0_V.write(t);",
                 "}",
             ]
 
@@ -170,7 +170,7 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
                 "t.set_last(i==(NumItersPerImg-1));"
                 if use_qdma_axis
                 else "t.last = (i==(NumItersPerImg-1));",
-                "out_V.write(t);",
+                "out0_V.write(t);",
                 "}",
             ]
 
@@ -183,19 +183,19 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
         if dyn_iters == 1:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void %s(hls::stream<InDType> &in0_V,
-                    hls::stream<OutDType> &out_V, unsigned int numIters)"""
+                    hls::stream<OutDType> &out0_V, unsigned int numIters)"""
                 % self.onnx_node.name
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void %s(hls::stream<InDType> &in0_V,
-                hls::stream<OutDType> &out_V)"""
+                hls::stream<OutDType> &out0_V)"""
                 % self.onnx_node.name
             ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
 
         dyn_iters = self.get_nodeattr("DynIters")
         if dyn_iters == 1:
@@ -245,13 +245,15 @@ class TLastMarker_hls(HWCustomOp, HLSBackend):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append('hls::stream<InDType> in0_V ("in0_V");')
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append('hls::stream<OutDType> out_V ("out_V");')
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<OutDType> out0_V ("out0_V");'
+        )
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         stream_width = self.get_nodeattr("StreamWidth")
         intf_names["s_axis"] = [("in0_V", stream_width)]
-        intf_names["m_axis"] = [("out_V", stream_width)]
+        intf_names["m_axis"] = [("out0_V", stream_width)]
         if self.get_nodeattr("DynIters") == 1:
             intf_names["axilite"] = ["s_axi_control"]
         return intf_names

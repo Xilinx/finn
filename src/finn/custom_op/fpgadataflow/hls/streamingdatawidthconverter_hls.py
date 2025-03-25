@@ -77,7 +77,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
             'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_V ("out_V");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -89,11 +89,11 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
                     self.get_iowidth_lcm()
                 ),
                 "%s<InWidth, LCMWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out_V, numReps);" % op,
+                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out0_V, numReps);" % op,
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0_V, out_V, numReps);" % op
+                "%s<InWidth, OutWidth, NumInWords>(in0_V, out0_V, numReps);" % op
             ]
 
     def blackboxfunction(self):
@@ -102,7 +102,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         out_packed_bits = self.get_outstream_width()
         out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
             % (
                 self.onnx_node.name,
                 in_packed_hls_type,
@@ -112,7 +112,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out_V")
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if self.needs_lcm():
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")

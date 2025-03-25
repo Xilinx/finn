@@ -153,6 +153,6 @@ class AddStreams(HWCustomOp):
                 "in0": [0 for i in range(n_inps)],
                 "in1": [0 for i in range(n_inps)],
             },
-            "outputs": {"out": []},
+            "outputs": {"out0": []},
         }
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

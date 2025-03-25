@@ -103,7 +103,7 @@ class StreamingMaxPool_hls(StreamingMaxPool, HLSBackend):
             else:
                 op = "StreamingMaxPool"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels>(in0_V, out_V);" % op
+                "%s<ImgDim, PoolDim, NumChannels>(in0_V, out0_V);" % op
             ]
         else:
             dtype = self.get_input_datatype()
@@ -113,13 +113,13 @@ class StreamingMaxPool_hls(StreamingMaxPool, HLSBackend):
                 op = "StreamingMaxPool_Precision_1d"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     """%s<ImgDim, PoolDim, NumChannels, PE,
-                     OutputSize, %s, %s>(in0_V, out_V);"""
+                     OutputSize, %s, %s>(in0_V, out0_V);"""
                     % (op, dtype_hls, minval_str)
                 ]
             else:
                 op = "StreamingMaxPool_Precision"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0_V, out_V);"
+                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0_V, out0_V);"
                     % (op, dtype_hls, minval_str)
                 ]
 
@@ -127,7 +127,7 @@ class StreamingMaxPool_hls(StreamingMaxPool, HLSBackend):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out_V)"
+            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
             % (
                 self.onnx_node.name,
                 packed_hls_type,
