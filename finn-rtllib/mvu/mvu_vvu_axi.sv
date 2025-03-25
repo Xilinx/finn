@@ -102,6 +102,10 @@ module mvu_vvu_axi #(
 			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
+		if (PUMPED_COMPUTE && (SIMD == 1)) begin
+			$error("Clock pumping an input of SIMD=1 is not meaningful.");
+			$finish;
+		end
 		if (WEIGHT_WIDTH > 8) begin
 			$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
 			$finish;
