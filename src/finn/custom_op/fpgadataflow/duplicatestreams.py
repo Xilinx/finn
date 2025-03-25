@@ -40,20 +40,25 @@ class DuplicateStreams(HWCustomOp):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, 0),
-            "PE": ("i", True, 0),
-            # how many duplicated output streams to create
-            "NumOutputStreams": ("i", True, 0),
-            # FINN DataTypes for input
-            "inputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                "NumChannels": ("i", True, 0),
+                "PE": ("i", True, 0),
+                # how many duplicated output streams to create
+                "NumOutputStreams": ("i", True, 0),
+                # FINN DataTypes for input
+                "inputDataType": ("s", True, ""),
+                # number of input vectors, examples:
+                # [1] is a single vector (like a FC layer with batch=1)
+                # [4] is four vectors (like a FC layer with batch=4)
+                # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+                "numInputVectors": ("ints", False, [1]),
+                # TODO: how to set a default value depending on NumOutputStreams?
+                # transformations like set_fifo_depth expect this attribute for every i/o of every node
+                "outFIFODepths": ("ints", False, [2, 2]),
+            }
+        )
         return my_attrs
 
     def get_num_output_streams(self):
@@ -166,7 +171,9 @@ class DuplicateStreams(HWCustomOp):
             )
         return intf_names
 
-    def derive_characteristic_fxns(self, period):
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -174,4 +181,7 @@ class DuplicateStreams(HWCustomOp):
             },
             "outputs": {"out0": [], "out1": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

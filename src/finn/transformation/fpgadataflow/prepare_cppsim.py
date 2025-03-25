@@ -46,6 +46,7 @@ def _codegen_single_node(node, model):
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.getCustomOp(node)
+
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory

@@ -39,11 +39,28 @@ from brevitas_examples import bnn_pynq, imagenet_classification
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
 
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import (
+    alveo_default_platform,
+    alveo_part_map,
+    make_build_dir,
+    pynq_part_map,
+)
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -184,3 +201,58 @@ def resize_smaller_side(target_pixels, img):
 def crop_center(size, img):
     """Crop central size*size window out of a PIL image."""
     return torchvision_util.center_crop(img, size)
+
+
+def compare_two_chr_funcs(a, b, relaxation):
+    # relaxation determines how much leeway we allow for the
+    # analytical implementation to be off from RTL ground truth
+    equal = True
+    for inp in range(len(a)):
+        for i in range(len(a[inp])):
+            if (a[inp][i] > (b[inp][i] + relaxation)) or (a[inp][i] < (b[inp][i] - relaxation)):
+                equal = False
+    return equal
+
+
+def get_characteristic_fnc(model, node, part, target_clk_ns, strategy):
+    # If set to True: attempt to cache a pre-existing variant of the model
+    # this is to avoid generating RTL multiple times during
+    # test debugging
+    caching = False
+    model_cache = None
+
+    if strategy == "rtlsim" and caching:
+        build_dir = os.environ["FINN_BUILD_DIR"]
+        for x in os.listdir(build_dir):
+            if x.startswith(str(node)):
+                model_cache = f"{build_dir}/{x}/model.onnx"
+
+        make_build_dir("build_fifosizing")
+        if model_cache is not None:
+            model = ModelWrapper(model_cache)
+
+    if model_cache is None:
+        model = model.transform(SpecializeLayers(part))
+        model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(GiveUniqueNodeNames())
+        if strategy == "rtlsim":
+            model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(AnnotateCycles())
+
+        period = int(model.analysis(dataflow_performance)["max_cycles"] * 3 + 10)
+
+        model = model.transform(
+            DeriveCharacteristic(
+                model,
+                period,
+                strategy,
+                part,
+                target_clk_ns,
+            )
+        )
+        if caching:
+            tmp_caching_output_dir = make_build_dir(str(node))
+            model.save(tmp_caching_output_dir + "/model.onnx")
+
+    return getCustomOp(model.graph.node[0])

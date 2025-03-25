@@ -159,7 +159,9 @@ class AddStreams(HWCustomOp):
         intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names
 
-    def derive_characteristic_fxns(self, period):
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -168,4 +170,6 @@ class AddStreams(HWCustomOp):
             },
             "outputs": {"out": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

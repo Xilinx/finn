@@ -52,10 +52,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None, manual_bypass=False):
+    def __init__(
+        self, model, period, strategy, fpga_part, clk_period, num_workers=None
+    ):
         super().__init__(num_workers=num_workers)
+        self.model = model
         self.period = period
-        self.manual_bypass = manual_bypass
+        self.strategy = strategy
+        self.fpga_part = fpga_part
+        self.clk_period = clk_period
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
@@ -63,7 +68,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                inst.derive_characteristic_fxns(period=self.period)
+
+                inst.derive_characteristic_fxns(
+                    model=self.model,
+                    period=self.period,
+                    strategy=self.strategy,
+                    fpga_part=self.fpga_part,
+                    clk_period=self.clk_period,
+                    op_type=op_type,
+                )
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -71,47 +84,6 @@ class DeriveCharacteristic(NodeLocalTransformation):
 
     def apply(self, model: ModelWrapper):
         (model, run_again) = super().apply(model)
-        if not self.manual_bypass:
-            return (model, run_again)
-        # apply manual fix for DuplicateStreams and AddStreams for
-        # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
-        for addstrm_node in addstrm_nodes:
-            # we currently only support the case where one branch is
-            # a bypass
-            b0 = model.find_producer(addstrm_node.input[0])
-            b1 = model.find_producer(addstrm_node.input[1])
-            if (b0 is None) or (b1 is None):
-                warnings.warn("Found unsupported AddStreams, skipping")
-                return (model, run_again)
-            b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
-            b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
-            if (not b0_is_bypass) and (not b1_is_bypass):
-                warnings.warn("Found unsupported AddStreams, skipping")
-                return (model, run_again)
-            ds_node = b0 if b0_is_bypass else b1
-            comp_branch_last = b1 if b0_is_bypass else b0
-
-            ds_comp_bout = ds_node.output[0] if b0_is_bypass else ds_node.output[1]
-            comp_branch_first = model.find_consumer(ds_comp_bout)
-            if comp_branch_first is None or comp_branch_last is None:
-                warnings.warn("Found unsupported DuplicateStreams, skipping")
-                return (model, run_again)
-            comp_branch_last = registry.getCustomOp(comp_branch_last)
-            comp_branch_first = registry.getCustomOp(comp_branch_first)
-            # for DuplicateStreams, use comp_branch_first's input characterization
-            # for AddStreams, use comp_branch_last's output characterization
-            period = comp_branch_first.get_nodeattr("io_chrc_period")
-            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[: 2 * period]
-            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[2 * period :]
-            ds_node_inst = registry.getCustomOp(ds_node)
-            addstrm_node_inst = registry.getCustomOp(addstrm_node)
-            ds_node_inst.set_nodeattr("io_chrc_period", period)
-            ds_node_inst.set_nodeattr("io_characteristic", comp_branch_first_f * 2)
-            addstrm_node_inst.set_nodeattr("io_chrc_period", period)
-            addstrm_node_inst.set_nodeattr("io_characteristic", comp_branch_last_f * 2)
-            warnings.warn(f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}")
-            warnings.warn(f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}")
         return (model, run_again)
 
 

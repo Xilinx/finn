@@ -40,9 +40,14 @@ from finn.util.basic import alveo_default_platform, part_map
 
 class AutoFIFOSizingMethod(str, Enum):
     "Select the type of automatic FIFO sizing strategy."
-
     CHARACTERIZE = "characterize"
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
+class FIFOCharacterizationMethod(str, Enum):
+    "Select the strategy for characteristic sizing of FIFOs."
+    CHARACTERIZE_RTLSIM = "rtlsim"
+    CHARACTERIZE_ANALYTICAL = "analytical"
 
 
 class ShellFlowType(str, Enum):
@@ -116,9 +121,9 @@ default_build_dataflow_steps = [
     "step_apply_folding_config",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
+    "step_set_fifo_depths",
     "step_hw_codegen",
     "step_hw_ipgen",
-    "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
@@ -272,6 +277,15 @@ class DataflowBuildConfig:
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+
+    #: Which strategy will be used for characteristic function-based FIFO sizing.
+    #: CHARACTERIZE_RTLSIM will result in performing RTLSIM for each node
+    #: to deduce the characteristic functions empirically
+    #: CHARACTERIZE_ANALYTICAL will use analytical functions if available, avoiding the generation
+    #: of IP cores.
+    characteristic_function_strategy: Optional[
+        FIFOCharacterizationMethod
+    ] = FIFOCharacterizationMethod.CHARACTERIZE_RTLSIM
 
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
