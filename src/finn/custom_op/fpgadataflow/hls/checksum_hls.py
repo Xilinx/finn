@@ -188,8 +188,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": inp},
                 "outputs": {"out": []},

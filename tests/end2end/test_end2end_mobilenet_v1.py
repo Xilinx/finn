@@ -516,7 +516,6 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
 
     # set top-level prop for stitched-ip rtlsim and launch
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     ret_rtlsim_ip = execute_onnx(model, inp_dict, True)
     res_rtlsim_ip = ret_rtlsim_ip[out_name]
     np.save(build_dir + "/end2end_mobilenet_result_rtlsim_ip.npy", res_rtlsim_ip)
@@ -540,13 +539,11 @@ def test_end2end_mobilenet_rtlsim_performance():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
     report_dir = build_dir + "/report"
     os.makedirs(report_dir, exist_ok=True)
-    # multi-in/out streams currently not supported in our C++ verilator driver
     rtlsim_bs = 1
-
-    rtlsim_perf_dict = throughput_test_rtlsim(model, batchsize=rtlsim_bs)
+    clk_ns = target_clk_ns
+    rtlsim_perf_dict = throughput_test_rtlsim(model, clk_ns, batchsize=rtlsim_bs)
     # keep keys consistent between the Python and C++-styles
     cycles = rtlsim_perf_dict["cycles"]
-    clk_ns = float(model.get_metadata_prop("clk_ns"))
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10**-9)
     rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000

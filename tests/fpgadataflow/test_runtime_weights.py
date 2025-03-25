@@ -94,7 +94,6 @@ def test_runtime_weights_single_layer():
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     in_tensor = np.asarray(range(mw), dtype=np.float32)
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while

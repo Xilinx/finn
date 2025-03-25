@@ -48,7 +48,7 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
 
     # check if model has an execution mode set
     # if None, execute model node using the QONNX-provided execute_onnx impl
-    # if set to "rtlsim" execute model using pyverilator
+    # if set to "rtlsim" execute model using xsi
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
         return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
@@ -89,7 +89,7 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
     else:
         raise Exception(
             """Metadata property "exec_mode" is set to an unknown value. Can be left
-            unset or has to be set to "rtlsim" for execution using pyverilator!"""
+            unset or has to be set to "rtlsim" for execution using xsi!"""
         )
 
     if return_full_exec_context:
