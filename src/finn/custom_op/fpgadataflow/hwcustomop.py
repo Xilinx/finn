@@ -33,7 +33,7 @@ from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import get_liveness_threshold_cycles
 
 try:
     import pyxsi_utils
@@ -220,7 +220,7 @@ class HWCustomOp(CustomOp):
             io_dict,
             num_out_values,
             sname=sname,
-            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            liveness_threshold=get_liveness_threshold_cycles(),
             hook_postclk=hook_postclk,
         )
 

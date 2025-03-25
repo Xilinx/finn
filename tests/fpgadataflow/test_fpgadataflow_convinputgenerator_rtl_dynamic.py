@@ -63,7 +63,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import get_liveness_threshold_cycles
 
 try:
     import pyxsi_utils
@@ -359,7 +359,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = pyverilate_get_liveness_threshold_cycles()
+        liveness_prev = get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = "100000"
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
         os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
