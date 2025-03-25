@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import finn_xsi.adapter as finnxsi
 import numpy as np
 import os
 import warnings
@@ -34,11 +35,6 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
 
 
 class HWCustomOp(CustomOp):
@@ -138,13 +134,14 @@ class HWCustomOp(CustomOp):
         tracefile = self.get_nodeattr("rtlsim_trace")
         if tracefile == "default":
             tracefile = self.onnx_node.name + ".wdb"
-        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, tracefile)
+        sim = finnxsi.load_sim_obj(sim_base, sim_rel, tracefile)
 
         return sim
 
     def close_rtlsim(self, sim):
         "Close and free up resources for rtlsim."
-        pyxsi_utils.close_rtlsim(sim)
+        #    pyxsi_utils.close_rtlsim(sim)
+        pass
 
     def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
@@ -204,24 +201,25 @@ class HWCustomOp(CustomOp):
     def reset_rtlsim(self, sim):
         """Sets reset input in pyxsi to zero, toggles the clock and set it
         back to one"""
-        pyxsi_utils.reset_rtlsim(sim)
+        finnxsi.reset_rtlsim(sim)
 
     def toggle_clk(self, sim):
         """Toggles the clock input in pyxsi once."""
-        pyxsi_utils.toggle_clk(sim)
+        # pyxsi_utils.toggle_clk(sim)
+        pass
 
     def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
         "Run rtlsim for this node, supports multiple i/o streams."
         # signal name suffix
         sname = "_" + self.hls_sname() + "_"
         num_out_values = self.get_number_output_values()
-        total_cycle_count = pyxsi_utils.rtlsim_multi_io(
+        total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
             liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
-            hook_postclk=hook_postclk,
+            # hook_postclk=hook_postclk,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -323,16 +321,16 @@ class HWCustomOp(CustomOp):
 
         def monitor_txns(sim_obj):
             for inp in txns_in:
-                in_ready = pyxsi_utils._read_signal(sim_obj, inp + sname + "TREADY") == 1
-                in_valid = pyxsi_utils._read_signal(sim_obj, inp + sname + "TVALID") == 1
+                in_ready = finnxsi._read_signal(sim_obj, inp + sname + "TREADY") == 1
+                in_valid = finnxsi._read_signal(sim_obj, inp + sname + "TVALID") == 1
                 if in_ready and in_valid:
                     txns_in[inp].append(1)
                 else:
                     txns_in[inp].append(0)
             for outp in txns_out:
                 if (
-                    pyxsi_utils._read_signal(sim_obj, outp + sname + "TREADY") == 1
-                    and pyxsi_utils._read_signal(sim_obj, outp + sname + "TVALID") == 1
+                    finnxsi._read_signal(sim_obj, outp + sname + "TREADY") == 1
+                    and finnxsi._read_signal(sim_obj, outp + sname + "TVALID") == 1
                 ):
                     txns_out[outp].append(1)
                 else:
