@@ -54,17 +54,29 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize(
-    "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
+    "method",
+    [
+        "characterize_analytical",
+        "characterize_rtl",
+        "largefifo_rtlsim_python",
+        "largefifo_rtlsim_cpp",
+    ],
 )
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
     method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
     tmp_output_dir = fetch_test_model(topology)
+    if method == "characterize_analytical":
+        characterizatio_strategy_key = "analytical"
+    else:
+        characterizatio_strategy_key = "rtlsim"
+
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
         auto_fifo_strategy=method_key,
+        characteristic_function_strategy=characterizatio_strategy_key,
         target_fps=10000 if topology == "tfc" else 1000,
         force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
@@ -97,7 +109,96 @@ def test_fifosizing_linear(method, topology):
 
     model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
     model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx")
+    assert len(model0.graph.node) == len(model1.graph.node)
+    for i in range(len(model0.graph.node)):
+        node0 = model0.graph.node[i]
+        node1 = model1.graph.node[i]
+        assert node0.op_type == node1.op_type
+        if node0.op_type == "StreamingFIFO":
+            node0_inst = getCustomOp(node0)
+            node1_inst = getCustomOp(node1)
+            assert node0_inst.get_nodeattr("depth") == node1_inst.get_nodeattr("depth")
 
+    shutil.rmtree(tmp_output_dir)
+    shutil.rmtree(tmp_output_dir_cmp)
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.parametrize(
+    "method",
+    [
+        "characterize_analytical",
+        "characterize_rtlsim",
+        "largefifo_rtlsim_python",
+        "largefifo_rtlsim_cpp",
+    ],
+)
+@pytest.mark.parametrize("topology", ["tfc", "cnv"])
+def test_fifosizing_fast(method, topology):
+    force_python_rtlsim = "python" in method
+    method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
+    tmp_output_dir = fetch_test_model(topology)
+    if method == "characterize_analytical":
+        characterizatio_strategy_key = "analytical"
+    else:
+        characterizatio_strategy_key = "rtlsim"
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        auto_fifo_depths=True,
+        auto_fifo_strategy=method_key,
+        characteristic_function_strategy=characterizatio_strategy_key,
+        target_fps=10000 if topology == "tfc" else 1000,
+        force_python_rtlsim=force_python_rtlsim,
+        synth_clk_period_ns=10.0,
+        steps=[
+            "step_qonnx_to_finn",
+            "step_tidy_up",
+            "step_streamline",
+            "step_convert_to_hw",
+            "step_create_dataflow_partition",
+            "step_specialize_layers",
+            "step_target_fps_parallelization",
+            "step_apply_folding_config",
+            "step_minimize_bit_width",
+            "step_generate_estimate_reports",
+            "step_set_fifo_depths",
+        ],
+        board="Pynq-Z1",
+        rtlsim_batch_size=100 if topology == "tfc" else 2,
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+
+    # now run the same build using the generated folding and FIFO config
+    tmp_output_dir_cmp = fetch_test_model(topology)
+    cfg_cmp = cfg
+    cfg_cmp.output_dir = tmp_output_dir_cmp
+    cfg_cmp.auto_fifo_depths = False
+    cfg_cmp.target_fps = None
+    cfg_cmp.steps = [
+        "step_qonnx_to_finn",
+        "step_tidy_up",
+        "step_streamline",
+        "step_convert_to_hw",
+        "step_create_dataflow_partition",
+        "step_specialize_layers",
+        "step_target_fps_parallelization",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_set_fifo_depths",
+    ]
+    cfg_cmp.folding_config_file = tmp_output_dir + "/final_hw_config.json"
+    build.build_dataflow_cfg(tmp_output_dir_cmp + "/model.onnx", cfg_cmp)
+
+    model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx")
+    model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_set_fifo_depths.onnx")
     assert len(model0.graph.node) == len(model1.graph.node)
     for i in range(len(model0.graph.node)):
         node0 = model0.graph.node[i]

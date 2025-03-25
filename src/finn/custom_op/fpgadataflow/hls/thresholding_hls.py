@@ -348,6 +348,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     "inputs": {"in0": inp, "weights": wei * num_w_reps},
                     "outputs": {"out": []},
                 }
+
                 self.rtlsim_multi_io(sim, io_dict)
                 output = io_dict["outputs"]["out"]
             elif self.get_nodeattr("mem_mode") == "internal_embedded":
@@ -736,7 +737,9 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
         return ["config_compile -pipeline_style frp"]
 
-    def derive_characteristic_fxns(self, period):
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -749,4 +752,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
             n_weight_inps = self.calc_tmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
             io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

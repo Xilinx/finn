@@ -33,6 +33,7 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Thresholding(HWCustomOp):
@@ -264,3 +265,61 @@ class Thresholding(HWCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        # this depends on the kernel type, hls or rtl etc
+
+        # when testing, PE cannot be higher than 1 due to
+        # an unknown bug.
+
+        # parameters
+        reps = 1
+        NumChannels = self.get_nodeattr("NumChannels")
+        PE = self.get_nodeattr("PE")
+        ImgDim = np.prod(list(self.get_nodeattr("numInputVectors")))
+        act = DataType[self.get_nodeattr("outputDataType")]
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        NF = NumChannels // PE
+        total_iterations = reps * ImgDim * NF
+
+        if IMPL_STYLE == "hls":
+            output_delay = 4
+        else:
+            if act == DataType["BIPOLAR"]:
+                output_delay = 4
+            else:
+                output_delay = 12
+
+        if total_iterations > output_delay:
+            # we write out full input and delay
+
+            # phase definitions
+            rush_in = Characteristic_Node("Rush-in", [(output_delay, [1, 0])], True)
+
+            compute = Characteristic_Node(
+                "Compute", [(total_iterations - output_delay, [1, 1])], True
+            )
+
+            rush_out = Characteristic_Node("Rush-out", [(output_delay, [0, 1])], True)
+
+            threshold = Characteristic_Node(
+                "Thresholding Top", [(1, rush_in), (1, compute), (1, rush_out)], False
+            )
+
+        else:
+            # phase definitions
+
+            rush_in = Characteristic_Node(
+                "Rush-in",
+                [(total_iterations, [1, 0]), (output_delay - total_iterations, [0, 0])],
+                True,
+            )
+
+            compute = Characteristic_Node("Compute", [(total_iterations, [0, 1])], True)
+
+            threshold = Characteristic_Node("Thresholding Top", [(1, rush_in), (1, compute)], False)
+
+        return threshold  # top level phase of this node

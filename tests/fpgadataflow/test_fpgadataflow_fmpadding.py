@@ -29,6 +29,7 @@
 
 import pytest
 
+import copy
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -47,7 +48,12 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pynq_part_map
+from finn.util.basic import decompress_string_to_numpy, pynq_part_map
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -161,3 +167,67 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+# # which port to test
+@pytest.mark.parametrize("direction", ["input", "output"])
+# input image dimension
+@pytest.mark.parametrize("idim", [[10, 8]])
+# number of rows and number of cols to add
+@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [7, 0, 8, 0]])
+# number of channels
+@pytest.mark.parametrize("num_ch", [2, 4])
+# Input parallelism
+@pytest.mark.parametrize("simd", [1, 2])
+# FINN input datatype
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
+# execution mode
+@pytest.mark.parametrize("mode", ["rtlsim"])
+# implementation style
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_analytical_characterization_fmpadding(
+    direction, idim, pad, num_ch, simd, idt, mode, impl_style
+):
+    if num_ch % simd != 0:
+        pytest.skip(" num_ch % simd != 0, skipping")
+
+    model = make_single_fmpadding_modelwrapper(impl_style, idim, pad, num_ch, simd, idt)
+    model = model.transform(InferShapes())
+    model = model.transform(SetExecMode(mode))
+
+    node_details = ("FMPadding", idim, pad, num_ch, simd, idt, mode, impl_style)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    allowed_chr_offset_positions = 5
+
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
+
+    if direction == "input":
+        assert compare_two_chr_funcs(
+            chr_in,
+            rtlsim_in,
+            allowed_chr_offset_positions,
+        )
+    elif direction == "output":
+        assert compare_two_chr_funcs(
+            chr_out,
+            rtlsim_out,
+            allowed_chr_offset_positions,
+        )

@@ -33,6 +33,7 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
 
+from finn.util.basic import decompress_string_to_numpy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -52,9 +53,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None, manual_bypass=False):
+    def __init__(
+        self, model, period, strategy, fpga_part, clk_period, num_workers=None, manual_bypass=False
+    ):
         super().__init__(num_workers=num_workers)
+        self.model = model
         self.period = period
+        self.strategy = strategy
+        self.fpga_part = fpga_part
+        self.clk_period = clk_period
         self.manual_bypass = manual_bypass
 
     def applyNodeLocal(self, node):
@@ -63,7 +70,15 @@ class DeriveCharacteristic(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                inst.derive_characteristic_fxns(period=self.period)
+
+                inst.derive_characteristic_fxns(
+                    model=self.model,
+                    period=self.period,
+                    strategy=self.strategy,
+                    fpga_part=self.fpga_part,
+                    clk_period=self.clk_period,
+                    op_type=op_type,
+                )
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -137,7 +152,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 prod = registry.getCustomOp(node)
                 assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
-                prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
+                prod_chrc = decompress_string_to_numpy(prod.get_nodeattr("io_chrc_out"))[0]
                 assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
                 if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
@@ -154,7 +169,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                         out_fifo_depths.append(self.io_fifo_depth)
                         continue
                     cons = registry.getCustomOp(cons_node)
-                    cons_chrc = cons.get_nodeattr("io_chrc_in")[0]
+                    cons_chrc = decompress_string_to_numpy(cons.get_nodeattr("io_chrc_in"))[0]
                     # find minimum phase shift satisfying the constraint
                     pshift_min = period - 1
                     for pshift_cand in range(period):

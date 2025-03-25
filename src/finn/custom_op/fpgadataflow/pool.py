@@ -30,6 +30,7 @@ import numpy as np
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Pool(HWCustomOp):
@@ -222,3 +223,58 @@ class Pool(HWCustomOp):
             result = np.right_shift(result.astype(int), shift_bits)
         oshape = context[node.output[0]].shape
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+    # def prepare_kwargs_for_characteristic_fx(self):
+    #     # key parameters
+    #     Channels = self.get_nodeattr("Channels")
+    #     PE = self.get_nodeattr("PE")
+    #     KernelSize = np.prod(self.get_nodeattr("KernelSize"))
+
+    #     # assert True == False
+    #     NF = int(Channels / PE)
+    #     kwargs = (NF, KernelSize)
+
+    #     # assert True==False
+
+    #     return kwargs
+
+    # def characteristic_fx_input(self, txns, cycles, counter, kwargs):
+    #     # Compute one period of the input characteristic function
+
+    #     (NF, KernelSize) = kwargs
+
+    #     for i in range(0, KernelSize):
+    #         for k in range(NF):
+    #             txns.append(counter)
+    #             counter += 1
+    #             cycles += 1
+
+    #     #
+    #     return txns, cycles, counter
+
+    # def characteristic_fx_output(self, txns, cycles, counter, kwargs):
+    #     # Compute one period of the output characteristic function
+
+    #     (NF, KernelSize) = kwargs
+
+    #     for i in range(0, KernelSize):
+    #         for k in range(NF):
+    #             txns.append(counter)
+    #             counter += 1
+    #             cycles += 1
+    #     return txns, cycles, counter
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        Channels = self.get_nodeattr("Channels")
+        PE = self.get_nodeattr("PE")
+        KernelSize = np.prod(self.get_nodeattr("KernelSize"))
+
+        # assert True == False
+        NF = int(Channels / PE)
+
+        pass_pool = Characteristic_Node("passing pooling layer", [(NF, [1, 1])], True)
+
+        pool_top = Characteristic_Node("compute pool", [(KernelSize, pass_pool)], False)
+
+        return pool_top  # top level phase of this node

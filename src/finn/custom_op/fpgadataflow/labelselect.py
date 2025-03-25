@@ -32,6 +32,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class LabelSelect(HWCustomOp):
@@ -182,5 +183,31 @@ class LabelSelect(HWCustomOp):
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
-        exp_cycles = nlabels / pe
+        K = self.get_nodeattr("K")
+        exp_cycles = nlabels // pe + K
         return int(exp_cycles)
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        # this depends on the kernel type, hls or rtl etc
+
+        # extract node attr
+        num_in_words = self.get_nodeattr("Labels")
+        PE = self.get_nodeattr("PE")
+        K = self.get_nodeattr("K")
+
+        NF = num_in_words // PE
+
+        output_delay = int(np.log2(num_in_words)) + 1
+
+        read_k = Characteristic_Node("read only", [(NF, [1, 0])], True)
+
+        compute_k = Characteristic_Node("compute k", [(output_delay, [0, 0])], True)
+
+        write_k = Characteristic_Node("write k", [(K, [0, 1])], True)
+
+        labelselect_top = Characteristic_Node(
+            "Fill feature map", [(1, read_k), (1, compute_k), (1, write_k)], False
+        )
+
+        return labelselect_top  # top level phase of this node

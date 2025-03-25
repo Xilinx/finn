@@ -29,6 +29,7 @@
 
 import pytest
 
+import copy
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -47,6 +48,12 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import decompress_string_to_numpy
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 
 def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
@@ -172,3 +179,74 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+# which port to test
+@pytest.mark.parametrize("direction", ["input", "output"])
+# activation: None or DataType
+@pytest.mark.parametrize("act", [DataType["INT8"]])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
+# param datatype
+@pytest.mark.parametrize("pdt", [DataType["INT4"]])
+# folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1, 2])
+# number of input features
+@pytest.mark.parametrize("ich", [16])
+# vecs
+@pytest.mark.parametrize("vecs", [[1], [1, 7, 7]])
+# function
+@pytest.mark.parametrize("func", ["add", "mul"])
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_analytical_characterization_channelwise_ops(
+    direction, idt, act, pdt, nf, ich, func, vecs, exec_mode
+):
+    if nf == -1:
+        nf = ich
+    pe = ich // nf
+    assert ich % pe == 0
+
+    # generate param data
+    C = gen_finn_dt_tensor(pdt, (ich))
+
+    odt = act
+
+    # create model
+    model = make_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
+    node_details = ("ChannelWiseOp", C, pe, idt, odt, pdt, func, "hls")
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    allowed_chr_offset_positions = 5
+
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
+
+    if direction == "input":
+        assert compare_two_chr_funcs(
+            chr_in,
+            rtlsim_in,
+            allowed_chr_offset_positions,
+        )
+    elif direction == "output":
+        assert compare_two_chr_funcs(
+            chr_out,
+            rtlsim_out,
+            allowed_chr_offset_positions,
+        )

@@ -29,6 +29,7 @@
 
 import pytest
 
+import copy
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -48,6 +49,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import compare_two_chr_funcs, get_characteristic_fnc
 
 
 def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode):
@@ -180,3 +182,81 @@ def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil
         # nested for-loops
         # assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
+
+
+# which port to test
+@pytest.mark.parametrize("direction", ["input", "output"])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
+# 1d maxpool
+@pytest.mark.parametrize("dim_1d", [False, True])
+# kernel size
+@pytest.mark.parametrize("k", [2, 4])
+# input dimension
+@pytest.mark.parametrize("ifm_dim", [4, 10])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [1, 3])
+# pe
+@pytest.mark.parametrize("pe", [1, 3])
+# ceil mode
+@pytest.mark.parametrize("ceil_mode", [1])
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_analytical_characterization_streamingmaxpool(
+    direction, idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, exec_mode
+):
+    ifm_dim_h = ifm_dim
+    k_h = k
+    if dim_1d:
+        ifm_dim_w = 1
+        k_w = 1
+    else:
+        ifm_dim_w = ifm_dim_h
+        k_w = k_h
+    ifm_dim = (ifm_dim_h, ifm_dim_w)
+    k = (k_h, k_w)
+
+    stride_h = k_h
+    stride_w = k_w
+    ofm_dim_h = compute_pool_output_dim(ifm_dim_h, k_h, stride_h, 0, ceil_mode)
+    ofm_dim_w = compute_pool_output_dim(ifm_dim_w, k_w, stride_w, 0, ceil_mode)
+    ofm_dim = (ofm_dim_h, ofm_dim_w)
+    if idt == DataType["BIPOLAR"] and dim_1d:
+        pytest.skip("Skipping binary StreamingMaxPool_1d (not implemented)")
+    if (ifm_dim_h % k_h != 0 or ifm_dim_w % k_w != 0) and (not dim_1d):
+        pytest.skip("StreamingMaxPool_2d test w/ ImgDim % PoolDim != 0 not implemented")
+    if pe > ifm_ch:
+        pytest.skip("PE cannot be larger than number of input channels")
+    if pe > 1 and (not dim_1d):
+        pytest.skip("PE>1 only supported for StreamingMaxPool_1d")
+
+    model = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode)
+    model = model.transform(InferStreamingMaxPool())
+    node_details = ("StreamingMaxPool", k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode, "hls")
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    allowed_chr_offset_positions = 5
+
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
+    if direction == "input":
+        assert compare_two_chr_funcs(
+            node_analytical.get_nodeattr("io_chrc_in"),
+            node_rtlsim.get_nodeattr("io_chrc_in"),
+            allowed_chr_offset_positions,
+        )
+    elif direction == "output":
+        assert compare_two_chr_funcs(
+            node_analytical.get_nodeattr("io_chrc_out"),
+            node_rtlsim.get_nodeattr("io_chrc_out"),
+            allowed_chr_offset_positions,
+        )

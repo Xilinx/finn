@@ -30,6 +30,7 @@
 import json
 import numpy as np
 import os
+import qonnx.custom_op.registry as registry
 import shutil
 import warnings
 from copy import deepcopy
@@ -98,8 +99,10 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP, _codegen_single_node
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+
+# def _codegen_single_node(node, model, fpgapart, clk):
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -125,6 +128,7 @@ from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
 )
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
 
@@ -548,20 +552,85 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     Coherency with config file node naming is ensured by calling
     `GiveUniqueNodeNames`.
     """
-
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            )
-            model = model.transform(HLSSynthIP())
-            model = model.transform(PrepareRTLSim())
             model = model.transform(AnnotateCycles())
-            period = model.analysis(dataflow_performance)["max_cycles"] + 10
-            model = model.transform(DeriveCharacteristic(period))
+
+            for node in model.graph.node:
+                inst = registry.getCustomOp(node)
+                if (is_hls_node(node) or is_rtl_node(node)) and (
+                    inst.prepare_kwargs_for_characteristic_fx() is None
+                    or cfg.characteristic_function_strategy == "rtlsim"
+                ):
+                    _codegen_single_node(
+                        node, model, cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()
+                    )
+
+                    op_type = node.op_type
+                    if is_hls_node(node):
+                        try:
+                            # lookup op_type in registry of CustomOps
+
+                            # ensure that code is generated
+                            assert (
+                                inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                            ), """Node
+                            attribute "code_gen_dir_ipgen" is empty. Please run
+                            transformation PrepareIP first."""
+                            if not os.path.isdir(
+                                inst.get_nodeattr("ipgen_path")
+                            ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
+                                "ipgen_path"
+                            ):
+                                # call the compilation function for this node
+                                inst.ipgen_singlenode_code()
+                            else:
+                                warnings.warn("Using pre-existing IP for %s" % node.name)
+                            # ensure that executable path is now set
+                            assert (
+                                inst.get_nodeattr("ipgen_path") != ""
+                            ), """Transformation
+                            HLSSynthIP was not successful. Node attribute "ipgen_path"
+                            is empty."""
+                        except KeyError:
+                            # exception if op_type is not supported
+                            raise Exception(
+                                "Custom op_type %s is currently not supported." % op_type
+                            )
+
+            model = model.transform(ReplaceVerilogRelPaths())
+            for node in model.graph.node:
+                inst = registry.getCustomOp(node)
+                if (is_hls_node(node) or is_rtl_node(node)) and (
+                    inst.prepare_kwargs_for_characteristic_fx() is None
+                    or cfg.characteristic_function_strategy == "rtlsim"
+                ):
+                    try:
+                        # lookup op_type in registry of CustomOps
+                        # inst = registry.getCustomOp(node)
+                        inst.prepare_rtlsim()
+                        # ensure that executable path is now set
+                        assert (
+                            inst.get_nodeattr("rtlsim_so") != ""
+                        ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                    except KeyError:
+                        # exception if op_type is not supported
+                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
+            model = model.transform(
+                DeriveCharacteristic(
+                    model,
+                    period,
+                    cfg.characteristic_function_strategy,
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                )
+            )
+
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
@@ -624,6 +693,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "depth_trigger_uram",
         "depth_trigger_bram",
     ]
+
     extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
     # perform FIFO splitting and shallow FIFO removal only after the final config
@@ -635,8 +705,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP())
+    # model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    # model = model.transform(HLSSynthIP())
+
     return model
 
 

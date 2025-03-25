@@ -34,7 +34,10 @@ from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import (
+    compress_numpy_to_string,
+    pyverilate_get_liveness_threshold_cycles,
+)
 
 try:
     from pyverilator import PyVerilator
@@ -89,13 +92,15 @@ class HWCustomOp(CustomOp):
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods
-            "io_chrc_in": ("t", False, np.asarray([], dtype=np.int32)),
-            "io_chrc_out": ("t", False, np.asarray([], dtype=np.int32)),
+            "io_chrc_in": ("s", False, ""),
+            "io_chrc_out": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
             # amount of zero padding inserted during chrc.
-            "io_chrc_pads_in": ("ints", False, []),
-            "io_chrc_pads_out": ("ints", False, []),
+            "io_chrc_pads_in": ("i", False, 0),
+            "io_chrc_pads_out": ("i", False, 0),
+            "io_chrc_in_concat": ("t", False, np.asarray([], dtype=np.int32)),
+            "io_chrc_out_concat": ("t", False, np.asarray([], dtype=np.int32)),
         }
 
     def get_verilog_top_module_name(self):
@@ -279,6 +284,7 @@ class HWCustomOp(CustomOp):
                 else:
                     no_change_count = 0
                     old_outputs = outputs
+
         if trace_file != "":
             sim.flush_vcd_trace()
             sim.stop_vcd_trace()
@@ -361,10 +367,174 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
+    def prepare_kwargs_for_characteristic_fx(self):
+        """Returns the characteristic function of a node, default is None and forces
+        to skip the analytical characterization of the node and fallback to rtlsim.
+        Implemented in each node, potentially overriding between rtl and hls"""
+        return None
+
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        if override_dict is None:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict = {
+                "inputs": {
+                    "in0": [0 for i in range(n_inps)],
+                },
+                "outputs": {"out": []},
+            }
+        else:
+            io_dict = override_dict
+
+        if strategy == "analytical":
+            # check for override function
+            if self.prepare_kwargs_for_characteristic_fx() is not None:
+                self.derive_characteristic_fxns_analytically(period, override_rtlsim_dict=io_dict)
+                return
+        # RTL-based flow
+        self.derive_characteristic_fxns_rtlsim(
+            model, period, fpga_part, clk_period, override_rtlsim_dict=io_dict
+        )
+
+    def derive_characteristic_fxns_analytically(self, period, override_rtlsim_dict):
+        # Analytical flow
+        txns_in = {
+            key: [] for (key, value) in override_rtlsim_dict["inputs"].items() if "in" in key
+        }
+        txns_out = {
+            key: [] for (key, value) in override_rtlsim_dict["outputs"].items() if "out" in key
+        }
+
+        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+
+        self.set_nodeattr("io_chrc_period", period)
+
+        txn_in = []
+        txn_out = []
+
+        # INPUT
+
+        counter = 0
+        padding = 0
+
+        top_level_phase = self.prepare_kwargs_for_characteristic_fx()
+
+        # first period
+        cycles = 0
+
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
+
+        def apply_micro_buffer_correction(start, txn_in, period):
+            """There are cases where a node can buffer up the very first 1-2 inputs
+            immediately, even if it has not started properly consuming inputs yet
+            This behavior is extremely difficult to model in a characterization tree
+            and so we perform a manual correction by incrementing the number of
+            inputs read by 1 and detracting 1 read from the tail of the period
+
+            Which node types & configurations this applies for is yet to be
+            fully determined, but the corrections should happen here.
+            It is possible that this correction is entire unncessary and
+            simply an rtlsim artefact, but we maintain it for testability for now"""
+
+            buffer = 0
+
+            if "FMPadding" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if "StreamingDataWidthConverter" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if buffer > 0:
+                # buffering does not happen in nodes with short wind-ups
+                if period < 14:
+                    return txn_in
+
+                # main routine
+                if buffer == 2:
+                    if txn_in[start + 1] - txn_in[start] >= 1:
+                        buffer = 1
+                    else:
+                        txn_in[start + 1] += 1
+
+                idx = start + buffer
+                while idx < len(txn_in):
+                    if txn_in[idx] - txn_in[idx - 1] < buffer:
+                        txn_in[idx] += buffer
+                    idx += 1
+
+                idx = len(txn_in) - 1
+                last = txn_in[idx]
+
+                # deduct 1 read from the tail
+                while last == txn_in[idx]:
+                    txn_in[idx] -= buffer
+                    idx -= 1
+
+                # one extra element to deduct in case of 2 buffers
+                if buffer == 2:
+                    txn_in[idx] -= 1
+
+            return txn_in
+
+        txn_in = apply_micro_buffer_correction(0, txn_in, period)
+
+        txn_in += [counter] * (period - cycles)
+        padding += period - cycles
+
+        # second period
+        cycles = period
+
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
+
+        txn_in = apply_micro_buffer_correction(period, txn_in, period)
+
+        txn_in += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
+
+        # final assignments
+        all_txns_in[0, :] = np.array(txn_in[: period * 2])
+        compressed_np_array = compress_numpy_to_string(all_txns_in)
+        self.set_nodeattr("io_chrc_in", compressed_np_array)
+        self.set_nodeattr("io_chrc_pads_in", padding)
+
+        # OUTPUT
+
+        counter = 0
+        cycles = 0
+        padding = 0
+
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
+
+        txn_out += [counter] * (period - cycles)
+        padding += period - cycles
+
+        cycles = period
+
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
+
+        txn_out += [counter] * (period * 2 - cycles)
+        padding += period * 2 - cycles
+
+        all_txns_out[0, :] = np.array(txn_out[: period * 2])
+        compressed_np_array = compress_numpy_to_string(all_txns_out)
+        self.set_nodeattr("io_chrc_out", compressed_np_array)
+        self.set_nodeattr("io_chrc_pads_out", padding)
+
+    def derive_characteristic_fxns_rtlsim(
+        self, model, period, fpga_part, clk_period, override_rtlsim_dict=None
+    ):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
+
         if self.get_nodeattr("io_chrc_period") > 0:
             warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
             return
@@ -384,6 +554,7 @@ class HWCustomOp(CustomOp):
         sim = self.get_rtlsim()
         # signal name
         sname = "_" + self.hls_sname() + "_"
+
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
@@ -417,6 +588,7 @@ class HWCustomOp(CustomOp):
                     txns_out[outp].append(0)
 
         reset_rtlsim(sim)
+
         total_cycle_count = rtlsim_multi_io(
             sim,
             io_dict,
@@ -447,6 +619,8 @@ class HWCustomOp(CustomOp):
         all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
         all_pad_in = []
         all_pad_out = []
+        pad_in = 0
+        pad_out = 0
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
             if len(txn_in) < period:
@@ -465,7 +639,12 @@ class HWCustomOp(CustomOp):
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        self.set_nodeattr("io_chrc_in", all_txns_in)
-        self.set_nodeattr("io_chrc_out", all_txns_out)
+        compressed_np_array_in = compress_numpy_to_string(all_txns_in)
+        self.set_nodeattr("io_chrc_in", compressed_np_array_in)
+
+        compressed_np_array_out = compress_numpy_to_string(all_txns_out)
+        self.set_nodeattr("io_chrc_out", compressed_np_array_out)
+        # self.set_nodeattr("io_chrc_in", zlib.compress(all_txns_in))
+        # self.set_nodeattr("io_chrc_out", zlib.compress(all_txns_out))
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)
         self.set_nodeattr("io_chrc_pads_out", all_pad_out)

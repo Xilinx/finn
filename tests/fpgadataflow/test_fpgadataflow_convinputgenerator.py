@@ -29,6 +29,7 @@
 
 import pytest
 
+import copy
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -48,6 +49,12 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import decompress_string_to_numpy
+from finn.util.test import (
+    compare_two_chr_funcs,
+    debug_chr_funcs,
+    get_characteristic_fnc,
+)
 
 
 def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw):
@@ -237,3 +244,139 @@ def test_fpgadataflow_slidingwindow(
             assert exp_cycles != 0
         else:
             assert model.graph.node[0].op_type == "ConvolutionInputGenerator_rtl"
+
+
+# which port to test
+@pytest.mark.parametrize("direction", ["input", "output"])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
+# kernel size
+@pytest.mark.parametrize("k", [[3, 3], [1, 5]])
+# input dimension
+@pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [2, 4])
+# Stride
+@pytest.mark.parametrize("stride", [[2, 2], [2, 1]])
+# Dilation
+@pytest.mark.parametrize("dilation", [[2, 2], [2, 1]])
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["rtlsim"])
+# input channel parallelism ("SIMD")
+@pytest.mark.parametrize("simd", [1, 4])
+# depthwise
+@pytest.mark.parametrize("dw", [0, 1])
+# parallel_window enable (MMV_out = M*K)
+@pytest.mark.parametrize("parallel_window", [0, 1])
+# in/out MMV ("M")
+@pytest.mark.parametrize("m", [1])
+# Flip dimensions
+@pytest.mark.parametrize("flip", [False])
+# implementation style
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_analytical_characterization_slidingwindow(
+    direction,
+    idt,
+    k,
+    ifm_dim,
+    ifm_ch,
+    stride,
+    dilation,
+    exec_mode,
+    simd,
+    dw,
+    parallel_window,
+    m,
+    flip,
+    impl_style,
+):
+    if flip:
+        if (
+            ifm_dim[0] == ifm_dim[1]
+            and k[0] == k[1]
+            and stride[0] == stride[1]
+            and dilation[0] == dilation[1]
+        ):
+            pytest.skip("Dimension flip would have no effect")
+        k = k[::-1]
+        ifm_dim = ifm_dim[::-1]
+        stride = stride[::-1]
+        dilation = dilation[::-1]
+
+    k_h, k_w = k
+    ifm_dim_h, ifm_dim_w = ifm_dim
+    stride_h, stride_w = stride
+    dilation_h, dilation_w = dilation
+
+    kernel_width = (k_w - 1) * dilation_w + 1  # incl. dilation
+    kernel_height = (k_h - 1) * dilation_h + 1  # incl. dilation
+
+    if simd > ifm_ch:
+        pytest.skip("SIMD cannot be larger than number of input channels")
+    if ifm_ch % simd != 0:
+        pytest.skip("SIMD must divide number of input channels")
+    if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
+        pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
+    if ((stride_h > k_h) or (stride_w > k_w)) and not (parallel_window or (k_h == 1 and k_w == 1)):
+        pytest.skip("Not all combinations for stride > k edge case supported in default mode")
+    if parallel_window and simd != ifm_ch and not (dw or (k_h == 1 and k_w == 1)):
+        pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
+
+    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
+    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
+    ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+    model = make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw)
+
+    model = model.transform(to_hw.InferConvInpGen())
+    node_details = (
+        "ConvolutionInputGenerator",
+        k,
+        ifm_ch,
+        ifm_dim,
+        ofm_dim,
+        stride,
+        dilation,
+        idt,
+        dw,
+        "hls",
+    )
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    allowed_chr_offset_positions = 5
+
+    model_rtl = copy.deepcopy(model)
+    node_analytical = get_characteristic_fnc(
+        model, (*node_details, "analytical"), part, target_clk_ns, "analytical"
+    )
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl, (*node_details, "rtlsim"), part, target_clk_ns, "rtlsim"
+    )
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, direction)
+
+    if direction == "input":
+        assert compare_two_chr_funcs(
+            chr_in,
+            rtlsim_in,
+            allowed_chr_offset_positions,
+        )
+    elif direction == "output":
+        assert compare_two_chr_funcs(
+            chr_out,
+            rtlsim_out,
+            allowed_chr_offset_positions,
+        )

@@ -31,6 +31,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class FMPadding(HWCustomOp):
@@ -170,3 +171,61 @@ class FMPadding(HWCustomOp):
             inp_values, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
         )
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        # key parameters
+        # this depends on the kernel type, hls or rtl etc
+
+        # extract node attr
+        IMGDIM = self.get_nodeattr("ImgDim")
+        PADDING = self.get_nodeattr("Padding")
+        NUMCHANNELS = self.get_nodeattr("NumChannels")
+        SIMD = self.get_nodeattr("SIMD")
+        batch_size = self.get_nodeattr("numInputVectors")
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        # compute new parameters
+        NF = int(NUMCHANNELS / SIMD)
+        y_padding_top, x_padding_left, y_padding_bottom, x_padding_right = PADDING
+        y_dim = IMGDIM[0]
+        x_dim = IMGDIM[1]
+
+        if IMPL_STYLE == "hls" and NF == 1:
+            loop_overhead = 1
+        else:
+            loop_overhead = 0
+
+        ch_pad = Characteristic_Node("Channel_Pad", [(NF, [0, 1]), (loop_overhead, [0, 0])], True)
+
+        ch_pass = Characteristic_Node("Channel_Pass", [(NF, [1, 1]), (loop_overhead, [0, 0])], True)
+
+        x_inner_line = Characteristic_Node(
+            "Fill X full inner line",
+            [(x_padding_left, ch_pad), (x_dim, ch_pass), (x_padding_right, ch_pad)],
+            False,
+        )
+
+        x_outer_line = Characteristic_Node(
+            "Pad X outer line", [(x_padding_left + x_dim + x_padding_right, ch_pad)], False
+        )
+
+        fmpadding = Characteristic_Node(
+            "FMPadding FM",
+            [
+                (y_padding_top, x_outer_line),
+                (y_dim, x_inner_line),
+                (y_padding_bottom, x_outer_line),
+            ],
+            False,
+        )
+
+        fmpadding_top = Characteristic_Node(
+            "FMPadding FM",
+            [
+                (batch_size, fmpadding),
+            ],
+            False,
+        )
+
+        return fmpadding_top  # top level phase of this node

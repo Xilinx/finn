@@ -41,6 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -452,6 +453,7 @@ class MVAU(HWCustomOp):
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
+
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
@@ -840,21 +842,6 @@ class MVAU(HWCustomOp):
             ret_dict[thres_param_type] = thres_count
         return ret_dict
 
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out": []},
-        }
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode in ["internal_decoupled", "external"]:
-            n_weight_inps = self.calc_wmem()
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
@@ -973,3 +960,71 @@ class MVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
+
+    def prepare_kwargs_for_characteristic_fx(self):
+        MW = self.get_nodeattr("MW")
+        MH = self.get_nodeattr("MH")
+
+        SIMD = self.get_nodeattr("SIMD")
+        PE = self.get_nodeattr("PE")
+        numVectors = np.prod(self.get_nodeattr("numInputVectors"))
+        SF = int(MW / SIMD)
+        NF = int(MH / PE)
+
+        # exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+
+        wind_up = 2  # might be 3 for output if being precise
+        output_delay = 5  # cycles before output starts writing when input is read
+        # can represent with two windups, but then
+        # input needs to be allowed to 'start early'
+        # possible solution is simply splitting into two
+        # top level phases. One for inputs and one for outputs
+
+        idle = Characteristic_Node("idle cycles", [(1, [0, 0])], True)
+
+        read_SIMD = Characteristic_Node("Read a burst of input", [(SF, [1, 0])], True)
+
+        write_one = Characteristic_Node("update output", [(1, [0, 1])], True)
+
+        write_PE = Characteristic_Node(
+            "iterate MW/SIMD and update an output",
+            [
+                # (1, burst_compute),
+                (SF - 1, idle),
+                (1, write_one),
+            ],
+            False,
+        )
+
+        feature_map = Characteristic_Node(
+            "Compute single feature map",
+            [(1, read_SIMD), (output_delay, idle), (1, write_one), (NF - 1, write_PE)],
+            False,
+        )
+
+        all_feature_maps = Characteristic_Node(
+            "compute set of feature maps", [(wind_up, idle), (numVectors, feature_map)], False
+        )
+
+        return all_feature_maps
+
+    def derive_characteristic_fxns(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["internal_decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
+
+        super().derive_characteristic_fxns(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )
