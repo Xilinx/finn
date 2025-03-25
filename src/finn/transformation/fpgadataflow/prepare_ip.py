@@ -30,7 +30,7 @@
 import os
 import qonnx.custom_op.registry as registry
 import warnings
-from qonnx.transformation.base import Transformation
+from qonnx.transformation.base import NodeLocalTransformation
 
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -59,7 +59,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
         raise Exception("Custom op_type %s is currently not supported." % op_type)
 
 
-class PrepareIP(Transformation):
+class PrepareIP(NodeLocalTransformation):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files.
     All nodes in the graph must have the fpgadataflow backend attribute and
@@ -88,8 +88,7 @@ class PrepareIP(Transformation):
         self.fpgapart = fpgapart
         self.clk = clk
 
-    def apply(self, model):
-        for node in model.graph.node:
-            if is_hls_node(node) or is_rtl_node(node):
-                _codegen_single_node(node, model, self.fpgapart, self.clk)
-        return (model, False)
+    def applyNodeLocal(self, node):
+        if is_hls_node(node) or is_rtl_node(node):
+            _codegen_single_node(node, self.ref_input_model, self.fpgapart, self.clk)
+        return (node, False)
