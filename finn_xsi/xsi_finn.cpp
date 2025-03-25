@@ -220,7 +220,6 @@ std::string Port::as_binstr() const {
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 	uint32_t  a;
 	uint32_t  b;
-#pragma GCC diagnostic pop
 	for(unsigned  i = 0; i < w; i++) {
 		if((i & 31) == 0) {
 			a = si->aVal;
@@ -231,6 +230,7 @@ std::string Port::as_binstr() const {
 		a >>= 1;
 		b >>= 1;
 	}
+#pragma GCC diagnostic pop
 	return  res;
 }
 
