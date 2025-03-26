@@ -58,7 +58,8 @@ module mvu_vvu_axi #(
 	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
-	bit PUMPED_COMPUTE = 0, // requires an even SIMD % 2 == 0
+	bit PUMPED_COMPUTE = 0, // Not meaningful for SIMD < 2, which will error out.
+	                        // Best utilization for even values.
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
