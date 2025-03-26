@@ -95,7 +95,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         required for the entire layer
         """
         pe = self.get_nodeattr("PE")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         wdt_bits = wdt.bitwidth()
         odt = self.get_output_datatype()
         odt_bits = odt.bitwidth()
@@ -184,7 +184,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         if expected_thresholds != n_thres_steps:
             if DataType[output_data_type].signed():
                 min_val = wdt.min()
@@ -265,7 +265,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         # Is the input datatype signed or unsigned?
         # The thresholding core needs to know this when comparing weights to inputs
-        if self.get_input_datatype().signed():
+        if self.get_input_datatype(0).signed():
             code_gen_dict["$SIGNED$"] = [str(1)]
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
@@ -411,12 +411,12 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
 
-                    if self.get_input_datatype() == DataType["BIPOLAR"]:
+                    if self.get_input_datatype(0) == DataType["BIPOLAR"]:
                         # store bipolar activations as binary
                         reshaped_input = (reshaped_input + 1) / 2
                         export_idt = DataType["BINARY"]
                     else:
-                        export_idt = self.get_input_datatype()
+                        export_idt = self.get_input_datatype(0)
 
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
@@ -540,7 +540,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         if expected_thresholds != n_thres_steps:
             if DataType[output_data_type].signed():
                 min_val = wdt.min()
@@ -548,7 +548,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # TODO: temporary fix for unsigned narrow quantization
             else:
                 max_val = wdt.max()
-                if max_val > self.get_input_datatype().max():
+                if max_val > self.get_input_datatype(0).max():
                     thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
                 else:
                     max_val = max_val + 1
