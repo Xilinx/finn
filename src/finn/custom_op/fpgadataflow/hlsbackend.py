@@ -33,14 +33,13 @@ from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow import templates
-from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import CppBuilder, make_build_dir
 from finn.util.hls import CallHLS
-from finn.util.pyverilator import make_single_source_file
 
 try:
-    from pyverilator import PyVerilator
+    import pyxsi_utils
 except ModuleNotFoundError:
-    PyVerilator = None
+    pyxsi_utils = None
 
 
 class HLSBackend(ABC):
@@ -67,8 +66,15 @@ class HLSBackend(ABC):
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
-        # default impl only returns the HLS verilog codegen dir
-        return [verilog_path]
+        subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+        # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir
+        # if it exists
+        ret = [verilog_path]
+        if os.path.isdir(subcore_verilog_path):
+            ret += [subcore_verilog_path]
+        return ret
 
     def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
@@ -85,30 +91,16 @@ class HLSBackend(ABC):
         return verilog_files
 
     def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
-
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
+        """Creates a xsi emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path."""
 
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
-        tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
-        target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
-        make_single_source_file(verilog_files, target_file)
-
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            self.get_verilog_top_module_name() + ".v",
-            build_dir=tmp_build_dir,
-            verilog_path=[single_src_dir],
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
+        ret = pyxsi_utils.compile_sim_obj(
+            self.get_verilog_top_module_name(), verilog_files, single_src_dir
         )
         # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+        self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
@@ -244,6 +236,7 @@ class HLSBackend(ABC):
         builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
         builder.append_includes("-I$FINN_ROOT/custom_hls")
         builder.append_includes("-I{}/include".format(os.environ["HLS_PATH"]))
+        builder.append_includes("-I{}/include".format(os.environ["VITIS_PATH"]))
         builder.append_includes("--std=c++14")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")

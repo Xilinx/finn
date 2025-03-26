@@ -140,8 +140,13 @@ class FMPadding_Pixel_hls(FMPadding_Pixel, HLSBackend):
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            io_dict = {
+                "inputs": {"in0": rtlsim_inp},
+                "outputs": {"out": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            rtlsim_output = io_dict["outputs"]["out"]
             odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
