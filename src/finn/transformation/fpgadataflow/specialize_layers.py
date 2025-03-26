@@ -64,8 +64,8 @@ def _determine_impl_style(node, fpgapart, model):
                 else:
                     return "hls"
             elif optype == "VVAU":
-                idt = node_inst.get_input_datatype()
-                wdt = node_inst.get_weight_datatype()
+                idt = node_inst.get_input_datatype(0)
+                wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
                 weight_width_fit = wdt.bitwidth() >= 4
                 if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
@@ -278,8 +278,8 @@ def _vvu_rtl_possible(n, fpgapart):
     if not is_versal(fpgapart):
         return False
 
-    idt = node_inst.get_input_datatype()
-    wdt = node_inst.get_weight_datatype()
+    idt = node_inst.get_input_datatype(0)
+    wdt = node_inst.get_input_datatype(1)
     in_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.min() < 0)
     weight_width_in_range = wdt.bitwidth() <= 8
     signed_weights = wdt.min() < 0
