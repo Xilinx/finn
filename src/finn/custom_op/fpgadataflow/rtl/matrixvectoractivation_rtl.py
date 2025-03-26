@@ -81,7 +81,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                     not float32 as expected."""
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype()
+                    export_idt = self.get_input_datatype(0)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
@@ -93,23 +93,23 @@ class MVAU_rtl(MVAU, RTLBackend):
                 in_ind += 1
 
                 sim = self.get_rtlsim()
-                nbits = self.get_instream_width()
+                nbits = self.get_instream_width(0)
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 reset_rtlsim(sim)
                 toggle_clk(sim)
                 if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_weightstream_width()
-                    export_wdt = self.get_weight_datatype()
+                    wnbits = self.get_instream_width(1)
+                    export_wdt = self.get_input_datatype(1)
                     wei = npy_to_rtlsim_input(
                         "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                     )
                     num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                     io_dict = {
-                        "inputs": {"in0": inp, "weights": wei * num_w_reps},
-                        "outputs": {"out": []},
+                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                        "outputs": {"out0": []},
                     }
                     self.rtlsim_multi_io(sim, io_dict)
-                    output = io_dict["outputs"]["out"]
+                    output = io_dict["outputs"]["out0"]
                 else:
                     output = self.rtlsim(sim, inp)
                 odt = self.get_output_datatype()
@@ -229,7 +229,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # determine if weights are narrow range and add parameter to code gen dict
         weights = model.get_initializer(self.onnx_node.input[1])
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         narrow_weights = 0 if np.min(weights) == wdt.min() else 1
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
