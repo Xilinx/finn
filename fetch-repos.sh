@@ -45,7 +45,6 @@ ACTS_COMMIT="8e127c35e0c2feadbeba86de4be92e6f356dd560"
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
-PYVERILATOR_URL="https://github.com/maltanar/pyverilator.git"
 CNPY_URL="https://github.com/maltanar/cnpy.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
@@ -60,7 +59,6 @@ ACTS_URL="https://github.com/maltanar/activations.git"
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
 BREVITAS_DIR="brevitas"
-PYVERILATOR_DIR="pyverilator"
 CNPY_DIR="cnpy"
 HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
@@ -125,7 +123,6 @@ fetch_board_files() {
 fetch_repo $QONNX_URL $QONNX_COMMIT $QONNX_DIR
 fetch_repo $FINN_EXP_URL $FINN_EXP_COMMIT $FINN_EXP_DIR
 fetch_repo $BREVITAS_URL $BREVITAS_COMMIT $BREVITAS_DIR
-fetch_repo $PYVERILATOR_URL $PYVERILATOR_COMMIT $PYVERILATOR_DIR
 fetch_repo $CNPY_URL $CNPY_COMMIT $CNPY_DIR
 fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR

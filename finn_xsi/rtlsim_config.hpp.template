@@ -1,0 +1,43 @@
+/****************************************************************************
+ * Copyright (C) 2025, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * @brief	Configuration template for C++ rtlsim driver for Verilog designs.
+ * @author	Yaman Umuroğlu <yaman.umuroglu@amd.com>
+ * @note
+ *	All code template arguments formatted like @TEMPLATE@ must be filled in
+ *	prior to compilation.
+ ***************************************************************************/
+
+struct stream_desc {
+	char const *name;
+	size_t      job_size;
+	// Next job can only start this many clock ticks after start of predecessor.
+	size_t      job_ticks;
+};
+
+// sim kernel .so to use (depends on Vivado version)
+static char const  kernel_libname[] = "@SIMKERNEL_SO@";
+
+// design library .so to use (important to use this relative path here,
+// due to how XSI looks for certain files)
+static char const  design_libname[] = "xsim.dir/@TOP_MODULE_NAME@/xsimk.so";
+
+// AXI stream descriptors {stream_name, transactions_per_inference}
+// input AXI stream descriptors
+static std::initializer_list<stream_desc> const  istream_descs { @ISTREAM_DESC@ };
+
+// output AXI stream descriptors
+static std::initializer_list<stream_desc> const  ostream_descs { @OSTREAM_DESC@ };
+
+// number of inferences to perform
+constexpr unsigned  n_inferences = @N_INFERENCES@;
+
+// max number of cycles to wait for output activity on any stream before timeout
+constexpr unsigned  max_iters = @TIMEOUT_CYCLES@;
+
+// filename for trace and debug, if enabled. This needs xelab -debug option too.
+static char const *const trace_filename = @TRACE_FILE@;
+static char const *const xsim_log_filename = @XSIM_LOG_FILE@;

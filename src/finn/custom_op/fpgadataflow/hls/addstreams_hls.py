@@ -126,8 +126,6 @@ class AddStreams_hls(AddStreams, HLSBackend):
                 "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim)
             io_dict = {"inputs": {"in0": rtlsim_inp0, "in1": rtlsim_inp1}, "outputs": {"out": []}}
             self.rtlsim_multi_io(sim, io_dict)
             rtlsim_output = io_dict["outputs"]["out"]

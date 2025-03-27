@@ -186,7 +186,6 @@ def test_fpgadataflow_checksum():
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
 
     # define function to read out the checksums from axilite
     checksums = []
