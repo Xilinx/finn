@@ -610,7 +610,7 @@ def test_mvau_fifocharacterize_rtlsim(
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
-    exp_total_cycles = total_fold + 10
+    exp_total_cycles = int(np.ceil(total_fold * 1.2))
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
