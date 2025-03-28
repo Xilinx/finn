@@ -86,13 +86,6 @@ class LargeFIFOMemStyle(str, Enum):
     URAM = "ultra"
 
 
-class CPPDriverTransferType(str, Enum):
-    """A stream transfer directly"""
-
-    STREAM = "stream"
-    MEMORY_BUFFERED = "memory_buffered"
-
-
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
@@ -359,12 +352,6 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
-
-    # TODO: This should be unified with the host/HBM memory selection process!
-    #: Determine which type of data transfer the driver should use.
-    #: Stream streams the data directly into the pipeline, memory_buffered writes
-    #: to board memory first
-    cpp_driver_transfer_type: Optional[CPPDriverTransferType] = "memory_buffered"
 
     #: Determine if the C++ driver should be generated instead of the PYNQ driver
     #: If set to latest newest version will be used

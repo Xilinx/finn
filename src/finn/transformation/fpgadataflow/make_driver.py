@@ -43,7 +43,6 @@ from typing import Dict, Tuple
 
 import finn.util
 import finn.util.data_packing as dpk
-from finn.builder.build_dataflow_config import CPPDriverTransferType
 from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import (
@@ -90,14 +89,12 @@ class MakeCPPDriver(Transformation):
     def __init__(
         self,
         platform: str,
-        transfer_mode: CPPDriverTransferType,
         build_dir: str,
         version: str,
         driver_dir,
     ):
         super().__init__()
         self.platform: str = platform
-        self.transfer_mode: CPPDriverTransferType = transfer_mode
         self.build_dir = build_dir
         self.version = version
         self.driver_dir = driver_dir

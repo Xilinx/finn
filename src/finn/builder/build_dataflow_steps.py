@@ -68,7 +68,6 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation_complete,
 )
 from finn.builder.build_dataflow_config import (
-    CPPDriverTransferType,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
@@ -768,13 +767,10 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         print("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         # generate C++ Driver
-        if cfg.cpp_driver_transfer_type is None:
-            cfg.cpp_driver_transfer_type = CPPDriverTransferType.MEMORY_BUFFERED
 
         model = model.transform(
             MakeCPPDriver(
                 cfg._resolve_driver_platform(),
-                transfer_mode=cfg.cpp_driver_transfer_type,
                 build_dir=cfg.output_dir,
                 version=cfg.cpp_driver_version,
                 driver_dir=driver_dir,
