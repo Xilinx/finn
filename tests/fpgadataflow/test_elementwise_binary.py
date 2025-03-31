@@ -160,7 +160,6 @@ def mock_elementwise_binary_operation(
 ):
     # Automatically derive the output shape by broadcasting the inputs
     out_shape = np.broadcast_shapes(lhs_shape, rhs_shape)
-    rtlsim_backend = "pyxsi" if "FLOAT" in out_dtype else "pyverilator"
 
     # Create a node representing the binary elementwise operation
     node = oh.make_node(
@@ -190,8 +189,6 @@ def mock_elementwise_binary_operation(
         out_shape=out_shape,
         # Number of elements to process in parallel
         PE=pe,
-        # backend to be used for rtlsim
-        rtlsim_backend=rtlsim_backend,
     )
     # Construct the input tensor value infos
     lhs = oh.make_tensor_value_info("lhs", TensorProto.FLOAT, lhs_shape)

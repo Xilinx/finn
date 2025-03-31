@@ -178,7 +178,6 @@ def test_float_subgraph(use_fp16):
     produced_nodebynode_rtlsim = execute_onnx(model, idict)["out0"]
     assert (golden == produced_nodebynode_rtlsim).all()
     # skip ahead to FIFO sizing, no DWCs etc needed since all PE=1
-    model.set_metadata_prop("rtlsim_backend", "pyxsi")
     model = model.transform(InsertAndSetFIFODepths(fpga_part, target_clk_ns))
     postfifo_optypes = [x.op_type for x in model.graph.node]
     exp_postfifo_optypes = [

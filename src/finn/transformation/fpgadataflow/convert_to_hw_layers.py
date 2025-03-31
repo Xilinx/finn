@@ -1873,9 +1873,6 @@ class InferElementwiseBinaryOperation(Transformation):
                 inst.set_nodeattr(
                     "out_dtype", odt_name
                 )
-                # need to use pyxsi as rtlsim backend for float ops
-                if "FLOAT" in odt_name:
-                    inst.set_nodeattr("rtlsim_backend", "pyxsi")
                 # Insert shape attributes from "context" into the CustomOp node
                 # TODO: Find a way to handle this via shape inference?
                 inst.set_nodeattr(
@@ -1979,9 +1976,6 @@ class InferReLUAsElementwiseMax(Transformation):
                 inst.set_nodeattr(
                     "out_dtype", odt_name
                 )
-                # need to use pyxsi as rtlsim backend for float ops
-                if "FLOAT" in odt_name:
-                    inst.set_nodeattr("rtlsim_backend", "pyxsi")
                 # Insert shape attributes from "context" into the CustomOp node
                 # TODO: Find a way to handle this via shape inference?
                 inst.set_nodeattr(
@@ -2096,8 +2090,6 @@ class InferQuantAsFloat2Int(Transformation):
                 inst.set_nodeattr(
                     "out_dtype", odt_name
                 )
-                # need to use pyxsi as rtlsim backend for float ops
-                inst.set_nodeattr("rtlsim_backend", "pyxsi")
                 # set bitwidth as attribute
                 inst.set_nodeattr("bitwidth", bitwidth)
                 # Insert shape attributes from "context" into the CustomOp node
@@ -2189,8 +2181,6 @@ class InferFP32ToFP16Cast(Transformation):
                 inst.set_nodeattr(
                     "out_dtype", odt_name
                 )
-                # need to use pyxsi as rtlsim backend for float ops
-                inst.set_nodeattr("rtlsim_backend", "pyxsi")
                 # Insert shape attributes from "context" into the CustomOp node
                 # TODO: Find a way to handle this via shape inference?
                 inst.set_nodeattr(
