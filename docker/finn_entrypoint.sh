@@ -62,7 +62,7 @@ mv ${FINN_DEPS_DIR}/qonnx/pyproject.tmp ${FINN_DEPS_DIR}/qonnx/pyproject.toml
 
 cat <(tail -n +3 python_repos.txt) | while IFS=',' read -a arr ; do
     # extract line to $arr as array separated by ','
-    pip install --user -e ${FINN_DEPS_DIR}/deps/"${arr[0]}"
+    pip install --user -e ${FINN_DEPS_DIR}/"${arr[0]}"
 done
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
