@@ -276,6 +276,8 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            self.generate_hdl_memstream(fpgapart)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)

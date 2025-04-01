@@ -41,6 +41,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -881,12 +882,12 @@ class MVAU(HWCustomOp):
             intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+            if runtime_writeable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def generate_hdl_memstream(self):
+    def generate_hdl_memstream(self, fpgapart):
         template_path = (
             os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
         )
@@ -895,14 +896,16 @@ class MVAU(HWCustomOp):
         padded_width = self.get_weightstream_width_padded()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
+        ram_style = self.get_nodeattr("ram_style")
+        init_file = code_gen_dir + "/memblock.dat"
+        if ram_style == "ultra" and not is_versal(fpgapart):
+            init_file = ""
         code_gen_dict = {
             "$MODULE_NAME$": [mname],
             "$DEPTH$": [str(wmem)],
             "$WIDTH$": [str(padded_width)],
-            "$INIT_FILE$": [
-                self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-            ],
-            "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
+            "$INIT_FILE$": [init_file],
+            "$RAM_STYLE$": [ram_style],
             "$PUMPED_MEMORY$": [str(self.get_nodeattr("pumpedMemory"))],
         }
         # apply code generation to template
@@ -924,12 +927,7 @@ class MVAU(HWCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
-            self.generate_hdl_memstream()
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            # if self.get_nodeattr("ram_style") == "ultra":
-            #    assert (
-            #        runtime_writable == 1
-            #    ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
             node_name = self.onnx_node.name
             sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
@@ -1024,7 +1022,7 @@ class MVAU(HWCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
-            if runtime_writable:
+            if runtime_writeable:
                 # expose axi lite interface for writeable weights
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(

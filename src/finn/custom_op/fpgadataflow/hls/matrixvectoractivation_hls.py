@@ -133,6 +133,13 @@ class MVAU_hls(MVAU, HLSBackend):
             mult_dsp = 0
         return int(mult_dsp)
 
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Generates c++ code and tcl script for ip generation."""
+        super().code_generation_ipgen(model, fpgapart, clk)
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            self.generate_hdl_memstream(fpgapart)
+
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
         data types."""
