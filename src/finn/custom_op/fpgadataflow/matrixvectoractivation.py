@@ -957,13 +957,13 @@ class MVAU(HWCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the RTL block
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
             # instantiate a streamer and connect it to the IP
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
             file_suffix = "_memstream_wrapper.v"
+            # automatically find memstream verilog component in code generation directory
             for fname in os.listdir(code_gen_dir):
                 if fname.endswith(file_suffix):
                     strm_tmpl = fname

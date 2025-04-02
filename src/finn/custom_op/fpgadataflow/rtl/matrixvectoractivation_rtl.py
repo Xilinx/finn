@@ -292,15 +292,22 @@ class MVAU_rtl(MVAU, RTLBackend):
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
 
+        # check if settings are valid
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        simd = self.get_nodeattr("SIMD")
+        if pumped_compute and simd != 1:
+            raise Exception(
+                "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
+            )
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(dsp_block)]
-        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumpedCompute"))]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
-        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
