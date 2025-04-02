@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block
+from finn.util.basic import get_dsp_block, is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -277,6 +277,12 @@ class MVAU_rtl(MVAU, RTLBackend):
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
