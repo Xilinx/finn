@@ -488,8 +488,11 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
 ):
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
-    if preferred_impl_style == "hls" and ram_style == "ultra":
-        pytest.skip("Known error for runtime writeable weights and HLS MVU. Reference issue...")
+    if preferred_impl_style == "hls" and ram_style == "ultra" and not is_versal(part):
+        # reference: https://github.com/Xilinx/finn/issues/1312
+        pytest.skip(
+            "Known error for runtime writeable weights and HLS MVU. Described in issue 1312"
+        )
     if nf == -1:
         nf = mh
     if sf == -1:
