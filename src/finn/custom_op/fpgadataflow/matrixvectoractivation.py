@@ -963,9 +963,13 @@ class MVAU(HWCustomOp):
             # instantiate a streamer and connect it to the IP
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
-            strm_tmpl_name = node_name + "_memstream_wrapper"
+            file_suffix = "_memstream_wrapper.v"
+            for fname in os.listdir(code_gen_dir):
+                if fname.endswith(file_suffix):
+                    strm_tmpl = fname
+            strm_tmpl_name = strm_tmpl[:-2]
             sourcefiles = [
-                os.path.join(code_gen_dir, strm_tmpl_name + ".v"),
+                os.path.join(code_gen_dir, strm_tmpl),
                 swg_rtllib_dir + "axilite_if.v",
                 swg_rtllib_dir + "memstream_axi.sv",
                 swg_rtllib_dir + "memstream.sv",
