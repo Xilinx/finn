@@ -295,7 +295,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         # check if settings are valid
         pumped_compute = self.get_nodeattr("pumpedCompute")
         simd = self.get_nodeattr("SIMD")
-        if pumped_compute and simd != 1:
+        if pumped_compute and simd == 1:
             raise Exception(
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
