@@ -80,14 +80,9 @@ module $MODULE_NAME$_memstream_wrapper #(
 	output	[((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	// Used to be set to "" when targeting pre-Versal
-	// URAMs to avoid synth errors, temporarily disabled
-	// TODO add appropriate define check here for Versal
-	localparam  INIT_FILTERED = INIT_FILE;
-
 	memstream_axi #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
-		.INIT_FILE(INIT_FILTERED),
+		.INIT_FILE(INIT_FILE),
 		.RAM_STYLE(RAM_STYLE),
 		.PUMPED_MEMORY(PUMPED_MEMORY)
 	) core (
