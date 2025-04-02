@@ -624,7 +624,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             addr += 4
 
     if not is_versal(part) and ram_style == "ultra":
-        rtlsim_exec(model, exec_ctx_dict, pre_hook=write_weights)  # , post_hook=read_weights)
+        rtlsim_exec(model, exec_ctx_dict, pre_hook=write_weights, post_hook=read_weights)
         output_mvau_rtl_stitch = exec_ctx_dict["global_out"]
         assert extracted_weight_stream == weight_stream
     else:
