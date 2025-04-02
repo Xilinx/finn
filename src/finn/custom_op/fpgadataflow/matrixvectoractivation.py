@@ -41,7 +41,6 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
@@ -886,40 +885,6 @@ class MVAU(HWCustomOp):
             if runtime_writeable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
-
-    def generate_hdl_memstream(self, fpgapart):
-        template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
-        )
-        mname = self.onnx_node.name
-        wmem = self.calc_wmem()
-        padded_width = self.get_weightstream_width_padded()
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        ram_style = self.get_nodeattr("ram_style")
-        init_file = code_gen_dir + "/memblock.dat"
-        if ram_style == "ultra" and not is_versal(fpgapart):
-            init_file = ""
-        code_gen_dict = {
-            "$MODULE_NAME$": [mname],
-            "$DEPTH$": [str(wmem)],
-            "$WIDTH$": [str(padded_width)],
-            "$INIT_FILE$": [init_file],
-            "$RAM_STYLE$": [ram_style],
-            "$PUMPED_MEMORY$": [str(self.get_nodeattr("pumpedMemory"))],
-        }
-        # apply code generation to template
-        with open(template_path, "r") as f:
-            template_wrapper = f.read()
-        for key in code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
-            template_wrapper = template_wrapper.replace(key, code_gen_line)
-        with open(
-            os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper)
 
     def code_generation_ipi(self):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
