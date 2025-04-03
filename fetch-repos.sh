@@ -55,10 +55,19 @@ RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
 PYXSI_DIR="pyxsi"
 
-# absolute path to this script, e.g. /home/user/bin/foo.sh
-SCRIPT=$(readlink -f "$0")
-# absolute path this script is in, thus /home/user/bin
-SCRIPTPATH=$(dirname "$SCRIPT")
+# if FINN_DEPS_DIR is set, use that variable to pull dependencies
+# otherwise default to scriptpath + /deps
+if [ -z "$FINN_DEPS_DIR" ];then
+    # absolute path to this script, e.g. /home/user/bin/foo.sh
+    SCRIPT=$(readlink -f "$0")
+    # absolute path this script is in, thus /home/user/bin
+    SCRIPTPATH=$(dirname "$SCRIPT")
+    FINN_DEPS_DIR="$SCRIPTPATH/deps"
+else
+    if [ ! -d "$FINN_DEPS_DIR" ]; then
+        mkdir "$FINN_DEPS_DIR"
+    fi
+fi
 
 fetch_repo() {
     # URL for git repo to be cloned
@@ -68,7 +77,7 @@ fetch_repo() {
     # directory to clone to under deps/
     REPO_DIR=$3
     # absolute path for the repo local copy
-    CLONE_TO=$SCRIPTPATH/deps/$REPO_DIR
+    CLONE_TO=$FINN_DEPS_DIR/$REPO_DIR
 
     # clone repo if dir not found
     if [ ! -d "$CLONE_TO" ]; then
@@ -92,17 +101,17 @@ fetch_repo() {
 
 fetch_board_files() {
     echo "Downloading and extracting board files..."
-    mkdir -p "$SCRIPTPATH/deps/board_files"
+    mkdir -p "$FINN_DEPS_DIR/board_files"
     OLD_PWD=$(pwd)
-    cd "$SCRIPTPATH/deps/board_files"
+    cd "$FINN_DEPS_DIR/board_files"
     wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
     wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
     unzip -q pynq-z2.zip
-    cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
-    cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
-    cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;
-    cp -r $SCRIPTPATH/deps/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $SCRIPTPATH/deps/board_files/;
+    cp -r $FINN_DEPS_DIR/$AVNET_BDF_DIR/* $FINN_DEPS_DIR/board_files/
+    cp -r $FINN_DEPS_DIR/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $FINN_DEPS_DIR/board_files/;
+    cp -r $FINN_DEPS_DIR/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $FINN_DEPS_DIR/board_files/;
+    cp -r $FINN_DEPS_DIR/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $FINN_DEPS_DIR/board_files/;
     cd $OLD_PWD
 }
 
@@ -126,17 +135,17 @@ if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then
     echo "Skipping download and verification of board files"
 else
     # download extra board files and extract if needed
-    if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then
+    if [ ! -d "$FINN_DEPS_DIR/board_files" ]; then
         fetch_board_files
     else
-        cd $SCRIPTPATH
-        BOARD_FILES_MD5=$(find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
+        cd $FINN_DEPS_DIR
+        BOARD_FILES_MD5=$(find board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
         if [ "$BOARD_FILES_MD5" = "$EXP_BOARD_FILES_MD5" ]; then
             echo "Verified board files folder content md5: $BOARD_FILES_MD5"
         else
             echo "Board files folder md5: expected $BOARD_FILES_MD5 found $EXP_BOARD_FILES_MD5"
             echo "Board files folder content mismatch, removing and re-downloading"
-            rm -rf deps/board_files/
+            rm -rf board_files/
             fetch_board_files
         fi
     fi

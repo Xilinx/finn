@@ -129,6 +129,19 @@ def get_vivado_root():
         )
 
 
+def get_deps_dir():
+    "Return the directory that contains FINN dependencies."
+
+    try:
+        return os.environ["FINN_DEPS_DIR"]
+    except KeyError:
+        raise Exception(
+            """Environment variable FINN_DEPS_DIR must be set
+        correctly. Please ensure you have launched the Docker contaier correctly.
+        """
+        )
+
+
 def pyverilate_get_liveness_threshold_cycles():
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""

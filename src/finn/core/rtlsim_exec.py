@@ -33,6 +33,7 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.util.basic import (
     get_finn_root,
     get_vivado_root,
+    get_deps_dir,
     launch_process_helper,
     make_build_dir,
     pyverilate_get_liveness_threshold_cycles,
@@ -278,7 +279,7 @@ def rtlsim_exec_cppxsi(
         f.write(fifosim_cpp_template)
 
     vivado_incl_dir = get_vivado_root() + "/data/xsim/include"
-    xsi_include_dir = get_finn_root() + "/deps/pyxsi/src"
+    xsi_include_dir = get_deps_dir() + "/pyxsi/src"
     # launch g++ to compile the rtlsim executable
     build_cmd = [
         "g++",
