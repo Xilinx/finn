@@ -64,7 +64,9 @@ if [ -z "$FINN_DEPS_DIR" ];then
     SCRIPTPATH=$(dirname "$SCRIPT")
     FINN_DEPS_DIR="$SCRIPTPATH/deps"
 else
-    mkdir "$FINN_DEPS_DIR"
+    if [ ! -d "$FINN_DEPS_DIR" ]; then
+        mkdir "$FINN_DEPS_DIR"
+    fi
 fi
 
 fetch_repo() {
@@ -136,14 +138,14 @@ else
     if [ ! -d "$FINN_DEPS_DIR/board_files" ]; then
         fetch_board_files
     else
-        cd $SCRIPTPATH
-        BOARD_FILES_MD5=$(find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
+        cd $FINN_DEPS_DIR
+        BOARD_FILES_MD5=$(find board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
         if [ "$BOARD_FILES_MD5" = "$EXP_BOARD_FILES_MD5" ]; then
             echo "Verified board files folder content md5: $BOARD_FILES_MD5"
         else
             echo "Board files folder md5: expected $BOARD_FILES_MD5 found $EXP_BOARD_FILES_MD5"
             echo "Board files folder content mismatch, removing and re-downloading"
-            rm -rf deps/board_files/
+            rm -rf board_files/
             fetch_board_files
         fi
     fi
