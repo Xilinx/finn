@@ -286,41 +286,45 @@ class HWCustomOp(CustomOp):
     def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
         """Helper function to generate verilog code for memstream component.
         Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
-        template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
-        )
-        mname = self.onnx_node.name
-        if self.onnx_node.op_type.startswith("Thresholding"):
-            depth = self.calc_tmem()
-        else:
-            depth = self.calc_wmem()
-        padded_width = self.get_weightstream_width_padded()
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
+        if self.onnx_node.op_type in ops:
+            template_path = (
+                os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+            )
+            mname = self.onnx_node.name
+            if self.onnx_node.op_type.startswith("Thresholding"):
+                depth = self.calc_tmem()
+            else:
+                depth = self.calc_wmem()
+            padded_width = self.get_weightstream_width_padded()
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        ram_style = self.get_nodeattr("ram_style")
-        init_file = code_gen_dir + "/memblock.dat"
-        if ram_style == "ultra" and not is_versal(fpgapart):
-            init_file = ""
-        code_gen_dict = {
-            "$MODULE_NAME$": [mname],
-            "$DEPTH$": [str(depth)],
-            "$WIDTH$": [str(padded_width)],
-            "$INIT_FILE$": [init_file],
-            "$RAM_STYLE$": [ram_style],
-            "$PUMPED_MEMORY$": [str(pumped_memory)],
-        }
-        # apply code generation to template
-        with open(template_path, "r") as f:
-            template_wrapper = f.read()
-        for key in code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
-            template_wrapper = template_wrapper.replace(key, code_gen_line)
-        with open(
-            os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper)
+            ram_style = self.get_nodeattr("ram_style")
+            init_file = code_gen_dir + "/memblock.dat"
+            if ram_style == "ultra" and not is_versal(fpgapart):
+                init_file = ""
+            code_gen_dict = {
+                "$MODULE_NAME$": [mname],
+                "$DEPTH$": [str(depth)],
+                "$WIDTH$": [str(padded_width)],
+                "$INIT_FILE$": [init_file],
+                "$RAM_STYLE$": [ram_style],
+                "$PUMPED_MEMORY$": [str(pumped_memory)],
+            }
+            # apply code generation to template
+            with open(template_path, "r") as f:
+                template_wrapper = f.read()
+            for key in code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(code_gen_dict[key])
+                template_wrapper = template_wrapper.replace(key, code_gen_line)
+            with open(
+                os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
+                "w",
+            ) as f:
+                f.write(template_wrapper)
+        else:
+            pass
 
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
