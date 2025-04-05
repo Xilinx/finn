@@ -405,9 +405,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
     # Minimizes the width of the accumulator data type, 'accumulator width' here
     # due to convention, it is actually the output data type
     def minimize_accumulator_width(self, model: ModelWrapper):
-        # If any of the inputs is not an integer, the bit-width cannot be
+        # If any of the inputs is not an integer (fixed-point), the bit-width cannot be
         # minimized
-        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
+        if not all([self.lhs_dtype.is_integer() or self.lhs_dtype.is_fixed_point(),
+                    self.rhs_dtype.is_integer() or self.rhs_dtype.is_fixed_point()]):
             # Check the annotated tensor data type corresponds to the stored
             # attribute
             assert (model.get_tensor_datatype(self.onnx_node.output[0])
@@ -511,35 +512,52 @@ class ElementwiseAdd(ElementwiseBinaryOperation):
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
-        # Get the width of the data types of the inputs and the larger of the
-        # two widths
-        lhs_width = self.lhs_dtype.bitwidth()
-        rhs_width = self.rhs_dtype.bitwidth()
-        max_width = max(lhs_width, rhs_width)
-        # Check whether the addition operation is a signed addition
-        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-        # By default, the output is one bit more than the widest of the inputs
-        out_width = max_width + 1
-        # If the addition is signed, the output might be wider depending on
-        # which of the inputs is signed
-        if signed:
-            # Find the wider and narrower of the two inputs by assuming left to
-            # right order first
-            wider, narrower = self.lhs_dtype, self.rhs_dtype
-            # Swap if the order is not correct
-            if narrower.bitwidth() > wider.bitwidth():
-                wider, narrower = narrower, wider
-            # If and only if the wider is unsigned and the narrower is signed,
-            # add two bits to the output width
-            if not wider.signed() and narrower.signed():
-                # Out has two bits more than the widest input
-                out_width = max_width + 2
-            # The new output type is a signed integer of the calculated
-            # bit-width
-            return DataType[f"INT{out_width}"]
-        # By default, if both inputs are unsigned, the output is unsigned as
-        # well
-        return DataType[f"UINT{out_width}"]
+        all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
+        if all_ints:
+            # Get the width of the data types of the inputs and the larger of the
+            # two widths
+            lhs_width = self.lhs_dtype.bitwidth()
+            rhs_width = self.rhs_dtype.bitwidth()
+            max_width = max(lhs_width, rhs_width)
+            # Check whether the addition operation is a signed addition
+            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+            # By default, the output is one bit more than the widest of the inputs
+            out_width = max_width + 1
+            # If the addition is signed, the output might be wider depending on
+            # which of the inputs is signed
+            if signed:
+                # Find the wider and narrower of the two inputs by assuming left to
+                # right order first
+                wider, narrower = self.lhs_dtype, self.rhs_dtype
+                # Swap if the order is not correct
+                if narrower.bitwidth() > wider.bitwidth():
+                    wider, narrower = narrower, wider
+                # If and only if the wider is unsigned and the narrower is signed,
+                # add two bits to the output width
+                if not wider.signed() and narrower.signed():
+                    # Out has two bits more than the widest input
+                    out_width = max_width + 2
+                # The new output type is a signed integer of the calculated
+                # bit-width
+                return DataType[f"INT{out_width}"]
+            # By default, if both inputs are unsigned, the output is unsigned as
+            # well
+            return DataType[f"UINT{out_width}"]
+        else:
+            # at least one input is fixed-point
+            lhs_fracbits = self.lhs_dtype.frac_bits() if self.lhs_dtype.is_fixed_point() else 0
+            rhs_fracbits = self.rhs_dtype.frac_bits() if self.rhs_dtype.is_fixed_point() else 0
+            out_fracbits = max(lhs_fracbits, rhs_fracbits)
+            if self.lhs_dtype.is_fixed_point():
+                lhs_intbits = self.lhs_dtype.int_bits()
+            else:
+                lhs_intbits = self.lhs_dtype.bitwidth()
+            if self.rhs_dtype.is_fixed_point():
+                rhs_intbits = self.rhs_dtype.int_bits()
+            else:
+                rhs_intbits = self.rhs_dtype.bitwidth()
+            out_intbits = max(lhs_intbits, rhs_intbits) + 1
+            return DataType[f"FIXED<{out_fracbits+out_intbits},{out_intbits}>"]
 
 
 # Derive a specialization to implement elementwise subtraction of two inputs
@@ -551,31 +569,35 @@ class ElementwiseSub(ElementwiseBinaryOperation):
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
-        # Get the width of the data types of the inputs and the larger of the
-        # two widths
-        lhs_width = self.lhs_dtype.bitwidth()
-        rhs_width = self.rhs_dtype.bitwidth()
-        max_width = max(lhs_width, rhs_width)
-        # Check whether the addition operation is a signed addition
-        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-        # By default, the output is one bit more than the widest of the inputs
-        out_width = max_width + 1
-        # If the operation is signed, the output might be wider depending on
-        # which of the inputs is signed
-        if signed:
-            # Find the wider and narrower of the two inputs by assuming left to
-            # right order first
-            wider, narrower = self.lhs_dtype, self.rhs_dtype
-            # Swap if the order is not correct
-            if narrower.bitwidth() > wider.bitwidth():
-                wider, narrower = narrower, wider
-            # If and only if the wider is unsigned and the narrower is signed,
-            # add two bits to the output width
-            if not wider.signed() and narrower.signed():
-                # Out has two bits more than the widest input
-                out_width = max_width + 2
-        # For subtraction, the output data type is always signed
-        return DataType[f"INT{out_width}"]
+        all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
+        if all_ints:
+            # Get the width of the data types of the inputs and the larger of the
+            # two widths
+            lhs_width = self.lhs_dtype.bitwidth()
+            rhs_width = self.rhs_dtype.bitwidth()
+            max_width = max(lhs_width, rhs_width)
+            # Check whether the addition operation is a signed addition
+            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+            # By default, the output is one bit more than the widest of the inputs
+            out_width = max_width + 1
+            # If the operation is signed, the output might be wider depending on
+            # which of the inputs is signed
+            if signed:
+                # Find the wider and narrower of the two inputs by assuming left to
+                # right order first
+                wider, narrower = self.lhs_dtype, self.rhs_dtype
+                # Swap if the order is not correct
+                if narrower.bitwidth() > wider.bitwidth():
+                    wider, narrower = narrower, wider
+                # If and only if the wider is unsigned and the narrower is signed,
+                # add two bits to the output width
+                if not wider.signed() and narrower.signed():
+                    # Out has two bits more than the widest input
+                    out_width = max_width + 2
+            # For subtraction, the output data type is always signed
+            return DataType[f"INT{out_width}"]
+        else:
+            assert False, "Subtraction of fixed-point types not yet supported"
 
 
 # Derive a specialization to implement elementwise multiplication of two inputs
@@ -587,16 +609,33 @@ class ElementwiseMul(ElementwiseBinaryOperation):
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
-        # Get the width of the data types of the inputs
-        lhs_width = self.lhs_dtype.bitwidth()
-        rhs_width = self.rhs_dtype.bitwidth()
-        # Check whether the addition operation is a signed addition
-        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-        # The width of the product is the sum of the widths of the operands.
-        out_width = lhs_width + rhs_width
-        # The product is treated as a signed type if either of the operands is
-        # of a signed type.
-        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+        all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
+        if all_ints:
+            # Get the width of the data types of the inputs
+            lhs_width = self.lhs_dtype.bitwidth()
+            rhs_width = self.rhs_dtype.bitwidth()
+            # Check whether the addition operation is a signed addition
+            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+            # The width of the product is the sum of the widths of the operands.
+            out_width = lhs_width + rhs_width
+            # The product is treated as a signed type if either of the operands is
+            # of a signed type.
+            return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+        else:
+            # at least one input is fixed-point
+            lhs_fracbits = self.lhs_dtype.frac_bits() if self.lhs_dtype.is_fixed_point() else 0
+            rhs_fracbits = self.rhs_dtype.frac_bits() if self.rhs_dtype.is_fixed_point() else 0
+            out_fracbits = lhs_fracbits + rhs_fracbits
+            if self.lhs_dtype.is_fixed_point():
+                lhs_intbits = self.lhs_dtype.int_bits()
+            else:
+                lhs_intbits = self.lhs_dtype.bitwidth()
+            if self.rhs_dtype.is_fixed_point():
+                rhs_intbits = self.rhs_dtype.int_bits()
+            else:
+                rhs_intbits = self.rhs_dtype.bitwidth()
+            out_intbits = lhs_intbits + rhs_intbits
+            return DataType[f"FIXED<{out_fracbits+out_intbits},{out_intbits}>"]
 
 
 # Derive a specialization to implement elementwise division of two inputs
@@ -609,17 +648,21 @@ class ElementwiseDiv(ElementwiseBinaryOperation):
 
     # Derives the output data type according to UG1399
     def _derive_out_dtype(self, model: ModelWrapper):
-        # Get the width of the data types of the inputs
-        lhs_width = self.lhs_dtype.bitwidth()
-        # Check whether the addition operation is a signed addition
-        signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-        # The width of the quotient is the width of the dividend if the divisor
-        # is an unsigned type. Otherwise, it is the width of the dividend plus
-        # one.
-        out_width = lhs_width if not self.rhs_dtype.signed() else lhs_width + 1
-        # The quotient is treated as a signed type if either of the operands is
-        # of a signed type.
-        return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+        all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
+        if all_ints:
+            # Get the width of the data types of the inputs
+            lhs_width = self.lhs_dtype.bitwidth()
+            # Check whether the addition operation is a signed addition
+            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+            # The width of the quotient is the width of the dividend if the divisor
+            # is an unsigned type. Otherwise, it is the width of the dividend plus
+            # one.
+            out_width = lhs_width if not self.rhs_dtype.signed() else lhs_width + 1
+            # The quotient is treated as a signed type if either of the operands is
+            # of a signed type.
+            return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+        else:
+            assert False, "Division of fixed-point types not yet supported"
 
 
 # TODO: ElementwiseMod - Requires extra attribute selecting the function
@@ -810,21 +853,28 @@ class ElementwiseMaximum(ElementwiseBinaryOperation):
     _operation = "Maximum", np.maximum, "({0} >= {1} ? {0} : {1})", None
 
     def _derive_out_dtype(self, model: ModelWrapper):
-        if (not self.lhs_dtype.is_integer()) or (not self.rhs_dtype.is_integer()):
+        if (self.lhs_dtype.get_canonical_name().startswith("FLOAT")
+                or self.rhs_dtype.get_canonical_name().startswith("FLOAT")):
             # if any of the inputs are float, make the output float as well
             # TODO better float dtype resolution? (fp16 also possible)
             return DataType["FLOAT32"]
         else:
+            all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
             # Get the width of the data types of the inputs  # noqa: Duplicate
             lhs_width = self.lhs_dtype.bitwidth()
             rhs_width = self.rhs_dtype.bitwidth()
-            # Check whether the addition operation is a signed addition
-            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-            # use the greater of the two input bitwidths for the output
-            out_width = max(lhs_width, rhs_width)
-            # The product is treated as a signed type if either of the operands is
-            # of a signed type.
-            return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+            if all_ints:
+                # Check whether the addition operation is a signed addition
+                signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+                # use the greater of the two input bitwidths for the output
+                out_width = max(lhs_width, rhs_width)
+                # The product is treated as a signed type if either of the operands is
+                # of a signed type.
+                return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+            else:
+                # use the input type with the greater bitwidth
+                # TODO edge cases? may need even more widening/repr capacity??
+                return self.lhs_dtype if lhs_width > rhs_width else self.rhs_dtype
 
 
 # Derive a specialization to implement elementwise minimum of two inputs
@@ -833,21 +883,28 @@ class ElementwiseMinimum(ElementwiseBinaryOperation):
     _operation = "Minimum", np.minimum, "({0} <= {1} ? {0} : {1})", None
 
     def _derive_out_dtype(self, model: ModelWrapper):
-        if (not self.lhs_dtype.is_integer()) or (not self.rhs_dtype.is_integer()):
+        if (self.lhs_dtype.get_canonical_name().startswith("FLOAT")
+                or self.rhs_dtype.get_canonical_name().startswith("FLOAT")):
             # if any of the inputs are float, make the output float as well
             # TODO better float dtype resolution? (fp16 also possible)
             return DataType["FLOAT32"]
         else:
+            all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
             # Get the width of the data types of the inputs  # noqa: Duplicate
             lhs_width = self.lhs_dtype.bitwidth()
             rhs_width = self.rhs_dtype.bitwidth()
-            # Check whether the addition operation is a signed addition
-            signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
-            # use the greater of the two input bitwidths for the output
-            out_width = max(lhs_width, rhs_width)
-            # The product is treated as a signed type if either of the operands is
-            # of a signed type.
-            return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+            if all_ints:
+                # Check whether the addition operation is a signed addition
+                signed = any([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+                # use the greater of the two input bitwidths for the output
+                out_width = max(lhs_width, rhs_width)
+                # The product is treated as a signed type if either of the operands is
+                # of a signed type.
+                return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+            else:
+                # use the input type with the greater bitwidth
+                # TODO edge cases? may need even more widening/repr capacity??
+                return self.lhs_dtype if lhs_width > rhs_width else self.rhs_dtype
 
 
 # reference function for Python exec
@@ -905,7 +962,7 @@ class ElementwiseFloat2Int(ElementwiseBinaryOperation):
         narrow = self.get_nodeattr("narrow")
         min_val = min_int(signed, narrow, bitwidth)
         max_val = max_int(signed, narrow, bitwidth)
-        return "clip(hls::round({0}), %d, %d)" % (min_val, max_val)
+        return "clip(hls::lrint({0}), %d, %d)" % (min_val, max_val)
 
     # RTL operation template available as property
     @property
