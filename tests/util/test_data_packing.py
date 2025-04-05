@@ -36,7 +36,11 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    rtlsim_output_to_npy,
+)
 
 
 @pytest.mark.util
@@ -166,12 +170,14 @@ def test_numpy_to_hls_code():
         "FLOAT16",
     ],
 )
-def test_npy_to_rtlsim_input(dtype_name):
+def test_npy_to_rtlsim_loopback(dtype_name):
     dtype = DataType[dtype_name]
     # check if slow and fast data packing produce the same non-sign-extended input for rtlsim
     # fast mode is triggered for certain data types if last (SIMD) dim = 1
-    inp_fast = gen_finn_dt_tensor(dtype, (1, 8, 8, 8 // 1, 1))  # N H W FOLD SIMD
-    inp_slow = inp_fast.reshape((1, 8, 8, 8 // 2, 2))  # N H W FOLD SIMD
+    fast_shape = (1, 8, 8, 8 // 1, 1)  # N H W FOLD SIMD
+    slow_shape = (1, 8, 8, 8 // 2, 2)
+    inp_fast = gen_finn_dt_tensor(dtype, fast_shape)
+    inp_slow = inp_fast.reshape(slow_shape)
 
     output_fast = npy_to_rtlsim_input(inp_fast, dtype, 1 * dtype.bitwidth())
     output_slow = npy_to_rtlsim_input(inp_slow, dtype, 2 * dtype.bitwidth())
@@ -185,3 +191,12 @@ def test_npy_to_rtlsim_input(dtype_name):
 
     assert all([(x >> dtype.bitwidth()) == 0 for x in output_fast]), "extraneous bits detected"
     assert np.all(output_fast == output_slow_split), "different behavior of packing modes detected"
+
+    loopback_npy_fast = rtlsim_output_to_npy(
+        output_fast, None, dtype, fast_shape, 1 * dtype.bitwidth(), 1 * dtype.bitwidth(), True
+    )
+    loopback_npy_slow = rtlsim_output_to_npy(
+        output_slow, None, dtype, slow_shape, 2 * dtype.bitwidth(), 2 * dtype.bitwidth(), True
+    )
+    assert np.all(loopback_npy_fast == inp_fast), "npy->rtlsim->npy failed for fast mode"
+    assert np.all(loopback_npy_slow == inp_slow), "npy->rtlsim->npy failed for slow mode"
