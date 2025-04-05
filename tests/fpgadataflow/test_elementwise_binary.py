@@ -219,7 +219,7 @@ def mock_elementwise_binary_operation(
     *NUMPY_REFERENCES.keys()
 ])
 # Data type of the left-hand-side input elements
-@pytest.mark.parametrize("lhs_dtype", ["INT8"])
+@pytest.mark.parametrize("lhs_dtype", ["INT8", "FIXED<8,2>"])
 # Data type of the right-hand-side input elements
 @pytest.mark.parametrize("rhs_dtype", ["INT8"])
 # Data type of the output elements
@@ -272,11 +272,14 @@ def test_elementwise_binary_operation_python(
     model = model.transform(GiveUniqueNodeNames())
 
     # Compute ground-truth output in software
+    # Note: Need to make sure these have the right type for the Numpy API:
+    # - int64 for integers, float32 for fixed-point
+    # Note: Assume all int test cases fit into int64 without loss of precision
+    lhs_container = np.int64 if DataType[lhs_dtype].is_integer() else np.float32
+    rhs_container = np.int64 if DataType[rhs_dtype].is_integer() else np.float32
     o_expected = numpy_reference(
-        # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume all test cases fit into int64 without loss of precision
-        context["lhs"].astype(np.int64),
-        context["rhs"].astype(np.int64)
+        context["lhs"].astype(lhs_container),
+        context["rhs"].astype(rhs_container)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
@@ -367,7 +370,7 @@ def test_elementwise_binary_operation_float_python(
     *NUMPY_REFERENCES.keys(),
 ])
 # Data type of the left-hand-side input elements
-@pytest.mark.parametrize("lhs_dtype", ["INT8"])
+@pytest.mark.parametrize("lhs_dtype", ["INT8", "FIXED<8,2>"])
 # Data type of the right-hand-side input elements
 @pytest.mark.parametrize("rhs_dtype", ["INT8"])
 # Data type of the output elements
@@ -381,7 +384,7 @@ def test_elementwise_binary_operation_float_python(
     [3, 32, 1, 16],
 ])
 # Which inputs to set as initializers
-@pytest.mark.parametrize("initializers", [
+@pytest.mark.parametrize("initiali zers", [
     [], ["lhs"], ["rhs"], ["lhs", "rhs"]
 ])
 # Number of elements to process in parallel
@@ -428,11 +431,14 @@ def test_elementwise_binary_operation_cppsim(
     model = model.transform(CompileCppSim())
 
     # Compute ground-truth output in software
+    # Note: Need to make sure these have the right type for the Numpy API:
+    # - int64 for integers, float32 for fixed-point
+    # Note: Assume all int test cases fit into int64 without loss of precision
+    lhs_container = np.int64 if DataType[lhs_dtype].is_integer() else np.float32
+    rhs_container = np.int64 if DataType[rhs_dtype].is_integer() else np.float32
     o_expected = numpy_reference(
-        # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume all test cases fit into int64 without loss of precision
-        context["lhs"].astype(np.int64),
-        context["rhs"].astype(np.int64)
+        context["lhs"].astype(lhs_container),
+        context["rhs"].astype(rhs_container)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
@@ -533,7 +539,7 @@ def test_elementwise_binary_operation_float_cppsim(
     *NUMPY_REFERENCES.keys()
 ])
 # Data type of the left-hand-side input elements
-@pytest.mark.parametrize("lhs_dtype", ["INT8"])
+@pytest.mark.parametrize("lhs_dtype", ["INT8", "FIXED<8,2>"])
 # Data type of the right-hand-side input elements
 @pytest.mark.parametrize("rhs_dtype", ["INT8"])
 # Data type of the output elements
@@ -595,11 +601,14 @@ def test_elementwise_binary_operation_rtlsim(
     model = model.transform(PrepareRTLSim())
 
     # Compute ground-truth output in software
+    # Note: Need to make sure these have the right type for the Numpy API:
+    # - int64 for integers, float32 for fixed-point
+    # Note: Assume all int test cases fit into int64 without loss of precision
+    lhs_container = np.int64 if DataType[lhs_dtype].is_integer() else np.float32
+    rhs_container = np.int64 if DataType[rhs_dtype].is_integer() else np.float32
     o_expected = numpy_reference(
-        # Note: Need to make sure these have the right type for the Numpy API
-        # Note: Assume all test cases fit into int64 without loss of precision
-        context["lhs"].astype(np.int64),
-        context["rhs"].astype(np.int64)
+        context["lhs"].astype(lhs_container),
+        context["rhs"].astype(rhs_container)
     )
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["out"]
