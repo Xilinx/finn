@@ -850,7 +850,20 @@ class ElementwiseBitwiseXor(ElementwiseBinaryOperation):
 # Derive a specialization to implement elementwise maximum of two inputs
 @register_custom_op
 class ElementwiseMaximum(ElementwiseBinaryOperation):
-    _operation = "Maximum", np.maximum, "({0} >= {1} ? {0} : {1})", None
+    @property
+    def npy_op(self) -> np.ufunc:
+        return np.maximum
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
 
     def _derive_out_dtype(self, model: ModelWrapper):
         if (self.lhs_dtype.get_canonical_name().startswith("FLOAT")
@@ -880,7 +893,20 @@ class ElementwiseMaximum(ElementwiseBinaryOperation):
 # Derive a specialization to implement elementwise minimum of two inputs
 @register_custom_op
 class ElementwiseMinimum(ElementwiseBinaryOperation):
-    _operation = "Minimum", np.minimum, "({0} <= {1} ? {0} : {1})", None
+    @property
+    def npy_op(self) -> np.ufunc:
+        return np.maximum
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        return "({0} <= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
 
     def _derive_out_dtype(self, model: ModelWrapper):
         if (self.lhs_dtype.get_canonical_name().startswith("FLOAT")
