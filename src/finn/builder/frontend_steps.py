@@ -31,6 +31,7 @@ import dataclasses
 import json
 import numpy as np
 import os
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 from qonnx.transformation.extract_quant_scale_zeropt import AbsorbQuantScale
@@ -246,6 +247,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     In the end am empty json file is created which can be used to set user specific
     preferred implementation styles for each node."""
 
+    override_eltwise_float = None
+    # TODO support something like an auto mode which uses parameter tensors to
+    # figure out correct fixed-point width
+    if cfg.override_eltwise_float is not None:
+        override_eltwise_float = (
+            lambda x: DataType[cfg.override_eltwise_float] if str(x).startswith("FLOAT") else x
+        )
+
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hw.InferThresholdingLayer())
@@ -264,9 +273,16 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferPool())
     model = model.transform(to_hw.InferConvInpGen())
     # standalone elementwise ops, activations and quantizers
-    model = model.transform(to_hw.InferElementwiseBinaryOperation())
-    model = model.transform(to_hw.InferReLUAsElementwiseMax())
-    model = model.transform(to_hw.InferQuantAsFloat2Int())
+    # TODO: better to change dtype annotations for target tensors directly with own transform,
+    # instead of piggy-backing on InferElementwiseBinaryOperation?
+    # consider fixing this if more and more layers will support fixed point impls
+    model = model.transform(
+        to_hw.InferElementwiseBinaryOperation(dtype_override_fxn=override_eltwise_float)
+    )
+    model = model.transform(
+        to_hw.InferReLUAsElementwiseMax(dtype_override_fxn=override_eltwise_float)
+    )
+    model = model.transform(to_hw.InferQuantAsFloat2Int(dtype_override_fxn=override_eltwise_float))
     # DuplicateStreams for forking outputs
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
     # get rid of Tranpose -> Tranpose identity seq
