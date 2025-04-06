@@ -240,6 +240,12 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Override datatype for elementwise operations with float inputs
+    #: to another datatype. When None, float datatypes are kept as-is. When specified
+    #: as e.g. "FIXED<16,8>", float datatypes will be implemented as 16-bit fixed-point,
+    #: with 8 bits for the integer part.
+    override_eltwise_float: Optional[str] = None
+
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
     #: on the the values of the weights, it will only be applied if runtime-
