@@ -384,7 +384,7 @@ def test_elementwise_binary_operation_float_python(
     [3, 32, 1, 16],
 ])
 # Which inputs to set as initializers
-@pytest.mark.parametrize("initiali zers", [
+@pytest.mark.parametrize("initializers", [
     [], ["lhs"], ["rhs"], ["lhs", "rhs"]
 ])
 # Number of elements to process in parallel
