@@ -139,8 +139,19 @@ def specialize_hls(model: ModelWrapper):
     return model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
 
+def float_to_fixed_fxn(in_dtype):
+    if in_dtype in [DataType["FLOAT32"]]:
+        return DataType["FIXED<16,8>"]
+    else:
+        return in_dtype
+
+
 @pytest.mark.parametrize("use_fp16", [True, False])
-def test_float_subgraph(use_fp16):
+@pytest.mark.parametrize("float_override", ["float", "fixed"])
+def test_float_subgraph(use_fp16, float_override):
+    if use_fp16 and float_override == "fixed":
+        pytest.skip("FP16 and fixed-point combination not yet supported")
+    float_to_fixed = float_to_fixed_fxn if float_override == "fixed" else None
     model, tensors = create_matmul_mul_add_subgraph(use_fp16)
     fpga_part = "xczu7ev-ffvc1156-2-e"
     target_clk_ns = 10
@@ -148,9 +159,11 @@ def test_float_subgraph(use_fp16):
     idict = {"in0": inp}
     golden = execute_onnx(model, idict)["out0"]
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(to_hw.InferElementwiseBinaryOperation())
-    model = model.transform(to_hw.InferReLUAsElementwiseMax())
-    model = model.transform(to_hw.InferQuantAsFloat2Int())
+    model = model.transform(
+        to_hw.InferElementwiseBinaryOperation(dtype_override_fxn=float_to_fixed)
+    )
+    model = model.transform(to_hw.InferReLUAsElementwiseMax(dtype_override_fxn=float_to_fixed))
+    model = model.transform(to_hw.InferQuantAsFloat2Int(dtype_override_fxn=float_to_fixed))
     if use_fp16:
         model = model.transform(to_hw.InferFP32ToFP16Cast())
     posthwconv_optypes = [x.op_type for x in model.graph.node]
@@ -202,7 +215,7 @@ def test_float_subgraph(use_fp16):
     model = model.transform(PrepareIP(fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     # run stitched-IP rtlsim and compare outputs
-    model = model.transform(CreateStitchedIP(fpga_part, target_clk_ns))
+    model = model.transform(CreateStitchedIP(fpga_part, target_clk_ns, vitis=True))
     model.set_metadata_prop("exec_mode", "rtlsim")
     idict_rtl = {"global_in": inp}
     model.set_metadata_prop("rtlsim_trace", "stitchedip_rtlsim_trace.wdb")
