@@ -94,6 +94,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             "ram_style": (
                 "s", False, "auto", {"auto", "block", "distributed", "ultra"}
             ),
+            # FPGA resource type for implementation of the operator
+            # only supported by a few subclasses - see subclass for details
+            "res_type": (
+                "s", False, "auto", {"auto", "lut", "dsp"}
+            ),
             # Input and output FIFO depths for multi-I/O nodes
             #   Note: Need to override here as there might be two inputs
             "inFIFODepths": ("ints", False, [2, 2]),

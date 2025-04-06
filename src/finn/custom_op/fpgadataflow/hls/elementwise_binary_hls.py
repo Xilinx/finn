@@ -55,6 +55,10 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         # Return the updated attributes dictionary
         return attrs
 
+    # Return pragma for compute op binding, if any
+    def pragma_compute_op_binding(self):
+        return ""
+
     # Executes elementwise operation in C++ simulation
     def _execute_node_cppsim(self, context, graph):  # noqa: graph unused
         # Get the node wrapped by this custom op
@@ -482,6 +486,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
             #pragma HLS unroll
             #pragma HLS INLINE recursive
+            {self.pragma_compute_op_binding()}
                 out[pe] = {self.cpp_op.format(
                     f"lhs{lhs_index}[pe]", f"rhs{rhs_index}[pe]"
                 )};
@@ -624,7 +629,23 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
 class ElementwiseAdd_hls(  # noqa: Class name does not follow
     ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseAdd
 ):
-    pass
+    # Return pragma for compute op binding
+    def pragma_compute_op_binding(self):
+        res_type = self.get_nodeattr("res_type")
+        is_float = self.get_nodeattr("out_dtype").startswith("FLOAT")
+        lhs_dt = self.get_nodeattr("lhs_dtype")
+        rhs_dt = self.get_nodeattr("rhs_dtype")
+        is_half = (lhs_dt == "FLOAT16") and (rhs_dt == "FLOAT16")
+        float_prefix = "h" if is_half else "f"
+        my_op = f"{float_prefix}add" if is_float else "add"
+        if res_type == "auto":
+            return ""
+        elif res_type == "lut":
+            return f"#pragma HLS BIND_OP variable=out op={my_op} impl=fabric"
+        elif res_type == "dsp":
+            return f"#pragma HLS BIND_OP variable=out op={my_op} impl=dsp"
+        else:
+            assert False, "Unknown res_type {res_type} for ElementwiseAdd_hls"
 
 
 # Derive a specialization to implement elementwise subtraction of two inputs
@@ -642,7 +663,23 @@ class ElementwiseMul_hls(  # noqa: Class name does not follow
     # CapWords convention
     ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseMul
 ):
-    pass
+    # Return pragma for compute op binding
+    def pragma_compute_op_binding(self):
+        res_type = self.get_nodeattr("res_type")
+        is_float = self.get_nodeattr("out_dtype").startswith("FLOAT")
+        lhs_dt = self.get_nodeattr("lhs_dtype")
+        rhs_dt = self.get_nodeattr("rhs_dtype")
+        is_half = (lhs_dt == "FLOAT16") and (rhs_dt == "FLOAT16")
+        float_prefix = "h" if is_half else "f"
+        my_op = f"{float_prefix}mul" if is_float else "mul"
+        if res_type == "auto":
+            return ""
+        elif res_type == "lut":
+            return f"#pragma HLS BIND_OP variable=out op={my_op} impl=fabric"
+        elif res_type == "dsp":
+            return f"#pragma HLS BIND_OP variable=out op={my_op} impl=dsp"
+        else:
+            assert False, "Unknown res_type {res_type} for ElementwiseMul_hls"
 
 
 # Derive a specialization to implement elementwise division of two inputs
