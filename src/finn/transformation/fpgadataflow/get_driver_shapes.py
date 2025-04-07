@@ -47,7 +47,7 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
             Ensure CreateDataflowPartition called before driver creation."""
         first_df_model = ModelWrapper(getCustomOp(i_consumer).get_nodeattr("model"))
         assert (
-            first_df_model.graph.node[0].op_type == "IODMA"
+            first_df_model.graph.node[0].op_type == "IODMA_hls"
         ), "First partition must hold input IODMA"
         successors = model.find_direct_successors(i_consumer)
         successor_input_num = list(successors[0].input).index(i_consumer.output[0])
@@ -88,7 +88,7 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         ), """
             Ensure CreateDataflowPartition called before driver creation."""
         df_model = ModelWrapper(getCustomOp(o_producer).get_nodeattr("model"))
-        assert df_model.graph.node[-1].op_type == "IODMA", "Partition must hold output IODMA"
+        assert df_model.graph.node[-1].op_type == "IODMA_hls", "Partition must hold output IODMA"
         predecessors = model.find_direct_predecessors(o_producer)
         predecessor_output_num = list(predecessors[0].output).index(o_producer.input[0])
         predecessor_sdp = getCustomOp(predecessors[0])

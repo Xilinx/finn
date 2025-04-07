@@ -185,10 +185,7 @@ class MakeCPPDriver(Transformation):
                 "xclbinutil not in PATH or not installed.\
                 Required to read kernel names for driver config!"
             )
-        subprocess.run(
-            f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json",
-            shell=True,
-        )
+        run_command(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json")
         ips = None
         with open("ip_layout.json") as f:
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
