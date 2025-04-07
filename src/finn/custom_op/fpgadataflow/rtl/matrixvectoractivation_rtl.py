@@ -168,6 +168,21 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                    % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, node_name)
+                )
+        # external
         else:
             cmd.append(
                 "create_bd_cell -type hier -reference %s %s"
@@ -176,20 +191,20 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
-        # if using 2x pumped compute, connect the MVU's 2x clk input
-        # to the 2x clock port. Otherwise connect 2x clk to regular clk port
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
-            clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
-            )
-        else:
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                % (node_name, clk_name, node_name, node_name)
-            )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                    % (node_name, clk2x_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
+                    % (node_name, clk_name, node_name)
+                )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency

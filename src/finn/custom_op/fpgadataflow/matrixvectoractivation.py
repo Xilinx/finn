@@ -715,6 +715,12 @@ class MVAU(HWCustomOp):
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
                 if self.get_nodeattr("pumpedMemory"):
+                    # if pe = simd = 1, known bug, ask user to increase parallelism
+                    if pe == simd == 1:
+                        raise Exception(
+                            """Pumped memory with pe=simd=1 is not supported.
+                            Please increase parallelism."""
+                        )
                     split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
                     k = 0
                     for i in range(len(weight_stream)):

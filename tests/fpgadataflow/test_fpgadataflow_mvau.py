@@ -737,8 +737,12 @@ def test_fpgadataflow_rtl_mvau(
             """Skip test for varying clk for devices other than Versal,
             since this variable only affects DSP58s"""
         )
+
     if pe == 1 and simd == 1 and pumpedMemory:
         pytest.skip("Skip PE=SIMD=1 with pumpedMemory=True, known weight generation bug")
+
+    if simd == 1 and pumpedCompute:
+        pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -771,6 +775,7 @@ def test_fpgadataflow_rtl_mvau(
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
+    assert model.graph.node[0].op_type == "MVAU_rtl"
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
