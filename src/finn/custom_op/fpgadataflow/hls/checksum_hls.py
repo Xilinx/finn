@@ -188,12 +188,12 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
             io_dict = {
                 "inputs": {"in0": inp},
                 "outputs": {"out": []},
             }
             self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
             output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()

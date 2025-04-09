@@ -42,13 +42,15 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
 
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("QONNX_FINN_conversion", [False, True])
 def test_brevitas_debug(QONNX_FINN_conversion):
-    finn_onnx = "test_brevitas_debug.onnx"
+    build_dir = make_build_dir("test_brevitas_debug")
+    finn_onnx = os.path.join(build_dir, "test_brevitas_debug.onnx")
     fc = get_test_model_trained("TFC", 2, 2)
     ishape = (1, 1, 28, 28)
     dbg_hook = bo.enable_debug(fc, proxy_level=True)
@@ -94,4 +96,3 @@ def test_brevitas_debug(QONNX_FINN_conversion):
         tensor_pytorch = _unpack_quant_tensor(dbg_hook.values[dbg_name]).detach().numpy()
         tensor_finn = output_dict[dbg_name]
         assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
-    os.remove(finn_onnx)

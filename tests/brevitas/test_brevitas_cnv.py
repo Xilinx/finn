@@ -41,9 +41,8 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
-
-export_onnx_path = "test_brevitas_cnv.onnx"
 
 
 @pytest.mark.brevitas_export
@@ -52,6 +51,8 @@ export_onnx_path = "test_brevitas_cnv.onnx"
 def test_brevitas_cnv_export_exec(wbits, abits):
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
+    build_dir = make_build_dir("test_brevitas_cnv_export_exec")
+    export_onnx_path = os.path.join(build_dir, "test_brevitas_cnv.onnx")
     cnv = get_test_model_trained("CNV", wbits, abits)
     ishape = (1, 3, 32, 32)
     export_qonnx(cnv, torch.randn(ishape), export_onnx_path)
@@ -78,4 +79,3 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     expected = cnv.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
     assert np.argmax(produced) == 3
-    os.remove(export_onnx_path)

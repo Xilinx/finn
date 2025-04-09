@@ -180,4 +180,8 @@ $TOP_MODULE_NAME$_impl #(
     .cfg_last_write(cfg_last_write)
 );
 
+if (OUT_WIDTH_PADDED > BUF_OUT_WIDTH) begin
+       assign out_V_TDATA[OUT_WIDTH_PADDED-1:BUF_OUT_WIDTH] = {(OUT_WIDTH_PADDED-BUF_OUT_WIDTH){1'b0}};
+end
+
 endmodule : $TOP_MODULE_NAME$

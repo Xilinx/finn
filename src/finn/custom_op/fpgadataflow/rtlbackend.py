@@ -28,6 +28,13 @@
 
 from abc import ABC, abstractmethod
 
+from finn.util.basic import make_build_dir
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
+
 
 class RTLBackend(ABC):
     """RTLBackend class all custom ops that correspond to a module in finn-rtllib
@@ -45,8 +52,29 @@ class RTLBackend(ABC):
     def generate_hdl(self, model, fpgapart, clk):
         pass
 
-    @abstractmethod
     def prepare_rtlsim(self):
+        """Creates a xsi emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path."""
+
+        verilog_files = self.get_rtl_file_list(abspath=True)
+        single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        debug = not (trace_file is None or trace_file == "")
+        ret = pyxsi_utils.compile_sim_obj(
+            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
+
+    def get_verilog_paths(self):
+        """Returns path to code gen directory. Can be overwritten to
+        return additional paths to relevant verilog files"""
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        return [code_gen_dir]
+
+    @abstractmethod
+    def get_rtl_file_list(self, abspath=False):
+        """Returns list of rtl files. Needs to be filled by each node."""
         pass
 
     @abstractmethod
