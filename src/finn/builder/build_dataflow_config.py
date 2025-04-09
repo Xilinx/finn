@@ -273,13 +273,17 @@ class DataflowBuildConfig:
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
-    #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
-    #: if set to True, always using Python instead
-    force_python_rtlsim: Optional[bool] = False
-
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
+
+    #: Enable input throttling for simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_input_throttle: Optional[bool] = True
+
+    #: Enable saving waveforms from simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_save_waveform: Optional[bool] = False
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.

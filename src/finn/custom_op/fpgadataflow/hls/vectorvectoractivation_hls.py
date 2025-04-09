@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
+from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -191,7 +192,6 @@ class VVAU_hls(VVAU, HLSBackend):
             nbits = self.get_instream_width(0)
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
 
             if mem_mode == "external" or mem_mode == "internal_decoupled":
                 wnbits = self.get_instream_width(1)
@@ -208,10 +208,14 @@ class VVAU_hls(VVAU, HLSBackend):
                     "inputs": {"in0": inp, "in1": wei * num_w_reps},
                     "outputs": {"out0": []},
                 }
-                self.rtlsim_multi_io(sim, io_dict)
-                output = io_dict["outputs"]["out0"]
             else:
-                output = self.rtlsim(sim, inp)
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -231,6 +235,19 @@ class VVAU_hls(VVAU, HLSBackend):
                     mode
                 )
             )
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Generates c++ code and tcl script for ip generation."""
+        super().code_generation_ipgen(model, fpgapart, clk)
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight

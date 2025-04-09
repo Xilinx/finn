@@ -33,6 +33,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
+from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
@@ -132,6 +133,19 @@ class MVAU_hls(MVAU, HLSBackend):
         else:
             mult_dsp = 0
         return int(mult_dsp)
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Generates c++ code and tcl script for ip generation."""
+        super().code_generation_ipgen(model, fpgapart, clk)
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -517,7 +531,6 @@ class MVAU_hls(MVAU, HLSBackend):
             nbits = self.get_instream_width(0)
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
-            self.toggle_clk(sim)
             if mem_mode == "external" or mem_mode == "internal_decoupled":
                 wnbits = self.get_instream_width(1)
                 export_wdt = self.get_input_datatype(1)
@@ -531,10 +544,14 @@ class MVAU_hls(MVAU, HLSBackend):
                     "inputs": {"in0": inp, "in1": wei * num_w_reps},
                     "outputs": {"out0": []},
                 }
-                self.rtlsim_multi_io(sim, io_dict)
-                output = io_dict["outputs"]["out0"]
             else:
-                output = self.rtlsim(sim, inp)
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()

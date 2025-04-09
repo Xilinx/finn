@@ -34,13 +34,7 @@ from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
@@ -100,8 +94,13 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
                 "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
             super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            io_dict = {
+                "inputs": {"in0": rtlsim_inp},
+                "outputs": {"out0": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            rtlsim_output = io_dict["outputs"]["out0"]
             odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -167,34 +166,21 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
-        # Modified to use generated (System-)Verilog instead of HLS output products
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
 
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
         verilog_files = [
-            "dwc_axi.sv",
-            "dwc.sv",
-            self.get_nodeattr("gen_top_module") + ".v",
+            rtllib_dir + "dwc_axi.sv",
+            rtllib_dir + "dwc.sv",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
 
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+        return verilog_files
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""

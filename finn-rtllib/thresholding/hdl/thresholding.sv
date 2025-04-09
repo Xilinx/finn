@@ -222,7 +222,7 @@ module thresholding #(
 					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
 					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
-				(* RAM_STYLE = RAM_STYLE *)
+				(* DONT_TOUCH = "true", RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
@@ -343,7 +343,6 @@ module thresholding #(
 			if(aload) begin
 				assert(APtr < $signed(A_DEPTH-1)) else begin
 					$error("Overrun after failing stream guard.");
-					$stop;
 				end
 				foreach(pipe[pe])  ADat[0][pe] <= pipe[pe][N].ptr;
 				for(int unsigned  i = 1; i < A_DEPTH; i++)  ADat[i] <= ADat[i-1];
