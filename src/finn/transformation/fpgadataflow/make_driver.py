@@ -137,7 +137,8 @@ class MakeCPPDriver(Transformation):
                 if debug:
                     print(result.stdout)  # Print the output for debugging purposes
             except subprocess.CalledProcessError as e:
-                print(f"Error running command: {' '.join(command)}")
+                print(f"Error running command: {command}")
+                print(f"Output:{e.stdout}; Error:{e.stderr}")
                 raise e
 
         # Step-by-step equivalent of the provided bash script
@@ -185,7 +186,7 @@ class MakeCPPDriver(Transformation):
                 "xclbinutil not in PATH or not installed.\
                 Required to read kernel names for driver config!"
             )
-        run_command(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json")
+        run_command(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", cwd=os.path.join(self.build_dir, ".."))
         ips = None
         with open("ip_layout.json") as f:
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
