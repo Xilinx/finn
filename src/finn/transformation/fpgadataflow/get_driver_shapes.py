@@ -1,16 +1,17 @@
+import numpy as np
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
+from typing import Dict
+
 import finn.util.data_packing as dpk
 from finn.util.data_packing import (
     hexstring2npbytearray,
     pack_innermost_dim_as_hex_string,
 )
-from typing import Dict
-import numpy as np
-
 
 # TODO: License?
+
 
 def to_external_tensor(init, w_dtype):
     """Return an appropriately formatted and packed numpy byte array for given
@@ -59,9 +60,7 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         i_tensor_shape_folded = tuple(getCustomOp(first_node).get_folded_input_shape())
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
-        i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
-            i_tensor_dummy_folded, i_tensor_dt
-        )
+        i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(i_tensor_dummy_folded, i_tensor_dt)
         i_tensor_shape_packed = i_tensor_dummy_packed.shape
         # append all input tensor info to relevant lists
         idt.append("DataType['%s']" % i_tensor_dt.name)
@@ -98,9 +97,7 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         )
         o_tensor_shape_folded = tuple(getCustomOp(last_node).get_folded_output_shape())
         o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
-        o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
-            o_tensor_dummy_folded, o_tensor_dt
-        )
+        o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(o_tensor_dummy_folded, o_tensor_dt)
         o_tensor_shape_packed = o_tensor_dummy_packed.shape
         # append all output tensor info to relevant lists
         odt.append("DataType['%s']" % o_tensor_dt.name)
@@ -108,14 +105,13 @@ def get_driver_shapes(model: ModelWrapper) -> Dict:
         oshape_folded.append(o_tensor_shape_folded)
         oshape_packed.append(o_tensor_shape_packed)
         odma_names.append(getCustomOp(o_producer).get_nodeattr("instance_name"))
-    
+
     return {
         "idt": idt,
         "idma_names": idma_names,
         "ishape_normal": ishape_normal,
         "ishape_folded": ishape_folded,
         "ishape_packed": ishape_packed,
-
         "odt": odt,
         "odma_names": odma_names,
         "oshape_normal": oshape_normal,
