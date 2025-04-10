@@ -322,9 +322,13 @@ class InsertAndSetFIFODepths(Transformation):
                 # set each FIFO to its tensor size
                 # (except stream width hence the :-1)
                 for i in range(len(ifd)):
-                    ifd[i] = np.prod(node.get_folded_input_shape(i)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    tensor_size = np.prod(node.get_folded_input_shape(i)[:-1])
+                    ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
-                    ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
             if node.onnx_node.op_type in extw_optypes:
