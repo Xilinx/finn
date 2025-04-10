@@ -201,8 +201,6 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    assert len(model.graph.input) == 1, "Only a single input stream is supported"
-    assert len(model.graph.output) == 1, "Only a single output stream is supported"
     iname = model.graph.input[0].name
     first_node = model.find_consumer(iname)
     oname = model.graph.output[0].name
@@ -210,10 +208,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:
     # only number of transactions, no real data
-    # TODO add support for multiple I/O streams
-    ctx = {
-        iname: n_inferences,
-    }
+    ctx = {k.name: n_inferences for k in model.graph.input}
     # create C++ code snippet for postprocessing:
     # grab maxcount values from FIFOs, dump into existing results file
     fifo_log = []
