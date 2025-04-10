@@ -890,9 +890,21 @@ class ElementwiseMaximum(ElementwiseBinaryOperation):
                 # of a signed type.
                 return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
             else:
-                # use the input type with the greater bitwidth
-                # TODO edge cases? may need even more widening/repr capacity??
-                return self.lhs_dtype if lhs_width > rhs_width else self.rhs_dtype
+                # use fixed point with max of intbits and fracbits from both sides
+                # to make sure an output coming from either input is representable
+                lhs_fracbits = self.lhs_dtype.frac_bits() if self.lhs_dtype.is_fixed_point() else 0
+                rhs_fracbits = self.rhs_dtype.frac_bits() if self.rhs_dtype.is_fixed_point() else 0
+                out_fracbits = max(lhs_fracbits, rhs_fracbits)
+                if self.lhs_dtype.is_fixed_point():
+                    lhs_intbits = self.lhs_dtype.int_bits()
+                else:
+                    lhs_intbits = self.lhs_dtype.bitwidth()
+                if self.rhs_dtype.is_fixed_point():
+                    rhs_intbits = self.rhs_dtype.int_bits()
+                else:
+                    rhs_intbits = self.rhs_dtype.bitwidth()
+                out_intbits = max(lhs_intbits, rhs_intbits)
+                return DataType[f"FIXED<{out_fracbits+out_intbits},{out_intbits}>"]
 
 
 # Derive a specialization to implement elementwise minimum of two inputs
@@ -933,9 +945,21 @@ class ElementwiseMinimum(ElementwiseBinaryOperation):
                 # of a signed type.
                 return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
             else:
-                # use the input type with the greater bitwidth
-                # TODO edge cases? may need even more widening/repr capacity??
-                return self.lhs_dtype if lhs_width > rhs_width else self.rhs_dtype
+                # use fixed point with max of intbits and fracbits from both sides
+                # to make sure an output coming from either input is representable
+                lhs_fracbits = self.lhs_dtype.frac_bits() if self.lhs_dtype.is_fixed_point() else 0
+                rhs_fracbits = self.rhs_dtype.frac_bits() if self.rhs_dtype.is_fixed_point() else 0
+                out_fracbits = max(lhs_fracbits, rhs_fracbits)
+                if self.lhs_dtype.is_fixed_point():
+                    lhs_intbits = self.lhs_dtype.int_bits()
+                else:
+                    lhs_intbits = self.lhs_dtype.bitwidth()
+                if self.rhs_dtype.is_fixed_point():
+                    rhs_intbits = self.rhs_dtype.int_bits()
+                else:
+                    rhs_intbits = self.rhs_dtype.bitwidth()
+                out_intbits = max(lhs_intbits, rhs_intbits)
+                return DataType[f"FIXED<{out_fracbits+out_intbits},{out_intbits}>"]
 
 
 # reference function for Python exec
