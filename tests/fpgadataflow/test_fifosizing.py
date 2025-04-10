@@ -115,6 +115,9 @@ def test_fifosizing_linear(method, topology):
     shutil.rmtree(tmp_output_dir_cmp)
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fifosizing_multi_io():
     # construct small onnx graph with addstreams, followed by duplicate streams
     # to have test model with multiple inputs and multiple outputs
