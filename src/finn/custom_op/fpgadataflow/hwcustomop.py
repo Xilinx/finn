@@ -119,11 +119,16 @@ class HWCustomOp(CustomOp):
         each tuple is (interface_name, interface_width_bits).
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
+        node = self.onnx_node
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = [("in0_V", self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded())]
+        intf_names["s_axis"] = []
+        for i in range(len(node.input)):
+            intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
+        intf_names["m_axis"] = []
+        for i in range(len(node.output)):
+            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []

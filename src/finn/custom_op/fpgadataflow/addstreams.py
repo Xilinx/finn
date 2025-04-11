@@ -140,12 +140,6 @@ class AddStreams(HWCustomOp):
         result = inp0_values + inp1_values
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        swidth = self.get_instream_width_padded()
-        intf_names["s_axis"] = [(x, swidth) for x in ["in0_V", "in1_V"]]
-        return intf_names
-
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
