@@ -364,7 +364,7 @@ class HWCustomOp(CustomOp):
                 "inputs": {
                     "in0": [0 for i in range(n_inps)],
                 },
-                "outputs": {"out": []},
+                "outputs": {"out0": []},
             }
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
@@ -372,7 +372,7 @@ class HWCustomOp(CustomOp):
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
         # signal name
-        sname = "_" + self.hls_sname() + "_"
+        sname = "_V_"
 
         def monitor_txns(sim_obj):
             for inp in txns_in:
