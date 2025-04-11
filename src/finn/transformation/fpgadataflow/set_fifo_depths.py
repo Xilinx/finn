@@ -201,8 +201,6 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    assert len(model.graph.input) == 1, "Only a single input stream is supported"
-    assert len(model.graph.output) == 1, "Only a single output stream is supported"
     iname = model.graph.input[0].name
     first_node = model.find_consumer(iname)
     oname = model.graph.output[0].name
@@ -210,11 +208,7 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:
     # only number of transactions, no real data
-    # TODO add support for multiple I/O streams
-    ctx = {
-        iname: n_inferences,
-    }
-
+    ctx = {k.name: n_inferences for k in model.graph.input}
     # create C++ code snippet for postprocessing:
     # grab maxcount values from FIFOs, dump into existing results file
     fifo_log = []
@@ -350,9 +344,13 @@ class InsertAndSetFIFODepths(Transformation):
                 # set each FIFO to its tensor size
                 # (except stream width hence the :-1)
                 for i in range(len(ifd)):
-                    ifd[i] = np.prod(node.get_folded_input_shape(i)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    tensor_size = np.prod(node.get_folded_input_shape(i)[:-1])
+                    ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
-                    ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
             if node.onnx_node.op_type in extw_optypes:

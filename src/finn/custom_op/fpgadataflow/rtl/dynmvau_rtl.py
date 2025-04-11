@@ -31,7 +31,7 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import get_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 try:
@@ -57,7 +57,12 @@ class DynMVU_rtl(MVAU, RTLBackend):
         pass
 
     def get_instream_width(self, ind):
-        return self.get_folded_input_shape(ind)[-1] * DataType[self.get_nodeattr("inputDataType" if ind == 0 else "weightDataType")].bitwidth()
+        return (
+            self.get_folded_input_shape(ind)[-1]
+            * DataType[
+                self.get_nodeattr("inputDataType" if ind == 0 else "weightDataType")
+            ].bitwidth()
+        )
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -152,7 +157,7 @@ class DynMVU_rtl(MVAU, RTLBackend):
 
             super().reset_rtlsim(sim)
             if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim) 
+                super().toggle_clk(sim)
 
             if mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_weightstream_width()
