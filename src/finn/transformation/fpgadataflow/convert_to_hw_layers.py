@@ -1913,7 +1913,11 @@ class InferReLUAsElementwiseMax(Transformation):
             dt = model.get_tensor_datatype(tname)
             if dt is None:
                 return False
-            if dt.is_integer() or dt in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+            if (
+                dt.is_integer()
+                or dt.is_fixed_point()
+                or dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            ):
                 return True
             else:
                 return False
