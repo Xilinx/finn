@@ -240,11 +240,9 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
-    #: (Optional) Override datatype for elementwise operations with float inputs
-    #: to another datatype. When None, float datatypes are kept as-is. When specified
-    #: as e.g. "FIXED<16,8>", float datatypes will be implemented as 16-bit fixed-point,
-    #: with 8 bits for the integer part.
-    override_eltwise_float: Optional[str] = None
+    #: (Optional) JSON with fixed-point datatypes for particular tensors.
+    #: When None, tensor datatypes & values are kept as-is.
+    fixedpt_config: Optional[str] = None
 
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
