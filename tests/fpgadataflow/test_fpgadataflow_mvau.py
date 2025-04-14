@@ -847,7 +847,7 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("n_vectors", [128])
 @pytest.mark.parametrize("pe", [32])
 @pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["INT8"], DataType["INT8"]]])
+@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("clk_ns", [4])
 @pytest.mark.parametrize("pumpedCompute", [False])

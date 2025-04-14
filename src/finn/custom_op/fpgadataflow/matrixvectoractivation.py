@@ -157,7 +157,6 @@ class MVAU(HWCustomOp):
         else:
             # Regular matrix multiplication
             result = np.matmul(in_act, mvau_w)
-            np.save("tmp_weights.npy", mvau_w)
         if self.get_nodeattr("noActivation") == 0:
             mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
             mvau_thr = np_helper.to_array(mvau_thr_init)
@@ -471,6 +470,7 @@ class MVAU(HWCustomOp):
         """Minimize the accumulator bit width according to the weight values,
         input data types, and size of dot product"""
         weights = model.get_initializer(self.onnx_node.input[1])
+        
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
         if self.get_nodeattr("binaryXnorMode"):
@@ -488,10 +488,12 @@ class MVAU(HWCustomOp):
         # if runtime-writeable weights or dynamic input, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("dynamic_input"):
+            mw = self.get_nodeattr("MW")
+            mh = self.get_nodeattr("MH")
             wdt = self.get_weight_datatype()
-            lower_worst = wdt.min() * np.ones_like(weights)
+            lower_worst = wdt.min() * np.ones_like([mw, mh])
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like(weights)
+            upper_worst = wdt.max() * np.ones_like([mw, mh])
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(upper_range), max(upper_range))
