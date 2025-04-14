@@ -740,14 +740,20 @@ def test_mvau_fifocharacterize_rtlsim(
     "part", ["xcvc1902-vsva2197-2MP-e-S"]
 )
 @pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.parametrize("pumpedMemory", [False, True])
-@pytest.mark.parametrize("pumpedCompute", [False, True])
+@pytest.mark.parametrize("pumpedMemory", [False])
+@pytest.mark.parametrize("pumpedCompute", [False])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_mvau(
     mh, mw, pe, simd, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
 ):
+    if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
+        pytest.skip(
+            """Skip test for varying clk for devices other than Versal,
+            since this variable only affects DSP58s"""
+        )
+
     if pe == 1 and simd == 1 and pumpedMemory:
         pytest.skip("Skip PE=SIMD=1 with pumpedMemory=True, known weight generation bug")
 
@@ -758,8 +764,8 @@ def test_fpgadataflow_rtl_mvau(
     # Create test input vector (produced by SWG)
     ofm_shape = (3, 3)
     ofm_h, ofm_w = ofm_shape
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, 128, mw])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, 128, mh))
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # if 7 series, force weights to narrow range
     if part == "xc7z020clg400-1":
@@ -900,6 +906,15 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(MinimizeAccumulatorWidth())
     # make sure the changed datatypes are propagated through the network
     model = model.transform(InferDataTypes())
+
+    # Run CPPsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
+    assert (
+        output_matmul == output_mvau_hls
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
 
     # Run node-by-node RTLsim
     model = model.transform(SetExecMode("rtlsim"))

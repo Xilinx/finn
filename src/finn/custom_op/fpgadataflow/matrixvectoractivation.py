@@ -157,6 +157,7 @@ class MVAU(HWCustomOp):
         else:
             # Regular matrix multiplication
             result = np.matmul(in_act, mvau_w)
+            np.save("tmp_weights.npy", mvau_w)
         if self.get_nodeattr("noActivation") == 0:
             mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
             mvau_thr = np_helper.to_array(mvau_thr_init)
@@ -286,9 +287,7 @@ class MVAU(HWCustomOp):
         simd = self.get_nodeattr("SIMD")
         wp = self.get_weight_datatype().bitwidth()
         
-        if self.get_nodeattr("dynamic_input"):
-            return pe * wp
-        elif (self.get_nodeattr("mem_mode") == "internal_decoupled" or self.get_nodeattr("mem_mode") == "external"):
+        if (self.get_nodeattr("mem_mode") == "internal_decoupled" or self.get_nodeattr("mem_mode") == "external"):
             return pe * simd * wp
         else:
             return 0
@@ -668,9 +667,9 @@ class MVAU(HWCustomOp):
 
         """
         # convert weights into hlslib/rtllib-compatible format
-        import pdb; pdb.set_trace()
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
+
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
         if self.get_weight_datatype() == DataType["BIPOLAR"]:

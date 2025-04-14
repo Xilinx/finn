@@ -84,9 +84,15 @@ class MVAU_rtl(MVAU, RTLBackend):
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                        os.path.join(code_gen_dir, "input_0.npy"),
                         reshaped_input,
                     )
+
+                if in_ind == 1:
+                    if dynamic_input:
+                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                        self.make_weight_file(reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir))
+                        self.make_weight_file(reshaped_input, "decoupled_npy", "tmp_weights_mod.npy")
 
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
