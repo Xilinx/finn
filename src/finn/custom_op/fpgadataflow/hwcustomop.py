@@ -326,6 +326,39 @@ class HWCustomOp(CustomOp):
         else:
             pass
 
+    def generate_hdl_dynload(self):
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/dynload/hdl/dynamic_load_wrapper_template.v"
+        )
+        mname = self.onnx_node.name
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        mh = self.get_nodeattr("MH")
+        mw = self.get_nodeattr("MW")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        code_gen_dict = {
+            "$MODULE_NAME$": [mname],
+            "$PE$": [str(pe)],
+            "$SIMD$": [str(simd)],
+            "$MH$": [str(mh)],
+            "$MW$": [str(mw)],
+            "$WEIGHT_WIDTH$": [str(self.get_input_datatype(1).bitwidth())],
+            "$N_REPS$": [str(self.get_nodeattr("numInputVectors")[-1])],
+        }
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, mname + "_dynamic_load_wrapper.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
