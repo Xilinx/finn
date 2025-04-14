@@ -164,6 +164,11 @@ def rtlsim_multi_io(
         assert isinstance(
             num_out_values, dict
         ), "num_out_values must be dict for multiple output streams"
+        # overwrite dictionary keys with interface names
+        num_out_values_dict = {}
+        for i, oname in enumerate(io_dict["outputs"].keys()):
+            num_out_values_dict[oname] = tuple(num_out_values.values())[i]
+        num_out_values = num_out_values_dict
     else:
         # num_out_values is provided as integer (indicating the expected
         # outputs from the single output stream) - make into dict

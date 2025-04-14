@@ -140,8 +140,7 @@ class HWCustomOp(CustomOp):
 
     def close_rtlsim(self, sim):
         "Close and free up resources for rtlsim."
-        #    pyxsi_utils.close_rtlsim(sim)
-        pass
+        finnxsi.close_rtlsim(sim)
 
     def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
