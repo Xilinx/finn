@@ -269,6 +269,16 @@ class MVAU(HWCustomOp):
                 width = pe * simd * wp
             else:
                 width = 0
+        elif ind == 2:
+            # check if integrated thresholding and return 0
+            # because threshold values are always embedded
+            # or raise expection if there shouldn't be
+            # a third input to the node
+            act = not self.get_nodeattr("noActivation")
+            if act:
+                width = 0
+            else:
+                raise Exception("Index out of range")
         else:
             raise Exception("Index out of range")
         return width

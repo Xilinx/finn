@@ -125,7 +125,11 @@ class HWCustomOp(CustomOp):
         intf_names["rst"] = ["ap_rst_n"]
         intf_names["s_axis"] = []
         for i in range(len(node.input)):
-            intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
+            # not every node input will result in an interface of the produced HW
+            # filter out inputs that have no stream width associated with them
+            width = self.get_instream_width_padded(i)
+            if width != 0:
+                intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
         intf_names["m_axis"] = []
         for i in range(len(node.output)):
             intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
@@ -288,7 +292,10 @@ class HWCustomOp(CustomOp):
         """Returns input stream width padded to a multiple of 8. This is required
         by the AXI Stream spec."""
         in_width = self.get_instream_width(ind=ind)
-        return roundup_to_integer_multiple(in_width, 8)
+        if in_width != 0:
+            return roundup_to_integer_multiple(in_width, 8)
+        else:
+            return 0
 
     def get_outstream_width_padded(self, ind=0):
         """Returns output stream width padded to a multiple of 8. This is required

@@ -152,7 +152,12 @@ class Thresholding(HWCustomOp):
             i_bits = self.get_input_datatype(0).bitwidth()
             width = i_bits * self.get_nodeattr("PE")
         elif ind == 1:
-            if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            # try to access mem_mode attribute, doesn't exist for RTL Thresholding
+            try:
+                mem_mode = self.get_nodeattr("mem_mode")
+            except AttributeError:
+                mem_mode = 0
+            if mem_mode == "internal_decoupled":
                 pe = self.get_nodeattr("PE")
                 wp = self.get_input_datatype(1).bitwidth()
                 n_thres_steps = self.get_nodeattr("numSteps")
