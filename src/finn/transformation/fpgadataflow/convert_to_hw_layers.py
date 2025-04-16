@@ -1950,7 +1950,9 @@ class InferReLUAsElementwiseMax(Transformation):
                 new_tname = model.make_new_valueinfo_name()
                 model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
                 idt = model.get_tensor_datatype(node.input[0])
-                model.set_tensor_datatype(new_tname, idt)
+                # for the constant 0 input, use a small-width datatype
+                # (to avoid unnecessarily promoting output type to something larger)
+                model.set_tensor_datatype(new_tname, DataType["UINT2"])
                 node.input.append(new_tname)
                 # Now we can get the CustomOp wrapper instance providing easier
                 # attribute access
