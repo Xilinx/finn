@@ -146,6 +146,36 @@ class Pool_hls(Pool, HLSBackend):
             )
         ]
 
+    def strm_decl(self):
+        """Function to generate the commands for the stream declaration in c++,
+        is member function of HLSBackend class but might need to be filled
+        by node."""
+        dtype = self.get_input_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
+        elem_input_hls_type = dtype.get_hls_datatype_str()
+		
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{},{}>> in0_{} ("in0_{}");'.format(
+               elem_input_hls_type, self.get_folded_input_shape()[-1], self.hls_sname(), self.hls_sname()
+            )
+        )
+
+        dtype = self.get_output_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
+        elem_output_hls_type = dtype.get_hls_datatype_str()
+
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{},{}>> out_{} ("out_{}");'.format(
+               elem_output_hls_type, self.get_folded_output_shape()[-1], self.hls_sname(), self.hls_sname()
+            )
+        )
+
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
