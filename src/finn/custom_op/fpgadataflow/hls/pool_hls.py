@@ -61,10 +61,7 @@ class Pool_hls(Pool, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = [
-            '#include "pool.hpp"',
-            '#include "maxpool.h"'
-        ]
+        self.code_gen_dict["$GLOBALS$"] = ['#include "pool.hpp"']
 
     def defines(self, var):
         k = int(np.prod(self.get_nodeattr("KernelSize")))
