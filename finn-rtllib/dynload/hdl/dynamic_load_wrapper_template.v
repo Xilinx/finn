@@ -36,7 +36,7 @@ module $MODULE_NAME$_dynamic_load_wrapper #(
 	parameter	SIMD = $SIMD$,
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
-    
+
 	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
 	parameter   N_REPS = $N_REPS$,
 
@@ -79,6 +79,6 @@ dynamic_load #(
 	.ovld(m_axis_0_TVALID),
 	.ordy(m_axis_0_TREADY),
 	.odat(m_axis_0_TDATA)
-);	
+);
 
 endmodule // $MODULE_NAME$_dynamic_load_wrapper

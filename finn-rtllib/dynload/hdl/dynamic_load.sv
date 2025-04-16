@@ -136,7 +136,7 @@ always_comb begin : NSL_PROC_WR
             if ((curr_simd_C == SIMD - 1) && (curr_sf_C == SF - 1) && (curr_nf_C == NF - 1) && ivld) begin
                 state_wr_N = (state_rd_C == ST_RD_1) ? ST_WR_0 : ST_WR_1_WAIT;
             end
-        
+
         ST_WR_1_WAIT:
             state_wr_N = (state_rd_C == ST_RD_1) ? ST_WR_0 : ST_WR_1_WAIT;
 
@@ -165,7 +165,7 @@ always_comb begin : DP_PROC_WR
     case (state_wr_C)
         ST_WR_0, ST_WR_1: begin
             irdy = 1'b1;
-        
+
             if(ivld) begin
                 for(int i = 0; i < PE; i++) begin
                     for(int j = 0; j < SIMD; j++) begin
@@ -182,7 +182,7 @@ always_comb begin : DP_PROC_WR
                 curr_simd_N = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? 0 : curr_simd_C + 1) : curr_simd_C;
                 curr_sf_N   = (curr_nf_C == NF-1) ? ((curr_simd_C == SIMD-1) ? ((curr_sf_C == SF-1) ? 0 : curr_sf_C + 1) : curr_sf_C) : curr_sf_C;
             end
-        end 
+        end
     endcase
 
 end
@@ -285,7 +285,7 @@ always_comb begin : DP_PROC_RD
         ST_RD_1: begin
             if(ordy) begin
                 if((state_wr_C == ST_WR_1) ? (curr_sf_C > cons_sfnf_C) : 1'b1) begin
-                
+
                     vld_s0_N[1] = 1'b1;
 
                     cons_sfnf_N = (cons_sfnf_C == N_TLS-1) ? 0 : cons_sfnf_C + 1;

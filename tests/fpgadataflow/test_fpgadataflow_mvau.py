@@ -54,10 +54,10 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -168,9 +168,12 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
 
     return model
 
+
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
     matmul_node = helper.make_node("MatMul", ["ifm", "wfm"], ["ofm"])
-    graph = helper.make_graph(nodes=[matmul_node], name="matmul_graph", inputs=[ifm, wfm], outputs=[ofm])
+    graph = helper.make_graph(
+        nodes=[matmul_node], name="matmul_graph", inputs=[ifm, wfm], outputs=[ofm]
+    )
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
@@ -733,12 +736,8 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("pe", [32])
 @pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize(
-    "idt_wdt", [[DataType["UINT8"], DataType["INT8"]]]
-)
-@pytest.mark.parametrize(
-    "part", ["xcvc1902-vsva2197-2MP-e-S"]
-)
+@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("clk_ns", [4])
 @pytest.mark.parametrize("pumpedMemory", [False])
 @pytest.mark.parametrize("pumpedCompute", [False])
@@ -868,7 +867,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
-    #model = model.transform(GiveReadableTensorNames())
+    # model = model.transform(GiveReadableTensorNames())
 
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
@@ -929,7 +928,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     # Run stitched-ip RTLsim
     model.save("debug1.onnx")
 
-    #model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())

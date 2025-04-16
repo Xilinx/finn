@@ -38,7 +38,6 @@ from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
-    get_by_name,
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -125,7 +124,7 @@ class MVAU(HWCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "pumpedMemory": ("i", False, 0, {0, 1}),
-            # dynamic input 
+            # dynamic input
             "dynamic_input": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
@@ -136,12 +135,12 @@ class MVAU(HWCustomOp):
         in_act = context[node.input[0]]
         # ensure that shape is compatible
         in_act = in_act.reshape(self.get_normal_input_shape())
-    
+
         if self.get_nodeattr("dynamic_input"):
             mvau_w = context[node.input[1]]
         else:
             mvau_w_init = [x for x in graph.initializer if x.name == node.input[1]][0]
-            mvau_w = np_helper.to_array(mvau_w_init)  
+            mvau_w = np_helper.to_array(mvau_w_init)
 
         # Matrix multiplication
         if self.get_nodeattr("binaryXnorMode"):
@@ -285,8 +284,11 @@ class MVAU(HWCustomOp):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wp = self.get_weight_datatype().bitwidth()
-        
-        if (self.get_nodeattr("mem_mode") == "internal_decoupled" or self.get_nodeattr("mem_mode") == "external"):
+
+        if (
+            self.get_nodeattr("mem_mode") == "internal_decoupled"
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
             return pe * simd * wp
         else:
             return 0
@@ -470,7 +472,7 @@ class MVAU(HWCustomOp):
         """Minimize the accumulator bit width according to the weight values,
         input data types, and size of dot product"""
         weights = model.get_initializer(self.onnx_node.input[1])
-        
+
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
         if self.get_nodeattr("binaryXnorMode"):
@@ -553,7 +555,9 @@ class MVAU(HWCustomOp):
 
     def minimize_weight_bit_width(self, model):
         """Minimize the bit width based on the values of the weights"""
-        if not (self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("dynamic_input")):
+        if not (
+            self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("dynamic_input")
+        ):
             weights = model.get_initializer(self.onnx_node.input[1])
             w_min = weights.min()
             w_max = weights.max()
@@ -787,7 +791,7 @@ class MVAU(HWCustomOp):
                 weight_filename = "{}/params.h".format(code_gen_dir)
                 self.make_weight_file(weights, "hls_header", weight_filename)
             elif mem_mode == "internal_decoupled" or mem_mode == "external":
-                weight_filename_sim = "{}/input_1.npy".format(code_gen_dir)
+                weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
                 # save internal_decoupled weights for cppsim
                 self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
                 if mem_mode == "internal_decoupled":
@@ -797,8 +801,8 @@ class MVAU(HWCustomOp):
                     self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
             else:
                 raise Exception(
-                    """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
-                    currently no other parameter value is supported!"""
+                    """Please set mem_mode to "internal_embedded", "internal_decoupled",
+                    or "external", currently no other parameter value is supported!"""
                 )
 
         # save thresholds in thresh.h
@@ -904,10 +908,12 @@ class MVAU(HWCustomOp):
         sname = self.hls_sname()
 
         if dynamic_input:
-             intf_names["s_axis"].append(("weights", self.get_weightstream_width_padded()))
+            intf_names["s_axis"].append(("weights", self.get_weightstream_width_padded()))
         else:
-            if mem_mode == "external": 
-                intf_names["s_axis"].append(("weights" + sname, self.get_weightstream_width_padded()))
+            if mem_mode == "external":
+                intf_names["s_axis"].append(
+                    ("weights" + sname, self.get_weightstream_width_padded())
+                )
             elif mem_mode == "internal_decoupled":
                 # only expose axilite interface if attribute is set
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
@@ -983,7 +989,7 @@ class MVAU(HWCustomOp):
 
                 swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
                 file_suffix = "_dynamic_load_wrapper.v"
-                 # automatically find memstream verilog component in code generation directory
+                # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
                     if fname.endswith(file_suffix):
                         dynld_tmpl = fname
@@ -1032,7 +1038,7 @@ class MVAU(HWCustomOp):
 
                 swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
                 file_suffix = "_memstream_wrapper.v"
-                 # automatically find memstream verilog component in code generation directory
+                # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
                     if fname.endswith(file_suffix):
                         strm_tmpl = fname
@@ -1082,7 +1088,8 @@ class MVAU(HWCustomOp):
                     axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                     cmd.append(
                         "create_bd_intf_pin -mode Slave "
-                        "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
+                        "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                        % (node_name, axilite_name)
                     )
                     cmd.append(
                         "connect_bd_intf_net [get_bd_intf_pins %s/%s] "

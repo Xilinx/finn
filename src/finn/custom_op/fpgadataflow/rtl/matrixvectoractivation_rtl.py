@@ -91,21 +91,21 @@ class MVAU_rtl(MVAU, RTLBackend):
                 if in_ind == 1:
                     if dynamic_input:
                         reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
-                        self.make_weight_file(reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir))
+                        self.make_weight_file(
+                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                        )
 
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                
+
             super().reset_rtlsim(sim)
 
             if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
 
-                wei = npy_to_rtlsim_input(
-                    "{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits
-                )
+                wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
 
                 if dynamic_input:
@@ -283,7 +283,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         # determine if weights are narrow range and add parameter to code gen dict
         weights = model.get_initializer(self.onnx_node.input[1])
         wdt = self.get_weight_datatype()
-        narrow_weights = 0 if np.min(weights) == wdt.min() or self.get_nodeattr("dynamic_input") else 1
+        narrow_weights = (
+            0 if np.min(weights) == wdt.min() or self.get_nodeattr("dynamic_input") else 1
+        )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
