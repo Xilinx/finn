@@ -354,7 +354,7 @@ class MVAU_hls(MVAU, HLSBackend):
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
+        npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
@@ -555,7 +555,7 @@ class MVAU_hls(MVAU, HLSBackend):
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_npy_path = "{}/output_0.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 

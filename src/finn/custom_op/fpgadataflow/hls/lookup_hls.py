@@ -27,19 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
-import warnings
 from math import ceil, log2
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
+from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
 class Lookup_hls(Lookup, HLSBackend):
@@ -99,7 +92,7 @@ class Lookup_hls(Lookup, HLSBackend):
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
+        npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
@@ -219,99 +212,11 @@ class Lookup_hls(Lookup, HLSBackend):
             raise Exception("Unrecognized mem_mode: " + mem_mode)
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        exp_ishape = tuple(self.get_normal_input_shape())
-        exp_oshape = tuple(self.get_normal_output_shape())
-        folded_ishape = tuple(self.get_folded_input_shape())
-        folded_oshape = tuple(self.get_folded_output_shape())
         mem_mode = self.get_nodeattr("mem_mode")
         assert (
             mem_mode == "internal_embedded"
         ), "Only mem_mode=internal_embedded is supported for simulation of Lookup layer"
-
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        inp = context[node.input[0]]
-
-        # Make sure the input has the right container datatype
-        if inp.dtype is not np.float32:
-            # Issue a warning to make the user aware of this type-cast
-            warnings.warn(
-                f"{node.name}: Changing input container datatype from "
-                f"{inp.dtype} to {np.float32}"
-            )
-            # Convert the input to floating point representation as the
-            # container datatype
-            inp = inp.astype(np.float32)
-
-        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
-        export_idt = self.get_input_datatype()
-        odt = self.get_output_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            io_dict = {
-                "inputs": {"in0": rtlsim_inp},
-                "outputs": {"out0": []},
-            }
-            self.rtlsim_multi_io(sim, io_dict)
-            super().close_rtlsim(sim)
-            rtlsim_output = io_dict["outputs"]["out0"]
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output,
-                out_npy_path,
-                odt,
-                out_shape,
-                packed_bits,
-                target_bits,
-                reverse_inner=True,
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape."""
+        HLSBackend.execute_node(self, context, graph)
 
     def get_ap_int_max_w(self):
         parent_max = super().get_ap_int_max_w()

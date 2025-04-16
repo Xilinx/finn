@@ -27,17 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 from math import ceil
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    rtlsim_output_to_npy,
-)
+from finn.util.data_packing import numpy_to_hls_code
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
@@ -226,90 +221,7 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
         f_params.close()
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-
-        # TODO ensure codegen dir exists
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        # create a npy file fore each input of the node (in_ind is input index)
-        in_ind = 0
-        for inputs in node.input:
-            # it is assumed that the first input of the node is the data input
-            # the second input are the weights
-            # the third input are the thresholds
-            if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
-                expected_inp_shape = self.get_folded_input_shape()
-                reshaped_input = context[inputs].reshape(expected_inp_shape)
-                export_idt = self.get_input_datatype()
-                # make copy before saving the array
-                reshaped_input = reshaped_input.copy()
-                np.save(
-                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                    reshaped_input,
-                )
-            elif in_ind > 2:
-                raise Exception("Unexpected input found for ChannelwiseOp_Batch")
-            in_ind += 1
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType["BIPOLAR"]:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
-            ), """Output shape is not as expected"""
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            io_dict = {
-                "inputs": {"in0": inp},
-                "outputs": {"out0": []},
-            }
-            self.rtlsim_multi_io(sim, io_dict)
-            super().close_rtlsim(sim)
-            output = io_dict["outputs"]["out0"]
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-
-            # load and reshape output
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
+        HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
@@ -325,28 +237,6 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
                 numReps,
             )
         ]
-
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        # note: the innermost dim is reversed for the input
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-            )
-        )
 
     def docompute(self):
         tmpl_args = self.get_template_param_values()
@@ -365,34 +255,6 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
                 spatial_dim,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
-            )
-        ]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        shape = self.get_folded_output_shape()
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-
-        # note: the innermost dim is not reversed for the output
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                shape_cpp_str,
-                npy_out,
             )
         ]
 

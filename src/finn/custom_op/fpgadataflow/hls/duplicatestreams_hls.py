@@ -26,12 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
-import os
-
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
@@ -102,93 +98,7 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
         f_impl.close()
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
-        n_outputs = self.get_num_output_streams()
-
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
-        # reshape input into folded form
-        inp = inp.reshape(folded_ishape)
-        # make copy before saving array
-        reshaped_input = inp.copy()
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_outputs(context, ["output%d.npy" % i for i in range(n_outputs)])
-            for i in range(n_outputs):
-                assert (
-                    context[node.output[i]].shape == exp_oshape
-                ), "cppsim \
-                did not produce expected output shape"
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            rtlsim_dict = {
-                "inputs": {"in0": rtlsim_inp},
-                "outputs": {},
-            }
-            for i in range(n_outputs):
-                rtlsim_dict["outputs"]["out%d" % i] = []
-            self.rtlsim_multi_io(sim, rtlsim_dict)
-            super().close_rtlsim(sim)
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_shape = self.get_folded_output_shape()
-            for i in range(n_outputs):
-                out_npy_path = "%s/output%d.npy" % (code_gen_dir, i)
-                rtlsim_output_to_npy(
-                    rtlsim_dict["outputs"]["out%d" % i],
-                    out_npy_path,
-                    odt,
-                    out_shape,
-                    packed_bits,
-                    target_bits,
-                )
-                # load and reshape output 0
-                output = np.load(out_npy_path)
-                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-                context[node.output[i]] = output
-
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output0 shape doesn't match expected shape."""
-        assert (
-            context[node.output[1]].shape == exp_oshape
-        ), """Output1 shape doesn't match expected shape."""
+        HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "duplicate_impl.hpp"']
@@ -216,37 +126,6 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
             ostreams.append("out%d_V" % i)
         dc = "DuplicateStreamsCustom(in0_V, %s);" % (",".join(ostreams),)
         self.code_gen_dict["$DOCOMPUTE$"] = [dc]
-
-    def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        n_outputs = self.get_num_output_streams()
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-        outstrm_code = []
-
-        for i in range(n_outputs):
-            out_name = "out%d_V" % i
-            npy_out = "%s/output%d.npy" % (code_gen_dir, i)
-            outstrm_code.append(
-                'apintstream2npy<%s, %s, %d, %s>(%s, %s, "%s");'
-                % (
-                    packed_hls_type,
-                    elem_hls_type,
-                    elem_bits,
-                    npy_type,
-                    out_name,
-                    oshape_cpp_str,
-                    npy_out,
-                )
-            )
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = outstrm_code
 
     def blackboxfunction(self):
         n_outputs = self.get_num_output_streams()
