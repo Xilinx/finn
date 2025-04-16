@@ -102,8 +102,7 @@ class Pool_hls(Pool, HLSBackend):
         elif fxn == "QuantAvgPool":
             shift      = self.get_nodeattr("Size")
             accum_bits = self.get_nodeattr("AccumBits")
-            act_hls_dt = 'hls::vector<ap_%sint<%d>, %d>'
-                         % ('' if idt.signed() else 'u', accum_bits, pe)
+            act_hls_dt = 'hls::vector<ap_%sint<%d>, %d>' % ('' if idt.signed() else 'u', accum_bits, pe)
             self.code_gen_dict["$DOCOMPUTE$"] += [
                 "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(o_hls_dt, act_hls_dt, shift)
             ]
@@ -121,8 +120,7 @@ class Pool_hls(Pool, HLSBackend):
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        oshape = str(self.get_folded_output_shape())
-            .replace("(", "{").replace(")", "}")
+        oshape = str(self.get_folded_output_shape()).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             'vectorstream2npy<%s, float, %d>(out_%s, %s, "%s/output.npy", false);'
