@@ -351,7 +351,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
     if need_conv:
         model = model.transform(to_hw.InferConvInpGen())
-        model = model.transform(to_hw.InferStreamingMaxPool())
+        model = model.transform(to_hw.InferPool())
         model = model.transform(RemoveCNVtoFCFlatten())
     # get rid of Tranpose -> Tranpose identity seq
     model = model.transform(absorb.AbsorbConsecutiveTransposes())

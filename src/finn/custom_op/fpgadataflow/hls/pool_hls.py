@@ -61,129 +61,93 @@ class Pool_hls(Pool, HLSBackend):
         return my_attrs
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "maxpool.h"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "pool.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = [
+            '#include "pool.hpp"',
+            '#include "maxpool.h"'
+        ]
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
-
-        ifm_ch = self.get_nodeattr("Channels")
-        self.code_gen_dict["$DEFINES$"] += ["#define Channels {}".format(ifm_ch)]
-
-        pe = self.get_nodeattr("PE")
-        self.code_gen_dict["$DEFINES$"] += ["#define PE {}".format(pe)]
-
-        k = self.get_nodeattr("KernelSize")
-        k_prod = int(np.prod(k))
-        self.code_gen_dict["$DEFINES$"] += ["#define KernelSize {}".format(k_prod)]
-
-        odims = self.get_nodeattr("OutImgDims")
-        total_odim = np.prod(odims)
-        self.code_gen_dict["$DEFINES$"] += ["#define OFMDimTotal {}".format(total_odim)]
-
-        numReps = self.get_nodeattr("BatchSize")
-        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(numReps)]
+        k = int(np.prod(self.get_nodeattr("KernelSize")))
+        cf = self.get_nodeattr("Channels") / self.get_nodeattr("PE")
+        osz = np.prod(self.get_nodeattr("OutImgDims"))
+        self.code_gen_dict["$DEFINES$"] = [
+            "constexpr unsigned  ISIZE = {};".format(osz * cf * k),
+            "constexpr unsigned  K = {};".format(k)
+        ]
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+
+        self.code_gen_dict["$READNPYDATA$"] = [
+            'npy2vectorstream<%s, float, %d>("%s/input_0.npy", in0_%s, false);'
             % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
+                dtype.get_hls_datatype_str(), self.get_nodeattr("PE"),
+                self.get_nodeattr("code_gen_dir_cppsim"), self.hls_sname()
             )
-        )
+        ]
 
     def docompute(self):
-        idt = self.get_input_datatype()
-        i_hls_dt = idt.get_hls_datatype_str()
-        odt = self.get_output_datatype()
-        o_hls_dt = odt.get_hls_datatype_str()
-        size = self.get_nodeattr("Size")
-        accum_bits = self.get_nodeattr("AccumBits")
-        self.code_gen_dict["$DOCOMPUTE$"] = []
-
+        pe  = self.get_nodeattr("PE")
         fxn = self.get_nodeattr("Function")
+        idt = self.get_input_datatype()
+        odt = self.get_output_datatype()
+        i_hls_dt = 'hls::vector<%s, %d>' % (idt.get_hls_datatype_str(), pe)
+        o_hls_dt = 'hls::vector<%s, %d>' % (odt.get_hls_datatype_str(), pe)
+
+        self.code_gen_dict["$DOCOMPUTE$"] = []
         if fxn == "MaxPool":
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "MaxPoolFunction<{},KernelSize> pool_fxn;".format(i_hls_dt)
+                "MaxPoolFunction<{}> pool_fxn;".format(o_hls_dt)
             ]
         elif fxn == "QuantAvgPool":
-            if idt.signed():
-                act_hls_dt = "ap_int<{}>".format(accum_bits)
-            else:
-                act_hls_dt = "ap_uint<{}>".format(accum_bits)
+            shift      = self.get_nodeattr("Size")
+            accum_bits = self.get_nodeattr("AccumBits")
+            act_hls_dt = 'hls::vector<ap_%sint<%d>, %d>'
+                         % ('' if idt.signed() else 'u', accum_bits, pe)
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(act_hls_dt, o_hls_dt, size)
+                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(o_hls_dt, act_hls_dt, shift)
             ]
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
 
         self.code_gen_dict["$DOCOMPUTE$"] += [
-            """Pool_batch<Channels, PE, KernelSize,Slice<{} >, Slice< {} > >
-        (in0_{}, out_{}, pool_fxn, OFMDimTotal*numReps);""".format(
-                i_hls_dt, o_hls_dt, self.hls_sname(), self.hls_sname()
+            'Pool_batch<ISIZE, K>(in0_{}, out_{}, pool_fxn);'.format(
+                self.hls_sname(), self.hls_sname()
             )
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+        oshape = str(self.get_folded_output_shape())
+            .replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
+            'vectorstream2npy<%s, float, %d>(out_%s, %s, "%s/output.npy", false);'
             % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
+                dtype.get_hls_datatype_str(), self.get_nodeattr("PE"),
+                self.hls_sname(), oshape, self.get_nodeattr("code_gen_dir_cppsim")
             )
         ]
 
     def blackboxfunction(self):
-        packed_ibits = self.get_instream_width()
-        packed_in_hls_type = "ap_uint<%d>" % packed_ibits
+        pe  = self.get_nodeattr("PE")
+        idt = self.get_input_datatype()
+        odt = self.get_output_datatype()
+        i_hls_dt = 'hls::vector<%s, %d>' % (idt.get_hls_datatype_str(), pe)
+        o_hls_dt = 'hls::vector<%s, %d>' % (odt.get_hls_datatype_str(), pe)
 
-        packed_obits = self.get_outstream_width()
-        packed_out_hls_type = "ap_uint<%d>" % packed_obits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            "void %s(hls::stream<%s> &in0_%s, hls::stream<%s> &out_%s)"
             % (
                 self.onnx_node.name,
-                packed_in_hls_type,
-                self.hls_sname(),
-                packed_out_hls_type,
-                self.hls_sname(),
+                i_hls_type, self.hls_sname(),
+                o_hls_type, self.hls_sname()
             )
         ]
 

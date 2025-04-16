@@ -105,7 +105,7 @@ def test_infer_data_layouts_cnv():
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferConvInpGen())
-    model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(to_hw.InferPool())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataLayouts())

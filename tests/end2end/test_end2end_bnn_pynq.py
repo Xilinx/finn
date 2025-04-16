@@ -566,7 +566,7 @@ class TestEnd2End:
         # needed for convolutions
         if "fc" not in topology:
             model = model.transform(to_hw.InferConvInpGen())
-            model = model.transform(to_hw.InferStreamingMaxPool())
+            model = model.transform(to_hw.InferPool())
             model = model.transform(RemoveCNVtoFCFlatten())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
@@ -597,7 +597,7 @@ class TestEnd2End:
                 ("Thresholding", 1),
                 ("ConvolutionInputGenerator", 6),
                 ("MVAU", 9),
-                ("StreamingMaxPool", 2),
+                ("Pool", 2),
                 ("LabelSelect", 1),
             ],
         }
@@ -640,7 +640,7 @@ class TestEnd2End:
                 ("Thresholding_rtl", 1),
                 ("ConvolutionInputGenerator_rtl", 6),
                 ("MVAU_hls", 9),
-                ("StreamingMaxPool_hls", 2),
+                ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],
         }
