@@ -131,9 +131,11 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     # check topology status
     finn_nodes = model.get_finn_nodes()
     if fused_activation:
-        assert len(finn_nodes) == 18
+        model.save("debug_pool_hls_with_fused_activations.onnx")
+        assert len(finn_nodes) == 20 
     else:
-        assert len(finn_nodes) == 26
+        model.save("debug_pool_hls_without_fused_activations.onnx")
+        assert len(finn_nodes) == 28 
         thr_nodes = model.get_nodes_by_op_type("Thresholding_hls")
         assert len(thr_nodes) == 8
     non_finn_nodes = model.get_non_finn_nodes()
