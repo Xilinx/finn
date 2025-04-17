@@ -472,7 +472,6 @@ class MVAU(HWCustomOp):
         """Minimize the accumulator bit width according to the weight values,
         input data types, and size of dot product"""
         weights = model.get_initializer(self.onnx_node.input[1])
-
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
         if self.get_nodeattr("binaryXnorMode"):
@@ -493,9 +492,9 @@ class MVAU(HWCustomOp):
             mw = self.get_nodeattr("MW")
             mh = self.get_nodeattr("MH")
             wdt = self.get_weight_datatype()
-            lower_worst = wdt.min() * np.ones_like([mw, mh])
+            lower_worst = wdt.min() * np.ones((mw, mh))
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like([mw, mh])
+            upper_worst = wdt.max() * np.ones((mw, mh))
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(upper_range), max(upper_range))
