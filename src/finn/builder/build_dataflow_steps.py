@@ -31,6 +31,7 @@ import json
 import numpy as np
 import os
 import shutil
+import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
