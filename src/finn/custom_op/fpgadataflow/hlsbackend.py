@@ -368,11 +368,6 @@ compilation transformations?
                 assert (
                     context[outp].shape == exp_oshape
                 ), "Output shape doesn't match expected shape."
-                # binary -> bipolar if needed
-                if self.get_output_datatype(o) == DataType["BIPOLAR"]:
-                    out = context[outp]
-                    out = 2 * out - 1
-                    context[outp] = out
 
         else:
             raise Exception(
