@@ -306,6 +306,11 @@ compilation transformations?
             assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
             export_idt = self.get_input_datatype(i)
 
+            if export_idt == DataType["BIPOLAR"]:
+                # store bipolar activations as binary
+                inp_val = (inp_val + 1) / 2
+                export_idt = DataType["BINARY"]
+
             reshaped_input = inp_val.reshape(folded_ishape)
             reshaped_input = reshaped_input.copy()
             np.save(os.path.join(code_gen_dir, "input_%s.npy" % i), reshaped_input)
@@ -328,6 +333,11 @@ compilation transformations?
                 assert (
                     context[outp].shape == exp_oshape
                 ), "cppsim did not produce expected output shape"
+                # binary -> bipolar if needed
+                if self.get_output_datatype(o) == DataType["BIPOLAR"]:
+                    out = context[outp]
+                    out = 2 * out - 1
+                    context[outp] = out
         elif mode == "rtlsim":
             outputs = {}
             for o, outp in enumerate(node.output):
@@ -358,6 +368,11 @@ compilation transformations?
                 assert (
                     context[outp].shape == exp_oshape
                 ), "Output shape doesn't match expected shape."
+                # binary -> bipolar if needed
+                if self.get_output_datatype(o) == DataType["BIPOLAR"]:
+                    out = context[outp]
+                    out = 2 * out - 1
+                    context[outp] = out
 
         else:
             raise Exception(

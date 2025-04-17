@@ -227,6 +227,28 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
 
+    def read_npy_data(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        dtype = self.get_input_datatype()
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_instream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_in = "%s/input_0.npy" % code_gen_dir
+        self.code_gen_dict["$READNPYDATA$"] = []
+        # note: the innermost dim is reversed for the input
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+            )
+        )
+
     def defines(self, var):
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
         numReps = numInputVectors[0]
@@ -255,6 +277,34 @@ class ChannelwiseOp_hls(ChannelwiseOp, HLSBackend):
                 spatial_dim,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
+            )
+        ]
+
+    def dataoutstrm(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        dtype = self.get_output_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_outstream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output_0.npy" % code_gen_dir
+        shape = self.get_folded_output_shape()
+        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+
+        # note: the innermost dim is not reversed for the output
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                shape_cpp_str,
+                npy_out,
             )
         ]
 
