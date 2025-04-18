@@ -85,7 +85,7 @@ part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
 def get_rtlsim_trace_depth():
-    """Return the trace depth for rtlsim via PyVerilator. Controllable
+    """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
     will only show top-level signals and yield smaller .vcd files.
@@ -129,7 +129,7 @@ def get_vivado_root():
         )
 
 
-def pyverilate_get_liveness_threshold_cycles():
+def get_liveness_threshold_cycles():
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""
 

@@ -32,10 +32,10 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.util.basic import (
     get_finn_root,
+    get_liveness_threshold_cycles,
     get_vivado_root,
     launch_process_helper,
     make_build_dir,
-    pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -133,15 +133,14 @@ def rtlsim_exec_cppxsi(
     The postproc_cpp optional argument can be used to inject C++ code to retrieve
     extra data when the simulation is finished. See the @POSTPROC_CPP@ template argument
     in the xsi_simdriver.cpp file to see what context and functions are available.
-    If timeout_cycles is not None, the default value from pyverilate_get_liveness_threshold_cycles
+    If timeout_cycles is not None, the default value from get_liveness_threshold_cycles
     will be used.
     throttle_cycles will be used to pause the input stream every time an input frame is finished.
     """
     # TODO: support running functional rtlsim with real I/O data
     # TODO: support running with multiple inputs/outputs
-    # TODO: rename utility fxn to remove "pyverilate", used for other backends too
     if timeout_cycles is None:
-        timeout_cycles = pyverilate_get_liveness_threshold_cycles()
+        timeout_cycles = get_liveness_threshold_cycles()
 
     assert dummy_data_mode, "Only dummy_data_mode=True is supported for now"
 
@@ -361,7 +360,7 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         io_dict,
         num_out_values,
         sname="_",
-        liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+        liveness_threshold=get_liveness_threshold_cycles(),
     )
     if post_hook is not None:
         post_hook(sim)

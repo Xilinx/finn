@@ -92,8 +92,10 @@ class HLSBackend(ABC):
 
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        debug = not (trace_file is None or trace_file == "")
         ret = finnxsi.compile_sim_obj(
-            self.get_verilog_top_module_name(), verilog_files, single_src_dir
+            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
