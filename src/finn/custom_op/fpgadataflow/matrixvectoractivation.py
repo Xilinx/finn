@@ -481,7 +481,7 @@ class MVAU(HWCustomOp):
             upper_worst = wdt.max() * np.ones_like(weights)
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
-            acc_max = max(max(upper_range), max(upper_range))
+            acc_max = max(max(lower_range), max(upper_range))
 
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
