@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import finn_xsi.adapter as finnxsi
 import numpy as np
 import os
 from qonnx.custom_op.registry import getCustomOp
@@ -38,11 +39,6 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
 
 
 def prep_rtlsim_io_dict(model, execution_context):
@@ -101,7 +97,7 @@ def prep_rtlsim_io_dict(model, execution_context):
         o_stream_w = last_node.get_outstream_width()
         o_tensor_info.append((o_stream_w, o_dt, o_folded_shape, o_shape))
         num_out_values += batchsize * last_node.get_number_output_values()
-    return io_dict, if_dict, num_out_values, o_tensor_info
+    return io_dict, if_dict, num_out_values, o_tensor_info, batchsize
 
 
 def file_to_basename(x):
@@ -155,9 +151,10 @@ def rtlsim_exec_cppxsi(
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
     if not dummy_data_mode:
+        # ignore last value which would be batchsize
         io_dict, if_dict, num_out_values, o_tensor_info = prep_rtlsim_io_dict(
             model, execution_context
-        )
+        )[:-1]
 
     # prepare rtlsim compiled object (unless it already exists)
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
@@ -169,7 +166,7 @@ def rtlsim_exec_cppxsi(
             all_verilog_srcs = f.read().split()
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         debug = not (trace_file is None or trace_file == "")
-        rtlsim_so = pyxsi_utils.compile_sim_obj(
+        rtlsim_so = finnxsi.compile_sim_obj(
             top_module_name, all_verilog_srcs, single_src_dir, debug=debug
         )
         # save generated lib filename in attribute
@@ -251,7 +248,7 @@ def rtlsim_exec_cppxsi(
         # code to post-process final sim status to extract more data
         "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
-        "SIMKERNEL_SO": pyxsi_utils.get_simkernel_so(),
+        "SIMKERNEL_SO": finnxsi.get_simkernel_so(),
         # log file for xsi (not the sim driver)
         "XSIM_LOG_FILE": '"xsi.log"',
     }
@@ -306,11 +303,10 @@ def rtlsim_exec_cppxsi(
     return ret_dict
 
 
-def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
-    """Use PyXSI to execute given model with stitched IP. The execution
+def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None):
+    """Use finnxsi to execute given model with stitched IP. The execution
     context contains the input values. Hook functions can be optionally
-    specified to observe/alter the state of the circuit, receiving the
-    PyXSI RPC sim handle as their first argument:
+    specified to observe/alter the state of the circuit
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
@@ -324,7 +320,9 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
     ), """The
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
-    io_dict, if_dict, num_out_values, o_tensor_info = prep_rtlsim_io_dict(model, execution_context)
+    io_dict, if_dict, num_out_values, o_tensor_info, batchsize = prep_rtlsim_io_dict(
+        model, execution_context
+    )
 
     # prepare rtlsim model
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
@@ -336,7 +334,7 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         debug = not (trace_file is None or trace_file == "")
-        rtlsim_so = pyxsi_utils.compile_sim_obj(
+        rtlsim_so = finnxsi.compile_sim_obj(
             top_module_name, all_verilog_srcs, single_src_dir, debug=debug
         )
         # save generated lib filename in attribute
@@ -345,28 +343,27 @@ def rtlsim_exec_pyxsi(model, execution_context, pre_hook=None, post_hook=None):
         # pass in correct tracefile from attribute
         if trace_file == "default":
             trace_file = top_module_file_name + ".wdb"
-        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, trace_file)
+        sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
     else:
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
-        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, trace_file)
+        sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
 
     # reset and call rtlsim, including any pre/post hooks
-    pyxsi_utils.reset_rtlsim(sim)
+    finnxsi.reset_rtlsim(sim)
     if pre_hook is not None:
         pre_hook(sim)
-    n_cycles = pyxsi_utils.rtlsim_multi_io(
+    n_cycles = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,
         num_out_values,
         sname="_",
-        liveness_threshold=get_liveness_threshold_cycles(),
+        liveness_threshold=get_liveness_threshold_cycles() * batchsize,
     )
     if post_hook is not None:
         post_hook(sim)
-    # important to call close_rtlsim for pyxsi to flush traces and stop
-    # the RPC server process
-    pyxsi_utils.close_rtlsim(sim)
+    # important to call close_rtlsim for finnxsi to flush traces and stop
+    finnxsi.close_rtlsim(sim)
 
     # unpack outputs and put back into execution context
     for o, o_vi in enumerate(model.graph.output):
@@ -390,4 +387,4 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     - pre_hook : hook function to be called before sim start (after reset)
     - post_hook : hook function to be called after sim end
     """
-    rtlsim_exec_pyxsi(model, execution_context, pre_hook, post_hook)
+    rtlsim_exec_finnxsi(model, execution_context, pre_hook, post_hook)

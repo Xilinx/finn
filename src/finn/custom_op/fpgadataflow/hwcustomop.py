@@ -198,13 +198,13 @@ class HWCustomOp(CustomOp):
         return {}
 
     def reset_rtlsim(self, sim):
-        """Sets reset input in pyxsi to zero, toggles the clock and set it
+        """Sets reset input in finnxsi to zero, toggles the clock and set it
         back to one"""
         finnxsi.reset_rtlsim(sim)
 
     def toggle_clk(self, sim):
-        """Toggles the clock input in pyxsi once."""
-        # pyxsi_utils.toggle_clk(sim)
+        """Toggles the clock input in finnxsi once."""
+        # finnxsi.toggle_clk(sim)
         pass
 
     def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
