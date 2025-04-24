@@ -65,7 +65,7 @@ class Pool_hls(Pool, HLSBackend):
 
     def defines(self, var):
         k = int(np.prod(self.get_nodeattr("KernelSize")))
-        cf = self.get_nodeattr("Channels") / self.get_nodeattr("PE")
+        cf = int(self.get_nodeattr("Channels") / self.get_nodeattr("PE"))
         osz = np.prod(self.get_nodeattr("OutImgDims"))
         self.code_gen_dict["$DEFINES$"] = [
             "constexpr unsigned  ISIZE = {};".format(osz * cf * k),
@@ -141,8 +141,8 @@ class Pool_hls(Pool, HLSBackend):
             "void %s(hls::stream<%s> &in0_%s, hls::stream<%s> &out_%s)"
             % (
                 self.onnx_node.name,
-                i_hls_type, self.hls_sname(),
-                o_hls_type, self.hls_sname()
+                i_hls_dt, self.hls_sname(),
+                o_hls_dt, self.hls_sname()
             )
         ]
 
