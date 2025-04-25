@@ -124,7 +124,7 @@ class Thresholding(HWCustomOp):
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
         idt = self.get_input_datatype(0)
-        if idt == "FLOAT32" or self.get_nodeattr("weightDataType") == "FLOAT32":
+        if str(idt).startswith("FLOAT") or self.get_nodeattr("weightDataType").startswith("FLOAT"):
             return DataType[self.get_nodeattr("weightDataType")]
         thresholds = model.get_initializer(self.onnx_node.input[1])
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
