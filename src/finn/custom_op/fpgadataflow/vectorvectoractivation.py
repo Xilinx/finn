@@ -422,13 +422,19 @@ class VVAU(HWCustomOp):
         # if runtime-writeable weights, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
         if self.get_nodeattr("runtime_writeable_weights"):
+            # SIRA: changed to match exact formula we use in the paper
+            # slight differences with minimizing/maximizing vectors occur otherwise
             wdt = self.get_weight_datatype()
-            lower_worst = wdt.min() * np.ones_like(weights)
-            lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like(weights)
-            upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
-            acc_min = min(min(lower_range), min(upper_range))
-            acc_max = max(max(lower_range), max(upper_range))
+            mw = weights.shape[0]
+            wbits = wdt.bitwidth()
+            ibits = idt.bitwidth()
+            signed_ind = 1 if idt.signed() else 0
+            alpha = math.log2(mw) + wbits + ibits - 1 - signed_ind
+            phi_alpha = math.log2(1 + 2 ** (-alpha))
+            acc_dt_bound = math.ceil(alpha + 1 + phi_alpha)
+            acc_dt = DataType[f"INT{acc_dt_bound}"]
+            acc_min = acc_dt.min()
+            acc_max = acc_dt.max()
 
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
