@@ -610,7 +610,6 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "test.wdb")
 
     # tensor names have changed, create new input dict with same input values
     exec_ctx_dict = {"global_in": x}
@@ -724,7 +723,10 @@ def test_mvau_fifocharacterize_rtlsim(
     assert period_attr == exp_total_cycles
     chrc_in = node_inst.get_nodeattr("io_chrc_in")
     chrc_out = node_inst.get_nodeattr("io_chrc_out")
-    assert chrc_in.shape == (1, 2 * exp_total_cycles)
+    if mem_mode == "internal_decoupled":
+        assert chrc_in.shape == (2, 2 * exp_total_cycles)
+    else:
+        assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # total number of transactions == 2*SF
     assert chrc_in[0, -1] == 2 * sf
@@ -926,9 +928,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
-    model.save("debug1.onnx")
-
-    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
@@ -936,7 +935,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    model.set_metadata_prop("rtlsim_trace", "/scratch/users/dkorolij/finn_dev/trace.wdb")
     model.set_metadata_prop("exec_mode", "rtlsim")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
 

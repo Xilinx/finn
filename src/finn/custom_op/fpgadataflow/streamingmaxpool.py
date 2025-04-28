@@ -166,13 +166,6 @@ class StreamingMaxPool(HWCustomOp):
         """For streaming maxpool out stream width is the same as in stream width"""
         return self.get_instream_width()
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for StreamingMaxPool."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -186,9 +179,6 @@ class StreamingMaxPool(HWCustomOp):
         self.set_nodeattr("dataType", idt.name)
         # data type stays the same
         model.set_tensor_datatype(node.output[0], idt)
-
-    def verify_node(self):
-        pass
 
     def execute_node(self, context, graph):
         # create a standard add node to help calculate the result
