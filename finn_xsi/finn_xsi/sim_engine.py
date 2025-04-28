@@ -13,22 +13,6 @@
 import xsi
 
 
-# look for AXI-Stream signals both uppercase and lowercase
-def find_stream_ports(top, stream_prefix):
-    found_ports = []
-    suffixes = ["tvalid", "tready", "tdata"]
-    for suffix in suffixes:
-        if ret := top.getPort(stream_prefix + suffix):
-            found_ports.append(ret)
-            continue
-        elif ret := top.getPort(stream_prefix + suffix.upper()):
-            found_ports.append(ret)
-            continue
-        else:
-            assert False, f"Could not find {stream_prefix} : {suffix}"
-    return found_ports
-
-
 class SimEngine:
     def __init__(self, kernel, design, log=None, wdb=None):
         top = xsi.Design(xsi.Kernel(kernel), design, log, wdb)
@@ -52,6 +36,10 @@ class SimEngine:
         )
         self.ticks = 0
         self.tasks = []
+
+    def get_bus_port(self, bus, suffix):
+        port = self.top.getPort(bus + '_' + suffix.lower())
+        return  port if port is not None else self.top.getPort(bus + '_' + suffix.upper())
 
     def run(self, cycles=float("inf")):
         timeout = self.ticks + cycles
@@ -114,10 +102,10 @@ class SimEngine:
 
         class InputStreamer:
             def __init__(self, top, istream, values, throttle):
-                self.vld, self.rdy, self.dat = find_stream_ports(top, istream)
+                self.vld = top.get_bus_port(istream, "tvalid")
+                self.rdy = top.get_bus_port(istream, "tready")
+                self.dat = top.get_bus_port(istream, "tdata")
                 self.values = values
-                # stream width (in hex digits)
-                self.width = int(self.dat.width() / 4)
 
                 self.throttle = throttle
                 self.await_tick = 0
@@ -152,7 +140,7 @@ class SimEngine:
                 # Stall Feed
                 return [self.vld.set(0), self.dat.clear()] if vld else []
 
-        self.enlist(InputStreamer(self.top, istream, values, throttle))
+        self.enlist(InputStreamer(self, istream, values, throttle))
 
     def collect_output(self, ostream, size):
         "Collect size outputs from the specified stream into the returned iterable buffer."
@@ -160,7 +148,9 @@ class SimEngine:
         class OutputCollector:
             def __init__(self, top, ostream, size):
                 self.size = size
-                self.vld, self.rdy, self.dat = find_stream_ports(top, ostream)
+                self.vld = top.get_bus_port(ostream, "tvalid")
+                self.rdy = top.get_bus_port(ostream, "tready")
+                self.dat = top.get_bus_port(ostream, "tdata")
                 self.buf = []
 
             def __iter__(self):
@@ -179,7 +169,7 @@ class SimEngine:
                     return [self.rdy.set(1)]
                 return None
 
-        ret = OutputCollector(self.top, ostream, size)
+        ret = OutputCollector(self, ostream, size)
         self.enlist(ret)
         return ret
 
@@ -191,52 +181,53 @@ class SimEngine:
             FEED = 1
             COOL = 2
 
-            def __init__(self, top, writes):
-                self.awready = top.getPort(m_axilite + "_awready")
-                self.awvalid = top.getPort(m_axilite + "_awvalid")
-                self.awaddr = top.getPort(m_axilite + "_awaddr")
-                self.wready = top.getPort(m_axilite + "_wready")
-                self.wvalid = top.getPort(m_axilite + "_wvalid")
-                self.wdata = top.getPort(m_axilite + "_wdata")
-                self.bready = top.getPort(m_axilite + "_bready")
-                self.bvalid = top.getPort(m_axilite + "_bvalid")
-                self.bresp = top.getPort(m_axilite + "_bresp")
-                self.writes = writes
-                self.state = AxiLiteWriter.INIT
+            def __init__(self, top, m_axilite, writes):
+                self.awready = top.get_bus_port(m_axilite, "awready")
+                self.awvalid = top.get_bus_port(m_axilite, "awvalid")
+                self.awaddr  = top.get_bus_port(m_axilite, "awaddr")
+                self.wready  = top.get_bus_port(m_axilite, "wready")
+                self.wvalid  = top.get_bus_port(m_axilite, "wvalid")
+                self.wdata   = top.get_bus_port(m_axilite, "wdata")
+                self.bready  = top.get_bus_port(m_axilite, "bready")
+                self.bvalid  = top.get_bus_port(m_axilite, "bvalid")
+                self.bresp   = top.get_bus_port(m_axilite, "bresp")
+                self.writes  = writes
+                self.state   = self.INIT
                 self.pending = 0
 
             def __call__(self, sim):
+
                 # Termination
-                if self.state == AxiLiteWriter.COOL and not self.bready.as_bool():
-                    return None
+                if(self.state == self.COOL and not self.bready.as_bool()):
+                    return  None
 
                 ret = []
 
                 # Always Monitor Completions
-                if self.state == AxiLiteWriter.INIT:
+                if(self.state == self.INIT):
                     ret.append(self.bready.set(1))
-                    self.state = AxiLiteWriter.FEED
+                    self.state = self.FEED
 
-                if self.bvalid.read().as_bool():
-                    if self.pending < 1:
+                if(self.bvalid.read().as_bool()):
+                    if(self.pending < 1):
                         print("Received spurious completion on", self.bresp.name())
                     else:
                         self.pending -= 1
-                        if self.pending == 0 and self.state == AxiLiteWriter.COOL:
-                            ret.append(self.bready().set(0))
+                        if(self.pending == 0 and self.state == self.COOL):
+                            ret.append(self.bready.set(0))
 
-                    if self.bresp.read().as_unsigned() != 0:
+                    if(self.bresp.read().as_unsigned() != 0):
                         print("Received error indication on", self.bresp.name())
 
                 # Transaction Feed
-                if self.state == AxiLiteWriter.FEED:
+                if(self.state == self.FEED):
                     step = True
 
                     # Check for busy address feed
                     avld = self.awvalid.as_bool()
                     aclr = False
-                    if avld:
-                        if self.awready.read().as_bool():
+                    if(avld):
+                        if(self.awready.read().as_bool()):
                             aclr = True
                         else:
                             step = False
@@ -244,31 +235,84 @@ class SimEngine:
                     # Check for busy data feed
                     wvld = self.wvalid.as_bool()
                     wclr = False
-                    if wvld:
-                        if self.wready.read().as_bool():
+                    if(wvld):
+                        if(self.wready.read().as_bool()):
                             wclr = True
                         else:
                             step = False
 
                     # Proceed with next Write
-                    if step:
+                    if(step):
                         addr, val = next(self.writes, (None, None))
                         if addr is not None:
-                            ret.extend([self.awaddr.set(addr), self.wdata.set(val)])
+                            ret.extend([self.awaddr.set(addr), self.wdata.set_hexstr(val)])
                             if not avld:
                                 ret.append(self.awvalid.set(1))
                             if not wvld:
                                 ret.append(self.wvalid.set(1))
                             self.pending += 1
-                            return ret
-                        self.state = AxiLiteWriter.COOL
+                            return  ret
+                        if not self.pending:
+                            ret.append(self.bready.set(0))
+                        self.state = self.COOL
 
                     # Deassert completed feed
-                    if aclr:
+                    if(aclr):
                         ret.append(self.awvalid.set(0))
-                    if wclr:
+                    if(wclr):
                         ret.append(self.wvalid.set(0))
 
                 return ret
 
-        self.enlist(AxiLiteWriter(self.top, m_axilite, writes))
+        self.enlist(AxiLiteWriter(self, m_axilite, writes))
+
+    def read_axilite(self, m_axilite, reads):
+        class AxiLiteReader:
+            def __init__(self, top, m_axilite, reads):
+                self.arready = top.get_bus_port(m_axilite, "arready")
+                self.arvalid = top.get_bus_port(m_axilite, "arvalid")
+                self.araddr  = top.get_bus_port(m_axilite, "araddr")
+                self.rready  = top.get_bus_port(m_axilite, "rready")
+                self.rvalid  = top.get_bus_port(m_axilite, "rvalid")
+                self.rdata   = top.get_bus_port(m_axilite, "rdata")
+                self.reads   = reads
+                self.pending  = []
+                self.draining = False
+                self.replies  = {}
+
+            def __call__(self, sim):
+                ret = []
+
+                # Address Stream Feed: assert self.draining when done
+                if not self.draining:
+                    if self.arready.read().as_bool() or not self.arvalid.as_bool():
+                        addr = next(self.reads, None)
+                        if addr is None:
+                            ret.append(self.arvalid.set(0))
+                            self.draining = True
+                        else:
+                            ret.extend([self.arvalid.set(1), self.araddr.set(addr)])
+                            self.pending.append(addr)
+
+                # Reply Collection
+                if not self.rready.as_bool():
+                    # Termination
+                    if self.draining: return  None
+                    # Activation
+                    ret.append(self.rready.set(1))
+                elif self.rvalid.read().as_bool():
+                    assert len(self.pending) > 0, "Spurious reply."
+                    self.replies[self.pending.pop(0)] = self.rdata.read().as_hexstr()
+                    if self.draining and len(self.pending) == 0:
+                        ret.append(self.rready.set(0))
+
+                return  ret
+
+            def __iter__(self):
+                return  iter(self.replies)
+            def __getitem__(self, addr):
+                return  self.replies[addr]
+
+        ret = AxiLiteReader(self, m_axilite, reads)
+        self.enlist(ret)
+        return  ret
