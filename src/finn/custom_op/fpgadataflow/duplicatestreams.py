@@ -138,8 +138,8 @@ class DuplicateStreams(HWCustomOp):
 
     def get_number_output_values(self):
         out_val = {}
-        for i, outp in enumerate(self.onnx_node.output):
-            out_val[outp] = np.prod(self.get_folded_output_shape(i)[1:-1])
+        for i in range(len(self.onnx_node.output)):
+            out_val["out%s" % i] = np.prod(self.get_folded_output_shape(i)[1:-1])
         return out_val
 
     def get_exp_cycles(self):
