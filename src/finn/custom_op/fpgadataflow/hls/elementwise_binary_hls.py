@@ -268,7 +268,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 f'npy2apintstream<LhsPacked, LhsType, LhsWidth, {lhs_carrier_dtype}>(',
-                f'"{code_gen_dir}/lhs.npy", lhs_{self.hls_sname()}, false',
+                f'"{code_gen_dir}/lhs.npy", lhs_V, false',
                 ');'
             ]
         # If the right-hand-side is provided as runtime input, read code needs
@@ -281,7 +281,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs are always represented as numpy floats
                 f'npy2apintstream<RhsPacked, RhsType, RhsWidth, {rhs_carrier_dtype}>(',
-                f'"{code_gen_dir}/rhs.npy", rhs_{self.hls_sname()}, false',
+                f'"{code_gen_dir}/rhs.npy", rhs_V, false',
                 ');'
             ]
 
@@ -291,7 +291,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         # Allways add the output stream to the declarations
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
             # Note: Assumes stream type aliases to be set in defines
-            f"OutStream out_{self.hls_sname()};"
+            "OutStream out_V;"
         ]
         # If the left-hand-side is provided as runtime input, read code needs
         # to be generated
@@ -299,7 +299,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # Generate a stream declaration
             self.code_gen_dict["$STREAMDECLARATIONS$"] += [
                 # Note: Assumes stream type aliases to be set in defines
-                f"LhsStream lhs_{self.hls_sname()};"
+                "LhsStream lhs_V;"
             ]
         # If the right-hand-side is provided as runtime input, read code needs
         # to be generated
@@ -307,7 +307,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # Generate a stream declaration
             self.code_gen_dict["$STREAMDECLARATIONS$"] += [
                 # Note: Assumes stream type aliases to be set in defines
-                f"RhsStream rhs_{self.hls_sname()};"
+                "RhsStream rhs_V;"
             ]
 
     # Generates C++ code for calling the computation part of the operator
@@ -455,7 +455,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             f"""
             if({read_stream_condition(lhs_shape)}) {{
                 const auto buffer = Slice<LhsType>{{}}(
-                    lhs_{self.hls_sname()}.read()
+                    lhs_V.read()
                 );
                 for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
                 #pragma HLS unroll
@@ -468,7 +468,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             f"""
             if({read_stream_condition(rhs_shape)}) {{
                 const auto buffer = Slice<RhsType>{{}}(
-                    rhs_{self.hls_sname()}.read()
+                    rhs_V.read()
                 );
                 for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
                 #pragma HLS unroll
@@ -487,8 +487,8 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             }}
             """,
             # Write the PE group into the output stream
-            f"""
-            out_{self.hls_sname()}.write(flatten(out));
+            """
+            out_V.write(flatten(out));
             """,
             # Close all for-loop bodies of the generated nest
             *["}" for _ in enumerate(out_shape)]
@@ -521,7 +521,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
             # Generate function call reading from stream into the output file
             #   Note: Outputs are always represented as numpy floats
             f'apintstream2npy<OutPacked, OutType, OutWidth, {out_carrier_dtype}>(',
-            f'out_{self.hls_sname()}, {shape}, "{code_gen_dir}/out.npy", false',
+            f'out_V, {shape}, "{code_gen_dir}/out.npy", false',
             ');',
         ]
 
@@ -544,9 +544,9 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             # Note: Assumes stream type aliases to be set in defines
             f"void {self.onnx_node.name} (",
-            f"  LhsStream &lhs_{self.hls_sname()}," if runtime_lhs else "",
-            f"  RhsStream &rhs_{self.hls_sname()}," if runtime_rhs else "",
-            f"  OutStream &out_{self.hls_sname()}",
+            "  LhsStream &lhs_V," if runtime_lhs else "",
+            "  RhsStream &rhs_V," if runtime_rhs else "",
+            "  OutStream &out_V",
             ")",
         ]
 
@@ -563,7 +563,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         # the top-level function arguments
         self.code_gen_dict["$PRAGMAS$"] += [
             # Connect the output stream with an axi stream interface
-            f"#pragma HLS INTERFACE axis port=out_{self.hls_sname()}",
+            "#pragma HLS INTERFACE axis port=out_V",
         ]
 
         # If the left-hand-side is provided as runtime input interface pragmas
@@ -571,7 +571,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         if self.lhs_style == "input":
             # Connect the lhs input stream with an axi stream interface
             self.code_gen_dict["$PRAGMAS$"] += [
-                f"#pragma HLS INTERFACE axis port=lhs_{self.hls_sname()}",
+                "#pragma HLS INTERFACE axis port=lhs_V",
             ]
 
         # If the right-hand-side is provided as runtime input interface pragmas
@@ -579,7 +579,7 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         if self.rhs_style == "input":
             # Connect the rhs input stream with an axi stream interface
             self.code_gen_dict["$PRAGMAS$"] += [
-                f"#pragma HLS INTERFACE axis port=rhs_{self.hls_sname()}",
+                "#pragma HLS INTERFACE axis port=rhs_V",
             ]
 
         # No block-level I/O protocol for the function return value
@@ -598,17 +598,17 @@ class ElementwiseBinaryOperation_hls(  # noqa: Class name does not follow
         # need to be inserted
         if self.lhs_style == "input":
             intf_names["s_axis"] += [(
-                f"lhs_{self.hls_sname()}", self.get_instream_width_padded(ind=0)
+                "lhs_V", self.get_instream_width_padded(ind=0)
             )]
         # If the right-hand-side is provided as runtime input interface names
         # need to be inserted
         if self.rhs_style == "input":
             intf_names["s_axis"] += [(
-                f"rhs_{self.hls_sname()}", self.get_instream_width_padded(ind=1)
+                "rhs_V", self.get_instream_width_padded(ind=1)
             )]
         # AXI stream output interfaces
         intf_names["m_axis"] = [
-            (f"out_{self.hls_sname()}", self.get_outstream_width_padded(ind=0))
+            ("out_V", self.get_outstream_width_padded(ind=0))
         ]
         # No AXI-MM, AXI-Lite or protocol-less interfaces
         intf_names["aximm"] = []

@@ -156,12 +156,10 @@ class DynMVU_rtl(MVAU, RTLBackend):
             inp_0 = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
 
             super().reset_rtlsim(sim)
-            if self.get_nodeattr("rtlsim_backend") == "pyverilator":
-                super().toggle_clk(sim)
 
             if mem_mode in ["external", "internal_decoupled"]:
-                wnbits = self.get_weightstream_width()
-                export_wdt = self.get_weight_datatype()
+                wnbits = self.get_instream_width(1)
+                export_wdt = self.get_input_datatype(1)
                 inp_1 = npy_to_rtlsim_input(
                     "{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits
                 )
@@ -197,12 +195,12 @@ class DynMVU_rtl(MVAU, RTLBackend):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
+        sname = "V"
         if mem_mode == "external":
             # find the weights_V interface and rename it to in1_V
             for i, (name, width) in enumerate(intf_names["s_axis"]):
                 if name == "weights_V":
-                    intf_names["s_axis"][i] = ("in1_" + sname, self.get_weightstream_width_padded())
+                    intf_names["s_axis"][i] = ("in1_" + sname, self.get_instream_width_padded(1))
             # intf_names["s_axis"].append(("in1_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
