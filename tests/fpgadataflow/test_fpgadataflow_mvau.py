@@ -54,7 +54,6 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -168,9 +167,12 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
 
     return model
 
+
 def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
     matmul_node = helper.make_node("MatMul", ["ifm", "wfm"], ["ofm"])
-    graph = helper.make_graph(nodes=[matmul_node], name="matmul_graph", inputs=[ifm, wfm], outputs=[ofm])
+    graph = helper.make_graph(
+        nodes=[matmul_node], name="matmul_graph", inputs=[ifm, wfm], outputs=[ofm]
+    )
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
@@ -607,7 +609,6 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "test.wdb")
 
     # tensor names have changed, create new input dict with same input values
     exec_ctx_dict = {"global_in": x}
@@ -721,7 +722,10 @@ def test_mvau_fifocharacterize_rtlsim(
     assert period_attr == exp_total_cycles
     chrc_in = node_inst.get_nodeattr("io_chrc_in")
     chrc_out = node_inst.get_nodeattr("io_chrc_out")
-    assert chrc_in.shape == (1, 2 * exp_total_cycles)
+    if mem_mode == "internal_decoupled":
+        assert chrc_in.shape == (2, 2 * exp_total_cycles)
+    else:
+        assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # total number of transactions == 2*SF
     assert chrc_in[0, -1] == 2 * sf
@@ -733,12 +737,8 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("pe", [32])
 @pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize(
-    "idt_wdt", [[DataType["UINT8"], DataType["INT8"]]]
-)
-@pytest.mark.parametrize(
-    "part", ["xcvc1902-vsva2197-2MP-e-S"]
-)
+@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("clk_ns", [4])
 @pytest.mark.parametrize("pumpedMemory", [False])
 @pytest.mark.parametrize("pumpedCompute", [False])
@@ -851,11 +851,13 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
 @pytest.mark.parametrize("clk_ns", [4])
 @pytest.mark.parametrize("pumpedCompute", [False])
+# Backend
+@pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_dynamic_mvau(
-    mh, mw, n_vectors, pe, simd, idt_wdt, part, clk_ns, pumpedCompute
+    mh, mw, n_vectors, pe, simd, idt_wdt, part, clk_ns, pumpedCompute, impl_style
 ):
     if simd == 1 and pumpedCompute:
         pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
@@ -868,37 +870,46 @@ def test_fpgadataflow_rtl_dynamic_mvau(
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
-    #model = model.transform(GiveReadableTensorNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    inpA_name = model.graph.input[0].name
+    inpB_name = model.graph.input[1].name
+    outp_name = model.graph.output[0].name
 
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(
-        model.get_tensor_datatype("ifm"), model.get_tensor_shape("ifm")
+        model.get_tensor_datatype(inpA_name), model.get_tensor_shape(inpA_name)
     )
     inpTensor_W = gen_finn_dt_tensor(
-        model.get_tensor_datatype("wfm"), model.get_tensor_shape("wfm")
+        model.get_tensor_datatype(inpB_name), model.get_tensor_shape(inpB_name)
     )
-    input_dict = {"ifm": inpTensor_A, "wfm": inpTensor_W}
+    input_dict = {inpA_name: inpTensor_A, inpB_name: inpTensor_W}
 
     # Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_matmul = oxe.execute_onnx(model, input_dict)[outp_name]
 
     # Create MVAU
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(GiveUniqueNodeNames())
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", str(impl_style))
 
     # Apply convert-to-rtl step
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
-    assert model.graph.node[0].op_type == "MVAU_rtl"
+    assert model.graph.node[0].op_type == "MVAU_" + str(impl_style)
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
-        "MVAU_rtl_0": {
+        "MVAU_%s_0"
+        % impl_style: {
             "PE": pe,
             "SIMD": simd,
             "resType": "dsp",
-            "pumpedCompute": pumpedCompute,
+            #        "pumpedCompute": pumpedCompute,
         },
     }
     model = model.transform(ApplyConfig(folding_config))
@@ -911,7 +922,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_mvau_hls = oxe.execute_onnx(model, input_dict)[outp_name]
     assert (
         output_matmul == output_mvau_hls
     ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
@@ -921,127 +932,29 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)[outp_name]
     assert (
         output_matmul == output_mvau_rtl
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
-    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
-    model = model.transform(InsertFIFO(True))
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    model.set_metadata_prop("rtlsim_trace", "/scratch/users/dkorolij/finn_dev/trace.wdb")
+    # input names might have changed through applying the transformations
+    input_dict = {}
+    for inp in model.graph.input:
+        shape = tuple(model.get_tensor_shape(inp.name))
+        if shape == inpTensor_A.shape:
+            input_dict[inp.name] = inpTensor_A
+        elif shape == inpTensor_W.shape:
+            input_dict[inp.name] = inpTensor_W
     model.set_metadata_prop("exec_mode", "rtlsim")
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
-
-    assert (
-        output_matmul == output_mvau_rtl_stitch
-    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
-
-
-@pytest.mark.parametrize("mh", [128])
-@pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("n_vectors", [128])
-@pytest.mark.parametrize("pe", [32])
-@pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
-@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
-@pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_fpgadataflow_hls_dynamic_mvau(
-    mh, mw, n_vectors, pe, simd, idt_wdt, part, clk_ns
-):
-
-    idt, wdt = idt_wdt
-    # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
-
-    model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
-    model = model.transform(GiveUniqueNodeNames())
-    # model = model.transform(GiveReadableTensorNames())
-
-    # Create MatMul & obtain golden reference output
-    inpTensor_A = gen_finn_dt_tensor(
-        model.get_tensor_datatype("ifm"), model.get_tensor_shape("ifm")
-    )
-    inpTensor_W = gen_finn_dt_tensor(
-        model.get_tensor_datatype("wfm"), model.get_tensor_shape("wfm")
-    )
-    input_dict = {"ifm": inpTensor_A, "wfm": inpTensor_W}
-
-    # Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)["ofm"]
-
-    # Create MVAU
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Set to HLS
-    for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
-        inst.set_nodeattr("preferred_impl_style", "hls")
-
-    # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
-
-    assert model.graph.node[0].op_type == "MVAU_hls"
-    # Apply folding (i.e. specify to use DSPs)
-    folding_config = {
-        "Defaults": {},
-        "MVAU_hls_0": {
-            "PE": pe,
-            "SIMD": simd,
-            "resType": "dsp",
-        },
-    }
-    model = model.transform(ApplyConfig(folding_config))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    # make sure the changed datatypes are propagated through the network
-    model = model.transform(InferDataTypes())
-
-    # Run CPPsim
-    # model = model.transform(SetExecMode("cppsim"))
-    # model = model.transform(PrepareCppSim())
-    # model = model.transform(CompileCppSim())
-    # output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
-    # assert (
-    #     output_matmul == output_mvau_hls
-    # ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
-
-    # Run node-by-node RTLsim
-    # model = model.transform(SetExecMode("rtlsim"))
-    # model = model.transform(PrepareIP(part, clk_ns))
-    # model = model.transform(HLSSynthIP())
-    # model = model.transform(PrepareRTLSim())
-    # output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
-    # assert (
-    #     output_matmul == output_mvau_rtl
-    # ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
-
-    # Run stitched-ip RTLsim
-    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
-    model = model.transform(InsertFIFO(True))
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(part, clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(part, clk_ns))
-
-    model.set_metadata_prop("rtlsim_trace", "/scratch/users/dkorolij/finn_dev/trace.wdb")
-    model.set_metadata_prop("exec_mode", "rtlsim")
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)[outp_name]
 
     assert (
         output_matmul == output_mvau_rtl_stitch

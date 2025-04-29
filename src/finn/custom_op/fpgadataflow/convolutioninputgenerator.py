@@ -130,14 +130,6 @@ class ConvolutionInputGenerator(HWCustomOp):
             folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
         return folded_oshape
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
-        # implement tensor with correct shape
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # data type stays the same
@@ -164,9 +156,6 @@ class ConvolutionInputGenerator(HWCustomOp):
             self.set_nodeattr("outputDataType", dtype.name)
         # Propagate the datatype through the model graph
         model.set_tensor_datatype(node.output[0], dtype)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
