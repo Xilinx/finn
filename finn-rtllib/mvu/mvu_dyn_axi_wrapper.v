@@ -54,7 +54,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in1_V:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in1_V:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	// (* X_INTERFACE_PARAMETER = "ASSOCIATED_RESET ap_rst_n" *)
@@ -72,9 +72,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	input   in1_V_TVALID,
 	output  in1_V_TREADY,
 	// Output Stream
-	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out_V_TDATA,
-	output	out_V_TVALID,
-	input	out_V_TREADY
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out0_V_TDATA,
+	output	out0_V_TVALID,
+	input	out0_V_TREADY
 );
 
 mvu_dyn_axi #(
@@ -91,9 +91,9 @@ mvu_dyn_axi #(
 	.s_axis_input_1_tdata (in1_V_TDATA),
 	.s_axis_input_1_tvalid(in1_V_TVALID),
 	.s_axis_input_1_tready(in1_V_TREADY),
-	.m_axis_output_tdata (out_V_TDATA),
-	.m_axis_output_tvalid(out_V_TVALID),
-	.m_axis_output_tready(out_V_TREADY)
+	.m_axis_output_tdata (out0_V_TDATA),
+	.m_axis_output_tvalid(out0_V_TVALID),
+	.m_axis_output_tready(out0_V_TREADY)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$
