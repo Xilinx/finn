@@ -979,8 +979,6 @@ class MVAU(HWCustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             if dyn_input:
                 # dynamic loader
-                self.generate_hdl_dynload()
-
                 swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
                 file_suffix = "_dynamic_load_wrapper.v"
                  # automatically find memstream verilog component in code generation directory
@@ -1029,7 +1027,6 @@ class MVAU(HWCustomOp):
             else:
                 # memstream
                 runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-
                 swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
                 file_suffix = "_memstream_wrapper.v"
                  # automatically find memstream verilog component in code generation directory

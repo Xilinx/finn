@@ -882,7 +882,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     # Execute ONNX model
     output_matmul = oxe.execute_onnx(model, input_dict)["ofm"]
 
-    # Create MVAU (HLS)
+    # Create MVAU
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(GiveUniqueNodeNames())
 
@@ -927,9 +927,111 @@ def test_fpgadataflow_rtl_dynamic_mvau(
     ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
 
     # Run stitched-ip RTLsim
-    model.save("debug1.onnx")
+    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    #model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model.set_metadata_prop("rtlsim_trace", "/scratch/users/dkorolij/finn_dev/trace.wdb")
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["ofm"]
+
+    assert (
+        output_matmul == output_mvau_rtl_stitch
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.parametrize("mh", [128])
+@pytest.mark.parametrize("mw", [32])
+@pytest.mark.parametrize("n_vectors", [128])
+@pytest.mark.parametrize("pe", [32])
+@pytest.mark.parametrize("simd", [16])
+@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
+@pytest.mark.parametrize("clk_ns", [4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_hls_dynamic_mvau(
+    mh, mw, n_vectors, pe, simd, idt_wdt, part, clk_ns
+):
+
+    idt, wdt = idt_wdt
+    # Create test input vector (produced by SWG)
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+
+    model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
+    model = model.transform(GiveUniqueNodeNames())
+    # model = model.transform(GiveReadableTensorNames())
+
+    # Create MatMul & obtain golden reference output
+    inpTensor_A = gen_finn_dt_tensor(
+        model.get_tensor_datatype("ifm"), model.get_tensor_shape("ifm")
+    )
+    inpTensor_W = gen_finn_dt_tensor(
+        model.get_tensor_datatype("wfm"), model.get_tensor_shape("wfm")
+    )
+    input_dict = {"ifm": inpTensor_A, "wfm": inpTensor_W}
+
+    # Execute ONNX model
+    output_matmul = oxe.execute_onnx(model, input_dict)["ofm"]
+
+    # Create MVAU
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Set to HLS
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", "hls")
+
+    # Apply convert-to-rtl step
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "MVAU_hls"
+    # Apply folding (i.e. specify to use DSPs)
+    folding_config = {
+        "Defaults": {},
+        "MVAU_hls_0": {
+            "PE": pe,
+            "SIMD": simd,
+            "resType": "dsp",
+        },
+    }
+    model = model.transform(ApplyConfig(folding_config))
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    # make sure the changed datatypes are propagated through the network
+    model = model.transform(InferDataTypes())
+
+    # Run CPPsim
+    # model = model.transform(SetExecMode("cppsim"))
+    # model = model.transform(PrepareCppSim())
+    # model = model.transform(CompileCppSim())
+    # output_mvau_hls = oxe.execute_onnx(model, input_dict)["ofm"]
+    # assert (
+    #     output_matmul == output_mvau_hls
+    # ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+
+    # Run node-by-node RTLsim
+    # model = model.transform(SetExecMode("rtlsim"))
+    # model = model.transform(PrepareIP(part, clk_ns))
+    # model = model.transform(HLSSynthIP())
+    # model = model.transform(PrepareRTLSim())
+    # output_mvau_rtl = oxe.execute_onnx(model, input_dict)["ofm"]
+    # assert (
+    #     output_matmul == output_mvau_rtl
+    # ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
+
+    # Run stitched-ip RTLsim
+    # model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
     model = model.transform(InsertFIFO(True))
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())

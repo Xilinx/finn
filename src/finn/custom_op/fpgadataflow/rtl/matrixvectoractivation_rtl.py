@@ -96,7 +96,6 @@ class MVAU_rtl(MVAU, RTLBackend):
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                
             super().reset_rtlsim(sim)
 
             if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
@@ -134,6 +133,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+            
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -309,7 +309,12 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        dynamic_input = self.get_nodeattr("dynamic_input")
+        mem_mode = self.get_nodeattr("mem_mode")
+
+        if dynamic_input:
+            self.generate_hdl_dynload()
+        elif mem_mode == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
                 assert (
@@ -317,6 +322,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
+        
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
