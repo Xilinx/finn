@@ -114,15 +114,14 @@ class SimEngine:
                 watchdog()
 
             # Update to Unfinished Tasks
-            if not all_weak:
-                self.tasks = tasks
-            else:
-                break
+            self.tasks = [] if all_weak else tasks
 
         # Return List of Woken Watchdogs
         if timeout is not None: self.remove_watchdog(timeout)
         return woken
 
+    #------------------------------------------------------------------------
+    # Standard Tasks
     def do_reset(self):
         "Schedule a reset sequence."
 
