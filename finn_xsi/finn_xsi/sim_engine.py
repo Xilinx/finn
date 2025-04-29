@@ -96,23 +96,28 @@ class SimEngine:
             # Active Clock Edge -> read
             self.ticks += 1
             self.cycle(0)
+            all_weak = True
             for task in self.tasks:
                 ret = task(self)
                 if ret is not None:
                     updates.extend(ret)
                     tasks.append(task)
+                    all_weak &= not task
 
             # Write Back
             self.cycle(1)
             for port in updates:
                 port.write_back()
 
-            # Update to Unfinished Tasks
-            self.tasks = tasks
-
             # Step Watchdogs
             for watchdog in self.watchdogs:
                 watchdog()
+
+            # Update to Unfinished Tasks
+            if not all_weak:
+                self.tasks = tasks
+            else:
+                break
 
         # Return List of Woken Watchdogs
         if timeout is not None: self.remove_watchdog(timeout)
@@ -217,6 +222,29 @@ class SimEngine:
                 return None
 
         ret = OutputCollector(self, ostream, size, watchdog)
+        self.enlist(ret)
+        return ret
+
+    def trace_stream(self, stream):
+        "Monitor an AXI-Stream and trace its transaction activity"
+
+        class StreamTracer:
+            def __init__(self, sim, stream):
+                self.vld = sim.get_bus_port(stream, "tvalid")
+                self.rdy = sim.get_bus_port(stream, "tready")
+                self.trace = ''
+
+            def __call__(self, sim):
+                self.trace += '1' if self.vld.as_bool() and self.rdy.as_bool() else '0'
+                return []
+
+            def __bool__(self):
+                return False
+
+            def __str__(self):
+                return self.trace
+
+        ret = StreamTracer(self, stream)
         self.enlist(ret)
         return ret
 
