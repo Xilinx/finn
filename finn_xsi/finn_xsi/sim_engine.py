@@ -13,6 +13,9 @@ import xsi
 
 
 class SimEngine:
+
+    #------------------------------------------------------------------------
+    # Life Cycle
     def __init__(self, kernel, design, log=None, wdb=None):
         top = xsi.Design(xsi.Kernel(kernel), design, log, wdb)
         clk = top.getPort("ap_clk")
@@ -35,24 +38,63 @@ class SimEngine:
         )
         self.ticks = 0
         self.tasks = []
+        self.watchdogs = []
 
+    #------------------------------------------------------------------------
+    # Utility
     def get_bus_port(self, bus, suffix):
         port = self.top.getPort(bus + '_' + suffix.lower())
         return  port if port is not None else self.top.getPort(bus + '_' + suffix.upper())
 
-    def run(self, cycles=float("inf")):
-        timeout = self.ticks + cycles
+    #------------------------------------------------------------------------
+    # Simulation Setup
 
-        "Run all tasks to completion."
-        while len(self.tasks) > 0 and self.ticks < timeout:
-            # Update Tick Counters
-            self.ticks += 1
+    # Task Scheduling
+    def enlist(self, task):
+        self.tasks.append(task)
+
+    # Watchdog Generation
+    def create_watchdog(self, name, timeout):
+        class Watchdog:
+            def __init__(self, name, timeout):
+                self.name = name
+                self.ticks = 0
+                self.timeout = timeout
+
+            def __bool__(self):
+                return self.ticks < self.timeout
+
+            def __repr__(self):
+                return self.name
+
+            def __call__(self):
+                self.ticks += 1
+
+            def reset(self):
+                self.ticks = 0
+
+        ret = Watchdog(name, timeout)
+        self.watchdogs.append(ret)
+        return  ret
+
+    def remove_watchdog(self, watchdog):
+        self.watchdogs.remove(watchdog)
+
+    #------------------------------------------------------------------------
+    # Execution
+    def run(self, cycles=None):
+        "Run all tasks to completion or until a watchdog triggers."
+        timeout = None if cycles is None else self.create_watchdog("Run Timeout", cycles)
+
+        woken = []
+        while len(self.tasks) > 0 and len(woken := [w for w in self.watchdogs if not w]) == 0:
 
             # Process Tasks and Collect Updates to Write Back
             tasks = []
             updates = []
 
             # Active Clock Edge -> read
+            self.ticks += 1
             self.cycle(0)
             for task in self.tasks:
                 ret = task(self)
@@ -68,11 +110,13 @@ class SimEngine:
             # Update to Unfinished Tasks
             self.tasks = tasks
 
-        # Return Number of Unfinished Tasks
-        return len(self.tasks)
+            # Step Watchdogs
+            for watchdog in self.watchdogs:
+                watchdog()
 
-    def enlist(self, task):
-        self.tasks.append(task)
+        # Return List of Woken Watchdogs
+        if timeout is not None: self.remove_watchdog(timeout)
+        return woken
 
     def do_reset(self):
         "Schedule a reset sequence."
@@ -141,16 +185,17 @@ class SimEngine:
 
         self.enlist(InputStreamer(self, istream, values, throttle))
 
-    def collect_output(self, ostream, size):
+    def collect_output(self, ostream, size, watchdog=None):
         "Collect size outputs from the specified stream into the returned iterable buffer."
 
         class OutputCollector:
-            def __init__(self, top, ostream, size):
+            def __init__(self, top, ostream, size, watchdog):
                 self.size = size
                 self.vld = top.get_bus_port(ostream, "tvalid")
                 self.rdy = top.get_bus_port(ostream, "tready")
                 self.dat = top.get_bus_port(ostream, "tdata")
                 self.buf = []
+                self.watchdog = watchdog
 
             def __iter__(self):
                 return iter(self.buf)
@@ -158,6 +203,9 @@ class SimEngine:
             def __call__(self, sim):
                 if self.rdy.as_bool():
                     if self.vld.read().as_bool():
+                        # Have a n Output Transaction
+                        if(self.watchdog is not None):
+                            self.watchdog.reset()
                         val = self.dat.read().as_hexstr()
                         self.buf.append(val)
                         if len(self.buf) == size:
@@ -168,7 +216,7 @@ class SimEngine:
                     return [self.rdy.set(1)]
                 return None
 
-        ret = OutputCollector(self, ostream, size)
+        ret = OutputCollector(self, ostream, size, watchdog)
         self.enlist(ret)
         return ret
 
