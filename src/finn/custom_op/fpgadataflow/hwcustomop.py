@@ -207,7 +207,7 @@ class HWCustomOp(CustomOp):
         # finnxsi.toggle_clk(sim)
         pass
 
-    def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
+    def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
         # signal name suffix
         sname = "_" + self.hls_sname() + "_"
@@ -218,7 +218,6 @@ class HWCustomOp(CustomOp):
             num_out_values,
             sname=sname,
             liveness_threshold=get_liveness_threshold_cycles(),
-            #            hook_postclk=hook_postclk,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -358,32 +357,15 @@ class HWCustomOp(CustomOp):
         # note that we restrict key names to filter out weight streams etc
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
-
-        def monitor_txns(sim_obj):
-            for inp in txns_in:
-                in_ready = finnxsi._read_signal(sim_obj, inp + sname + "TREADY") == 1
-                in_valid = finnxsi._read_signal(sim_obj, inp + sname + "TVALID") == 1
-                if in_ready and in_valid:
-                    txns_in[inp].append(1)
-                else:
-                    txns_in[inp].append(0)
-            for outp in txns_out:
-                if (
-                    finnxsi._read_signal(sim_obj, outp + sname + "TREADY") == 1
-                    and finnxsi._read_signal(sim_obj, outp + sname + "TVALID") == 1
-                ):
-                    txns_out[outp].append(1)
-                else:
-                    txns_out[outp].append(0)
-
+        # signal name, note no underscore at the end (new finnxsi behavior)
+        sname = "_" + self.hls_sname()
         self.reset_rtlsim(sim)
-        self.rtlsim_multi_io(
-            sim,
-            io_dict,
-            hook_postclk=monitor_txns,
-        )
+        # create stream tracers for all input and output streams
+        for k in txns_in.keys():
+            txns_in[k] = sim.trace_stream(k + sname)
+        for k in txns_out.keys():
+            txns_out[k] = sim.trace_stream(k + sname)
+        self.rtlsim_multi_io(sim, io_dict)
         total_cycle_count = self.get_nodeattr("cycles_rtlsim")
         assert (
             total_cycle_count <= period
@@ -392,6 +374,12 @@ class HWCustomOp(CustomOp):
             total_cycle_count
         )
         self.set_nodeattr("io_chrc_period", period)
+        # call str() on stream tracers to get their outputs, and convert
+        # to list of ints
+        for k in txns_in.keys():
+            txns_in[k] = [int(c) for c in str(txns_in[k])]
+        for k in txns_out.keys():
+            txns_out[k] = [int(c) for c in str(txns_out[k])]
 
         def accumulate_char_fxn(chrc):
             p = len(chrc)
