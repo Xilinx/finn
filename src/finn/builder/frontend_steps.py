@@ -56,6 +56,9 @@ import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.collapse_repeated as collapse
 from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.builder.build_dataflow_steps import verify_step
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
@@ -278,6 +281,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    model = model.transform(MinimizeAccumulatorWidth())
     # DuplicateStreams for forking outputs
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
     # get rid of Tranpose -> Tranpose identity seq
