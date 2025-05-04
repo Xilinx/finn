@@ -84,7 +84,7 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-@pytest.mark.parametrize("idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]])
+@pytest.mark.parametrize("idt_name", ["UINT8", "INT16", "FLOAT32"])
 # labels
 @pytest.mark.parametrize("labels", [10, 100])
 # folding
@@ -97,8 +97,9 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("impl_style", ["hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode, impl_style):
+def test_fpgadataflow_labelselect(idt_name, labels, fold, k, exec_mode, impl_style):
     np.random.seed(0)
+    idt = DataType[idt_name]
     if fold == -1:
         pe = 1
     else:
