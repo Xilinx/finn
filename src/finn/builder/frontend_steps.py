@@ -284,6 +284,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(MinimizeAccumulatorWidth())
     # DuplicateStreams for forking outputs
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
+    # TopK to LabelSelect
+    model = model.transform(to_hw.InferLabelSelectLayer())
     # get rid of Tranpose -> Tranpose identity seq
     # TODO this should not be necessary after chans-last conversion
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
