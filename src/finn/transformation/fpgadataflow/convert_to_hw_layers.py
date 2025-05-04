@@ -826,10 +826,6 @@ class InferLabelSelectLayer(Transformation):
 
                 idt = model.get_tensor_datatype(fc_input)
 
-                # skip conversion for layers with float input
-                if not idt.is_integer():
-                    continue
-
                 # skip conversion for if value output is connected (not supported)
                 if model.find_consumer(val_output) is not None:
                     continue
