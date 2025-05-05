@@ -348,7 +348,7 @@ class HWCustomOp(CustomOp):
         else:
             io_dict = {
                 "inputs": {
-                    "in0": [0 for i in range(n_inps)],
+                    "in0": [i for i in range(n_inps)],
                 },
                 "outputs": {"out": []},
             }
@@ -397,6 +397,7 @@ class HWCustomOp(CustomOp):
         all_pad_out = []
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
+            pad_in = 0
             if len(txn_in) < period:
                 pad_in = period - len(txn_in)
                 txn_in += [0 for x in range(pad_in)]
@@ -406,6 +407,7 @@ class HWCustomOp(CustomOp):
 
         for out_idx, out_strm_nm in enumerate(txns_out.keys()):
             txn_out = txns_out[out_strm_nm]
+            pad_out = 0
             if len(txn_out) < period:
                 pad_out = period - len(txn_out)
                 txn_out += [0 for x in range(pad_out)]
