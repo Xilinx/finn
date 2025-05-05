@@ -91,30 +91,30 @@ class SimEngine:
 
             # Process Tasks and Collect Updates to Write Back
             tasks = []
-            updates = []
+            updates = {}
 
             # Active Clock Edge -> read
             self.ticks += 1
             self.cycle(0)
-            all_weak = True
+            strong = False
             for task in self.tasks:
                 ret = task(self)
                 if ret is not None:
-                    updates.extend(ret)
+                    updates.update(ret)
                     tasks.append(task)
-                    all_weak &= not task
+                    strong |= bool(task)
 
             # Write Back
             self.cycle(1)
-            for port in updates:
-                port.write_back()
+            for port, update in updates.items():
+                port.set_hexstr(update).write_back()
 
             # Step Watchdogs
             for watchdog in self.watchdogs:
                 watchdog()
 
             # Update to Unfinished Tasks
-            self.tasks = [] if all_weak else tasks
+            self.tasks = tasks if strong else []
 
         # Return List of Woken Watchdogs
         if timeout is not None: self.remove_watchdog(timeout)
@@ -135,11 +135,11 @@ class SimEngine:
                 self.cnt = cnt + 1
 
                 if cnt == 0:
-                    return [self.rst_n.set(0)]
+                    return { self.rst_n: '0' }
                 if cnt < 16:
-                    return []
+                    return {}
                 if cnt == 16:
-                    return [self.rst_n.set(1)]
+                    return { self.rst_n: '1' }
                 return None
 
         self.enlist(Reset(self.top))
@@ -161,7 +161,7 @@ class SimEngine:
             def __call__(self, sim):
                 vld = self.vld.as_bool()
                 if vld and not self.rdy.read().as_bool():
-                    return []
+                    return {}
 
                 # Track Transaction Count
                 if vld:
@@ -173,19 +173,19 @@ class SimEngine:
                     val = next(self.values, None)
                     if val is None:
                         # Unset vld, then exit
-                        return [self.vld.set(0), self.dat.clear()] if vld else None
+                        return { self.vld: '0', self.dat: "0" } if vld else None
 
                     # Feed next Value
-                    ret = [self.dat.set_hexstr(val)]
+                    ret = { self.dat: val }
                     if not vld:
-                        ret.append(self.vld.set(1))
+                        ret[self.vld] = '1'
                     if self.count_txns == self.throttle[0]:
                         self.count_txns = 0
                         self.await_tick = sim.ticks + self.throttle[1]
                     return ret
 
                 # Stall Feed
-                return [self.vld.set(0), self.dat.clear()] if vld else []
+                return  { self.vld: '0', self.dat: '0' } if vld else {}
 
         self.enlist(InputStreamer(self, istream, values, throttle))
 
@@ -213,11 +213,11 @@ class SimEngine:
                         val = self.dat.read().as_hexstr()
                         self.buf.append(val)
                         if len(self.buf) == size:
-                            return [self.rdy.set(0)]
-                    return []
+                            return { self.rdy: '0' }
+                    return {}
 
                 if len(self.buf) < size:
-                    return [self.rdy.set(1)]
+                    return { self.rdy: '1' }
                 return None
 
         ret = OutputCollector(self, ostream, size, watchdog)
@@ -235,7 +235,7 @@ class SimEngine:
 
             def __call__(self, sim):
                 self.trace += '1' if self.vld.as_bool() and self.rdy.as_bool() else '0'
-                return []
+                return {}
 
             def __bool__(self):
                 return False
@@ -275,11 +275,11 @@ class SimEngine:
                 if(self.state == self.COOL and not self.bready.as_bool()):
                     return  None
 
-                ret = []
+                ret = {}
 
                 # Always Monitor Completions
                 if(self.state == self.INIT):
-                    ret.append(self.bready.set(1))
+                    ret[self.bready] = '1'
                     self.state = self.FEED
 
                 if(self.bvalid.read().as_bool()):
@@ -288,7 +288,7 @@ class SimEngine:
                     else:
                         self.pending -= 1
                         if(self.pending == 0 and self.state == self.COOL):
-                            ret.append(self.bready.set(0))
+                            ret[self.bready] = '0'
 
                     if(self.bresp.read().as_unsigned() != 0):
                         print("Received error indication on", self.bresp.name())
@@ -319,22 +319,19 @@ class SimEngine:
                     if(step):
                         addr, val = next(self.writes, (None, None))
                         if addr is not None:
-                            ret.extend([self.awaddr.set(addr), self.wdata.set_hexstr(val)])
-                            if not avld:
-                                ret.append(self.awvalid.set(1))
-                            if not wvld:
-                                ret.append(self.wvalid.set(1))
+                            ret[self.awaddr] = f"{addr:x}"
+                            ret[self.wdata]  = val
+                            if not avld: ret[self.awvalid] = '1'
+                            if not wvld: ret[self.wvalid]  = '1'
                             self.pending += 1
                             return  ret
                         if not self.pending:
-                            ret.append(self.bready.set(0))
+                            ret[self.bready] = '0'
                         self.state = self.COOL
 
                     # Deassert completed feed
-                    if(aclr):
-                        ret.append(self.awvalid.set(0))
-                    if(wclr):
-                        ret.append(self.wvalid.set(0))
+                    if aclr: ret[self.awvalid] = '0'
+                    if wclr: ret[self.wvalid]  = '0'
 
                 return ret
 
@@ -355,17 +352,18 @@ class SimEngine:
                 self.replies  = {}
 
             def __call__(self, sim):
-                ret = []
+                ret = {}
 
                 # Address Stream Feed: assert self.draining when done
                 if not self.draining:
                     if self.arready.read().as_bool() or not self.arvalid.as_bool():
                         addr = next(self.reads, None)
                         if addr is None:
-                            ret.append(self.arvalid.set(0))
+                            ret[self.arvalid] = '0'
                             self.draining = True
                         else:
-                            ret.extend([self.arvalid.set(1), self.araddr.set(addr)])
+                            ret[self.arvalid] = '1'
+                            ret[self.araddr]  = f"{addr:x}"
                             self.pending.append(addr)
 
                 # Reply Collection
@@ -373,12 +371,12 @@ class SimEngine:
                     # Termination
                     if self.draining: return  None
                     # Activation
-                    ret.append(self.rready.set(1))
+                    ret[self.rready] = '1'
                 elif self.rvalid.read().as_bool():
                     assert len(self.pending) > 0, "Spurious reply."
                     self.replies[self.pending.pop(0)] = self.rdata.read().as_hexstr()
                     if self.draining and len(self.pending) == 0:
-                        ret.append(self.rready.set(0))
+                        ret[self.rready] = '0'
 
                 return  ret
 
