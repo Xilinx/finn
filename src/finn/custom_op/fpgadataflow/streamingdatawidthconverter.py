@@ -137,13 +137,6 @@ class StreamingDataWidthConverter(HWCustomOp):
         out_width = self.get_nodeattr("outWidth")
         return out_width
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == tuple(exp_ishape), "Unexpect input shape for StreamingDWC."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])

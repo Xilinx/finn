@@ -108,11 +108,6 @@ class ChannelwiseOp(HWCustomOp):
         pe = self.get_nodeattr("PE")
         return chn // pe
 
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        # implement tensor with correct shape
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # check input datatype against property
@@ -150,32 +145,45 @@ class ChannelwiseOp(HWCustomOp):
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        if ind == 0:
+            return DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            return DataType[self.get_nodeattr("paramDataType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype().bitwidth()
-        return i_bits * self.get_nodeattr("PE")
+        if ind == 0:
+            i_bits = self.get_input_datatype().bitwidth()
+            return i_bits * self.get_nodeattr("PE")
+        elif ind == 1:
+            # param input is not exposed so width can default to 0
+            return 0
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
     def get_folded_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        fold = ich // pe
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_input_shape = tuple(vecs + [fold, pe])
-        return folded_input_shape
+        if ind == 0:
+            ich = self.get_nodeattr("NumChannels")
+            pe = self.get_nodeattr("PE")
+            fold = ich // pe
+            vecs = list(self.get_nodeattr("numInputVectors"))
+            folded_input_shape = tuple(vecs + [fold, pe])
+            return folded_input_shape
+        elif ind == 1:
+            return self.get_normal_input_shape(ind)
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_folded_output_shape(self, ind=0):
         # same shape as input
@@ -183,8 +191,15 @@ class ChannelwiseOp(HWCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_input_shape = tuple(vecs + [ich])
+        if ind == 0:
+            vecs = list(self.get_nodeattr("numInputVectors"))
+            normal_input_shape = tuple(vecs + [ich])
+        elif ind == 1:
+            normal_input_shape = tuple(
+                [ich],
+            )
+        else:
+            raise Exception("Undefined input ind for this layer type")
         return normal_input_shape
 
     def get_normal_output_shape(self, ind=0):

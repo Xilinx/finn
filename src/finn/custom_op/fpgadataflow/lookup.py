@@ -73,7 +73,12 @@ class Lookup(HWCustomOp):
         return exp_cycles
 
     def get_normal_input_shape(self, ind=0):
-        return self.get_nodeattr("InputShape")
+        if ind == 0:
+            return self.get_nodeattr("InputShape")
+        elif ind == 1:
+            return tuple([self.get_nodeattr("NumEmbeddings"), self.get_nodeattr("EmbeddingDim")])
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_normal_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
@@ -82,8 +87,11 @@ class Lookup(HWCustomOp):
         return tuple(oshape)
 
     def get_folded_input_shape(self, ind=0):
-        ishape = self.get_normal_input_shape()
-        folded_ishape = list(ishape) + [1]
+        if ind == 0:
+            ishape = self.get_normal_input_shape()
+            folded_ishape = list(ishape) + [1]
+        else:
+            folded_ishape = self.get_normal_input_shape(ind)
         return tuple(folded_ishape)
 
     def get_folded_output_shape(self, ind=0):
@@ -105,16 +113,6 @@ class Lookup(HWCustomOp):
             raise Exception("Unrecognized mem_mode:" + mem_mode)
         return tuple(oshape)
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = tuple(self.get_normal_input_shape())
-        oshape = tuple(self.get_normal_output_shape())
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape for Lookup: %s vs %s" % (
-            str(exp_ishape),
-            str(ishape),
-        )
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -129,11 +127,13 @@ class Lookup(HWCustomOp):
         odt = DataType[self.get_nodeattr("EmbeddingType")]
         model.set_tensor_datatype(node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
-        ret = DataType[self.get_nodeattr("InputType")]
+        if ind == 0:
+            ret = DataType[self.get_nodeattr("InputType")]
+        elif ind == 1:
+            ret = DataType[self.get_nodeattr("EmbeddingType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
         return ret
 
     def get_output_datatype(self, ind=0):
@@ -141,8 +141,16 @@ class Lookup(HWCustomOp):
         return ret
 
     def get_instream_width(self, ind=0):
-        ibits = self.get_input_datatype().bitwidth()
-        return ibits
+        if ind == 0:
+            bits = self.get_input_datatype().bitwidth()
+        elif ind == 1:
+            if self.get_nodeattr("mem_mode") == "internal_embedded":
+                bits = 0
+            else:
+                bits = self.get_nodeattr("ext_mem_width")
+        else:
+            raise Exception("Undefined input ind for this layer type")
+        return bits
 
     def get_outstream_width(self, ind=0):
         folded_oshape = self.get_folded_output_shape()

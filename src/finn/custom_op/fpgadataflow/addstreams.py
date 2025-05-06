@@ -77,15 +77,6 @@ class AddStreams(HWCustomOp):
     def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input1 shape."
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[1]))
-        assert ishape == exp_ishape, "Unexpected input2 shape."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -100,9 +91,6 @@ class AddStreams(HWCustomOp):
         # enforce output data type (calculated based on idt)
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -152,13 +140,6 @@ class AddStreams(HWCustomOp):
         result = inp0_values + inp1_values
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        sname = self.hls_sname()
-        swidth = self.get_instream_width_padded()
-        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
-        return intf_names
-
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
@@ -166,6 +147,6 @@ class AddStreams(HWCustomOp):
                 "in0": [0 for i in range(n_inps)],
                 "in1": [0 for i in range(n_inps)],
             },
-            "outputs": {"out": []},
+            "outputs": {"out0": []},
         }
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
