@@ -354,6 +354,13 @@ class DataflowBuildConfig:
     #: If not given `max_multithreshold_bit_width` defaults to 8.
     max_multithreshold_bit_width: Optional[int] = 8
 
+    #: If set to True, scales and biases will be aggregated into a single
+    #: multiplication and addition operation before nonlinearities,
+    #: useful for standalone elementwise implementation of layer tails.
+    #: Otherwise, scale/bias will be placed right after MAC ops, which
+    #: can be more accurate when combined with threshold conversion.
+    scalebias_aggregate_prenonlinear: Optional[bool] = True
+
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1
 

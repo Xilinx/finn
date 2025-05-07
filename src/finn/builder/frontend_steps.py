@@ -46,7 +46,11 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import RemoveIdentityOps
-from qonnx.transformation.streamline import Streamline
+from qonnx.transformation.streamline import (
+    Streamline,
+    default_streamline_tensor_filter,
+    macprod_streamline_tensor_filter,
+)
 from qonnx.util.range_analysis import RangeInfo
 from quant_to_multithreshold import QuantToMultiThreshold
 from warnings import warn
@@ -115,7 +119,13 @@ def step_aggregate_scale_bias(model: ModelWrapper, cfg: DataflowBuildConfig):
         if isinstance(cfg.input_range_info, list):
             for ind, inp in enumerate(model.graph.input):
                 current_irange[inp.name] = cfg.input_range_info[ind]
-    aggr_trn = Streamline(irange=current_irange)
+    if cfg.scalebias_aggregate_prenonlinear:
+        # aggregate in front of non-linearities (default filter)
+        tensor_filter = default_streamline_tensor_filter
+    else:
+        # aggregate after MAC nodes
+        tensor_filter = macprod_streamline_tensor_filter
+    aggr_trn = Streamline(irange=current_irange, tensor_filter=tensor_filter)
     model = model.transform(aggr_trn)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
