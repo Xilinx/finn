@@ -197,8 +197,8 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         )
 
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{},{}>> debug_out_{} ("out_{}");'.format(
-                odtype.get_hls_datatype_str(), pe, self.hls_sname(), self.hls_sname()
+            'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
+                odtype.get_hls_datatype_str(), pe
             )
         )
 
@@ -224,12 +224,11 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'vectorstream2npy<%s, %s, %d>(debug_out_%s, %s, "%s", false);'
+            'vectorstream2npy<%s, %s, %d>(strm, %s, "%s", false);'
             % (
                 elem_hls_type,
                 npy_type,
                 pe,
-                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
