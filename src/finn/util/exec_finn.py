@@ -27,13 +27,33 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import clize
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.exec_qonnx import OUTPUT_MODE_NAME, exec_qonnx, output_mode_options
 
 from finn.core.onnx_exec import execute_onnx as finn_execute_onnx
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 # thin wrapper around qonnx.exec.exec_qonnx but with FINN's execute_onnx
 # to be able to correctly handle e.g. stitched-IP rtlsim
 # for verification purposes, not high performance
+
+MODE_DEFAULT = "default"
+MODE_CPPSIM = "cppsim"
+MODE_RTLSIM = "rtlsim"
+MODE_STITCHED_RTLSIM = "stitched_rtlsim"
+
+
+finn_exec_modes = clize.parameters.mapped(
+    [
+        (MODE_DEFAULT, [MODE_DEFAULT], "Default mode as previously set on ONNX graph"),
+        (MODE_CPPSIM, [MODE_CPPSIM], "Node-by-node C++ (where applicable)"),
+        (MODE_RTLSIM, [MODE_RTLSIM], "Node-by-node rtlsim (where applicable)"),
+        (MODE_STITCHED_RTLSIM, [MODE_STITCHED_RTLSIM], "Stitched-IP rtlsim"),
+    ]
+)
 
 
 def exec_finn(
@@ -44,7 +64,8 @@ def exec_finn(
     expose_intermediates: str = None,
     output_prefix: str = "out_",
     output_mode: output_mode_options = OUTPUT_MODE_NAME,
-    argmax_verify_npy: str = None,
+    verify_npy: str = None,
+    verify_argmax=False,
     save_modified_model: str = None,
     input_to_nchw=False,
     input_to_nhwc=False,
@@ -54,16 +75,33 @@ def exec_finn(
     maxiters: int = None,
     output_nosave=False,
     early_exit_acc_ratio=None,
+    finn_exec_mode: finn_exec_modes = MODE_DEFAULT
 ):
-    return exec_qonnx(
-        qonnx_model_file,
+    model = qonnx_model_file
+    if finn_exec_mode != MODE_DEFAULT:
+        model = ModelWrapper(qonnx_model_file)
+        if finn_exec_mode == MODE_CPPSIM:
+            model = model.transform(PrepareCppSim())
+            model = model.transform(CompileCppSim())
+            model = model.transform(SetExecMode("cppsim"))
+        elif finn_exec_mode == MODE_RTLSIM:
+            model = model.transform(PrepareRTLSim())
+            model = model.transform(SetExecMode("rtlsim"))
+        elif finn_exec_mode == MODE_STITCHED_RTLSIM:
+            model.set_metadata_prop("exec_mode", "rtlsim")
+        model.save("tmp.onnx")
+        model = "tmp.onnx"
+
+    ret = exec_qonnx(
+        model,
         *in_npy,
         override_batchsize=override_batchsize,
         override_opset=override_opset,
         expose_intermediates=expose_intermediates,
         output_prefix=output_prefix,
         output_mode=output_mode,
-        argmax_verify_npy=argmax_verify_npy,
+        verify_npy=verify_npy,
+        verify_argmax=verify_argmax,
         save_modified_model=save_modified_model,
         input_to_nchw=input_to_nchw,
         input_to_nhwc=input_to_nhwc,
@@ -75,6 +113,7 @@ def exec_finn(
         early_exit_acc_ratio=early_exit_acc_ratio,
         override_exec_onnx=finn_execute_onnx,
     )
+    return ret
 
 
 def main():
