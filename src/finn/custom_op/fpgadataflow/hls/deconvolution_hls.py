@@ -31,6 +31,7 @@ import os
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
+from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.deconvolution import Deconvolution
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.util.data_packing import (
@@ -195,30 +196,14 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
             )
         )
 
-    def docompute(self):
-        odtype = self.get_output_datatype()
-        pe = self.get_nodeattr("PE")
-        simd = self.get_nodeattr("SIMD")
-        i_ch = self.get_nodeattr("IFMChannels")
-        k_h, k_w = self.get_nodeattr("KernelDim")
-        s_h, s_w = self.get_nodeattr("Stride")
-        i_h, i_w = self.get_nodeattr("IFMDim")
-        p_h, p_w = self.get_nodeattr("Padding")
-        if p_w >= k_w - s_w:
-            padup = 0
-        else:
-            padup = (k_w - p_w - 1) / s_w
-        crop = s_w * padup - ((k_w - s_w) - p_w)
-        sf = i_ch / simd
-        w_eff = padup + i_w + padup
-        wo_eff = (w_eff - 1) * s_w + k_w
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            "hls::stream<hls::vector<{},{}>> strm;".format(odtype.get_hls_datatype_str(), pe)
-        ]
-        self.code_gen_dict["$DOCOMPUTE$"].append("unsigned  timeout = 0;")
-        self.code_gen_dict["$DOCOMPUTE$"].append(
-            "while(timeout < %s) {" % (wo_eff * (crop + 1) * ((k_w / s_w) ** 2) * 2 * sf + 50)
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{},{}>> debug_out_{} ("out_{}");'.format(
+                odtype.get_hls_datatype_str(), pe, self.hls_sname(), self.hls_sname()
+            )
         )
+
+    def docompute(self):
+        self.code_gen_dict["$DOCOMPUTE$"] = []
         self.code_gen_dict["$DOCOMPUTE$"].append(
             """deconv<Kernel, Stride, Padding, IFMH, IFMW, OCH, ICH, PE1, SIMD1>
             (weights, in0_{}, out_{});""".format(
@@ -226,12 +211,6 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
                 self.hls_sname(),
             )
         )
-        self.code_gen_dict["$DOCOMPUTE$"].append("if(out_V.empty())  timeout++;")
-        self.code_gen_dict["$DOCOMPUTE$"].append("else {")
-        self.code_gen_dict["$DOCOMPUTE$"].append("strm << out_V.read();")
-        self.code_gen_dict["$DOCOMPUTE$"].append("timeout = 0;")
-        self.code_gen_dict["$DOCOMPUTE$"].append("}")
-        self.code_gen_dict["$DOCOMPUTE$"].append("}")
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -245,28 +224,34 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'vectorstream2npy<%s, %s, %d>(strm, %s, "%s", false);'
+            'vectorstream2npy<%s, %s, %d>(debug_out_%s, %s, "%s", false);'
             % (
                 elem_hls_type,
                 npy_type,
                 pe,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
         ]
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0_{},
-                hls::stream<ap_uint<{}>> &out_{}
-                )""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.hls_sname(),
-                self.get_outstream_width(),
-                self.hls_sname(),
-            )
-        ]
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        output_elem_hls_type = self.get_output_datatype().get_hls_datatype_str()
+        simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")
+        in_stream = "hls::stream<hls::vector<%s, %d>> &in0_%s" % (
+            input_elem_hls_type,
+            simd,
+            self.hls_sname(),
+        )
+        out_stream = "hls::stream<hls::vector<%s, %d>> &out_%s" % (
+            output_elem_hls_type,
+            pe,
+            self.hls_sname(),
+        )
+        blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_stream)
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
@@ -369,3 +354,53 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
                     mode
                 )
             )
+
+    def code_generation_cppsim(self, model):
+        """Generates c++ code for simulation (cppsim)."""
+        node = self.onnx_node
+        path = self.get_nodeattr("code_gen_dir_cppsim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
+        self.generate_params(model, path)
+        self.global_includes()
+        self.defines("cppsim")
+        self.read_npy_data()
+        self.strm_decl()
+        self.pragmas()
+        self.docompute()
+        self.dataoutstrm()
+        self.save_as_npy()
+        self.timeout_value()
+        self.timeout_condition()
+        self.timeout_read_stream()
+
+        template = templates.docompute_template_timeout
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
+
+    def timeout_value(self):
+        """Set timeout value for HLS functions defined for one clock cycle"""
+        simd = self.get_nodeattr("SIMD")
+        i_ch = self.get_nodeattr("IFMChannels")
+        k_h, k_w = self.get_nodeattr("KernelDim")
+        s_h, s_w = self.get_nodeattr("Stride")
+        i_h, i_w = self.get_nodeattr("IFMDim")
+        p_h, p_w = self.get_nodeattr("Padding")
+        if p_w >= k_w - s_w:
+            padup = 0
+        else:
+            padup = (k_w - p_w - 1) / s_w
+        crop = s_w * padup - ((k_w - s_w) - p_w)
+        sf = i_ch / simd
+        w_eff = padup + i_w + padup
+        wo_eff = (w_eff - 1) * s_w + k_w
+        self.code_gen_dict["$TIMEOUT_VALUE$"] = [
+            "%s" % (wo_eff * (crop + 1) * ((k_w / s_w) ** 2) * 4 * sf + 50)
+        ]
