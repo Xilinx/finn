@@ -29,6 +29,7 @@
 
 import pytest
 
+import json
 import os
 import shutil
 import subprocess
@@ -55,38 +56,56 @@ mnist_files = [
 ]
 
 
-def get_checkpoint_name(step):
+def get_checkpoint_name(step, topology):
+    assert topology in ["tfc", "cnv"]
+
     if step == "build":
         # checkpoint for build step is an entire dir
-        return build_dir + "/end2end_ext_weights_build"
+        return build_dir + "/end2end_" + topology + "_ext_weights_build"
     elif step == "download":
-        return onnx_dir_local + "/tfc-w2a2.onnx"
+        return onnx_dir_local + "/" + topology + "-w2a2.onnx"
     else:
         # other checkpoints are onnx files
-        return build_dir + "/end2end_ext_weights_%s.onnx" % (step)
+        return build_dir + "/end2end_" + topology + "_ext_weights_%s.onnx" % (step)
+
+
+def verify_runtime_weights(folding_config_file, runtime_weights_dir):
+    with open(folding_config_file) as file:
+        dic = json.load(file)
+    # count external weights layers
+    num_ext_weights = 0
+    for module, module_dict in dic.items():
+        if module_dict.get("mem_mode") == "external":
+            num_ext_weights += 1
+    runtime_weights_files = os.listdir(runtime_weights_dir)
+    for idx in range(num_ext_weights):
+        expected_file = "idma{}.npy".format(idx)
+        assert expected_file in runtime_weights_files
 
 
 @pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.end2end
-def test_end2end_ext_weights_download():
+@pytest.mark.parametrize("topology", ["cnv", "tfc"])
+def test_end2end_ext_weights_download(topology):
     if not os.path.isfile(onnx_zip_local):
         wget.download(onnx_zip_url, out=onnx_zip_local)
     assert os.path.isfile(onnx_zip_local)
     subprocess.check_output(["unzip", "-o", onnx_zip_local, "-d", onnx_dir_local])
-    assert os.path.isfile(get_checkpoint_name("download"))
+    assert os.path.isfile(get_checkpoint_name("download", topology))
 
 
 @pytest.mark.xdist_group(name="end2end_ext_weights")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_ext_weights_build():
-    model_file = get_checkpoint_name("download")
+@pytest.mark.parametrize("topology", ["cnv", "tfc"])
+def test_end2end_ext_weights_build(topology):
+    model_file = get_checkpoint_name("download", topology)
     load_test_checkpoint_or_skip(model_file)
     test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
-    folding_config_file = test_data + "/tfc-w2a2-extw.json"
-    specialize_layers_config_file = test_data + "/specialize_layers_config.json"
-    output_dir = make_build_dir("test_end2end_ext_weights_build")
+    folding_config_file = test_data + "/" + topology + "-w2a2-extw.json"
+    specialize_layers_config_file = test_data + "/specialize_layers_config_" + topology + ".json"
+    output_dir = make_build_dir("test_end2end_" + topology + "_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         verbose=True,
@@ -107,7 +126,8 @@ def test_end2end_ext_weights_build():
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/deploy/driver/driver.py")
-    assert os.path.isfile(output_dir + "/deploy/driver/runtime_weights/idma0.npy")
-    if os.path.isdir(get_checkpoint_name("build")):
-        shutil.rmtree(get_checkpoint_name("build"))
-    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
+    runtime_weights_dir = output_dir + "/deploy/driver/runtime_weights/"
+    verify_runtime_weights(folding_config_file, runtime_weights_dir)
+    if os.path.isdir(get_checkpoint_name("build", topology)):
+        shutil.rmtree(get_checkpoint_name("build", topology))
+    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", topology))
