@@ -192,7 +192,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """LabelSelect_Batch<{}, {}, {}, {}, {} > (in0_{}, out_{}, 1);""".format(
+            """LabelSelect_Batch<{}, {}, {}, {}, {}>(in0_{}, out_{}, 1, {});""".format(
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
@@ -200,6 +200,7 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
                 self.get_output_datatype().get_hls_datatype_str(),
                 self.hls_sname(),
                 self.hls_sname(),
+                str(self.get_input_datatype().min()),
             )
         ]
 
