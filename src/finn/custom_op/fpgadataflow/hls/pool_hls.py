@@ -131,8 +131,6 @@ class Pool_hls(Pool, HLSBackend):
     def pragmas(self):
         super().pragmas()
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=in0_V compact=bit")
-
-        # TODO : This will need to be different with latest refactoring changes.
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=out0_V compact=bit")
 
     def blackboxfunction(self):
