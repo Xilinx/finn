@@ -283,19 +283,20 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     # needed for non-bipolar MatMul layers
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    # TopK to LabelSelect
-    model = model.transform(to_hw.InferLabelSelectLayer())
     # input quantization (if any) as standalone threshold
     model = model.transform(to_hw.InferThresholdingLayer())
-    # typical layers for convnets / vision
-    model = model.transform(to_hw.InferStreamingMaxPool())
-    model = model.transform(to_hw.InferPool())
-    model = model.transform(to_hw.InferConvInpGen())
     # standalone elementwise ops, activations and quantizers
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    # needed for correct dtypes for standalone eltwise
     model = model.transform(MinimizeAccumulatorWidth())
+    # other typical layers for convnets / vision
+    model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(to_hw.InferPool())
+    model = model.transform(to_hw.InferConvInpGen())
+    # TopK to LabelSelect
+    model = model.transform(to_hw.InferLabelSelectLayer())
     # DuplicateStreams for forking outputs
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
     # TopK to LabelSelect
