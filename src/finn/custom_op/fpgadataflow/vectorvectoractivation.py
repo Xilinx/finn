@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import onnx.numpy_helper as np_helper
+import os
 import textwrap
 import warnings
 from qonnx.core.datatype import DataType
@@ -819,21 +820,18 @@ class VVAU(HWCustomOp):
             intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writeable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
     def code_generation_ipi(self):
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if self.get_nodeattr("ram_style") == "ultra":
-                assert (
-                    runtime_writable == 1
-                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
             node_name = self.onnx_node.name
             sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
@@ -866,27 +864,27 @@ class VVAU(HWCustomOp):
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
 
-            # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            # Instantiate a streamer and connect it to the IP
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+            file_suffix = "_memstream_wrapper.v"
+            # automatically find memstream verilog component in code generation directory
+            for fname in os.listdir(code_gen_dir):
+                if fname.endswith(file_suffix):
+                    strm_tmpl = fname
+            strm_tmpl_name = strm_tmpl[:-2]
+            sourcefiles = [
+                os.path.join(code_gen_dir, strm_tmpl),
+                swg_rtllib_dir + "axilite_if.v",
+                swg_rtllib_dir + "memstream_axi.sv",
+                swg_rtllib_dir + "memstream.sv",
+            ]
+            for f in sourcefiles:
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
-            )
-            cmd.append(
-                "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
-                "CONFIG.RAM_STYLE {%s} "
-                "] [get_bd_cells /%s/%s]"
-                % (
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-                    self.get_nodeattr("ram_style"),
-                    node_name,
-                    strm_inst,
-                )
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (strm_tmpl_name, node_name, strm_inst)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
@@ -901,18 +899,12 @@ class VVAU(HWCustomOp):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
-            # if using 2x pumped memory, connect the memstreamer's 2x clk input
-            # to the 2x clock port. otherwise connect it to the regular clock port.
-            if self.get_nodeattr("pumpedMemory"):
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk2x_name, node_name, strm_inst)
-                )
-            else:
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk_name, node_name, strm_inst)
-                )
+            # 2x clock is not used for decoupled VVAU weights
+            # simply connect input to the 1x clock for now
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)
@@ -931,7 +923,7 @@ class VVAU(HWCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
-            if runtime_writable:
+            if runtime_writeable:
                 # expose axi lite interface for writeable weights
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(

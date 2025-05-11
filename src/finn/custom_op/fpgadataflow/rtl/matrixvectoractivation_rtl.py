@@ -31,7 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block
+from finn.util.basic import get_dsp_block, is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
@@ -168,6 +168,21 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                    % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, node_name)
+                )
+        # external
         else:
             cmd.append(
                 "create_bd_cell -type hier -reference %s %s"
@@ -176,20 +191,20 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
-        # if using 2x pumped compute, connect the MVU's 2x clk input
-        # to the 2x clock port. Otherwise connect 2x clk to regular clk port
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
-            clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
-            )
-        else:
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                % (node_name, clk_name, node_name, node_name)
-            )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                    % (node_name, clk2x_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
+                    % (node_name, clk_name, node_name)
+                )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
@@ -276,6 +291,14 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -284,15 +307,22 @@ class MVAU_rtl(MVAU, RTLBackend):
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
 
+        # check if settings are valid
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        simd = self.get_nodeattr("SIMD")
+        if pumped_compute and simd == 1:
+            raise Exception(
+                "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
+            )
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(dsp_block)]
-        code_gen_dict["$PUMPED_COMPUTE$"] = [str(self.get_nodeattr("pumpedCompute"))]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
-        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]

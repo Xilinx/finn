@@ -721,6 +721,12 @@ class MVAU(HWCustomOp):
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
                 if self.get_nodeattr("pumpedMemory"):
+                    # if pe = simd = 1, known bug, ask user to increase parallelism
+                    if pe == simd == 1:
+                        raise Exception(
+                            """Pumped memory with pe=simd=1 is not supported.
+                            Please increase parallelism."""
+                        )
                     split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
                     k = 0
                     for i in range(len(weight_stream)):
@@ -887,42 +893,10 @@ class MVAU(HWCustomOp):
             intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+            if runtime_writeable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
-
-    def generate_hdl_memstream(self):
-        template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
-        )
-        mname = self.onnx_node.name
-        wmem = self.calc_wmem()
-        padded_width = self.get_weightstream_width_padded()
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        code_gen_dict = {
-            "$MODULE_NAME$": [mname],
-            "$DEPTH$": [str(wmem)],
-            "$WIDTH$": [str(padded_width)],
-            "$INIT_FILE$": [
-                self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-            ],
-            "$RAM_STYLE$": [self.get_nodeattr("ram_style")],
-            "$PUMPED_MEMORY$": [str(self.get_nodeattr("pumpedMemory"))],
-        }
-        # apply code generation to template
-        with open(template_path, "r") as f:
-            template_wrapper = f.read()
-        for key in code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
-            template_wrapper = template_wrapper.replace(key, code_gen_line)
-        with open(
-            os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper)
 
     def code_generation_ipi(self):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
@@ -930,12 +904,7 @@ class MVAU(HWCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
-            self.generate_hdl_memstream()
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            # if self.get_nodeattr("ram_style") == "ultra":
-            #    assert (
-            #        runtime_writable == 1
-            #    ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
             node_name = self.onnx_node.name
             sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
@@ -965,15 +934,19 @@ class MVAU(HWCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the RTL block
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
             # instantiate a streamer and connect it to the IP
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
-            strm_tmpl_name = node_name + "_memstream_wrapper"
+            file_suffix = "_memstream_wrapper.v"
+            # automatically find memstream verilog component in code generation directory
+            for fname in os.listdir(code_gen_dir):
+                if fname.endswith(file_suffix):
+                    strm_tmpl = fname
+            strm_tmpl_name = strm_tmpl[:-2]
             sourcefiles = [
-                os.path.join(code_gen_dir, strm_tmpl_name + ".v"),
+                os.path.join(code_gen_dir, strm_tmpl),
                 swg_rtllib_dir + "axilite_if.v",
                 swg_rtllib_dir + "memstream_axi.sv",
                 swg_rtllib_dir + "memstream.sv",
@@ -1030,7 +1003,7 @@ class MVAU(HWCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
-            if runtime_writable:
+            if runtime_writeable:
                 # expose axi lite interface for writeable weights
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(

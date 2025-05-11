@@ -121,10 +121,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import (
-    get_rtlsim_trace_depth,
-    pyverilate_get_liveness_threshold_cycles,
-)
+from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
 from finn.util.test import execute_parent
 
 
@@ -686,7 +683,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         # (very conservative)
         verify_model = verify_model.transform(AnnotateCycles())
         estimate_network_performance = verify_model.analysis(dataflow_performance)
-        prev_liveness = pyverilate_get_liveness_threshold_cycles()
+        prev_liveness = get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
             int(estimate_network_performance["critical_path_cycles"] * 1.1)
         )

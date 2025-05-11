@@ -157,9 +157,14 @@ def rtlsim_multi_io(
     sim,
     io_dict,
     num_out_values,
-    sname="_V_V_",
+    sname="_V_V",
     liveness_threshold=10000,
 ):
+    # TODO HACKY FIX! better to fix this at either source or destination
+    # strip trailing underscore from stream name suffix, since finnxsi already
+    # adds one when generating the stream name
+    if sname.endswith("_"):
+        sname = sname[:-1]
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
             num_out_values, dict

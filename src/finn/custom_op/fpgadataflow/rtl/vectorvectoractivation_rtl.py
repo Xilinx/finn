@@ -149,6 +149,7 @@ class VVAU_rtl(VVAU, RTLBackend):
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
+        node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         sourcefiles = [
@@ -168,8 +169,8 @@ class VVAU_rtl(VVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                    self.onnx_node.name,
+                    node_name,
+                    node_name,
                 )
             )
         else:
@@ -177,24 +178,15 @@ class VVAU_rtl(VVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s %s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
+                    node_name,
                 )
             )
-        # if using 2x pumped compute, connect the VVU's 2x clk input
-        # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+        # Connect 2x clk to regular clk port
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
-            clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-            node_name = self.onnx_node.name
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, clk2x_name, node_name, node_name, clk2x_name)
-            )
-        else:
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                % (node_name, clk_name, node_name, node_name)
-            )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+            % (node_name, clk_name, node_name, node_name)
+        )
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -230,6 +222,15 @@ class VVAU_rtl(VVAU, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -274,6 +275,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(0)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(0)]
         mw = int(np.prod(self.get_nodeattr("Kernel")))
         code_gen_dict["$MW$"] = [str(mw)]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("Channels"))]

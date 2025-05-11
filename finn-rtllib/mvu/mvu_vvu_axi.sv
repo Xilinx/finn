@@ -58,7 +58,8 @@ module mvu_vvu_axi #(
 	bit NARROW_WEIGHTS     = 0,
 	bit SIGNED_ACTIVATIONS = 0,
 
-	bit PUMPED_COMPUTE = 0, // requires an even SIMD % 2 == 0
+	bit PUMPED_COMPUTE = 0, // Not meaningful for SIMD < 2, which will error out.
+	                        // Best utilization for even values.
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
@@ -100,6 +101,10 @@ module mvu_vvu_axi #(
 		end
 		if (MH % PE != 0) begin
 			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
+			$finish;
+		end
+		if (PUMPED_COMPUTE && (SIMD == 1)) begin
+			$error("Clock pumping an input of SIMD=1 is not meaningful.");
 			$finish;
 		end
 		if (WEIGHT_WIDTH > 8) begin
