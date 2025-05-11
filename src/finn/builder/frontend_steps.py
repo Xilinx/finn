@@ -49,7 +49,7 @@ from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.transformation.streamline import (
     Streamline,
     default_streamline_tensor_filter,
-    macprod_streamline_tensor_filter,
+    macprod_or_dynadd_streamline_tensor_filter,
 )
 from qonnx.util.range_analysis import RangeInfo
 from quant_to_multithreshold import QuantToMultiThreshold
@@ -123,8 +123,8 @@ def step_aggregate_scale_bias(model: ModelWrapper, cfg: DataflowBuildConfig):
         # aggregate in front of non-linearities (default filter)
         tensor_filter = default_streamline_tensor_filter
     else:
-        # aggregate after MAC nodes
-        tensor_filter = macprod_streamline_tensor_filter
+        # aggregate after MAC nodes + dynamic adds
+        tensor_filter = macprod_or_dynadd_streamline_tensor_filter
     aggr_trn = Streamline(irange=current_irange, tensor_filter=tensor_filter)
     model = model.transform(aggr_trn)
     model = model.transform(GiveUniqueNodeNames())
