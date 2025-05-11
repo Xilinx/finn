@@ -941,6 +941,7 @@ class MVAU(HWCustomOp):
             swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
             file_suffix = "_memstream_wrapper.v"
             # automatically find memstream verilog component in code generation directory
+            strm_tmpl = None
             for fname in os.listdir(code_gen_dir):
                 if fname.endswith(file_suffix):
                     strm_tmpl = fname
