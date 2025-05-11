@@ -255,13 +255,8 @@ def step_convert_to_thresholds_old(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Convert eligible nodes to `HWCustomOp` subclasses that represent HW
-    layers. Which nodes and particular configurations can be converted to HW
-    is limited, see the source code of the `convert_to_hw` module for more.
-    In the end am empty json file is created which can be used to set user specific
-    preferred implementation styles for each node."""
-
+def step_apply_fixedpt_qnt(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Apply fixed-point quantization to the model, if enabled."
     if cfg.fixedpt_config is not None:
         with open(cfg.fixedpt_config, "r") as f:
             fxp_dict = json.load(f)
@@ -269,6 +264,15 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
         for k, v in fxp_dict.items():
             fxp_dict[k] = DataType[v]
         model = model.transform(FixedPointQuantizeParamsFromDict(fxp_dict))
+    return model
+
+
+def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Convert eligible nodes to `HWCustomOp` subclasses that represent HW
+    layers. Which nodes and particular configurations can be converted to HW
+    is limited, see the source code of the `convert_to_hw` module for more.
+    In the end am empty json file is created which can be used to set user specific
+    preferred implementation styles for each node."""
 
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
