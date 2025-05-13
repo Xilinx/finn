@@ -365,7 +365,7 @@ class DataflowBuildConfig:
     #: A List of strings that specify the PyTorch metadata hierarchy to
     #: be used for the loop body hierarchy. Each item in the list should
     #: be a string that represents a level in the hierarchy.
-    loop_body_hierarhcy: Optional[List[str]] = None
+    loop_body_hierarchy: Optional[List[str]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
