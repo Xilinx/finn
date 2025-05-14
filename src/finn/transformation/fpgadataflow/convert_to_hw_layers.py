@@ -1923,6 +1923,8 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         g_loop_body.remove(gather)
         g_loop_body.remove(squeeze)
         g_loop_body.remove(squeeze_axis)
+        # Remove Loop Dimension from the input
+        inp.shape = ir.Shape(inp.shape.dims[1:])
 
     return op.FINNLoop(
         *inputs,
