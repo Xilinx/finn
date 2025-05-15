@@ -1883,3 +1883,70 @@ class InferElementwiseBinaryOperation(Transformation):
         # Return the transformed model and indicate whether the graph actually
         # has been transformed
         return model, graph_modified
+
+import onnxscript
+from onnxscript.rewriter import pattern
+from onnxscript import ir
+import numpy as np
+
+def FinnLoopMatch(op, M, cond, X):
+    return op.Loop( M, cond, X, _outputs=["loop_out"], _allow_other_inputs=True, _allow_other_attributes=True)
+
+def FinnLoopRewrite(op, M, cond, X, loop_out):
+    loop_node = loop_out.producer()
+    inputs = list(loop_node.inputs)
+    attrs  = dict(loop_node.attributes)
+
+    g_loop_body = attrs["body"].value
+
+    # Remove iteration input from the loop body
+    g_loop_body.inputs.pop(0)
+
+    # Remove the cond passthru from the loop body
+    g_loop_body.inputs.pop(0)
+    val = g_loop_body.outputs.pop(0)
+    g_loop_body.remove(val.producer())
+
+    # Remove Parameter passthru from the loop body
+    while len(g_loop_body.outputs) > 1:
+        param = g_loop_body.outputs.pop(1)
+        g_loop_body.remove(param.producer())
+
+    # Remove Gather/Squeeze from the Loop Body
+    for inp in g_loop_body.inputs[1:]:
+        gather = inp.consumers()[0]
+        squeeze = gather.outputs[0].consumers()[0]
+        squeeze_axis = squeeze.inputs[1].producer()
+        squeeze_usage = squeeze.outputs[0].uses()
+        for node,ind in squeeze_usage:
+            node.replace_input_with(ind,inp)
+        g_loop_body.remove(gather)
+        g_loop_body.remove(squeeze)
+        g_loop_body.remove(squeeze_axis)
+        # Remove Loop Dimension from the input
+        inp.shape = ir.Shape(inp.shape.dims[1:])
+
+    return op.FINNLoop(
+        *inputs,
+        **attrs,
+        # FINNLoop needs make_shape_compatible_op implemented or fails in InferShapes
+        #_domain="finn.custom_op.fpgadataflow",
+    )
+
+
+class InferFinnLoopOp(Transformation):
+    def apply(self, model):
+        self.model = model
+        #import pdb; pdb.set_trace()
+        rule = pattern.RewriteRule(
+            FinnLoopMatch,
+            FinnLoopRewrite
+        )
+
+        ruleset = pattern.RewriteRuleSet([rule])
+        model_ir = ir.serde.deserialize_model(model.model)
+        count = ruleset.apply_to_model(model_ir, verbose=True)
+        print(f"Count {count}")
+
+        model.model = ir.serde.serialize_model(model_ir)
+        return model, False
