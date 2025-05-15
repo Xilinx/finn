@@ -215,6 +215,3 @@ class FINNLoop(HWCustomOp):
             inp_values = outp_dict[loop_body.graph.output[0].name]
         result = outp_dict[loop_body.graph.output[0].name]
         context[node.output[0]] = np.asarray(result, dtype=np.float32)
-
-    def make_shape_compatible_op(self, model):
-        pass

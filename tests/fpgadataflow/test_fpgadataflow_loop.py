@@ -126,6 +126,7 @@ def test_fpgadataflow_loop():
     # model = ModelWrapper("finn_loop.onnx")
     # inst = getCustomOp(model.graph.node[6])
     model, refio = make_loop_modelwrapper(16, 16, 3)
+    model = model.transform(InferShapes())
     inst = getCustomOp(model.graph.node[0])
     body = inst.get_nodeattr("body")
     body = body.transform(to_hw.InferThresholdingLayer())
