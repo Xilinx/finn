@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import clize
+import copy
 import json
 import logging
 import os
@@ -35,6 +36,7 @@ import sys
 import time
 import traceback
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
@@ -155,7 +157,21 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
                 print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
             # run the step
             step_start = time.time()
+            is_loop = model.graph.node[0].op_type == "FINNLoop"
+            if is_loop:
+                loop_model = copy.deepcopy(model)
+                model = getCustomOp(model.graph.node[0]).get_nodeattr("body")
+                # extract all meta data from loop model and apply to body
+                for metadata in loop_model.model.metadata_props:
+                    model.set_metadata_prop(metadata.key, metadata.value)
             model = transform_step(model, cfg)
+            if is_loop:
+                inst = getCustomOp(loop_model.graph.node[0])
+                inst.set_nodeattr("body", model.graph)
+                inst.set_nodeattr("paramNodes", [node.name for node in model.graph.node])
+                for metadata in model.model.metadata_props:
+                    loop_model.set_metadata_prop(metadata.key, metadata.value)
+                model = loop_model
             step_end = time.time()
             # restore stdout/stderr
             sys.stdout = stdout_orig
