@@ -146,6 +146,9 @@ class MoveScalarMulPastMatMul(Transformation):
                             [end_name],
                             name=n.name,
                         )
+                        if hasattr(consumer, "metadata_props"):
+                            new_matmul.metadata_props.extend(consumer.metadata_props)
+                            new_mul.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_matmul)
                         graph.node.insert(node_ind + 1, new_mul)
                         model.set_tensor_shape(middle_name, mm_out_shape)
