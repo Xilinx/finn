@@ -1926,10 +1926,19 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
 
+    iteration = int(M.const_value.numpy()[0])
+    # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
+    loop_body_actout = g_loop_body.outputs[0]
+    odt = loop_body_actout.meta['quant_parameter_tensor_names']['finn_datatype']
+    idt = odt
+    assert idt == odt, "Input and output data types of the loop body must be the same"
     return op.FINNLoop(
-        *inputs,
+        *inputs[2:],
         **attrs,
-        _domain="finn.custom_op.fpgadataflow",
+        iteration = iteration,
+        inputDataType  = idt,
+        outputDataType = odt,
+        _domain = "finn.custom_op.fpgadataflow"
     )
 
 
