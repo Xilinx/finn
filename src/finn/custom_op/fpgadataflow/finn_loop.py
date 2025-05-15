@@ -133,7 +133,7 @@ class FINNLoop(HWCustomOp):
             paramNodes = self.get_nodeattr("paramNodes")
             node = loop_body.get_node_from_name(paramNodes[ind - 1])
             inst = getCustomOp(node)
-            ishape = inst.get_folded_input_shape(ind)
+            ishape = inst.get_folded_input_shape(1)
         return ishape
 
     def get_folded_output_shape(self, ind=0):
