@@ -1929,8 +1929,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     return op.FINNLoop(
         *inputs,
         **attrs,
-        # FINNLoop needs make_shape_compatible_op implemented or fails in InferShapes
-        #_domain="finn.custom_op.fpgadataflow",
+        _domain="finn.custom_op.fpgadataflow",
     )
 
 
