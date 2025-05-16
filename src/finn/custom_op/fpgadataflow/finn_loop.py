@@ -203,15 +203,15 @@ class FINNLoop(HWCustomOp):
         loop_body = self.get_nodeattr("body")
         # for each iteration run execution
         iteration = self.get_nodeattr("iteration")
-        paramNodes = self.get_nodeattr("paramNodes")
+        input_dict = {loop_body.graph.input[0].name: inp_values}
         for i_iter in range(iteration):
-            # set the right parameters
-            for i_node, node_name in enumerate(paramNodes):
-                param_node = loop_body.get_node_from_name(node_name)
-                params = context[node.input[i_node + 1]]
-                loop_body.set_initializer(param_node.input[1], params[i_iter])
-            input_dict = {loop_body.graph.input[0].name: inp_values}
+            for i_input, input_name in enumerate(node.input[1:]):
+                # get the paramter from the node input
+                params = context[input_name]
+                # pass the values in through the input dict
+                input_dict[loop_body.graph.input[i_input+1].name] = params[i_iter]
             outp_dict = oxe.execute_onnx(loop_body, input_dict)
             inp_values = outp_dict[loop_body.graph.output[0].name]
+            input_dict = {loop_body.graph.input[0].name: inp_values}
         result = outp_dict[loop_body.graph.output[0].name]
         context[node.output[0]] = np.asarray(result, dtype=np.float32)

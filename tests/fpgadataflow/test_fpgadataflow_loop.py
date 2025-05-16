@@ -21,22 +21,27 @@ def generate_random_threshold_values(data_type, num_input_channels, num_steps):
 
 
 def make_loop_modelwrapper(mw, mh, iter_count):
+    dtype = DataType["INT8"]
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 3, 3, mw])
+    iw0 = helper.make_tensor_value_info("iweights0", TensorProto.FLOAT, [mh, mw])
+    iw1 = helper.make_tensor_value_info("iweights1", TensorProto.FLOAT, [mh, mh])
+    it0 = helper.make_tensor_value_info("ithresh0", TensorProto.FLOAT, [1, dtype.get_num_possible_values() - 1])
+    it1 = helper.make_tensor_value_info("ithresh1", TensorProto.FLOAT, [1, dtype.get_num_possible_values() - 1])
     mm0_out = helper.make_tensor_value_info("mm0_out", TensorProto.FLOAT, [1, 3, 3, mh])
     mt0_out = helper.make_tensor_value_info("mt0_out", TensorProto.FLOAT, [1, 3, 3, mh])
     mm1_out = helper.make_tensor_value_info("mm1_out", TensorProto.FLOAT, [1, 3, 3, mh])
     ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 3, 3, mh))
-    dtype = DataType["INT8"]
+
     W0 = gen_finn_dt_tensor(dtype, (mw, mh))
     W1 = gen_finn_dt_tensor(dtype, (mw, mh))
     thresh0 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
     thresh0 = np.sort(thresh0, axis=1)
     thresh1 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
     thresh1 = np.sort(thresh1, axis=1)
-    matmul_node0 = helper.make_node("MatMul", ["ifm", "weights0"], ["mm0_out"], name="MatMul0")
+    matmul_node0 = helper.make_node("MatMul", ["ifm", "iweights0"], ["mm0_out"], name="MatMul0")
     mt_node0 = helper.make_node(
         "MultiThreshold",
-        ["mm0_out", "thresh0"],
+        ["mm0_out", "ithresh0"],
         ["mt0_out"],
         domain="qonnx.custom_op.general",
         out_dtype="INT8",
@@ -45,10 +50,10 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         data_layout="NHWC",
         name="MultiThreshold0",
     )
-    matmul_node1 = helper.make_node("MatMul", ["mt0_out", "weights1"], ["mm1_out"], name="MatMul1")
+    matmul_node1 = helper.make_node("MatMul", ["mt0_out", "iweights1"], ["mm1_out"], name="MatMul1")
     mt_node1 = helper.make_node(
         "MultiThreshold",
-        ["mm1_out", "thresh1"],
+        ["mm1_out", "ithresh1"],
         ["ofm"],
         domain="qonnx.custom_op.general",
         out_dtype="INT8",
@@ -61,35 +66,42 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     loop_body = helper.make_graph(
         nodes=nodes,
         name="matmul_graph",
-        inputs=[ifm],
+        inputs=[ifm, iw0, it0, iw1, it1],
         outputs=[ofm],
         value_info=[mm0_out, mt0_out, mm1_out],
     )
     loop_body_model = qonnx_make_model(loop_body, producer_name="loop-body-model")
     loop_body_model = ModelWrapper(loop_body_model)
-
-    loop_body_model.set_initializer("weights0", W0)
+    #loop_body_model.set_initializer("weights0", W0)
     loop_body_model.set_tensor_datatype("weights0", dtype)
-    loop_body_model.set_initializer("weights1", W1)
+    #loop_body_model.set_initializer("weights1", W1)
     loop_body_model.set_tensor_datatype("weights1", dtype)
-    loop_body_model.set_initializer("thresh0", thresh0)
-    loop_body_model.set_initializer("thresh1", thresh1)
+    #loop_body_model.set_initializer("thresh0", thresh0)
+    #loop_body_model.set_initializer("thresh1", thresh1)
     loop_body_model.set_tensor_datatype("ifm", dtype)
     loop_body_model.set_tensor_datatype("ofm", dtype)
     loop_body_model = loop_body_model.transform(InferShapes())
     loop_body_model = loop_body_model.transform(InferDataTypes())
     loop_body_model = loop_body_model.transform(RoundAndClipThresholds())
 
-    iteration = 3
+    loop_body_model.save("loop_body.onnx")
+
+    iteration = iter_count
     x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, mw])
     input_dict = {loop_body_model.graph.input[0].name: x}
+    input_dict[loop_body_model.graph.input[1].name] = W0
+    input_dict[loop_body_model.graph.input[2].name] = thresh0
+    input_dict[loop_body_model.graph.input[3].name] = W1
+    input_dict[loop_body_model.graph.input[4].name] = thresh1
+    import pdb; pdb.set_trace()
     # calculate reference io
     for i in range(iteration):
+        #input_dict = {loop_body_model.graph.input[1].name: }
         y_dict = oxe.execute_onnx(loop_body_model, input_dict)
         y = y_dict[loop_body_model.graph.output[0].name]
         input_dict[loop_body_model.graph.input[0].name] = y
     refio = (x, y)
-
+    import pdb; pdb.set_trace()
     # stack according to iteration count
     W0 = np.stack([W0] * iter_count)
     W1 = np.stack([W1] * iter_count)
@@ -104,8 +116,9 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         iteration=iteration,
         inputDataType="INT8",
         outputDataType="INT8",
-        paramNodes=["MatMul0", "MultiThreshold0", "MatMul1", "MultiThreshold1"],
+        #paramNodes=["MatMul0", "MultiThreshold0", "MatMul1", "MultiThreshold1"],
     )
+    import pdb; pdb.set_trace()
     graph = helper.make_graph(nodes=[loop_node], name="loop_graph", inputs=[ifm], outputs=[ofm])
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
@@ -131,6 +144,7 @@ def test_fpgadataflow_loop():
     body = inst.get_nodeattr("body")
     body = body.transform(to_hw.InferThresholdingLayer())
     body = body.transform(to_hw.InferQuantizedMatrixVectorActivation())
+
     # update loop and loop body
     # get all param nodes and set param stream to external
     param_node_op_types = ["MVAU"]
