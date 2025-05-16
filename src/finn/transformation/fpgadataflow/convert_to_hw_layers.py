@@ -1910,7 +1910,10 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     # Remove Parameter passthru from the loop body
     while len(g_loop_body.outputs) > 1:
         param = g_loop_body.outputs.pop(1)
-        g_loop_body.remove(param.producer())
+        identity = param.producer()
+        for index, _ in enumerate(identity.inputs):
+            identity.replace_input_with(index,None)
+        g_loop_body.remove(identity)
 
     # Remove Gather/Squeeze from the Loop Body
     for inp in g_loop_body.inputs[1:]:
@@ -1920,11 +1923,29 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         squeeze_usage = squeeze.outputs[0].uses()
         for node,ind in squeeze_usage:
             node.replace_input_with(ind,inp)
-        g_loop_body.remove(gather)
-        g_loop_body.remove(squeeze)
-        g_loop_body.remove(squeeze_axis)
+        for node in [gather, squeeze, squeeze_axis]:
+            for index, _ in enumerate(node.inputs):
+                node.replace_input_with(index,None)
+            g_loop_body.remove(node)
+
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
+
+    param_nodes = []
+    for inp in g_loop_body.inputs[1:]:
+        # currently param_nodes assumes that only one node is attached to each input
+        assert len(inp.consumers()) == 1, f"Only one node is allowed to be attached to each input {inp} : {inp.consumers()}"
+        for node in inp.consumers():
+            param_nodes.append(node.name)
+
+    # Convert param input values to initializers
+    for ind, val in enumerate(g_loop_body.inputs[1:]):
+        val.const_value = ir.Tensor(loop_node.inputs[ind+3].const_value.numpy()[0])
+        g_loop_body.register_initializer(val)
+
+    # Remove the loop body inputs now that they are initializers
+    while len(g_loop_body.inputs) > 1:
+        g_loop_body.inputs.pop(1)
 
     iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
@@ -1935,6 +1956,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     return op.FINNLoop(
         *inputs[2:],
         **attrs,
+        paramNodes = param_nodes,
         iteration = iteration,
         inputDataType  = idt,
         outputDataType = odt,
