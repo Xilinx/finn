@@ -1922,6 +1922,9 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         squeeze_axis = squeeze.inputs[1].producer()
         squeeze_usage = squeeze.outputs[0].uses()
         for node,ind in squeeze_usage:
+            v = node.inputs[ind]
+            if "quant_parameter_tensor_names" in v.meta:
+                inp.meta["quant_parameter_tensor_names"] = v.meta["quant_parameter_tensor_names"]
             node.replace_input_with(ind,inp)
         for node in [gather, squeeze, squeeze_axis]:
             for index, _ in enumerate(node.inputs):
@@ -1946,6 +1949,11 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     # Remove the loop body inputs now that they are initializers
     while len(g_loop_body.inputs) > 1:
         g_loop_body.inputs.pop(1)
+
+    # Give a valid shape to scalar initializers
+    for init in g_loop_body.initializers.values():
+        if len(init.shape) == 0:
+            init.shape = ir.Shape([1])
 
     iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
