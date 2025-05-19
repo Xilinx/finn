@@ -1910,7 +1910,10 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     # Remove Parameter passthru from the loop body
     while len(g_loop_body.outputs) > 1:
         param = g_loop_body.outputs.pop(1)
-        g_loop_body.remove(param.producer())
+        identity = param.producer()
+        for index, _ in enumerate(identity.inputs):
+            identity.replace_input_with(index,None)
+        g_loop_body.remove(identity)
 
     # Remove Gather/Squeeze from the Loop Body
     for inp in g_loop_body.inputs[1:]:
@@ -1919,18 +1922,53 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         squeeze_axis = squeeze.inputs[1].producer()
         squeeze_usage = squeeze.outputs[0].uses()
         for node,ind in squeeze_usage:
+            v = node.inputs[ind]
+            if "quant_parameter_tensor_names" in v.meta:
+                inp.meta["quant_parameter_tensor_names"] = v.meta["quant_parameter_tensor_names"]
             node.replace_input_with(ind,inp)
-        g_loop_body.remove(gather)
-        g_loop_body.remove(squeeze)
-        g_loop_body.remove(squeeze_axis)
+        for node in [gather, squeeze, squeeze_axis]:
+            for index, _ in enumerate(node.inputs):
+                node.replace_input_with(index,None)
+            g_loop_body.remove(node)
+
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
 
+    param_nodes = []
+    for inp in g_loop_body.inputs[1:]:
+        # currently param_nodes assumes that only one node is attached to each input
+        assert len(inp.consumers()) == 1, f"Only one node is allowed to be attached to each input {inp} : {inp.consumers()}"
+        for node in inp.consumers():
+            param_nodes.append(node.name)
+
+    # Convert param input values to initializers
+    for ind, val in enumerate(g_loop_body.inputs[1:]):
+        val.const_value = ir.Tensor(loop_node.inputs[ind+3].const_value.numpy()[0])
+        g_loop_body.register_initializer(val)
+
+    # Remove the loop body inputs now that they are initializers
+    while len(g_loop_body.inputs) > 1:
+        g_loop_body.inputs.pop(1)
+
+    # Give a valid shape to scalar initializers
+    for init in g_loop_body.initializers.values():
+        if len(init.shape) == 0:
+            init.shape = ir.Shape([1])
+
+    iteration = int(M.const_value.numpy()[0])
+    # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
+    loop_body_actout = g_loop_body.outputs[0]
+    odt = loop_body_actout.meta['quant_parameter_tensor_names']['finn_datatype']
+    idt = odt
+    assert idt == odt, "Input and output data types of the loop body must be the same"
     return op.FINNLoop(
-        *inputs,
+        *inputs[2:],
         **attrs,
-        # FINNLoop needs make_shape_compatible_op implemented or fails in InferShapes
-        #_domain="finn.custom_op.fpgadataflow",
+        paramNodes = param_nodes,
+        iteration = iteration,
+        inputDataType  = idt,
+        outputDataType = odt,
+        _domain = "finn.custom_op.fpgadataflow"
     )
 
 
