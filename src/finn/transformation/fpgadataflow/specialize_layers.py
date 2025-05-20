@@ -343,6 +343,9 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+
+            if hasattr(node, "metadata_props"):
+                new_node.metadata_props.extend(node.metadata_props)
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)

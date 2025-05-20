@@ -127,6 +127,8 @@ class InferConvInpGen(Transformation):
                         SIMD=ifm_ch,
                         name="FMPadding_Batch_" + n.name,
                     )
+                    if hasattr(n, "metadata_props"):
+                        padding_node.metadata_props.extend(n.metadata_props)
                     graph.node.insert(node_ind, padding_node)
 
                 is_kernel_pointwise = k_h == 1 and k_w == 1
@@ -179,6 +181,8 @@ class InferConvInpGen(Transformation):
                         is1D=is_1D,
                         name="ConvolutionInputGenerator_" + n.name,
                     )
+                if hasattr(n, "metadata_props"):
+                    ConvInpGen_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
@@ -265,7 +269,8 @@ class InferThresholdingLayer(Transformation):
                     ActVal=actval,
                     name="Thresholding_" + node.name,
                 )
-
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -362,6 +367,8 @@ class InferUpsample(Transformation):
                     DimMode=dim_mode,
                     name="UpsampleNearestNeighbour_" + n.name,
                 )
+                if hasattr(n, "metadata_props"):
+                    Upsample_HW_node.metadata_props.extend(n.metadata_props)
 
                 # Remove the old node
                 graph.node.insert(node_ind, Upsample_HW_node)
@@ -419,6 +426,8 @@ class InferStreamingMaxPool(Transformation):
                         CeilMode=ceil_mode,
                         name="StreamingMaxPool_" + node.name,
                     )
+                    if hasattr(node, "metadata_props"):
+                        new_node.metadata_props.extend(node.metadata_props)
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
                     graph.node.remove(node)
@@ -511,6 +520,8 @@ class InferAddStreamsLayer(Transformation):
                     numInputVectors=in0_shape[:-1],
                     name="AddStreams_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -567,6 +578,9 @@ class InferDuplicateStreamsLayer(Transformation):
                 name="DuplicateStreams_" + output_tensor,
             )
 
+            # take metadata from first node in graph
+            if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                dup_node.metadata_props.extend(model.find_consumer(output_tensor).metadata_props)
             graph.node.insert(0, dup_node)
 
             # connect successors to out tensor clone
@@ -622,6 +636,10 @@ class InferDuplicateStreamsLayer(Transformation):
                         name="DuplicateStreams_" + node.name,
                     )
 
+                    if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                        dup_node.metadata_props.extend(
+                            model.find_consumer(output_tensor).metadata_props
+                        )
                     graph.node.insert(node_ind, dup_node)
 
                     # connect successors to out tensor clone
@@ -788,6 +806,8 @@ class InferChannelwiseLinearLayer(Transformation):
                     numInputVectors=list(ll_in_shape[:-1]),
                     name="ChannelwiseOp_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -846,6 +866,8 @@ class InferLabelSelectLayer(Transformation):
                     numInputVectors=num_inp_vecs,
                     name="LabelSelect_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -933,6 +955,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     [pool_out, mul_value.name],
                     [result],
                 )
+                if hasattr(node, "metadata_props"):
+                    new_pool.metadata_props.extend(node.metadata_props)
+                    new_mul.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_pool)
                 graph.node.insert(insert_point + 1, new_mul)
                 node_ind += 1
@@ -1574,6 +1599,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
                         )
+                        if hasattr(n, "metadata_props"):
+                            new_node.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
                         graph.node.remove(n)
@@ -1604,6 +1631,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
                         )
+                        if hasattr(n, "metadata_props"):
+                            new_node.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_node)
                         # remove old node
                         graph.node.remove(n)
@@ -1884,18 +1913,23 @@ class InferElementwiseBinaryOperation(Transformation):
         # has been transformed
         return model, graph_modified
 
-import onnxscript
-from onnxscript.rewriter import pattern
-from onnxscript import ir
+
 import numpy as np
+import onnxscript
+from onnxscript import ir
+from onnxscript.rewriter import pattern
+
 
 def FinnLoopMatch(op, M, cond, X):
-    return op.Loop( M, cond, X, _outputs=["loop_out"], _allow_other_inputs=True, _allow_other_attributes=True)
+    return op.Loop(
+        M, cond, X, _outputs=["loop_out"], _allow_other_inputs=True, _allow_other_attributes=True
+    )
+
 
 def FinnLoopRewrite(op, M, cond, X, loop_out):
     loop_node = loop_out.producer()
     inputs = list(loop_node.inputs)
-    attrs  = dict(loop_node.attributes)
+    attrs = dict(loop_node.attributes)
 
     g_loop_body = attrs["body"].value
 
@@ -1912,7 +1946,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         param = g_loop_body.outputs.pop(1)
         identity = param.producer()
         for index, _ in enumerate(identity.inputs):
-            identity.replace_input_with(index,None)
+            identity.replace_input_with(index, None)
         g_loop_body.remove(identity)
 
     # Remove Gather/Squeeze from the Loop Body
@@ -1921,14 +1955,14 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         squeeze = gather.outputs[0].consumers()[0]
         squeeze_axis = squeeze.inputs[1].producer()
         squeeze_usage = squeeze.outputs[0].uses()
-        for node,ind in squeeze_usage:
+        for node, ind in squeeze_usage:
             v = node.inputs[ind]
             if "quant_parameter_tensor_names" in v.meta:
                 inp.meta["quant_parameter_tensor_names"] = v.meta["quant_parameter_tensor_names"]
-            node.replace_input_with(ind,inp)
+            node.replace_input_with(ind, inp)
         for node in [gather, squeeze, squeeze_axis]:
             for index, _ in enumerate(node.inputs):
-                node.replace_input_with(index,None)
+                node.replace_input_with(index, None)
             g_loop_body.remove(node)
 
         # Remove Loop Dimension from the input
@@ -1937,13 +1971,15 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     param_nodes = []
     for inp in g_loop_body.inputs[1:]:
         # currently param_nodes assumes that only one node is attached to each input
-        assert len(inp.consumers()) == 1, f"Only one node is allowed to be attached to each input {inp} : {inp.consumers()}"
+        assert (
+            len(inp.consumers()) == 1
+        ), f"Only one node is allowed to be attached to each input {inp} : {inp.consumers()}"
         for node in inp.consumers():
             param_nodes.append(node.name)
 
     # Convert param input values to initializers
     for ind, val in enumerate(g_loop_body.inputs[1:]):
-        val.const_value = ir.Tensor(loop_node.inputs[ind+3].const_value.numpy()[0])
+        val.const_value = ir.Tensor(loop_node.inputs[ind + 3].const_value.numpy()[0])
         g_loop_body.register_initializer(val)
 
     # Remove the loop body inputs now that they are initializers
@@ -1958,28 +1994,25 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
     loop_body_actout = g_loop_body.outputs[0]
-    odt = loop_body_actout.meta['quant_parameter_tensor_names']['finn_datatype']
+    odt = loop_body_actout.meta["quant_parameter_tensor_names"]["finn_datatype"]
     idt = odt
     assert idt == odt, "Input and output data types of the loop body must be the same"
     return op.FINNLoop(
         *inputs[2:],
         **attrs,
-        paramNodes = param_nodes,
-        iteration = iteration,
-        inputDataType  = idt,
-        outputDataType = odt,
-        _domain = "finn.custom_op.fpgadataflow"
+        paramNodes=param_nodes,
+        iteration=iteration,
+        inputDataType=idt,
+        outputDataType=odt,
+        _domain="finn.custom_op.fpgadataflow",
     )
 
 
 class InferFinnLoopOp(Transformation):
     def apply(self, model):
         self.model = model
-        #import pdb; pdb.set_trace()
-        rule = pattern.RewriteRule(
-            FinnLoopMatch,
-            FinnLoopRewrite
-        )
+        # import pdb; pdb.set_trace()
+        rule = pattern.RewriteRule(FinnLoopMatch, FinnLoopRewrite)
 
         ruleset = pattern.RewriteRuleSet([rule])
         model_ir = ir.serde.deserialize_model(model.model)
