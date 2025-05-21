@@ -168,7 +168,6 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             if is_loop:
                 inst = getCustomOp(loop_model.graph.node[0])
                 inst.set_nodeattr("body", model.graph)
-                inst.set_nodeattr("paramNodes", [node.name for node in model.graph.node])
                 for metadata in model.model.metadata_props:
                     loop_model.set_metadata_prop(metadata.key, metadata.value)
                 model = loop_model

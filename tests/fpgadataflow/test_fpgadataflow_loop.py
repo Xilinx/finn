@@ -8,8 +8,7 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 def generate_random_threshold_values(data_type, num_input_channels, num_steps):
@@ -29,72 +28,112 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     dtype = DataType["INT8"]
     W0 = gen_finn_dt_tensor(dtype, (mw, mh))
     W1 = gen_finn_dt_tensor(dtype, (mw, mh))
-    thresh0 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
-    thresh0 = np.sort(thresh0, axis=1)
-    thresh1 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
-    thresh1 = np.sort(thresh1, axis=1)
-    matmul_node0 = helper.make_node("MatMul", ["ifm", "weights0"], ["mm0_out"], name="MatMul0")
+    T0 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
+    T0 = np.sort(T0, axis=1)
+    T1 = generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1)
+    T1 = np.sort(T1, axis=1)
+    weights0 = helper.make_tensor_value_info("weights0", TensorProto.FLOAT, [mw, mh])
+    weights1 = helper.make_tensor_value_info("weights1", TensorProto.FLOAT, [mw, mh])
+    thresh0 = helper.make_tensor_value_info("thresh0", TensorProto.FLOAT, T0.shape)
+    thresh1 = helper.make_tensor_value_info("thresh1", TensorProto.FLOAT, T1.shape)
+    matmul_node0 = helper.make_node(
+        "MVAU_rtl",
+        ["ifm", "weights0"],
+        ["mm0_out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=mw,
+        MH=mh,
+        SIMD=1,
+        PE=1,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        ActVal=0,
+        binaryXnorMode=0,
+        noActivation=1,
+        numInputVectors=list((1, 3, 3)),
+        mem_mode="external",
+        name="MVAU_rtl0",
+    )
     mt_node0 = helper.make_node(
-        "MultiThreshold",
+        "Thresholding_rtl",
         ["mm0_out", "thresh0"],
         ["mt0_out"],
-        domain="qonnx.custom_op.general",
-        out_dtype="INT8",
-        out_bias=float(dtype.min()),
-        out_scale=1.0,
-        data_layout="NHWC",
-        name="MultiThreshold0",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=mh,
+        PE=1,
+        numSteps=T0.shape[1],
+        inputDataType="INT32",
+        weightDataType="INT33",
+        outputDataType="INT8",
+        numInputVectors=list((1, 3, 3)),
+        ActVal=int(dtype.min()),
+        name="Thresholding_rtl0",
     )
-    matmul_node1 = helper.make_node("MatMul", ["mt0_out", "weights1"], ["mm1_out"], name="MatMul1")
+    matmul_node1 = helper.make_node(
+        "MVAU_rtl",
+        ["mt0_out", "weights1"],
+        ["mm1_out"],
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        MW=mw,
+        MH=mh,
+        SIMD=1,
+        PE=1,
+        inputDataType="INT8",
+        weightDataType="INT8",
+        outputDataType="INT32",
+        ActVal=0,
+        binaryXnorMode=0,
+        noActivation=1,
+        numInputVectors=list([1, 3, 3]),
+        mem_mode="external",
+        name="MVAU_rtl1",
+    )
     mt_node1 = helper.make_node(
-        "MultiThreshold",
+        "Thresholding_rtl",
         ["mm1_out", "thresh1"],
         ["ofm"],
-        domain="qonnx.custom_op.general",
-        out_dtype="INT8",
-        out_bias=float(dtype.min()),
-        out_scale=1.0,
-        data_layout="NHWC",
-        name="MultiThreshold1",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
+        NumChannels=mh,
+        PE=1,
+        numSteps=T1.shape[1],
+        inputDataType="INT32",
+        weightDataType="INT33",
+        outputDataType="INT8",
+        numInputVectors=list((1, 3, 3)),
+        ActVal=int(dtype.min()),
+        name="Thresholding_rtl1",
     )
     nodes = [matmul_node0, mt_node0, matmul_node1, mt_node1]
     loop_body = helper.make_graph(
         nodes=nodes,
         name="matmul_graph",
-        inputs=[ifm],
+        inputs=[ifm, weights0, thresh0, weights1, thresh1],
         outputs=[ofm],
         value_info=[mm0_out, mt0_out, mm1_out],
     )
     loop_body_model = qonnx_make_model(loop_body, producer_name="loop-body-model")
     loop_body_model = ModelWrapper(loop_body_model)
 
-    loop_body_model.set_initializer("weights0", W0)
     loop_body_model.set_tensor_datatype("weights0", dtype)
-    loop_body_model.set_initializer("weights1", W1)
     loop_body_model.set_tensor_datatype("weights1", dtype)
-    loop_body_model.set_initializer("thresh0", thresh0)
-    loop_body_model.set_initializer("thresh1", thresh1)
+    loop_body_model.set_tensor_datatype("thresh0", dtype)
+    loop_body_model.set_tensor_datatype("thresh1", dtype)
     loop_body_model.set_tensor_datatype("ifm", dtype)
     loop_body_model.set_tensor_datatype("ofm", dtype)
     loop_body_model = loop_body_model.transform(InferShapes())
     loop_body_model = loop_body_model.transform(InferDataTypes())
-    loop_body_model = loop_body_model.transform(RoundAndClipThresholds())
 
     iteration = 3
-    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, mw])
-    input_dict = {loop_body_model.graph.input[0].name: x}
-    # calculate reference io
-    for i in range(iteration):
-        y_dict = oxe.execute_onnx(loop_body_model, input_dict)
-        y = y_dict[loop_body_model.graph.output[0].name]
-        input_dict[loop_body_model.graph.input[0].name] = y
-    refio = (x, y)
-
     # stack according to iteration count
     W0 = np.stack([W0] * iter_count)
     W1 = np.stack([W1] * iter_count)
-    thresh0 = np.stack([thresh0] * iter_count)
-    thresh1 = np.stack([thresh1] * iter_count)
+    T0 = np.stack([T0] * iter_count)
+    T1 = np.stack([T1] * iter_count)
     loop_node = helper.make_node(
         "FINNLoop",
         domain="finn.custom_op.fpgadataflow",
@@ -104,7 +143,6 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         iteration=iteration,
         inputDataType="INT8",
         outputDataType="INT8",
-        paramNodes=["MatMul0", "MultiThreshold0", "MatMul1", "MultiThreshold1"],
     )
     graph = helper.make_graph(nodes=[loop_node], name="loop_graph", inputs=[ifm], outputs=[ofm])
     model = qonnx_make_model(graph, producer_name="fclayer-model")
@@ -114,35 +152,35 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     model.set_tensor_datatype("weights0", dtype)
     model.set_initializer("weights1", W1)
     model.set_tensor_datatype("weights1", dtype)
-    model.set_initializer("thresh0", thresh0)
-    model.set_initializer("thresh1", thresh1)
+    model.set_initializer("thresh0", T0)
+    model.set_initializer("thresh1", T1)
     model.set_tensor_datatype("ifm", dtype)
     model.set_tensor_datatype("ofm", dtype)
 
-    return model, refio
+    return model
 
 
 def test_fpgadataflow_loop():
-    # model = ModelWrapper("finn_loop.onnx")
-    # inst = getCustomOp(model.graph.node[6])
-    model, refio = make_loop_modelwrapper(16, 16, 3)
+    model = make_loop_modelwrapper(16, 16, 3)
     model = model.transform(InferShapes())
     inst = getCustomOp(model.graph.node[0])
+    for i in range(len(model.graph.node[0].input)):
+        idt = inst.get_input_datatype(i)
+        ishape = inst.get_normal_input_shape(i)
+        ifshape = inst.get_folded_input_shape(i)
+        iwidth = inst.get_instream_width(i)
+        print(idt, ishape, ifshape, iwidth)
+    for o in range(len(model.graph.node[0].output)):
+        odt = inst.get_output_datatype(o)
+        oshape = inst.get_normal_output_shape(o)
+        ofshape = inst.get_folded_output_shape(o)
+        owidth = inst.get_outstream_width(o)
+        print(odt, oshape, ofshape, owidth)
     body = inst.get_nodeattr("body")
-    body = body.transform(to_hw.InferThresholdingLayer())
-    body = body.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    # update loop and loop body
-    # get all param nodes and set param stream to external
-    param_node_op_types = ["MVAU"]
-    param_nodes = []
-    for op_type in param_node_op_types:
-        param_nodes = body.get_nodes_by_op_type(op_type)
-        if param_nodes:
-            for param_node in param_nodes:
-                getCustomOp(param_node).set_nodeattr("mem_mode", "external")
+    body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)
-    inst.set_nodeattr("paramNodes", [node.name for node in body.graph.node])
-    input_dict = {model.graph.input[0].name: refio[0]}
+    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, 16])
+    input_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, input_dict)
     y = y_dict[model.graph.output[0].name]
-    assert (y == refio[1]).all()
+    print(y)

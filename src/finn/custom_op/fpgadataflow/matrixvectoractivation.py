@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import math
 import numpy as np
-import onnx.numpy_helper as np_helper
 import os
 import qonnx.custom_op.general.xnorpopcount as xp
 import textwrap
@@ -135,13 +134,7 @@ class MVAU(HWCustomOp):
         # ensure that shape is compatible
         inp_A = inp_A.reshape(self.get_normal_input_shape())
         # TODO: AB: This is a hack to determin MVAU type
-        mvau_w_init_list = [x for x in graph.initializer if x.name == node.input[1]]
-        mvau_w_init = mvau_w_init_list[0] if mvau_w_init_list else None
-        if mvau_w_init is not None:
-            inp_B = np_helper.to_array(mvau_w_init)
-        else:
-            inp_B = context[node.input[1]]
-
+        inp_B = context[node.input[1]]
         # Matrix multiplication
         if self.get_nodeattr("binaryXnorMode"):
             # Note: activation/weights are expected to be binary
@@ -157,8 +150,7 @@ class MVAU(HWCustomOp):
             # Regular matrix multiplication
             result = np.matmul(inp_A, inp_B)
         if self.get_nodeattr("noActivation") == 0:
-            mvau_thr_init = [x for x in graph.initializer if x.name == node.input[2]][0]
-            mvau_thr = np_helper.to_array(mvau_thr_init)
+            mvau_thr = context[node.input[2]]
             odt_is_bipolar = self.get_nodeattr("outputDataType") == "BIPOLAR"
             out_scale = 2 if odt_is_bipolar else 1
             out_bias = -1 if odt_is_bipolar else self.get_nodeattr("ActVal")
