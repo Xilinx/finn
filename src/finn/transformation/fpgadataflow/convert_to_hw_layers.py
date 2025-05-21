@@ -1968,23 +1968,10 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
 
-    param_nodes = []
-    for inp in g_loop_body.inputs[1:]:
-        # currently param_nodes assumes that only one node is attached to each input
-        assert (
-            len(inp.consumers()) == 1
-        ), f"Only one node is allowed to be attached to each input {inp} : {inp.consumers()}"
-        for node in inp.consumers():
-            param_nodes.append(node.name)
-
     # Convert param input values to initializers
     for ind, val in enumerate(g_loop_body.inputs[1:]):
         val.const_value = ir.Tensor(loop_node.inputs[ind + 3].const_value.numpy()[0])
         g_loop_body.register_initializer(val)
-
-    # Remove the loop body inputs now that they are initializers
-    while len(g_loop_body.inputs) > 1:
-        g_loop_body.inputs.pop(1)
 
     # Give a valid shape to scalar initializers
     for init in g_loop_body.initializers.values():
@@ -2000,7 +1987,6 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     return op.FINNLoop(
         *inputs[2:],
         **attrs,
-        paramNodes=param_nodes,
         iteration=iteration,
         inputDataType=idt,
         outputDataType=odt,
