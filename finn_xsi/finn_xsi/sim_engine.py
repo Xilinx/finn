@@ -263,8 +263,8 @@ class SimEngine:
                 self.wready = top.get_bus_port(m_axilite, "wready")
                 self.wvalid = top.get_bus_port(m_axilite, "wvalid")
                 self.wdata = top.get_bus_port(m_axilite, "wdata")
-                self.wstrb = top.get_bus_port(m_axilite, "wstrb")
-                self.wstrb_mask = format(int("1" * self.wstrb.width(), 2), "x")
+                wstrb = top.get_bus_port(m_axilite, "wstrb")
+                wstrb.set_binstr('1' * wstrb.width()).write_back()
                 self.bready = top.get_bus_port(m_axilite, "bready")
                 self.bvalid = top.get_bus_port(m_axilite, "bvalid")
                 self.bresp = top.get_bus_port(m_axilite, "bresp")
@@ -323,7 +323,6 @@ class SimEngine:
                         if addr is not None:
                             ret[self.awaddr] = f"{addr:x}"
                             ret[self.wdata] = val
-                            ret[self.wstrb] = self.wstrb_mask
                             if not avld:
                                 ret[self.awvalid] = "1"
                             if not wvld:
