@@ -188,11 +188,16 @@ def rtlsim_multi_io(
     hex_output_streams = {}
     for out in io_dict["outputs"]:
         stream_name = out + sname
-        hex_output_streams[out] = sim.collect_output(stream_name, num_out_values[out])
+        hex_output_streams[out] = sim.collect_output(
+            stream_name,
+            num_out_values[out],
+            watchdog=sim.create_watchdog(f"{stream_name} timeout", liveness_threshold),
+        )
 
-    # TODO implement timeout not globally but until first output
     start_ticks = sim.ticks
-    sim.run(liveness_threshold)
+    ret = sim.run()
+    if len(ret) > 0:
+        assert False, f"RTL simulation watchdogs {str(ret)} timed out. Check rtlsim_trace if any."
     end_ticks = sim.ticks
     for out in io_dict["outputs"]:
         io_dict["outputs"][out] = list(map(lambda var: int(var, base=16), hex_output_streams[out]))
