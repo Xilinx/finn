@@ -71,7 +71,6 @@ class MakeCPPDriver(Transformation):
     # TODO: Enable multiple input types! Now only assumes the first one
     def resolve_dt_name(s: str) -> str:
         s = s.replace("DataType[", "").replace("]", "")
-        print(f"Converting tensor datatype {s}")
         if s in ["BINARY", "TERNARY", "BIPOLAR"]:
             return "Datatype" + s[0] + s[1:].lower()
         elif s.startswith("U"):
@@ -88,15 +87,11 @@ class MakeCPPDriver(Transformation):
     def __init__(
         self,
         platform: str,
-        build_dir: str,
         version: str,
-        driver_dir,
     ):
         super().__init__()
         self.platform: str = platform
-        self.build_dir = build_dir
         self.version = version
-        self.driver_dir = driver_dir
 
         # Define variables for the repository URL and commit hash
         self.repository_url = "https://github.com/eki-project/finn-cpp-driver.git"
@@ -105,11 +100,6 @@ class MakeCPPDriver(Transformation):
         else:
             self.commit_hash = version
 
-        # Locations of files
-        self.xclbin_path = os.path.join(self.build_dir, "bitfile", "finn-accel.xclbin")
-        self.json_path = os.path.join(self.driver_dir, "acceleratorconfig.json")
-        self.header_path = os.path.join(self.driver_dir, "AcceleratorDatatypes.h")
-
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         driver_shapes: Dict = get_driver_shapes(model)
         ext_weight_dma_cnt: int  # noqa
@@ -117,15 +107,12 @@ class MakeCPPDriver(Transformation):
         # ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
 
         # * Creating the driver dir if it doesnt exist yet
-        if not os.path.isdir(self.driver_dir):
-            os.mkdir(self.driver_dir)
-        else:
-            try:
-                shutil.rmtree(self.driver_dir)
-            except Exception as e:
-                print(f"Failed to delete {self.driver_dir}. Reason: {e}")
-                raise e
-            os.mkdir(self.driver_dir)
+        # create a temporary folder for the generated driver
+        cpp_driver_dir = make_build_dir(prefix="cpp_driver_")
+        model.set_metadata_prop("cpp_driver_dir", cpp_driver_dir)
+        xclbin_path = model.get_metadata_prop("bitfile")
+        json_path = os.path.join(cpp_driver_dir, "acceleratorconfig.json")
+        header_path = os.path.join(cpp_driver_dir, "AcceleratorDatatypes.h")
 
         # Get the base C++ driver repo
         def run_command(command, cwd=None, debug=False):
@@ -141,12 +128,12 @@ class MakeCPPDriver(Transformation):
                 raise e
 
         # Step-by-step equivalent of the provided bash script
-        run_command("git init", cwd=self.driver_dir)
-        run_command(f"git remote add origin {self.repository_url}", cwd=self.driver_dir)
-        run_command(f"git fetch origin {self.commit_hash} --depth=1", cwd=self.driver_dir)
-        run_command("git checkout FETCH_HEAD", cwd=self.driver_dir)
-        run_command("git submodule update --init --recursive", cwd=self.driver_dir)
-        run_command("./buildDependencies.sh", cwd=self.driver_dir)
+        run_command("git init", cwd=cpp_driver_dir)
+        run_command(f"git remote add origin {self.repository_url}", cwd=cpp_driver_dir)
+        run_command(f"git fetch origin {self.commit_hash} --depth=1", cwd=cpp_driver_dir)
+        run_command("git checkout FETCH_HEAD", cwd=cpp_driver_dir)
+        run_command("git submodule update --init --recursive", cwd=cpp_driver_dir)
+        run_command("./buildDependencies.sh", cwd=cpp_driver_dir)
 
         # * Writing the header file
         inputDatatype: str = MakeCPPDriver.resolve_dt_name(
@@ -155,13 +142,9 @@ class MakeCPPDriver(Transformation):
         outputDatatype: str = MakeCPPDriver.resolve_dt_name(
             driver_shapes["odt"][0].replace("'", "")
         )  # .get_canonical_name())
-        print(
-            f"Writing input header file: Used datatypes\
-                will be {inputDatatype} and {outputDatatype}!"
-        )
         with open(
             os.path.join(
-                self.driver_dir, "src", "FINNCppDriver", "config", "FinnDriverUsedDatatypes.h.in"
+                cpp_driver_dir, "src", "FINNCppDriver", "config", "FinnDriverUsedDatatypes.h.in"
             ),
             "r",
         ) as f_in:
@@ -170,10 +153,8 @@ class MakeCPPDriver(Transformation):
             templated_str = template_handler.substitute(
                 inputDatatype=inputDatatype, outputDatatype=outputDatatype
             )
-            with open(self.header_path, "w+") as f:
+            with open(header_path, "w+") as f:
                 f.write(templated_str)
-
-        print("Successfully created config header file.")
 
         # * Writing the json file
         # TODO: Update this for multi-fpga usage (more than one device!)
@@ -186,11 +167,11 @@ class MakeCPPDriver(Transformation):
                 Required to read kernel names for driver config!"
             )
         run_command(
-            f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json",
-            cwd=os.path.join(self.build_dir, ".."),
+            f"xclbinutil -i {xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json",
+            cwd=os.path.dirname(xclbin_path),
         )
         ips = None
-        with open("ip_layout.json") as f:
+        with open(os.path.join(os.path.dirname(xclbin_path), "ip_layout.json")) as f:
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
 
         # Get only ips that are kernels
@@ -240,16 +221,14 @@ class MakeCPPDriver(Transformation):
         data.append(
             {
                 "xrtDeviceIndex": 0,
-                "xclbinPath": os.path.abspath(self.xclbin_path),
+                "xclbinPath": os.path.abspath(xclbin_path),
                 "name": "MainDevice",
                 "idmas": jsonIdmas,
                 "odmas": jsonOdmas,
             }
         )
-        with open(self.json_path, "w+") as f:
+        with open(json_path, "w+") as f:
             f.write(json.dumps(data, indent=4))
-
-        print("Created runtime json config file")
 
         # TODO: Generating weight files
         # weights_dir = output_dir + "/runtime_weights"

@@ -745,15 +745,13 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         print("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         # generate C++ Driver
-
         model = model.transform(
             MakeCPPDriver(
                 cfg._resolve_driver_platform(),
-                build_dir=cfg.output_dir,
                 version=cfg.cpp_driver_version,
-                driver_dir=driver_dir,
             )
         )
+        shutil.copytree(model.get_metadata_prop("cpp_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("C++ driver written into " + driver_dir)
     else:
         warnings.warn(

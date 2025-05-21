@@ -74,7 +74,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.make_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
@@ -356,8 +356,13 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
 
     # driver.py and python libraries
     pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
-    copytree(pynq_driver_dir, deployment_dir, dirs_exist_ok=True)
-    model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
+    if not None:
+        copytree(pynq_driver_dir, deployment_dir, dirs_exist_ok=True)
+        model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
+    else:
+        cpp_driver_dir = model.get_metadata_prop("cpp_driver_dir")
+        copytree(cpp_driver_dir, deployment_dir, dirs_exist_ok=True)
+        model.set_metadata_prop("cpp_deploy_dir", deployment_dir)
 
 
 # parameters that make up inputs to test case(s)
@@ -811,14 +816,17 @@ class TestEnd2End:
     @pytest.mark.slow
     @pytest.mark.vivado
     @pytest.mark.vitis
-    def test_make_pynq_driver(self, topology, wbits, abits, board):
+    def test_make_driver(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
         if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         board_to_driver_platform = "alveo" if build_data["kind"] == "alveo" else "zynq-iodma"
-        model = model.transform(MakePYNQDriver(board_to_driver_platform))
+        if build_data["kind"] == "alveo" and topology == "tfc":
+            model = model.transform(MakeCPPDriver(board_to_driver_platform, version="latest"))
+        else:
+            model = model.transform(MakePYNQDriver(board_to_driver_platform))
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))
 
     def test_deploy(self, topology, wbits, abits, board):
