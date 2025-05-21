@@ -48,9 +48,6 @@ class FINNLoop(HWCustomOp):
             "inputDataType": ("s", True, ""),
             # FINN output datatype
             "outputDataType": ("s", True, ""),
-            # list with loop body node names (!)
-            # corresponding to input index
-            "paramNodes": ("strings", True, [""]),
         }
 
     def get_nodeattr(self, name):
@@ -94,19 +91,21 @@ class FINNLoop(HWCustomOp):
             # get first node in loop body and return
             # normal input shape
             node = loop_body.graph.node[0]
-            if is_finn_op(node.op_type):
+            if is_finn_op(node.domain):
                 inst = getCustomOp(node)
                 ishape = inst.get_normal_input_shape(0)
             else:
                 ishape = loop_body.get_tensor_shape(node.input[0])
         else:
-            paramNodes = self.get_nodeattr("paramNodes")
-            node = loop_body.get_node_from_name(paramNodes[ind - 1])
-            if is_finn_op(node.op_type):
-                inst = getCustomOp(node)
+            loop_body = self.get_nodeattr("body")
+            tensor = loop_body.graph.input[ind].name
+            # get consumer, assuming the second input is the parameter input
+            param_node = loop_body.find_consumer(tensor)
+            if is_finn_op(param_node.domain):
+                inst = getCustomOp(param_node)
                 ishape = inst.get_normal_input_shape(1)
             else:
-                ishape = loop_body.get_tensor_shape(node.input[1])
+                ishape = loop_body.get_tensor_shape(tensor)
         return ishape
 
     def get_normal_output_shape(self, ind=0):
@@ -114,7 +113,7 @@ class FINNLoop(HWCustomOp):
         # get last node in loop body and return
         # normal output shape
         node = loop_body.graph.node[-1]
-        if is_finn_op(node.op_type):
+        if is_finn_op(node.domain):
             inst = getCustomOp(node)
             oshape = inst.get_normal_output_shape(0)
         else:
@@ -130,9 +129,10 @@ class FINNLoop(HWCustomOp):
             inst = getCustomOp(node)
             ishape = inst.get_folded_input_shape(0)
         else:
-            paramNodes = self.get_nodeattr("paramNodes")
-            node = loop_body.get_node_from_name(paramNodes[ind - 1])
-            inst = getCustomOp(node)
+            tensor = loop_body.graph.input[ind].name
+            # get consumer, assuming the second input is the parameter input
+            param_node = loop_body.find_consumer(tensor)
+            inst = getCustomOp(param_node)
             ishape = inst.get_folded_input_shape(1)
         return ishape
 
@@ -153,13 +153,14 @@ class FINNLoop(HWCustomOp):
             idt = DataType[self.get_nodeattr("inputDataType")]
         else:
             loop_body = self.get_nodeattr("body")
-            paramNodes = self.get_nodeattr("paramNodes")
-            node = loop_body.get_node_from_name(paramNodes[ind - 1])
-            if is_finn_op(node.op_type):
-                inst = getCustomOp(node)
+            tensor = loop_body.graph.input[ind].name
+            # get consumer, assuming the second input is the parameter input
+            param_node = loop_body.find_consumer(tensor)
+            if is_finn_op(param_node.domain):
+                inst = getCustomOp(param_node)
                 idt = inst.get_input_datatype(1)
             else:
-                idt = loop_body.get_tensor_datatype(node.input[1])
+                idt = loop_body.get_tensor_datatype(tensor)
         return idt
 
     def get_output_datatype(self, ind=0):
@@ -175,9 +176,10 @@ class FINNLoop(HWCustomOp):
             inst = getCustomOp(node)
             iwidth = inst.get_instream_width(0)
         else:
-            paramNodes = self.get_nodeattr("paramNodes")
-            node = loop_body.get_node_from_name(paramNodes[ind - 1])
-            inst = getCustomOp(node)
+            tensor = loop_body.graph.input[ind].name
+            # get consumer, assuming the second input is the parameter input
+            param_node = loop_body.find_consumer(tensor)
+            inst = getCustomOp(param_node)
             iwidth = inst.get_instream_width(1)
         return iwidth
 
@@ -203,14 +205,15 @@ class FINNLoop(HWCustomOp):
         loop_body = self.get_nodeattr("body")
         # for each iteration run execution
         iteration = self.get_nodeattr("iteration")
-        paramNodes = self.get_nodeattr("paramNodes")
         for i_iter in range(iteration):
             # set the right parameters
-            for i_node, node_name in enumerate(paramNodes):
-                param_node = loop_body.get_node_from_name(node_name)
-                params = context[node.input[i_node + 1]]
-                loop_body.set_initializer(param_node.input[1], params[i_iter])
-            input_dict = {loop_body.graph.input[0].name: inp_values}
+            input_dict = {}
+            for i, inp in enumerate(node.input):
+                if i == 0:
+                    input_dict[loop_body.graph.input[i].name] = inp_values
+                else:
+                    params = context[node.input[i]]
+                    input_dict[loop_body.graph.input[i].name] = params[i_iter]
             outp_dict = oxe.execute_onnx(loop_body, input_dict)
             inp_values = outp_dict[loop_body.graph.output[0].name]
         result = outp_dict[loop_body.graph.output[0].name]
