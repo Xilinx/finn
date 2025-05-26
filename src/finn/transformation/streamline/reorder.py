@@ -101,24 +101,6 @@ class MoveAddPastMul(Transformation):
         return (model, graph_modified)
 
 
-# Tests whether a tensor is a scalar, i.e., whether all dimensions are 1
-def is_scalar(tensor):
-    return tensor is not None and all(x == 1 for x in tensor.shape)
-
-
-# Tests whether a node is a scalar multiplication with a constant scale factor
-def is_const_scalar_mul(node, model):
-    # Only handle existing Mul type nodes
-    if node is not None and node.op_type == "Mul":
-        # The constant must be an initializer
-        #   Note: Assumes the constant parameter to always be the second input
-        scale = model.get_initializer(node.input[1])
-        # Test for existence of a constant scale factor
-        return scale is not None and is_scalar(scale)
-    # Did not match the operator type
-    return False
-
-
 class MoveScalarMulPastMatMul(Transformation):
     """Move scalar mul operations past matmul operations. We want to have muls
     next to each other such that they can be collapsed into a single mul."""
@@ -140,7 +122,7 @@ class MoveScalarMulPastMatMul(Transformation):
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
                     mm_out_shape = model.get_tensor_shape(end_name)
-                    # check which input mul node is connected to build the write node connectivity
+                    # check which input mul node is connected to build the right node connectivity
                     if n.output[0] == consumer.input[0]:
                         new_matmul_inps = [start_name, consumer.input[1]]
                     elif n.output[0] == consumer.input[1]:
