@@ -79,6 +79,7 @@ class CybSecMLPForExport(nn.Module):
         return out_final
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
     assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
@@ -105,7 +106,9 @@ def test_end2end_cybsec_mlp_export():
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth", weights_only=False)[
+        "models_state_dict"
+    ][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
@@ -143,6 +146,7 @@ def test_end2end_cybsec_mlp_export():
     assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end

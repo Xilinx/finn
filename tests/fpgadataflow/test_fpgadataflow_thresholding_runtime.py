@@ -31,7 +31,6 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -46,6 +45,12 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
+
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -199,7 +204,9 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     def read_weights(sim):
         addr = 0
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            extracted_weight_stream.append(
+                pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_")
+            )
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
@@ -311,7 +318,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     def write_weights(sim):
         addr = 0
         for nw in T_write_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            pyxsi_utils.axilite_write(sim, addr, nw, basename="s_axilite_0_")
             addr += 4
 
     T_read_stream = []
@@ -319,7 +326,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     def read_weights(sim):
         addr = 0
         for i in range(len(T_write_stream)):
-            T_read_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            T_read_stream.append(pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_"))
             addr += 4
 
     rtlsim_exec(model, exec_ctx_write, pre_hook=write_weights, post_hook=read_weights)

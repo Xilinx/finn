@@ -30,16 +30,15 @@ import numpy as np
 import os
 import warnings
 from abc import abstractmethod
-from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import get_liveness_threshold_cycles, is_versal
 
 try:
-    from pyverilator import PyVerilator
+    import pyxsi_utils
 except ModuleNotFoundError:
-    PyVerilator = None
+    pyxsi_utils = None
 
 
 class HWCustomOp(CustomOp):
@@ -98,6 +97,11 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_out": ("ints", False, []),
         }
 
+    def make_shape_compatible_op(self, model):
+        oshape = self.get_normal_output_shape()
+        # implement tensor with correct shape
+        return super().make_const_shape_op(oshape)
+
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
@@ -115,26 +119,45 @@ class HWCustomOp(CustomOp):
         each tuple is (interface_name, interface_width_bits).
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
+        node = self.onnx_node
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        sname = self.hls_sname()
-        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
+        intf_names["s_axis"] = []
+        for i in range(len(node.input)):
+            # not every node input will result in an interface of the produced HW
+            # filter out inputs that have no stream width associated with them
+            width = self.get_instream_width_padded(i)
+            if width != 0:
+                intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
+        intf_names["m_axis"] = []
+        for i in range(len(node.output)):
+            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
         return intf_names
 
     def get_rtlsim(self):
-        """Return a PyVerilator wrapper for the Verilator emulation library
+        """Return a xsi wrapper for the emulation library
         for this node."""
 
         rtlsim_so = self.get_nodeattr("rtlsim_so")
         assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
-        # create PyVerilator wrapper
-        sim = PyVerilator(rtlsim_so)
+
+        sim_base, sim_rel = rtlsim_so.split("xsim.dir")
+        sim_rel = "xsim.dir" + sim_rel
+        # pass in correct tracefile from attribute
+        tracefile = self.get_nodeattr("rtlsim_trace")
+        if tracefile == "default":
+            tracefile = self.onnx_node.name + ".wdb"
+        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, tracefile)
+
         return sim
+
+    def close_rtlsim(self, sim):
+        "Close and free up resources for rtlsim."
+        pyxsi_utils.close_rtlsim(sim)
 
     def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
@@ -192,117 +215,33 @@ class HWCustomOp(CustomOp):
         return {}
 
     def reset_rtlsim(self, sim):
-        """Sets reset input in pyverilator to zero, toggles the clock and set it
+        """Sets reset input in pyxsi to zero, toggles the clock and set it
         back to one"""
-        sim.io.ap_rst_n = 0
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
-        sim.io.ap_rst_n = 1
+        pyxsi_utils.reset_rtlsim(sim)
 
     def toggle_clk(self, sim):
-        """Toggles the clock input in pyverilator once."""
-        sim.io.ap_clk = 1
-        sim.io.ap_clk = 0
+        """Toggles the clock input in pyxsi once."""
+        pyxsi_utils.toggle_clk(sim)
 
-    def rtlsim(self, sim, inp, inp2=None):
-        """Runs the pyverilator simulation by passing the input values to the simulation,
-        toggle the clock and observing the execution time. Function contains also an
-        observation loop that can abort the simulation if no output value is produced
-        after 100 cycles."""
-
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file != "":
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-            sim.start_vcd_trace(trace_file)
-        inputs = inp
-        outputs = []
-        sname = self.hls_sname()
-        o_ready = "out_" + sname + "_TREADY"
-        o_valid = "out_" + sname + "_TVALID"
-        o_data = "out_" + sname + "_TDATA"
-        in0_ready = "in0_" + sname + "_TREADY"
-        in0_valid = "in0_" + sname + "_TVALID"
-        in0_data = "in0_" + sname + "_TDATA"
-        in1_ready = "in1_" + sname + "_TREADY"
-        in1_valid = "in1_" + sname + "_TVALID"
-        in1_data = "in1_" + sname + "_TDATA"
-
-        sim.io[o_ready] = 1
-
-        # observe if output is completely calculated
-        # observation_count will contain the number of cycles the calculation ran
-        num_out_values = self.get_number_output_values()
-        output_observed = False
-        observation_count = 0
-
-        # avoid infinite looping of simulation by aborting when there is no change in
-        # output values after 100 cycles
-        no_change_count = 0
-        old_outputs = outputs
-        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
-
-        while not (output_observed):
-            sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
-            sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
-            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
-                inputs = inputs[1:]
-
-            if inp2 is not None:
-                sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
-                sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
-                if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
-                    inp2 = inp2[1:]
-
-            if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
-                outputs = outputs + [sim.io[o_data]]
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-
-            observation_count = observation_count + 1
-            no_change_count = no_change_count + 1
-
-            if len(outputs) == num_out_values:
-                self.set_nodeattr("cycles_rtlsim", observation_count)
-                output_observed = True
-
-            if no_change_count == liveness_threshold:
-                if old_outputs == outputs:
-                    if trace_file != "":
-                        sim.flush_vcd_trace()
-                        sim.stop_vcd_trace()
-                    raise Exception(
-                        "Error in simulation! Takes too long to produce output. "
-                        "Consider setting the LIVENESS_THRESHOLD env.var. to a "
-                        "larger value."
-                    )
-                else:
-                    no_change_count = 0
-                    old_outputs = outputs
-        if trace_file != "":
-            sim.flush_vcd_trace()
-            sim.stop_vcd_trace()
-        return outputs
-
-    def rtlsim_multi_io(self, sim, io_dict):
+    def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
         "Run rtlsim for this node, supports multiple i/o streams."
-
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
-
-        trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file == "default":
-            trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
-        total_cycle_count = rtlsim_multi_io(
+        total_cycle_count = pyxsi_utils.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
-            trace_file=trace_file,
-            sname=sname,
-            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+            sname="_V_",
+            liveness_threshold=get_liveness_threshold_cycles(),
+            hook_postclk=hook_postclk,
         )
+
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+
+    def verify_node(self):
+        """Can be implemented to verify that all attributes the node needs
+        are there and that particular attributes are set correctly. Can also
+        check if the number of inputs is equal to the expected number."""
+        pass
 
     def generate_params(self, model, path):
         """Function to generate parameters (i.e. weights and thresholds),
@@ -317,49 +256,95 @@ class HWCustomOp(CustomOp):
         by every node."""
         pass
 
+    @abstractmethod
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input stream ind."""
-        raise Exception("get_input_datatype not implemented for this op")
 
+    @abstractmethod
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output stream ind."""
-        raise Exception("get_output_datatype not implemented for this op")
 
+    @abstractmethod
     def get_normal_input_shape(self, ind=0):
         """Returns normal input shape if implemented."""
-        raise Exception("get_normal_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_normal_output_shape(self, ind=0):
         """Returns folded output shape if implemented."""
-        raise Exception("get_normal_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_input_shape(self, ind=0):
         """Returns folded input shape (according to synapse folding), if implemented."""
-        raise Exception("get_folded_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_output_shape(self, ind=0):
         """Returns folded output shape (according to neuron folding), if implemented."""
-        raise Exception("get_folded_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_instream_width(self, ind=0):
         """Returns input stream width, if implemented."""
-        raise Exception("get_instream_width not implemented for this op")
 
+    @abstractmethod
     def get_outstream_width(self, ind=0):
         """Returns output stream width, if implemented."""
-        raise Exception("get_outstream_width not implemented for this op")
 
     def get_instream_width_padded(self, ind=0):
         """Returns input stream width padded to a multiple of 8. This is required
         by the AXI Stream spec."""
         in_width = self.get_instream_width(ind=ind)
-        return roundup_to_integer_multiple(in_width, 8)
+        if in_width != 0:
+            return roundup_to_integer_multiple(in_width, 8)
+        else:
+            return 0
 
     def get_outstream_width_padded(self, ind=0):
         """Returns output stream width padded to a multiple of 8. This is required
         by the AXI Stream spec."""
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
+
+    def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
+        """Helper function to generate verilog code for memstream component.
+        Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
+        ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
+        if self.onnx_node.op_type in ops:
+            template_path = (
+                os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
+            )
+            mname = self.onnx_node.name
+            if self.onnx_node.op_type.startswith("Thresholding"):
+                depth = self.calc_tmem()
+            else:
+                depth = self.calc_wmem()
+            padded_width = self.get_instream_width_padded(1)
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+            ram_style = self.get_nodeattr("ram_style")
+            init_file = code_gen_dir + "/memblock.dat"
+            if ram_style == "ultra" and not is_versal(fpgapart):
+                init_file = ""
+            code_gen_dict = {
+                "$MODULE_NAME$": [mname],
+                "$DEPTH$": [str(depth)],
+                "$WIDTH$": [str(padded_width)],
+                "$INIT_FILE$": [init_file],
+                "$RAM_STYLE$": [ram_style],
+                "$PUMPED_MEMORY$": [str(pumped_memory)],
+            }
+            # apply code generation to template
+            with open(template_path, "r") as f:
+                template_wrapper = f.read()
+            for key in code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(code_gen_dict[key])
+                template_wrapper = template_wrapper.replace(key, code_gen_line)
+            with open(
+                os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
+                "w",
+            ) as f:
+                f.write(template_wrapper)
+        else:
+            pass
 
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
@@ -383,7 +368,7 @@ class HWCustomOp(CustomOp):
         )
         sim = self.get_rtlsim()
         # signal name
-        sname = "_" + self.hls_sname() + "_"
+        sname = "_V_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
@@ -391,40 +376,40 @@ class HWCustomOp(CustomOp):
                 "inputs": {
                     "in0": [0 for i in range(n_inps)],
                 },
-                "outputs": {"out": []},
+                "outputs": {"out0": []},
             }
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+        # signal name
+        sname = "_V_"
 
         def monitor_txns(sim_obj):
             for inp in txns_in:
-                in_ready = _read_signal(sim, inp + sname + "TREADY") == 1
-                in_valid = _read_signal(sim, inp + sname + "TVALID") == 1
+                in_ready = pyxsi_utils._read_signal(sim_obj, inp + sname + "TREADY") == 1
+                in_valid = pyxsi_utils._read_signal(sim_obj, inp + sname + "TVALID") == 1
                 if in_ready and in_valid:
                     txns_in[inp].append(1)
                 else:
                     txns_in[inp].append(0)
             for outp in txns_out:
                 if (
-                    _read_signal(sim, outp + sname + "TREADY") == 1
-                    and _read_signal(sim, outp + sname + "TVALID") == 1
+                    pyxsi_utils._read_signal(sim_obj, outp + sname + "TREADY") == 1
+                    and pyxsi_utils._read_signal(sim_obj, outp + sname + "TVALID") == 1
                 ):
                     txns_out[outp].append(1)
                 else:
                     txns_out[outp].append(0)
 
-        reset_rtlsim(sim)
-        total_cycle_count = rtlsim_multi_io(
+        self.reset_rtlsim(sim)
+        self.rtlsim_multi_io(
             sim,
             io_dict,
-            n_outs,
-            sname=sname,
-            liveness_threshold=period,
-            hook_preclk=monitor_txns,
+            hook_postclk=monitor_txns,
         )
+        total_cycle_count = self.get_nodeattr("cycles_rtlsim")
         assert (
             total_cycle_count <= period
         ), """Total cycle count from rtl simulation is higher than

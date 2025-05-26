@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright (c) 2020-2022, Xilinx, Inc.
+# Copyright (C) 2022-2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,10 +28,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-QONNX_COMMIT="1a4957ebf2aaf139217fd56109386d4518dd6127"
+QONNX_COMMIT="ed339373246d84626cf8e1d9038a8acad7111031"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
-BREVITAS_COMMIT="d4834bd2a0fad3c1fbc0ff7e1346d5dcb3797ea4"
-PYVERILATOR_COMMIT="ce0a08c20cb8c1d1e84181d6f392390f846adbd1"
+BREVITAS_COMMIT="4617f7bd136e96fa21c7f76e3c7e2e37fe563837"
 CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 HLSLIB_COMMIT="16e5847a5e3ef76cffe84c8fad2f010d593457d3"
 OMX_COMMIT="0b59762f9e4c4f7e5aa535ee9bc29f292434ca7a"
@@ -39,11 +39,11 @@ XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
+PYXSI_COMMIT="941bb62a4a3cc2c8cf2a9b89187c60bb0b776658"
 
-QONNX_URL="https://github.com/iksnagreb/qonnx.git"
+QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
-PYVERILATOR_URL="https://github.com/maltanar/pyverilator.git"
 CNPY_URL="https://github.com/rogersce/cnpy.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
@@ -51,11 +51,11 @@ AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
+PYXSI_URL="https://github.com/maltanar/pyxsi.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
 BREVITAS_DIR="brevitas"
-PYVERILATOR_DIR="pyverilator"
 CNPY_DIR="cnpy"
 HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
@@ -63,6 +63,7 @@ AVNET_BDF_DIR="avnet-bdf"
 XIL_BDF_DIR="xil-bdf"
 RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
+PYXSI_DIR="pyxsi"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -118,7 +119,6 @@ fetch_board_files() {
 fetch_repo $QONNX_URL $QONNX_COMMIT $QONNX_DIR
 fetch_repo $FINN_EXP_URL $FINN_EXP_COMMIT $FINN_EXP_DIR
 fetch_repo $BREVITAS_URL $BREVITAS_COMMIT $BREVITAS_DIR
-fetch_repo $PYVERILATOR_URL $PYVERILATOR_COMMIT $PYVERILATOR_DIR
 fetch_repo $CNPY_URL $CNPY_COMMIT $CNPY_DIR
 fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR
@@ -126,6 +126,7 @@ fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 fetch_repo $RFSOC4x2_BDF_URL $RFSOC4x2_BDF_COMMIT $RFSOC4x2_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
+fetch_repo $PYXSI_URL $PYXSI_COMMIT $PYXSI_DIR
 
 # Can skip downloading of board files entirely if desired
 if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then

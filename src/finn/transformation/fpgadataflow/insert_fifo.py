@@ -202,6 +202,8 @@ class InsertFIFO(Transformation):
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
                     if fifo_depth > 2 or self.create_shallow_fifos:
+                        # Ensure that create shallow fifo condition doesn't create depth=1 fifos
+                        fifo_depth = max(fifo_depth, 2)
                         # create fifo node
                         fifo_output_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
@@ -264,6 +266,8 @@ class InsertFIFO(Transformation):
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
                     if fifo_depth > 2 or self.create_shallow_fifos:
+                        # Ensure that create shallow fifo condition doesn't create depth=1 fifos
+                        fifo_depth = max(fifo_depth, 2)
                         # create fifo node
                         fifo_input_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
