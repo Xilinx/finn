@@ -49,6 +49,17 @@ from . import template_driver
 
 
 class MakeCPPDriver(Transformation):
+    """Create CPP code to correctly interface the generated
+    accelerator, including data packing/unpacking. Should be called
+    after conversion to HLS layers, folding and the creation of
+    dataflow partitions for correct operation.
+    platform: has to be "alveo", otherwise an error is thrown
+    Outcome if successful: sets the cpp_driver_dir attribute in the ONNX
+    ModelProto's metadata_props field, with the created driver dir as the
+    value.
+    runtime writeable weights not yet supported.
+    """
+
     # TODO: Enable multiple input types! Now only assumes the first one
     def resolve_dt_name(s: str) -> str:
         s = s.replace("DataType[", "").replace("]", "")
@@ -72,6 +83,9 @@ class MakeCPPDriver(Transformation):
     ):
         super().__init__()
         self.platform: str = platform
+        assert (
+            platform == "alveo"
+        ), "CPP driver only supported for Alveo devices, please use PYNQ driver instead."
         self.version = version
 
         # Define variables for the repository URL and commit hash
@@ -148,7 +162,7 @@ class MakeCPPDriver(Transformation):
                 Required to read kernel names for driver config!"
             )
         run_command(
-            f"xclbinutil -i {xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json",
+            f"xclbinutil -i {xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json --force",
             cwd=os.path.dirname(xclbin_path),
         )
         ips = None
@@ -210,39 +224,6 @@ class MakeCPPDriver(Transformation):
         )
         with open(json_path, "w+") as f:
             f.write(json.dumps(data, indent=4))
-
-        # TODO: Generating weight files
-        # weights_dir = output_dir + "/runtime_weights"
-
-        # os.makedirs(weights_dir)
-        # idma_idx = 0
-        # ext_weight_dma_cnt = 0
-
-        # for node in model.graph.node:
-        #     assert (
-        #         node.op_type == "StreamingDataflowPartition"
-        #     ), "CreateDataflowPartition needs to be applied before driver generation"
-
-        #     if len(node.input) > 0:
-        #         producer = model.find_producer(node.input[0])
-        #         init_tensor = model.get_initializer(node.input[0])
-        #     else:
-        #         producer = None
-        #         init_tensor = None
-
-        #     if producer is None:  # input dma?
-        #         sdp_inst = getCustomOp(node)
-        #         idma_name = sdp_inst.get_nodeattr("instance_name")
-        #         df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
-        #         assert df_model.graph.node[0].op_type == "IODMA"
-        #         iodma_node = getCustomOp(df_model.graph.node[0])
-        #         if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
-        #             init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
-        #             ext_weight_dma_cnt += 1
-        #             w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
-        #             init_external_tensor = to_external_tensor(init_tensor, w_dtype)
-        #             np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
-        #         idma_idx += 1
 
         return (model, False)
 
