@@ -38,34 +38,14 @@ import warnings
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.util.basic import roundup_to_integer_multiple
 from string import Template
 from typing import Dict, Tuple
 
 import finn.util
-from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import (
-    hexstring2npbytearray,
-    pack_innermost_dim_as_hex_string,
-)
+from finn.util.data_packing import get_driver_shapes, to_external_tensor
 
 from . import template_driver
-
-
-def to_external_tensor(init, w_dtype):
-    """Return an appropriately formatted and packed numpy byte array for given
-    external parameter tensor."""
-
-    weight_width = init.shape[1] * w_dtype.bitwidth()
-    weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-    hex_init = pack_innermost_dim_as_hex_string(init, w_dtype, weight_width_padded, prefix="0x")
-    ext_weight = np.array([], dtype=np.uint8)
-    for line in hex_init:
-        array_line = [x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))]
-        ext_weight = np.append(ext_weight, array_line)
-
-    return ext_weight
 
 
 class MakeCPPDriver(Transformation):
