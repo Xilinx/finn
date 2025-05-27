@@ -733,15 +733,19 @@ def test_mvau_fifocharacterize_rtlsim(
     assert chrc_out[0, exp_total_cycles] == nf
 
 
-@pytest.mark.parametrize("mh", [128])
-@pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("pe", [32])
-@pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
-@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
-@pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.parametrize("pumpedMemory", [False])
-@pytest.mark.parametrize("pumpedCompute", [False])
+@pytest.mark.parametrize("mh", [18])
+@pytest.mark.parametrize("mw", [128])
+@pytest.mark.parametrize("pe", [1, 9, 18])
+@pytest.mark.parametrize("simd", [1, 64, 128])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
+)
+@pytest.mark.parametrize(
+    "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
+)
+@pytest.mark.parametrize("clk_ns", [1.66, 4])
+@pytest.mark.parametrize("pumpedMemory", [False, True])
+@pytest.mark.parametrize("pumpedCompute", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -764,8 +768,8 @@ def test_fpgadataflow_rtl_mvau(
     # Create test input vector (produced by SWG)
     ofm_shape = (3, 3)
     ofm_h, ofm_w = ofm_shape
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, 128, mw])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, 128, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # if 7 series, force weights to narrow range
     if part == "xc7z020clg400-1":
@@ -845,22 +849,21 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("mh", [128])
 @pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("n_vectors", [128])
-@pytest.mark.parametrize("pe", [32])
-@pytest.mark.parametrize("simd", [16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["INT8"], DataType["INT8"]]])
-@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S"])
-@pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.parametrize("pumpedCompute", [False])
+@pytest.mark.parametrize("pe", [1, 16, 32])
+@pytest.mark.parametrize("simd", [1, 32, 128])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
+)
+@pytest.mark.parametrize(
+    "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
+)
 # Backend
-@pytest.mark.parametrize("impl_style", ["hls"])
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_dynamic_mvau(
-    mh, mw, n_vectors, pe, simd, idt_wdt, part, clk_ns, pumpedCompute, impl_style
-):
-    if simd == 1 and pumpedCompute:
-        pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
+def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+    clk_ns = 4
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -908,8 +911,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(
         % impl_style: {
             "PE": pe,
             "SIMD": simd,
-            "resType": "dsp",
-            #        "pumpedCompute": pumpedCompute,
+            "resType": "auto",
         },
     }
     model = model.transform(ApplyConfig(folding_config))
