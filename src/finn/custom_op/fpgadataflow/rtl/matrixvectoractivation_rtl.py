@@ -75,9 +75,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                         str(context[inputs].dtype) == "float32"
                     ), """Input datatype is
                     not float32 as expected."""
-                    expected_inp_shape = self.get_folded_input_shape()
+                    expected_inp_shape = self.get_folded_input_shape(in_ind)
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype(0)
+                    export_idt = self.get_input_datatype(in_ind)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
@@ -87,40 +87,38 @@ class MVAU_rtl(MVAU, RTLBackend):
                 elif in_ind > 1:
                     raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
                 in_ind += 1
-                sim = self.get_rtlsim()
-                nbits = self.get_instream_width(0)
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                super().reset_rtlsim(sim)
-                if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_instream_width(1)
-                    export_wdt = self.get_input_datatype(1)
-                    wei = npy_to_rtlsim_input(
-                        "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                    )
-                    num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                    io_dict = {
-                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
-                        "outputs": {"out0": []},
-                    }
-                else:
-                    io_dict = {
-                        "inputs": {"in0": inp},
-                        "outputs": {"out0": []},
-                    }
-                self.rtlsim_multi_io(sim, io_dict)
-                super().close_rtlsim(sim)
-                output = io_dict["outputs"]["out0"]
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width(0)
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            super().reset_rtlsim(sim)
+            if mem_mode in ["external", "internal_decoupled"]:
+                wnbits = self.get_instream_width(1)
+                export_wdt = self.get_input_datatype(1)
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                io_dict = {
+                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "outputs": {"out0": []},
+                }
+            else:
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
