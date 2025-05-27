@@ -863,6 +863,10 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+    # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
+    if part == "xc7z020clg400-1" and impl_style == "rtl":
+        pytest.skip("Skip test because narrow range can't be ensured for the second input")
+
     clk_ns = 4
 
     idt, wdt = idt_wdt
