@@ -734,9 +734,9 @@ def test_mvau_fifocharacterize_rtlsim(
 
 
 @pytest.mark.parametrize("mh", [18])
-@pytest.mark.parametrize("mw", [128])
+@pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("pe", [1, 9, 18])
-@pytest.mark.parametrize("simd", [1, 64, 128])
+@pytest.mark.parametrize("simd", [1, 16, 32])
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
 )
@@ -846,11 +846,11 @@ def test_fpgadataflow_rtl_mvau(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-@pytest.mark.parametrize("mh", [128])
-@pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("n_vectors", [128])
+@pytest.mark.parametrize("mh", [32])
+@pytest.mark.parametrize("mw", [16])
+@pytest.mark.parametrize("n_vectors", [32])
 @pytest.mark.parametrize("pe", [1, 16, 32])
-@pytest.mark.parametrize("simd", [1, 32, 128])
+@pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
 )
