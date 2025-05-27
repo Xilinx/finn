@@ -32,8 +32,8 @@ import copy
 import numpy as np
 import onnx.parser as oprs
 import os
+from bitstring import BitArray
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -63,7 +63,12 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import get_liveness_threshold_cycles
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
@@ -159,13 +164,18 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        reset_rtlsim(sim)
+        pyxsi_utils.reset_rtlsim(sim)
         for axi_name, config in configs:
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-        reset_rtlsim(sim)
+                addr, val = config_entry
+                if val < 0:
+                    # ensure any negative vals are expressed as two's complement,
+                    # SWG control regs are currently always 32 bits
+                    val = BitArray(int=val, length=32).uint
+                pyxsi_utils.axilite_write(sim, addr, val, basename=axi_name)
+        pyxsi_utils.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -349,7 +359,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = pyverilate_get_liveness_threshold_cycles()
+        liveness_prev = get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = "100000"
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
         os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)

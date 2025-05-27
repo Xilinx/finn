@@ -1,2 +1,0 @@
-# This file is automatically written.  Do not modify.
-proc gen_USERPARAMETER_AXILITE_ADDR_WIDTH_VALUE {DEPTH WIDTH } {expr 2 + ceil(log($DEPTH*pow(2, ceil(log(($WIDTH+31)/32)/log(2))))/log(2))}

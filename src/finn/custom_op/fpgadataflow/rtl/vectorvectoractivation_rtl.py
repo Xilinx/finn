@@ -28,18 +28,12 @@
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
-from finn.util.basic import get_rtlsim_trace_depth, is_versal, make_build_dir
+from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 class VVAU_rtl(VVAU, RTLBackend):
@@ -76,12 +70,12 @@ class VVAU_rtl(VVAU, RTLBackend):
                     not float32 as expected."""
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    if self.get_input_datatype() == DataType["BIPOLAR"]:
+                    if self.get_input_datatype(0) == DataType["BIPOLAR"]:
                         # store bipolar activations as binary
                         reshaped_input = (reshaped_input + 1) / 2
                         export_idt = DataType["BINARY"]
                     else:
-                        export_idt = self.get_input_datatype()
+                        export_idt = self.get_input_datatype(0)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
@@ -93,17 +87,16 @@ class VVAU_rtl(VVAU, RTLBackend):
                 in_ind += 1
 
                 sim = self.get_rtlsim()
-                nbits = self.get_instream_width()
+                nbits = self.get_instream_width(0)
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                reset_rtlsim(sim)
-                toggle_clk(sim)
+                super().reset_rtlsim(sim)
 
                 if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_weightstream_width()
-                    export_wdt = self.get_weight_datatype()
+                    wnbits = self.get_instream_width(1)
+                    export_wdt = self.get_input_datatype(1)
                     # we have converted bipolar weights to binary for export,
                     # so use it as such for weight generation
-                    if self.get_weight_datatype() == DataType["BIPOLAR"]:
+                    if self.get_input_datatype(1) == DataType["BIPOLAR"]:
                         export_wdt = DataType["BINARY"]
                     wei = npy_to_rtlsim_input(
                         "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
@@ -112,13 +105,17 @@ class VVAU_rtl(VVAU, RTLBackend):
                     num_w_reps = dim_h * dim_w
 
                     io_dict = {
-                        "inputs": {"in0": inp, "weights": wei * num_w_reps},
-                        "outputs": {"out": []},
+                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                        "outputs": {"out0": []},
                     }
-                    self.rtlsim_multi_io(sim, io_dict)
-                    output = io_dict["outputs"]["out"]
                 else:
-                    output = self.rtlsim(sim, inp)
+                    io_dict = {
+                        "inputs": {"in0": inp},
+                        "outputs": {"out0": []},
+                    }
+                self.rtlsim_multi_io(sim, io_dict)
+                super().close_rtlsim(sim)
+                output = io_dict["outputs"]["out0"]
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
@@ -149,6 +146,7 @@ class VVAU_rtl(VVAU, RTLBackend):
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
+        node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         sourcefiles = [
@@ -168,8 +166,8 @@ class VVAU_rtl(VVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                    self.onnx_node.name,
+                    node_name,
+                    node_name,
                 )
             )
         else:
@@ -177,9 +175,15 @@ class VVAU_rtl(VVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s %s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
+                    node_name,
                 )
             )
+        # Connect 2x clk to regular clk port
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+            % (node_name, clk_name, node_name, node_name)
+        )
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -189,7 +193,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # determine if weights are narrow range and add parameter to code gen dict
         weights = model.get_initializer(self.onnx_node.input[1])
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         narrow_weights = 0 if np.min(weights) == wdt.min() else 1
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
@@ -215,6 +219,15 @@ class VVAU_rtl(VVAU, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+
+        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -259,6 +272,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(0)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(0)]
         mw = int(np.prod(self.get_nodeattr("Kernel")))
         code_gen_dict["$MW$"] = [str(mw)]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("Channels"))]
@@ -274,28 +288,25 @@ class VVAU_rtl(VVAU, RTLBackend):
 
         return template_path, code_gen_dict
 
-    def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
 
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
+        verilog_files = [
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
+        return verilog_files
 
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
-
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-
-        return sim
+    def get_verilog_paths(self):
+        verilog_paths = super().get_verilog_paths()
+        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
+        return verilog_paths

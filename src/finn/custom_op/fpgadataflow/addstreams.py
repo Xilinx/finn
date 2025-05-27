@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
@@ -46,7 +47,7 @@ class AddStreams(HWCustomOp):
                 "NumChannels": ("i", True, ""),
                 "PE": ("i", True, ""),
                 # FINN DataTypes for inputs; output datatype inferred from input
-                "inputDataType": ("s", True, ""),
+                "inputDataTypes": ("strings", True, [""]),
                 # number of input vectors, examples:
                 # [1] is a single vector (like a FC layer with batch=1)
                 # [4] is four vectors (like a FC layer with batch=4)
@@ -77,51 +78,50 @@ class AddStreams(HWCustomOp):
     def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input1 shape."
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[1]))
-        assert ishape == exp_ishape, "Unexpected input2 shape."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
-        node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
-                node.name,
-                str(self.get_input_datatype()),
-                str(idt),
-            )
-            warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
+        # check all input datatypes
+        for i, inp in enumerate(self.onnx_node.input):
+            idt = model.get_tensor_datatype(inp)
+            if idt != self.get_input_datatype(i):
+                warn_str = "inputDataType changing for %s: %s -> %s " % (
+                    self.onnx_node.name,
+                    str(self.get_input_datatype(i)),
+                    str(idt),
+                )
+                warnings.warn(warn_str)
+                old_datatypes_attr = self.get_nodeattr("inputDataTypes")
+                old_datatypes_attr[i] = idt.name
+                self.set_nodeattr("inputDataTypes", old_datatypes_attr)
         # enforce output data type (calculated based on idt)
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
-    def verify_node(self):
-        pass
-
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        return DataType[self.get_nodeattr("inputDataTypes")[ind]]
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
-        # we need to set output datatype to the next larger int or uint
-        # enhancement: consider specifying w/ explicit outputDataType attribute
-        # to allow overflow and use the same idt if user wants
-        idt = DataType[self.get_nodeattr("inputDataType")]
-        if idt.signed():
-            return DataType.get_smallest_possible(2 * idt.min())
+        min_input = 0
+        max_input = 0
+        for i in range(len(self.get_nodeattr("inputDataTypes"))):
+            idt = self.get_input_datatype(i)
+            if idt.min() < min_input:
+                min_input = idt.min()
+            if idt.max() > max_input:
+                max_input = idt.max()
+        if min_input >= 0:
+            out_bit_width = math.ceil(np.log2(max_input + 1))
+            odt = DataType[f"UINT{out_bit_width + 1}"]
         else:
-            return DataType.get_smallest_possible(2 * idt.max())
+            max_abs_input = max(-min_input, 1 + max_input)
+            out_bit_width = math.ceil(np.log2(max_abs_input) + 1)
+            odt = DataType[f"INT{out_bit_width + 1}"]
+        return odt
 
     def get_instream_width(self, ind=0):
         """Returns input stream width."""
-        ibits = self.get_input_datatype().bitwidth()
+        ibits = self.get_input_datatype(ind).bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
@@ -152,13 +152,6 @@ class AddStreams(HWCustomOp):
         result = inp0_values + inp1_values
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        sname = self.hls_sname()
-        swidth = self.get_instream_width_padded()
-        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
-        return intf_names
-
     def derive_characteristic_fxns(self, period):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
@@ -166,6 +159,6 @@ class AddStreams(HWCustomOp):
                 "in0": [0 for i in range(n_inps)],
                 "in1": [0 for i in range(n_inps)],
             },
-            "outputs": {"out": []},
+            "outputs": {"out0": []},
         }
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

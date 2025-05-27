@@ -217,8 +217,8 @@ def calculate_accumulator_bit_width(
     else:
         raise Exception("Considering only MVAU and VVAU currently")
     # collect attributes used to determine the accumulator bit width bound
-    wdt = inst.get_weight_datatype()
-    idt = inst.get_input_datatype()
+    wdt = inst.get_input_datatype(1)
+    idt = inst.get_input_datatype(0)
     rww = inst.get_nodeattr("runtime_writeable_weights")
     # if runtime-writeable weights, then use the lower bound on the accumulator bit
     # width as determined by the input and weight data types and size of dot product
