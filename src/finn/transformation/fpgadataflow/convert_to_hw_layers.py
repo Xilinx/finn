@@ -1968,16 +1968,6 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
 
-    # Convert param input values to initializers
-    for ind, val in enumerate(g_loop_body.inputs[1:]):
-        val.const_value = ir.Tensor(loop_node.inputs[ind + 3].const_value.numpy()[0])
-        g_loop_body.register_initializer(val)
-
-    # Give a valid shape to scalar initializers
-    for init in g_loop_body.initializers.values():
-        if len(init.shape) == 0:
-            init.shape = ir.Shape([1])
-
     iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
     loop_body_actout = g_loop_body.outputs[0]
