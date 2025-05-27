@@ -76,10 +76,13 @@ class MVAU_rtl(MVAU, RTLBackend):
                 not float32 as expected."""
 
                 if in_ind == 0:
+                    assert (
+                        str(context[inputs].dtype) == "float32"
+                    ), """Input datatype is
+                    not float32 as expected."""
                     expected_inp_shape = self.get_folded_input_shape(in_ind)
-
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype(0)
+                    export_idt = self.get_input_datatype(in_ind)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
@@ -115,7 +118,6 @@ class MVAU_rtl(MVAU, RTLBackend):
                     "inputs": {"in0": inp},
                     "outputs": {"out0": []},
                 }
-
             self.rtlsim_multi_io(sim, io_dict)
             super().close_rtlsim(sim)
             output = io_dict["outputs"]["out0"]

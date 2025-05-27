@@ -105,36 +105,40 @@ class MoveScalarMulPastMatMul(Transformation):
     """Move scalar mul operations past matmul operations. We want to have muls
     next to each other such that they can be collapsed into a single mul."""
 
+    # Applies the transform to a whole model graph
     def apply(self, model):
+        # Get the model graph out of the model wrapper object
         graph = model.graph
-        node_ind = 0
+        # Keep track of whether the graph has been modified
         graph_modified = False
-        for n in graph.node:
-            node_ind += 1
+        # Iterate all nodes in the graph keeping track of the index
+        for node_ind, n in enumerate(graph.node):
             if n.op_type == "Mul" and not model.is_fork_node(n) and not model.is_join_node(n):
                 consumer = model.find_consumer(n.output[0])
-                if (
-                    consumer is not None
-                    and consumer.op_type == "MatMul"
-                    and not model.is_join_node(consumer)
-                ):
+                if consumer is not None and consumer.op_type == "MatMul":
                     mul_weight_name = n.input[1]
-                    matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    W = model.get_initializer(matmul_weight_name)
-                    if (A is None) or (W is None):
-                        warnings.warn("MatMul or Mul params are not constant, skipping")
-                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
                     mm_out_shape = model.get_tensor_shape(end_name)
+                    # check which input mul node is connected to build the right node connectivity
+                    if n.output[0] == consumer.input[0]:
+                        new_matmul_inps = [start_name, consumer.input[1]]
+                    elif n.output[0] == consumer.input[1]:
+                        new_matmul_inps = [consumer.input[0], start_name]
+                    else:
+                        raise Exception(
+                            """Invalid pattern detected,
+                            output of matmul is not connected to any of the consumers inputs."""
+                        )
+
                     if all(x == 1 for x in A.shape):
                         # if the mul is scalar, we can simply swap the order of ops
                         # make and insert new nodes
                         new_matmul = oh.make_node(
                             "MatMul",
-                            [start_name, matmul_weight_name],
+                            new_matmul_inps,
                             [middle_name],
                             name=consumer.name,
                         )
@@ -152,7 +156,7 @@ class MoveScalarMulPastMatMul(Transformation):
                         graph.node.remove(consumer)
                         graph_modified = True
         model = model.transform(InferShapes())
-        return (model, graph_modified)
+        return model, graph_modified
 
 
 class MoveScalarAddPastMatMul(Transformation):
@@ -606,6 +610,17 @@ class MoveScalarLinearPastInvariants(Transformation):
     GlobalAveragePool
     """
 
+    # Op-types of currently supported invariants
+    SUPPORTED_INVARIANTS = {
+        "GlobalAveragePool",
+        "Reshape",
+        "Transpose",
+        "Flatten",
+        "Slice",
+        "Squeeze",
+        "Unsqueeze",
+    }
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -618,13 +633,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                 # Extract mode and scales and input shape
                 mode = get_by_name(n.attribute, "mode").s.decode("ascii")
                 is_nearest_neighbor_resample = mode == "nearest"
-            if (
-                n.op_type == "GlobalAveragePool"
-                or n.op_type == "Reshape"
-                or n.op_type == "Transpose"
-                or n.op_type == "Flatten"
-                or is_nearest_neighbor_resample
-            ):
+            if n.op_type in self.SUPPORTED_INVARIANTS or is_nearest_neighbor_resample:
                 in0 = n.input[0]
                 if in0 is None:
                     continue
@@ -634,6 +643,16 @@ class MoveScalarLinearPastInvariants(Transformation):
                     continue
 
                 if prod0.op_type in ["Mul", "Add", "Div"]:
+                    # Cannot handle fork-nodes, try MoveLinearPastFork first
+                    if model.is_fork_node(prod0):
+                        warnings.warn(
+                            f"{self.__class__.__name__}:"
+                            f" Skipping near match: {prod0.name} is a fork-node,"
+                            f" try MoveLinearPastFork first"
+                        )
+                        # Skip transforming this node as moving this would lead
+                        # to messed up or detached graph
+                        continue
                     # check if second input of producer is an initializer
                     init0 = model.get_initializer(prod0.input[1])
                     # if either initializer is None, skip

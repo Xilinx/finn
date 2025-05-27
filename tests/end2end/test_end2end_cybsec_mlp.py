@@ -106,7 +106,9 @@ def test_end2end_cybsec_mlp_export():
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth", weights_only=False)[
+        "models_state_dict"
+    ][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
