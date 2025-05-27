@@ -34,9 +34,6 @@ import warnings
 from onnx import NodeProto  # noqa
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
-
-# QONNX wrapper of ONNX model graphs
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -106,19 +103,6 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
         return (model, graph_modified)
 
 
-# Groups inputs by categories, i.e., groups dynamic inputs first, followed by
-# initializers. Keeps order of inputs in each category.
-def group_inputs_by_category(node: NodeProto, model: ModelWrapper):  # noqa
-    # First select all dynamic inputs, which are those without initializer
-    # tensor
-    dynamics = [i for i in node.input if model.get_initializer(i) is None]
-    # Select all input which are initializers, which, by exclusion, are all
-    # those not among the dynamic inputs
-    initializers = [i for i in node.input if i not in dynamics]
-    # Return lists of dynamic anc initializer inputs
-    return dynamics, initializers
-
-
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
     values. Only scalar/1D add vectors can be absorbed."""
@@ -132,17 +116,13 @@ class AbsorbAddIntoMultiThreshold(Transformation):
             if n.op_type == "Add" and not model.is_fork_node(n) and not model.is_join_node(n):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
-                    # As Add is not a join node, there must be one initializer
-                    # and one dynamic input. We do not know their order, but
-                    # can group them accordingly to extract the tensor names
-                    (start,), (add_weight,) = group_inputs_by_category(n, model)
-                    threshold = consumer.input[1]
-                    A = model.get_initializer(add_weight)
-                    T = model.get_initializer(threshold)
-                    # Test for the thresholds actually being initializers
-                    # Note: No need to validate the add_weights anymore, this
-                    # is already handled by the grouping and is_join_node test.
+                    add_weight_name = n.input[1]
+                    threshold_name = consumer.input[1]
+                    A = model.get_initializer(add_weight_name)
+                    T = model.get_initializer(threshold_name)
+                    assert A is not None, "Initializer for add weights is not set."
                     assert T is not None, "Initializer for thresholds is not set."
+                    start_name = n.input[0]
                     # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
                     actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
@@ -151,9 +131,9 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                         Tnew = T - A.reshape(-1, 1)
                         # Tnew = T - A.reshape(-1, T.shape[1])
                         # compute new thresholds and set initializer
-                        model.set_initializer(threshold, Tnew)
+                        model.set_initializer(threshold_name, Tnew)
                         # wire add input directly to MultiThreshold
-                        consumer.input[0] = start
+                        consumer.input[0] = start_name
                         # remove the add node
                         graph.node.remove(n)
                         graph_modified = True
