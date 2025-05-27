@@ -29,6 +29,9 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
+
+# Protobuf onnx graph node type
+from onnx import NodeProto  # noqa
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
@@ -134,7 +137,7 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                         # remove the add node
                         graph.node.remove(n)
                         graph_modified = True
-        return (model, graph_modified)
+        return model, graph_modified
 
 
 class AbsorbMulIntoMultiThreshold(Transformation):
@@ -215,7 +218,7 @@ class FactorOutMulSignMagnitude(Transformation):
 
 
 class Absorb1BitMulIntoMatMul(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding matrix
+    """Absorb bipolar or binary multiplications into the preceding matrix
     multiply."""
 
     def apply(self, model):
@@ -224,16 +227,22 @@ class Absorb1BitMulIntoMatMul(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "MatMul":
+            # TODO: Fork-nodes could be handled if the muls are the same in all
+            #  branches, but this is not checked nor rewired at all right now.
+            if n.op_type == "MatMul" and not model.is_fork_node(n):
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
                 Wdt = model.get_tensor_datatype(matmul_weight_name)
-                assert W is not None, "Initializer for matmul weights is not set."
+                # Skip matmuls with no initializers
+                if W is None:
+                    continue
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    # Skip muls with no initializers
+                    if A is None:
+                        continue
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     if is_1bit:
                         Wnew = A * W
@@ -252,7 +261,7 @@ class Absorb1BitMulIntoMatMul(Transformation):
 
 
 class Absorb1BitMulIntoConv(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding convolution."""
+    """Absorb bipolar or binary multiplications into the preceding convolution."""
 
     def apply(self, model):
         graph = model.graph
@@ -260,16 +269,20 @@ class Absorb1BitMulIntoConv(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Conv":
+            if n.op_type == "Conv" and not model.is_fork_node(n):
                 conv_weight_name = n.input[1]
                 W = model.get_initializer(conv_weight_name)
                 Wdt = model.get_tensor_datatype(conv_weight_name)
-                assert W is not None, "Initializer for conv weights is not set."
+                # Skip convs with no initializers
+                if W is None:
+                    continue
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    # Skip muls with no initializers
+                    if A is None:
+                        continue
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     is_scalar = np.prod(A.shape) == 1
                     actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
