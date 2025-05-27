@@ -139,7 +139,7 @@ class MVAU_hls(MVAU, HLSBackend):
         super().code_generation_ipgen(model, fpgapart, clk)
         dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
-        
+
         if dynamic_input:
             self.generate_hdl_dynload()
         if mem_mode == "internal_decoupled":
@@ -488,7 +488,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     mode
                 )
             )
-        
+
         # create a npy file fore each input of the node (in_ind is input index)
         for in_ind, inputs in enumerate(node.input):
             # it is assumed that the first input of the node is the data input
@@ -518,7 +518,9 @@ class MVAU_hls(MVAU, HLSBackend):
             if in_ind == 1:
                 if dynamic_input:
                     reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
-                    self.make_weight_file(reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir))
+                    self.make_weight_file(
+                        reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                    )
 
         if mode == "cppsim":
             # execute the precompiled model
@@ -542,7 +544,7 @@ class MVAU_hls(MVAU, HLSBackend):
             if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_instream_width(1)
                 export_wdt = self.get_input_datatype(1)
-                
+
                 # we have converted bipolar weights to binary for export,
                 # so use it as such for weight generation
                 if self.get_input_datatype(1) == DataType["BIPOLAR"]:
@@ -560,7 +562,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     "inputs": {"in0": inp},
                     "outputs": {"out0": []},
                 }
-            
+
             self.rtlsim_multi_io(sim, io_dict)
             super().close_rtlsim(sim)
             output = io_dict["outputs"]["out0"]

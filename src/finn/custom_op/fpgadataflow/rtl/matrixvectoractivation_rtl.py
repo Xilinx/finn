@@ -90,7 +90,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                 if in_ind == 1:
                     if dynamic_input:
                         reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
-                        self.make_weight_file(reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir))
+                        self.make_weight_file(
+                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                        )
 
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -113,7 +115,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                     "inputs": {"in0": inp},
                     "outputs": {"out0": []},
                 }
-                
+
             self.rtlsim_multi_io(sim, io_dict)
             super().close_rtlsim(sim)
             output = io_dict["outputs"]["out0"]
@@ -123,7 +125,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-            
+
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -314,7 +316,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        
+
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
