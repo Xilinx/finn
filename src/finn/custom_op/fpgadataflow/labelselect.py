@@ -95,21 +95,6 @@ class LabelSelect(HWCustomOp):
         oshape = tuple(vecs + [k, 1])
         return oshape
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        return helper.make_node(
-            "RandomNormal",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            mean=0.0,
-            scale=1.0,
-            dtype=TensorProto.INT64,
-            shape=list(oshape),
-        )
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # check input datatype against property
@@ -118,9 +103,6 @@ class LabelSelect(HWCustomOp):
 
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""

@@ -133,7 +133,6 @@ module thresholding_axi #(
 		always_ff @(posedge ap_clk) begin
 			assert(!ap_rst_n || !cfg_en || (cfg_a0[ADDR_BITS-2+:2] === 3'h0)) else begin
 				$error("%m: Spurious high address bits.");
-				$stop;
 			end
 		end
 	end
@@ -191,7 +190,10 @@ module thresholding_axi #(
 		.cfg_rack, .cfg_q,
 
 		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat,
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata)
+		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
 	);
+	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
+		assign	m_axis_tdata[$left(m_axis_tdata):PE*O_BITS] = '0;
+	end : genPadOut
 
 endmodule : thresholding_axi

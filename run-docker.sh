@@ -75,23 +75,14 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
 : ${LOCALHOST_URL="localhost"}
-: ${PYNQ_USERNAME="xilinx"}
-: ${PYNQ_PASSWORD="xilinx"}
-: ${PYNQ_BOARD="Pynq-Z1"}
-: ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
-: ${ALVEO_USERNAME="alveo_user"}
-: ${ALVEO_PASSWORD=""}
-: ${ALVEO_BOARD="U250"}
-: ${ALVEO_TARGET_DIR="/tmp"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
-: ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
@@ -153,19 +144,6 @@ else
   DOCKER_CMD="$@"
 fi
 
-
-if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
-  gecho "nvidia-docker detected, enabling GPUs"
-  if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
-    FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
-  else
-    FINN_DOCKER_EXTRA+="--gpus all "
-  fi
-fi
-
-VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
-
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
 mkdir -p $FINN_SSH_KEY_DIR
@@ -176,8 +154,6 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $FINN_XILINX_PATH into $FINN_XILINX_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
@@ -220,12 +196,6 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
-DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
-DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
-DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
-DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
-DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
@@ -266,11 +236,6 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   if [ -d "$PLATFORM_REPO_PATHS" ];then
     DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
     DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-    DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
-    DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
-    DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
-    DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
-    DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
 
