@@ -79,7 +79,7 @@ module axilite #(
 	// AXI-lite Frontend
 	localparam bit [1:0]  RESP_OKAY   = 'b00;
 	localparam bit [1:0]  RESP_SLVERR = 'b10;
- 	localparam int unsigned  BSEL_BITS = $clog2(DATA_WIDTH/8);
+	localparam int unsigned  BSEL_BITS = $clog2(DATA_WIDTH/8);
 
 	typedef struct {
 		logic  vld;
@@ -90,7 +90,7 @@ module axilite #(
 		logic [DATA_WIDTH-1:0]  val;
 	} data_t;
 
-	// Address & Data Captures	
+	// Address & Data Captures
 	addr_t  RAddr = '{ vld: 0, val: 'x };
 	logic   RLock = 0;
 	addr_t  WAddr = '{ vld: 0, val: 'x };
