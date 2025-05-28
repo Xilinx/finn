@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -45,6 +46,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
 
 from . import templates
@@ -62,8 +64,8 @@ def collect_ip_dirs(model, ipstitch_path):
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
-        if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
-            if node_inst.get_nodeattr("mem_mode") == "decoupled":
+        if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
+            if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
@@ -86,9 +88,10 @@ class MakeZYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform, enable_debug=False):
+    def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
         self.platform = platform
+        self.period_ns = period_ns
         self.enable_debug = 1 if enable_debug else 0
 
     def apply(self, model):
@@ -98,7 +101,6 @@ class MakeZYNQProject(Transformation):
         odma_idx = 0
         aximm_idx = 0
         axilite_idx = 0
-        global_clk_ns = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -125,11 +127,6 @@ class MakeZYNQProject(Transformation):
                 "[current_project]" % ip_dirs_str
             )
             config.append("update_ip_catalog -rebuild -scan_changes")
-
-            # get metadata property clk_ns to calculate clock frequency
-            clk_ns = float(kernel_model.get_metadata_prop("clk_ns"))
-            if clk_ns > global_clk_ns:
-                global_clk_ns = clk_ns
 
             ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
 
@@ -230,7 +227,7 @@ class MakeZYNQProject(Transformation):
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_zynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
 
-        fclk_mhz = int(1 / (global_clk_ns * 0.001))
+        fclk_mhz = int(1 / (self.period_ns * 0.001))
 
         # create a TCL recipe for the project
         ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
@@ -320,6 +317,7 @@ class ZynqBuild(Transformation):
         prep_transforms = [
             InsertIODMA(self.axi_port_width),
             InsertDWC(),
+            SpecializeLayers(self.fpga_part),
             Floorplan(),
             CreateDataflowPartition(partition_model_dir=self.partition_model_dir),
         ]
@@ -335,6 +333,7 @@ class ZynqBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
+            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
             kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
@@ -345,7 +344,9 @@ class ZynqBuild(Transformation):
             kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
-        model = model.transform(MakeZYNQProject(self.platform, enable_debug=self.enable_debug))
+        model = model.transform(
+            MakeZYNQProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
+        )
 
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "zynq-iodma")

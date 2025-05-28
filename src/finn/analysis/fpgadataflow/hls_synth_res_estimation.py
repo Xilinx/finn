@@ -30,11 +30,12 @@ import qonnx.custom_op.registry as registry
 import warnings
 import xml.etree.ElementTree as ET
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.fpgadataflow import is_hls_node
 
 
 def hls_synth_res_estimation(model):
-    """Extracts the FPGA resource results from the Vivado HLS synthesis estimates.
+    """Extracts the FPGA resource results from the Vitis HLS synthesis estimates.
+    Note that this analysis pass only works on nodes that have an HLS backend.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
     visible in the results.
@@ -43,7 +44,7 @@ def hls_synth_res_estimation(model):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node):
             # init values to zero
             res_dict[node.name] = dict()
             res_dict[node.name]["BRAM_18K"] = 0

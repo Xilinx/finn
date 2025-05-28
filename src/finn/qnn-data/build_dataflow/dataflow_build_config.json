@@ -4,14 +4,16 @@
   "mvau_wwidth_max": 10000,
   "synth_clk_period_ns": 10.0,
   "board": "Pynq-Z1",
-  "standalone_thresholds": true,
+  "standalone_thresholds": false,
+  "folding_config_file": "folding_config.json",
   "shell_flow_type": "vivado_zynq",
   "verify_save_rtlsim_waveforms": true,
-  "force_python_rtlsim": true,
+  "fifosim_save_waveform": true,
   "verify_steps": [
     "initial_python",
     "streamlined_python",
     "folded_hls_cppsim",
+    "node_by_node_rtlsim",
     "stitched_ip_rtlsim"
   ],
   "generate_outputs": [

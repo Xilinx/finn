@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Advanced Micro Devices, Inc.
+# Copyright (c) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,8 +32,8 @@ import copy
 import numpy as np
 import onnx.parser as oprs
 import os
+from bitstring import BitArray
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -41,14 +41,16 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import (
-    LowerConvsToMatMul,
-    _auto_pad_to_explicit_padding,
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import (
+    auto_pad_to_explicit_padding,
+    gen_finn_dt_tensor,
+    get_by_name,
+    qonnx_make_model,
 )
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -60,7 +62,13 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import pyverilate_get_liveness_threshold_cycles
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import get_liveness_threshold_cycles
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
@@ -68,11 +76,11 @@ def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, d
     group = ifm if depthwise else 1
     group_str = str(group)
     ishp = (1, ifm, idim_h, idim_w)
-    pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
+    pad_0 = auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
     int_dim_h = compute_conv_output_dim(idim_h, k, stride, total_pad=pad_0[0] + pad_0[2])
     int_dim_w = compute_conv_output_dim(idim_w, k, stride, total_pad=pad_0[1] + pad_0[3])
 
-    pad_1 = _auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
+    pad_1 = auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
     odim_h = compute_conv_output_dim(int_dim_h, k, stride, total_pad=pad_1[0] + pad_1[2])
     odim_w = compute_conv_output_dim(int_dim_w, k, stride, total_pad=pad_1[1] + pad_1[3])
     oshp = (1, ifm, odim_h, odim_w) if depthwise else (1, ofm, odim_h, odim_w)
@@ -156,13 +164,18 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        reset_rtlsim(sim)
+        pyxsi_utils.reset_rtlsim(sim)
         for axi_name, config in configs:
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
-                axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-        reset_rtlsim(sim)
+                addr, val = config_entry
+                if val < 0:
+                    # ensure any negative vals are expressed as two's complement,
+                    # SWG control regs are currently always 32 bits
+                    val = BitArray(int=val, length=32).uint
+                pyxsi_utils.axilite_write(sim, addr, val, basename=axi_name)
+        pyxsi_utils.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -248,10 +261,11 @@ def test_fpgadataflow_conv_dynamic(cfg):
 
     # convert to hardware and prepare simulation
     model = largest_model.transform(LowerConvsToMatMul())
-    model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
-    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
-    model = model.transform(to_hls.InferVectorVectorActivation())
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
@@ -267,8 +281,10 @@ def test_fpgadataflow_conv_dynamic(cfg):
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
-    comp_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
-    comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation")
+    comp_nodes = model.get_nodes_by_op_type("MVAU_hls")
+    comp_nodes += model.get_nodes_by_op_type("MVAU_rtl")
+    comp_nodes += model.get_nodes_by_op_type("VVAU_hls")
+    comp_nodes += model.get_nodes_by_op_type("VVAU_rtl")
     for comp_node in comp_nodes:
         if depthwise:
             getCustomOp(comp_node).set_nodeattr("PE", 4)
@@ -277,6 +293,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -342,7 +359,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim_h, odim_w))
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
-        liveness_prev = pyverilate_get_liveness_threshold_cycles()
+        liveness_prev = get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = "100000"
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
         os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
@@ -404,7 +421,7 @@ def make_single_slidingwindow_modelwrapper(
     )
 
     SlidingWindow_node = helper.make_node(
-        "ConvolutionInputGenerator_rtl",
+        "ConvolutionInputGenerator",
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -518,9 +535,11 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
         dw=dw,
     )
 
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     # Simulate using stitched-ip-rtlsim so we can use existing infrastructure
     # that supports hook functions to re-program configuration before rtlsim
     model = model.transform(InsertFIFO(True))  # required for proper simulation
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
@@ -547,7 +566,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             configs = [("s_axilite_0_", config)]
 
             # Also update FIFO nodes and corresponding tensors
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[0]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ifm_dim_h
@@ -555,7 +574,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
             fifo_inst.set_nodeattr("folded_shape", shape)
             update_tensor_dim(model, fifo_node.input[0], ifm_dim)
 
-            fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[1]
+            fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[1]
             fifo_inst = getCustomOp(fifo_node)
             shape = fifo_inst.get_nodeattr("folded_shape")
             shape[1] = ofm_dim_h

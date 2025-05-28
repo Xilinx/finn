@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -32,17 +33,12 @@ from qonnx.transformation.base import NodeLocalTransformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.fpgadataflow import is_fpgadataflow_node
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
 class PrepareRTLSim(NodeLocalTransformation):
-    """For a graph with generated RTL sources (after HLSSynthIP), create a
-    Verilator emulation library for each node to prepare for rtlsim
+    """For a graph with generated RTL sources (after HLSSynthIP), create an
+    emulation library for each node to prepare for rtlsim
     execution and set the rtlsim_so property to the path to the generated
     emulation library.
 
@@ -63,7 +59,7 @@ class PrepareRTLSim(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        if is_hls_node(node) or is_rtl_node(node):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)

@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -53,7 +54,7 @@ class CleanUp(Transformation):
         model.set_metadata_prop("vivado_stitch_proj", "")
         for node in model.graph.node:
             op_type = node.op_type
-            if is_fpgadataflow_node(node) is True:
+            if is_fpgadataflow_node(node):
                 try:
                     # lookup op_type in registry of CustomOps
                     inst = registry.getCustomOp(node)

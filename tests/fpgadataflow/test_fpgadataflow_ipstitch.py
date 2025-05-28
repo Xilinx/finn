@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -52,16 +53,15 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
-from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
-def create_one_fc_model(mem_mode="const"):
+def create_one_fc_model(mem_mode="internal_embedded"):
     # create a model with a MatrixVectorActivation instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType["INT2"]
@@ -78,10 +78,10 @@ def create_one_fc_model(mem_mode="const"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU_hls",
         ["inp", "w0"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -113,7 +113,7 @@ def create_one_fc_model(mem_mode="const"):
     return model
 
 
-def create_two_fc_model(mem_mode="decoupled"):
+def create_two_fc_model(mem_mode="internal_decoupled"):
     # create a model with two MatrixVectorActivation instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
@@ -130,10 +130,10 @@ def create_two_fc_model(mem_mode="decoupled"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU_hls",
         ["inp", "w0"],
         ["mid"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -149,10 +149,10 @@ def create_two_fc_model(mem_mode="decoupled"):
     )
 
     fc1 = helper.make_node(
-        "MatrixVectorActivation",
+        "MVAU_hls",
         ["mid", "w1"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.hls",
         backend="fpgadataflow",
         MW=m,
         MH=m,
@@ -194,7 +194,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     return model
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
@@ -208,12 +208,12 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    assert model.graph.node[0].op_type == "MatrixVectorActivation"
-    assert model.graph.node[-1].op_type == "TLastMarker"
+    assert model.graph.node[0].op_type == "MVAU_hls"
+    assert model.graph.node[-1].op_type == "TLastMarker_hls"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
@@ -231,45 +231,14 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode)
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode
     )
-    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
-    sim = pyverilate_stitched_ip(model)
-    exp_io = [
-        "ap_clk",
-        "ap_rst_n",
-        "s_axis_0_tdata",
-        "s_axis_0_tready",
-        "s_axis_0_tvalid",
-        "m_axis_0_tdata",
-        "m_axis_0_tkeep",
-        "m_axis_0_tlast",
-        "m_axis_0_tready",
-        "m_axis_0_tvalid",
-        "s_axi_control_0_araddr",
-        "s_axi_control_0_arready",
-        "s_axi_control_0_arvalid",
-        "s_axi_control_0_awaddr",
-        "s_axi_control_0_awready",
-        "s_axi_control_0_awvalid",
-        "s_axi_control_0_bready",
-        "s_axi_control_0_bresp",
-        "s_axi_control_0_bvalid",
-        "s_axi_control_0_rdata",
-        "s_axi_control_0_rready",
-        "s_axi_control_0_rresp",
-        "s_axi_control_0_rvalid",
-        "s_axi_control_0_wdata",
-        "s_axi_control_0_wready",
-        "s_axi_control_0_wstrb",
-        "s_axi_control_0_wvalid",
-    ]
-    assert sorted(dir(sim.io)) == sorted(exp_io)
+    model.set_metadata_prop("rtlsim_trace", "whole_trace.wdb")
     model.set_metadata_prop("exec_mode", "rtlsim")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
@@ -280,7 +249,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     assert (rtlsim_res == x).all()
 
 
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -335,7 +304,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
         pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
     fpga_part = alveo_part_map[board]
-    model = create_two_fc_model("external" if extw else "decoupled")
+    model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"

@@ -30,8 +30,10 @@
 # template for single node execution
 docompute_template = """
 #define AP_INT_MAX_W $AP_INT_MAX_W$
+#define HLS_NO_XIL_FPO_LIB
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
+#include "npy2vectorstream.hpp"
 #include <vector>
 #include "bnn-library.h"
 
@@ -49,6 +51,51 @@ $STREAMDECLARATIONS$
 $READNPYDATA$
 
 $DOCOMPUTE$
+
+$DATAOUTSTREAM$
+
+$SAVEASCNPY$
+
+}
+
+"""
+
+# template for single node execution with timeout (for single clock hls operations)
+docompute_template_timeout = """
+#define AP_INT_MAX_W $AP_INT_MAX_W$
+#include "cnpy.h"
+#include "npy2apintstream.hpp"
+#include "npy2vectorstream.hpp"
+#include <vector>
+#include "bnn-library.h"
+
+// includes for network parameters
+$GLOBALS$
+
+// defines for network parameters
+$DEFINES$
+
+int main(){
+$PRAGMAS$
+
+$STREAMDECLARATIONS$
+
+$READNPYDATA$
+
+unsigned timeout = 0;
+while(timeout < $TIMEOUT_VALUE$){
+
+$DOCOMPUTE$
+
+if($TIMEOUT_CONDITION$){
+timeout++;
+}
+
+else{
+$TIMEOUT_READ_STREAM$
+timeout = 0;
+}
+}
 
 $DATAOUTSTREAM$
 
@@ -211,50 +258,4 @@ ipx::create_xgui_files [ipx::current_core]
 ipx::update_checksums [ipx::current_core]
 ipx::save_core [ipx::current_core]
 ipx::archive_core $Top.zip [ipx::current_core]
-"""
-
-strm_fifo_wrapper = """
-module $TOPNAME$(
-ap_clk,
-ap_rst_n,
-count,
-maxcount,
-in0_$HLS_SNAME$_TDATA,
-in0_$HLS_SNAME$_TVALID,
-in0_$HLS_SNAME$_TREADY,
-out_$HLS_SNAME$_TDATA,
-out_$HLS_SNAME$_TVALID,
-out_$HLS_SNAME$_TREADY
-);
-
-input   ap_clk;
-input   ap_rst_n;
-output $COUNT_RANGE$ count;
-output $COUNT_RANGE$ maxcount;
-input  $IN_RANGE$ in0_$HLS_SNAME$_TDATA;
-input   in0_$HLS_SNAME$_TVALID;
-output   in0_$HLS_SNAME$_TREADY;
-output  $OUT_RANGE$ out_$HLS_SNAME$_TDATA;
-output   out_$HLS_SNAME$_TVALID;
-input   out_$HLS_SNAME$_TREADY;
-
-Q_srl #(
-.depth($DEPTH$),
-.width($WIDTH$)
-)
-$LAYER_NAME$
-(
- .clock(ap_clk),
- .reset(!ap_rst_n),
- .count(count),
- .maxcount(maxcount),
- .i_d(in0_$HLS_SNAME$_TDATA),
- .i_v(in0_$HLS_SNAME$_TVALID),
- .i_r(in0_$HLS_SNAME$_TREADY),
- .o_d(out_$HLS_SNAME$_TDATA),
- .o_v(out_$HLS_SNAME$_TVALID),
- .o_r(out_$HLS_SNAME$_TREADY)
-);
-
-endmodule
 """

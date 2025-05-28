@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import json
@@ -47,10 +45,10 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
+from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_kind = "zynq"
+build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
@@ -81,9 +79,10 @@ class CybSecMLPForExport(nn.Module):
         return out_final
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
-    assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
+    assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
     # load up trained net in Brevitas
     input_size = 593
     hidden1 = 64
@@ -107,7 +106,9 @@ def test_end2end_cybsec_mlp_export():
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth", weights_only=False)[
+        "models_state_dict"
+    ][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
@@ -145,20 +146,20 @@ def test_end2end_cybsec_mlp_export():
     assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_build():
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
-    build_env = get_build_env(build_kind, target_clk_ns)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
-        board=build_env["board"],
+        board=build_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
@@ -171,6 +172,7 @@ def test_end2end_cybsec_mlp_build():
     # check the generated files
     assert os.path.isfile(output_dir + "/time_per_step.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
+    assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
     assert os.path.isfile(output_dir + "/driver/driver.py")
     est_cycles_report = output_dir + "/report/estimate_layer_cycles.json"
     assert os.path.isfile(est_cycles_report)
@@ -184,11 +186,11 @@ def test_end2end_cybsec_mlp_build():
     # examine the report contents
     with open(est_cycles_report, "r") as f:
         est_cycles_dict = json.load(f)
-        assert est_cycles_dict["MatrixVectorActivation_0"] == 80
-        assert est_cycles_dict["MatrixVectorActivation_1"] == 64
+        assert est_cycles_dict["MVAU_hls_0"] == 80
+        assert est_cycles_dict["MVAU_hls_1"] == 64
     with open(est_res_report, "r") as f:
         est_res_dict = json.load(f)
-        assert est_res_dict["total"]["LUT"] == 7904.0
+        assert est_res_dict["total"]["LUT"] == 7899.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
     shutil.rmtree(get_checkpoint_name("build"))

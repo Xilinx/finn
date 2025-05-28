@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,7 +31,6 @@ import pytest
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -41,7 +41,14 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.create import hls_random_mlp_maker
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
+
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -68,9 +75,10 @@ def test_runtime_weights_single_layer():
     }
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
-    fcl = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    fcl = model.get_nodes_by_op_type("MVAU_hls")[0]
     op_inst = getCustomOp(fcl)
-    op_inst.set_nodeattr("mem_mode", "decoupled")
+    op_inst.set_nodeattr("mem_mode", "internal_decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)
     old_weights = model.get_initializer(fcl.input[1])
     op_inst.make_weight_file(old_weights, "decoupled_runtime", "old_weights.dat")
@@ -80,6 +88,7 @@ def test_runtime_weights_single_layer():
     old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
     old_weight_stream = list(old_weight_stream)
     model = model.transform(InsertFIFO(True))
+    model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -96,7 +105,9 @@ def test_runtime_weights_single_layer():
     def read_weights(sim):
         addr = 0
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            extracted_weight_stream.append(
+                pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_")
+            )
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
@@ -117,7 +128,7 @@ def test_runtime_weights_single_layer():
     def write_weights(sim):
         addr = 0
         for nw in new_weight_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            pyxsi_utils.axilite_write(sim, addr, nw, basename="s_axilite_0_")
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)

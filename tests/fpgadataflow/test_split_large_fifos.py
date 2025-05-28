@@ -1,4 +1,4 @@
-# Copyright (C) 2022, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -54,8 +54,8 @@ def fetch_test_model(topology, wbits=2, abits=2):
 def get_folding_cfg(depth=65536):
     cfg = dict()
     cfg["Defaults"] = dict()
-    for i in range(3):
-        key = "StreamingFIFO_" + str(i)
+    for i in range(4):
+        key = "StreamingFIFO_rtl_" + str(i)
         cfg[key] = {"depth": depth, "ram_style": "auto", "impl_style": "vivado"}
     return cfg
 
@@ -63,9 +63,8 @@ def get_folding_cfg(depth=65536):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize("depth", [16384, 65536, 45000])
-@pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
-def test_split_large_fifos(depth, force_python_rtlsim):
+@pytest.mark.parametrize("depth", [16384, 65536, 45000, 1537])
+def test_split_large_fifos(depth):
     tmp_output_dir = fetch_test_model("tfc")
     folding_cfg = get_folding_cfg(depth)
     with open(tmp_output_dir + "/folding_config.json", "w") as f:
@@ -76,7 +75,6 @@ def test_split_large_fifos(depth, force_python_rtlsim):
         split_large_fifos=True,
         folding_config_file=tmp_output_dir + "/folding_config.json",
         target_fps=10000,
-        force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         rtlsim_batch_size=100,
@@ -86,7 +84,6 @@ def test_split_large_fifos(depth, force_python_rtlsim):
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
-        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
     with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:
@@ -98,19 +95,20 @@ def test_split_large_fifos(depth, force_python_rtlsim):
     )
     model = ModelWrapper(tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx")
     # exclude final FIFO node (output FIFO, not part of test)
-    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")[:-1]
+    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")[:-1]
     golden_cfg = get_fifo_split_configs(depth, 256, 32768)
     for i, fifo_node in enumerate(fifo_nodes):
         inst = getCustomOp(fifo_node)
         fifo_depth = inst.get_nodeattr("depth")
         assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
+        assert fifo_depth > 1
 
     shutil.rmtree(tmp_output_dir)
 
 
 def test_split_large_fifo_configs():
     ret0 = get_fifo_split_configs(513, 256, 32768)
-    assert ret0 == [(512, "vivado"), (1, "rtl")]
+    assert ret0 == [(512, "vivado"), (2, "rtl")]
     ret1 = get_fifo_split_configs(1200, 256, 32768)
     assert ret1 == [(1024, "vivado"), (176, "rtl")]
     ret2 = get_fifo_split_configs(45000, 256, 32768)

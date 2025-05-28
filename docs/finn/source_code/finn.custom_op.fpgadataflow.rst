@@ -2,37 +2,55 @@
 Custom Op - fpgadataflow
 ************************
 
-HLS Custom Op Nodes
+Submodules
+==========
+
+.. toctree::
+   :maxdepth: 2
+
+   finn.custom_op.fpgadataflow.hls
+   finn.custom_op.fpgadataflow.rtl
+
+
+HW Custom Op Nodes
 ===================
 
-Base Class
-----------
+Base Class - HWCustomOp
+------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.hlscustomop
+.. automodule:: finn.custom_op.fpgadataflow.hwcustomop
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.addstreams\_batch
------------------------------------------------
+HLSBackend
+-----------
 
-.. automodule:: finn.custom_op.fpgadataflow.addstreams_batch
+.. automodule:: finn.custom_op.fpgadataflow.hlsbackend
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.channelwise\_op\_batch
------------------------------------------------------
+RTLBackend
+-----------
 
-.. automodule:: finn.custom_op.fpgadataflow.channelwise_op_batch
+.. automodule:: finn.custom_op.fpgadataflow.rtlbackend
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.checksum
---------------------------------------
+finn.custom\_op.fpgadataflow.addstreams
+----------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.checksum
+.. automodule:: finn.custom_op.fpgadataflow.addstreams
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.channelwise\_op
+---------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.channelwise_op
    :members:
    :undoc-members:
    :show-inheritance:
@@ -45,28 +63,10 @@ finn.custom\_op.fpgadataflow.concat
    :undoc-members:
    :show-inheritance:
 
-
 finn.custom\_op.fpgadataflow.convolutioninputgenerator
 --------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.convolutioninputgenerator1d
--------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator1d
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
-finn.custom\_op.fpgadataflow.convolutioninputgenerator\_rtl
-------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl
    :members:
    :undoc-members:
    :show-inheritance:
@@ -79,52 +79,42 @@ finn.custom\_op.fpgadataflow.downsampler
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.duplicatestreams\_batch
--------------------------------------------------------
+finn.custom\_op.fpgadataflow.duplicatestreams
+----------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.duplicatestreams_batch
+.. automodule:: finn.custom_op.fpgadataflow.duplicatestreams
    :members:
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.fmpadding
+---------------------------------------
 
-finn.custom\_op.fpgadataflow.eltwise
--------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.eltwise
+.. automodule:: finn.custom_op.fpgadataflow.fmpadding
    :members:
    :undoc-members:
    :show-inheritance:
 
-
-finn.custom\_op.fpgadataflow.fmpadding\_batch
+finn.custom\_op.fpgadataflow.fmpadding\_pixel
 -----------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.fmpadding_batch
+.. automodule:: finn.custom_op.fpgadataflow.fmpadding_pixel
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.globalaccpool\_batch
----------------------------------------------------
+finn.custom\_op.fpgadataflow.globalaccpool
+-------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.globalaccpool_batch
+.. automodule:: finn.custom_op.fpgadataflow.globalaccpool
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.iodma
-------------------------------------
+finn.custom\_op.fpgadataflow.labelselect
+-----------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.iodma
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.labelselect\_batch
------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.labelselect_batch
+.. automodule:: finn.custom_op.fpgadataflow.labelselect
    :members:
    :undoc-members:
    :show-inheritance:
@@ -138,7 +128,7 @@ finn.custom\_op.fpgadataflow.lookup
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.matrixvectoractivation
------------------------------------------------------------
+-----------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.matrixvectoractivation
    :members:
@@ -146,10 +136,10 @@ finn.custom\_op.fpgadataflow.matrixvectoractivation
    :show-inheritance:
 
 
-finn.custom\_op.fpgadataflow.pool\_batch
------------------------------------------------
+finn.custom\_op.fpgadataflow.pool
+----------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.pool_batch
+.. automodule:: finn.custom_op.fpgadataflow.pool
    :members:
    :undoc-members:
    :show-inheritance:
@@ -163,51 +153,50 @@ finn.custom\_op.fpgadataflow.streamingdataflowpartition
    :show-inheritance:
 
 
-finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_batch
-----------------------------------------------------------------------
+finn.custom\_op.fpgadataflow.streamingdatawidthconverter
+---------------------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch
+.. automodule:: finn.custom_op.fpgadataflow.streamingdatawidthconverter
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.streamingeltwise
+----------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.streamingeltwise
    :members:
    :undoc-members:
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.streamingfifo
--------------------------------------------------
+-------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.streamingfifo
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingmaxpool\_batch
------------------------------------------------------------
+finn.custom\_op.fpgadataflow.streamingmaxpool
+----------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.streamingmaxpool_batch
+.. automodule:: finn.custom_op.fpgadataflow.streamingmaxpool
    :members:
    :undoc-members:
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.templates
----------------------------------------------
+----------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.templates
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.thresholding\_batch
--------------------------------------------------------
+finn.custom\_op.fpgadataflow.thresholding
+------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.thresholding_batch
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
-finn.custom\_op.fpgadataflow.tlastmarker
------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.tlastmarker
+.. automodule:: finn.custom_op.fpgadataflow.thresholding
    :members:
    :undoc-members:
    :show-inheritance:

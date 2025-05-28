@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020, Xilinx, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -49,6 +50,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
 
 from . import templates
@@ -187,6 +189,7 @@ class VitisLink(Transformation):
         object_files = []
         idma_idx = 0
         odma_idx = 0
+        mem_idx = 0
         instance_names = {}
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", "Invalid link graph"
@@ -227,18 +230,20 @@ class VitisLink(Transformation):
             if node_slr != -1:
                 config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
             # assign memory banks
-            if producer is None or consumer is None:
+            if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if "u50" in self.platform or "u280" in self.platform:
+                    if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
-                        mem_idx = 0
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        # mem_idx += 1
                     elif "u200" in self.platform:
                         # Use DDR controller in static region of U200
                         mem_type = "DDR"
                         mem_idx = 1
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     elif "u250" in self.platform:
                         # Use DDR controller on the node's SLR if set, otherwise 0
                         mem_type = "DDR"
@@ -246,10 +251,11 @@ class VitisLink(Transformation):
                             mem_idx = 0
                         else:
                             mem_idx = node_slr
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                     else:
                         mem_type = "DDR"
                         mem_idx = 1
-                    node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                        node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                 config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
@@ -381,7 +387,7 @@ class VitisBuild(Transformation):
     def apply(self, model):
         _check_vitis_envvars()
         # prepare at global level, then break up into kernels
-        prep_transforms = [InsertIODMA(512), InsertDWC()]
+        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
@@ -403,6 +409,7 @@ class VitisBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
+            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
             kernel_model = kernel_model.transform(RemoveUnusedTensors())
             kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)

@@ -56,13 +56,13 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-pip install --no-build-isolation --no-warn-script-location -e ${FINN_ROOT}/deps/qonnx
+mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
+pip install --user -e ${FINN_ROOT}/deps/qonnx
+mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
 # finn-experimental
 pip install --user -e ${FINN_ROOT}/deps/finn-experimental
 # brevitas
 pip install --user -e ${FINN_ROOT}/deps/brevitas
-# pyverilator
-pip install --user -e ${FINN_ROOT}/deps/pyverilator
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
@@ -84,7 +84,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     source $XILINX_XRT/setup.sh
     gecho "Found XRT at $XILINX_XRT"
   else
-    recho "XRT not found on $XILINX_XRT, did the installation fail?"
+    recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
     exit -1
   fi
 else
@@ -103,6 +103,21 @@ else
   fi
 fi
 
+if [ -z "${XILINX_VIVADO}" ]; then
+  yecho "pyxsi will be unavailable since Vivado was not found"
+else
+  if [ -f "${FINN_ROOT}/deps/pyxsi/pyxsi.so" ]; then
+    gecho "Found pyxsi at ${FINN_ROOT}/deps/pyxsi/pyxsi.so"
+  else
+    OLDPWD=$(pwd)
+    cd ${FINN_ROOT}/deps/pyxsi
+    make
+    cd $OLDPWD
+  fi
+  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/deps/pyxsi:${FINN_ROOT}/deps/pyxsi/py
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
+fi
+
 if [ -f "$HLS_PATH/settings64.sh" ];then
   # source Vitis HLS env.vars
   source $HLS_PATH/settings64.sh
@@ -110,8 +125,30 @@ if [ -f "$HLS_PATH/settings64.sh" ];then
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
   yecho "Functionality dependent on Vitis HLS will not be available."
-  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support. Our recommendation is to use version 2022.2"
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
+fi
+
+if [ -d "$FINN_ROOT/.Xilinx" ]; then
+  mkdir "$HOME/.Xilinx"
+  if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
+    cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
+    gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/HLS_init.tcl"
+  fi
+
+  if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
+    mkdir "$HOME/.Xilinx/Vivado/"
+    cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
+    gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
+  fi
+else
+  echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
+  echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
 export PATH=$PATH:$HOME/.local/bin
