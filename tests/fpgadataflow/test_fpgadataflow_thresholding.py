@@ -43,12 +43,15 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -133,10 +136,8 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize(
     "idt_tdt_cfg",
     [
-        (DataType["INT8"], DataType["INT8"]),
-        (DataType["INT8"], DataType["INT9"]),
-        (DataType["UINT5"], DataType["UINT5"]),
-        (DataType["UINT5"], DataType["UINT6"]),
+        (DataType["INT8"], DataType["INT25"]),
+        (DataType["UINT5"], DataType["UINT8"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -145,6 +146,7 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("impl_style", ["hls", "rtl"])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.parametrize("round_thresh", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -159,6 +161,7 @@ def test_fpgadataflow_thresholding(
     impl_style,
     exec_mode,
     mem_mode,
+    round_thresh,
 ):
     # the mem_mode parameter can only be used for the hls thresholding
     # so the test will only be executed once for impl_style=rtl and once skipped
@@ -234,6 +237,8 @@ def test_fpgadataflow_thresholding(
     node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
+    if round_thresh is True:
+        model = model.transform(RoundAndClipThresholds())
     model = model.transform(GiveUniqueNodeNames())
 
     if impl_style == "hls":
@@ -263,3 +268,95 @@ def test_fpgadataflow_thresholding(
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
+
+
+@pytest.mark.parametrize("num_input_channels", [6])
+@pytest.mark.parametrize(
+    "num_input_vecs",
+    [
+        [1, 2, 2],
+    ],
+)
+@pytest.mark.parametrize("activation", [DataType["INT4"]])
+@pytest.mark.parametrize(
+    "idt_tdt_cfg",
+    [
+        (DataType["INT8"], DataType["INT25"]),
+    ],
+)
+@pytest.mark.parametrize("fold", [-1, 1, 2])
+@pytest.mark.parametrize("ram_style", ["distributed", "block"])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_thresholding_stitched_ip(
+    num_input_channels, num_input_vecs, activation, idt_tdt_cfg, fold, ram_style, part
+):
+    input_data_type, threshold_data_type = idt_tdt_cfg
+    num_steps = activation.get_num_possible_values() - 1
+
+    if fold == -1:
+        fold = num_input_channels
+    pe = num_input_channels // fold
+
+    output_data_type = activation
+    activation_bias = activation.min()
+
+    # Generate random thresholds and sort in ascending order
+    thresholds = generate_random_threshold_values(
+        threshold_data_type, num_input_channels, num_steps, False, False
+    )
+
+    # provide non-decreasing/ascending thresholds
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    # Make a Multithreshold graph and convert to thresholding binary search node
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    # calculate reference output
+    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+
+    input_dict = {model.graph.input[0].name: x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Transform to the specified implementation style, either the
+    # RTL or HLS according to test parameters
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(InferShapes())
+    assert model.graph.node[0].op_type == "Thresholding_hls"
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", "internal_decoupled")
+    inst.set_nodeattr("ram_style", ram_style)
+
+    model = model.transform(GiveUniqueNodeNames())
+    # Run stitched-ip RTLsim to have memstream in the test loop
+    model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
+    model = model.transform(PrepareIP(part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
+    exec_ctx_dict = {"global_in": x}
+
+    y_produced = oxe.execute_onnx(model, exec_ctx_dict)["global_out"]
+
+    assert (
+        y_expected == y_produced
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
