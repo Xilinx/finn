@@ -11,7 +11,7 @@ onnxruntime==1.18.1
 pre-commit==3.3.2
 protobuf==3.20.3
 psutil==5.9.4
-pyscaffold==4.4
+pyscaffold==4.6
 pytest-forked==1.6.0
 scipy==1.10.1
 setupext-janitor>=1.1.2
