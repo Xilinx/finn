@@ -471,7 +471,6 @@ class MVAU(HWCustomOp):
 
         idt = self.get_input_datatype(0)
 
-        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
         # if runtime-writeable weights or mem_mode=external, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
         if (
@@ -485,6 +484,8 @@ class MVAU(HWCustomOp):
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(lower_range), max(upper_range))
+        else:
+            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
 
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
