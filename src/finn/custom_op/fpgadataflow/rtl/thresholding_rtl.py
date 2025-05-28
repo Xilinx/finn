@@ -240,7 +240,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Identify the module variables
         i_bitwidth = DataType[input_data_type].bitwidth()
 
-        code_gen_dict["$N$"] = [str(2**o_bitwidth-1)]  # number of needed thresholds
+        code_gen_dict["$N$"] = [str(2**o_bitwidth - 1)]  # number of needed thresholds
         code_gen_dict["$WT$"] = [
             str(wdt.bitwidth())
         ]  # threshold precision - convert bitwidth to string
