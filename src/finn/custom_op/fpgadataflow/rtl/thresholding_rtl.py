@@ -285,7 +285,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             rtllib_dir = ""
 
         verilog_files = [
-            rtllib_dir + "axilite_if.v",
+            rtllib_dir + "../../axi/hdl/axilite.sv",
             rtllib_dir + "thresholding.sv",
             rtllib_dir + "thresholding_axi.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
@@ -318,7 +318,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        sv_files = ["axilite_if.v", "thresholding.sv", "thresholding_axi.sv"]
+        sv_files = ["../../axi/hdl/axilite.sv", "thresholding.sv", "thresholding_axi.sv"]
         for sv_file in sv_files:
             shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
 
