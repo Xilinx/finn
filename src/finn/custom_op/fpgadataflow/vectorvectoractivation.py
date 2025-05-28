@@ -412,9 +412,12 @@ class VVAU(HWCustomOp):
         idt = self.get_input_datatype(0)
 
         (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
-        # if runtime-writeable weights, then the values of the weights can
+        # if runtime-writeable weights or mem_mode=external, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
-        if self.get_nodeattr("runtime_writeable_weights"):
+        if (
+            self.get_nodeattr("runtime_writeable_weights")
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
             wdt = self.get_input_datatype(1)
             lower_worst = wdt.min() * np.ones_like(weights)
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
@@ -479,7 +482,10 @@ class VVAU(HWCustomOp):
 
     def minimize_weight_bit_width(self, model):
         """Minimize the bit width based on the values of the weights"""
-        if not self.get_nodeattr("runtime_writeable_weights"):
+        if not (
+            self.get_nodeattr("runtime_writeable_weights")
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
             weights = model.get_initializer(self.onnx_node.input[1])
             w_min = weights.min()
             w_max = weights.max()
