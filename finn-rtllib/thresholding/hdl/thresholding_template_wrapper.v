@@ -33,9 +33,9 @@
  */
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter  N = $N$,		// output precision
 	parameter  WI = $WI$,	// input precision
 	parameter  WT = $WT$,	// threshold precision
+	parameter  N = $N$,		// number of thresholds
 	parameter  C = $C$,	// Channels
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
@@ -64,7 +64,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Writing
 	input   s_axilite_AWVALID,
 	output  s_axilite_AWREADY,
-	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
+	input [$clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
 
 	input         s_axilite_WVALID,
 	output        s_axilite_WREADY,
@@ -78,7 +78,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Reading
 	input   s_axilite_ARVALID,
 	output  s_axilite_ARREADY,
-	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_ARADDR,
+	input [$clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
 
 	output         s_axilite_RVALID,
 	input          s_axilite_RREADY,
