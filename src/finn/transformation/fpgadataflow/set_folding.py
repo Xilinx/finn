@@ -142,7 +142,7 @@ class SetFolding(Transformation):
                         # finish if target met
                         break
                     if (
-                        node_inst.get_weight_datatype().bitwidth() * node_inst.get_nodeattr("SIMD")
+                        node_inst.get_input_datatype(1).bitwidth() * node_inst.get_nodeattr("SIMD")
                         > self.mvau_wwidth_max
                     ):
                         # revert if we've gone above width threshold

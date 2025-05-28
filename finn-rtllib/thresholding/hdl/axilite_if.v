@@ -29,7 +29,7 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-module axi4lite_if
+module axilite_if
 #(
     parameter ADDR_WIDTH = 32,
     parameter DATA_WIDTH = 32,//AXI4 spec requires this to be strictly 32 or 64

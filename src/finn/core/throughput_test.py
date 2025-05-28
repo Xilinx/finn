@@ -33,7 +33,7 @@ from qonnx.util.basic import gen_finn_dt_tensor
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def throughput_test_rtlsim(model, batchsize=100):
+def throughput_test_rtlsim(model, clk_ns, batchsize=100):
     """Runs a throughput test for the given IP-stitched model. When combined
     with tracing, useful to determine bottlenecks and required FIFO sizes."""
 
@@ -71,7 +71,6 @@ def throughput_test_rtlsim(model, batchsize=100):
     rtlsim_exec(model, ctx)
     # extract metrics
     cycles = int(model.get_metadata_prop("cycles_rtlsim"))
-    clk_ns = float(model.get_metadata_prop("clk_ns"))
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10**-9)
     res = dict()

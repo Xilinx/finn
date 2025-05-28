@@ -115,15 +115,6 @@ module thresholding #(
 		CFG = 2'b1x  // Config op (pointer-preserving)
 	} op_e;
 
-	// Pipeline Link Type
-	typedef logic [$clog2(CF)+$clog2(N)-1:0]  ptr_t;
-	typedef logic [K                   -1:0]  val_t;
-	typedef struct packed {
-		op_e   op;
-		ptr_t  ptr;	// WR/RB: address;         TH: result
-		val_t  val;	// WR/RB: threshold value; TH: input value
-	} pipe_t;
-
 	//-----------------------------------------------------------------------
 	// Pipeline Feed
 	//	- M := $clog2(N+1) pipeline stages
@@ -132,6 +123,16 @@ module thresholding #(
 	//	  across pipeline and output FIFO: pipe:M + A:1 + B:1 + 1
 	localparam int unsigned  M = $clog2(N+1);
 	localparam int unsigned  MAX_PENDING = (DEEP_PIPELINE+1)*M + 3;
+
+	// Pipeline Link Type
+	typedef logic [$clog2(CF)+M-1:0]  ptr_t;
+	typedef logic [K           -1:0]  val_t;
+	typedef struct packed {
+		op_e   op;
+		ptr_t  ptr;	// WR/RB: address;         TH: result
+		val_t  val;	// WR/RB: threshold value; TH: input value
+	} pipe_t;
+
 	pipe_t  pipe[PE][M+1];
 	if(1) begin : blkFeed
 
@@ -150,20 +151,20 @@ module thresholding #(
 		// PE Configuration Address Decoding
 		logic  cfg_sel[PE];
 		logic  cfg_oob;
-		logic [M-1:0]  cfg_ofs;
+		logic [$clog2(N)-1:0]  cfg_ofs;
 		if(PE == 1) begin
 			assign	cfg_sel[0] = 1;
 			assign	cfg_oob = 0;
-			assign	cfg_ofs = cfg_a[0+:M];
+			assign	cfg_ofs = cfg_a[0+:$clog2(N)];
 		end
 		else begin
-			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[M+:$clog2(PE)];
+			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[$clog2(N)+:$clog2(PE)];
 			always_comb begin
 				foreach(cfg_sel[pe]) begin
 					cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_pe == pe);
 				end
 				cfg_oob = (cfg_pe >= PE);
-				cfg_ofs = cfg_a[0+:M];
+				cfg_ofs = cfg_a[0+:$clog2(N)];
 				if(cfg_oob && !cfg_we) begin
 					// Map readbacks from padded rows (non-existent PEs) to padded highest threshold index of first PE
 					cfg_sel[0] = 1;
@@ -173,7 +174,7 @@ module thresholding #(
 		end
 
 		uwire ptr_t  iptr;
-		assign	iptr[0+:M] = cfg_ofs;
+		assign	iptr[0+:M] = cfg_ofs;	// Zero-extend Expand for N = 2^k
 		if(CF > 1) begin
 			// Channel Fold Rotation
 			logic [$clog2(CF)-1:0]  CnlCnt = 0;
@@ -189,7 +190,7 @@ module thresholding #(
 				end
 			end
 
-			assign  iptr[M+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[M+$clog2(PE)+:$clog2(CF)] : CnlCnt;
+			assign  iptr[M+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[$clog2(N)+$clog2(PE)+:$clog2(CF)] : CnlCnt;
 		end
 
 		for(genvar  pe = 0; pe < PE; pe++) begin
@@ -364,7 +365,6 @@ module thresholding #(
 			if(aload) begin
 				assert(APtr < $signed(A_DEPTH-1)) else begin
 					$error("Overrun after failing stream guard.");
-					$stop;
 				end
 				foreach(pipe[pe])  ADat[0][pe] <= pipe[pe][M].ptr;
 				for(int unsigned  i = 1; i < A_DEPTH; i++)  ADat[i] <= ADat[i-1];

@@ -29,7 +29,6 @@
 
 import numpy as np
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -81,15 +80,6 @@ class StreamingConcat(HWCustomOp):
     def get_folded_output_shape(self, ind=0):
         return self.get_normal_output_shape()
 
-    def make_shape_compatible_op(self, model):
-        # check all input shapes
-        for i, inp in enumerate(self.onnx_node.input):
-            exp_ishape = self.get_normal_input_shape(i)
-            ishape = tuple(model.get_tensor_shape(inp))
-            assert ishape == exp_ishape, "Unexpected shape for " + inp
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         # check all input datatypes
         for i, inp in enumerate(self.onnx_node.input):
@@ -97,9 +87,6 @@ class StreamingConcat(HWCustomOp):
             assert idt == self.get_input_datatype()
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         # input dt identical for all inputs
@@ -133,16 +120,3 @@ class StreamingConcat(HWCustomOp):
             inp_values.append(context[inp])
         result = np.concatenate(inp_values, axis=-1)
         context[node.output[0]] = result
-
-    def get_instream_width_padded(self, ind=0):
-        in_width = self.get_instream_width(ind)
-        return roundup_to_integer_multiple(in_width, 8)
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        n_inputs = self.get_n_inputs()
-        sname = self.hls_sname()
-        intf_names["s_axis"] = []
-        for i in range(n_inputs):
-            intf_names["s_axis"].append(("in%d_%s" % (i, sname), self.get_instream_width_padded(i)))
-        return intf_names

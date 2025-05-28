@@ -1,4 +1,5 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022 Xilinx, Inc.
+# Copyright (C) 2022-2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -55,7 +56,8 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.wdb")
+    assert os.path.isfile(output_dir + "/report/fifosim_trace.wdb")
     assert os.path.isfile(output_dir + "/report/estimate_layer_config_alternatives.json")
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
@@ -74,4 +76,4 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_node_by_node_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
-        assert os.path.isfile(output_dir + f"/report/verify_rtlsim_{i}.vcd")
+        assert os.path.isfile(verify_out_dir + f"/verify_rtlsim_{i}.wdb")

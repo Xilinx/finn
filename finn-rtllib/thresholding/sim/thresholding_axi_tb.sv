@@ -30,8 +30,8 @@
  *
  * @brief	Testbench for thresholding_axi.
  * @author	Monica Chiosa <monica.chiosa@amd.com>
- *
- */
+ * @author	Thomas B. Preußer <tpreusse@amd.com>
+ *****************************************************************************/
 
 module thresholding_axi_tb #(
 	int unsigned  N  = 14,	// number of thresholds
@@ -136,7 +136,7 @@ module thresholding_axi_tb #(
 	bit  done = 0;
 	initial begin
 		// Report testbench details
-		$display("Testbench - tresholding K=%0d -> N=%0d", K, N);
+		$display("Testbench - thresholding K=%0d -> N=%0d", K, N);
 		for(int unsigned  c = 0; c < C; c++) begin
 			$write("Channel #%0d: Thresholds = {", c);
 			for(int unsigned  i = 0; i < N; i++)  $write(" %0d", THRESHS[c][i]);

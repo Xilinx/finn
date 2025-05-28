@@ -29,17 +29,9 @@ import numpy as np
 import os
 import shutil
 import warnings
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
@@ -119,60 +111,6 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
-
-    def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        inp = context[node.input[0]]
-        exp_shape = self.get_normal_input_shape()
-
-        if mode == "cppsim":
-            output = inp
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
-            context[node.output[0]] = output
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            # create a npy file for the input of the node
-            assert (
-                str(inp.dtype) == "float32"
-            ), """Input datatype is
-                not float32 as expected."""
-            expected_inp_shape = self.get_folded_input_shape()
-            reshaped_input = inp.reshape(expected_inp_shape)
-            if DataType[self.get_nodeattr("dataType")] == DataType["BIPOLAR"]:
-                # store bipolar activations as binary
-                reshaped_input = (reshaped_input + 1) / 2
-                export_idt = DataType["BINARY"]
-            else:
-                export_idt = DataType[self.get_nodeattr("dataType")]
-            # make copy before saving the array
-            reshaped_input = reshaped_input.copy()
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            output = self.rtlsim(sim, inp)
-            odt = DataType[self.get_nodeattr("dataType")]
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-            # load and reshape output
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
 
     def code_generation_ipi(self):
         impl_style = self.get_nodeattr("impl_style")
@@ -254,30 +192,30 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
                 "FIFO implementation style %s not supported, please use rtl or vivado" % impl_style
             )
 
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+
+        verilog_files = [
+            rtllib_dir + "Q_srl.v",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
+        ]
+        return verilog_files
+
     def prepare_rtlsim(self):
         assert self.get_nodeattr("impl_style") != "vivado", (
             "StreamingFIFO impl_style "
             "cannot be vivado for rtlsim. Only impl_style=rtl supported."
         )
-        # Modified to use generated (System-)Verilog instead of HLS output products
+        return super().prepare_rtlsim()
 
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
-        verilog_files = [
-            "Q_srl.v",
-            self.get_nodeattr("gen_top_module") + ".v",
-        ]
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+    def execute_node(self, context, graph):
+        mode = self.get_nodeattr("exec_mode")
+        if mode == "cppsim":
+            StreamingFIFO.execute_node(self, context, graph)
+        elif mode == "rtlsim":
+            RTLBackend.execute_node(self, context, graph)

@@ -93,7 +93,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow")
+                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow -n ${env.NUM_PYTEST_WORKERS} --dist worksteal")
 
                 // Stash the test results file(s)
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
@@ -313,7 +313,7 @@ void createMultiMarkerScript(String markers, String testResultsFilename, String 
   // Passing multiple markers when running ./run-docker.sh does not work with bash.
   // Therefore, create a script to maintain the single quotes that surround the markers
   sh """echo "#!/bin/bash
-python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
+python -m pytest -m \'${markers}\' --forked --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
     """
 
   // Give permissions to script
@@ -321,24 +321,20 @@ python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=
 }
 
 void runDockerPytestWithMarker(String marker, String testResultsFilename, String additionalOptions) {
-  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
-}
-
-def findBoardBuildFiles(String searchDir, String dirToFind) {
-  def result = sh(script: "find $searchDir -type d -name \"$dirToFind*\"", returnStdout: true).trim()
-  if (result.empty) {
-      error "Directory containing '$dirToFind' not found."
-  }
-	return result
+  sh """./run-docker.sh python -m pytest -m ${marker} --forked --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
 }
 
 void findCopyZip(String board, String findDir, String copyDir) {
-  def buildDir = findBoardBuildFiles(findDir, "hw_deployment_${board}")
-  sh "cp -r ${buildDir}/${board} ${copyDir}/"
-  dir(copyDir) {
-    sh "zip -r ${board}.zip ${board}/"
-    sh "mkdir -p ${env.ARTIFACT_DIR}/${copyDir}/"
-    sh "cp ${board}.zip ${env.ARTIFACT_DIR}/${copyDir}/"
+  sh "mkdir -p ${copyDir}"
+  try {
+    sh "cp -r ${findDir}/hw_deployment_*/${board} ${copyDir}/"
+    dir(copyDir) {
+      sh "zip -r ${board}.zip ${board}/"
+      sh "mkdir -p ${env.ARTIFACT_DIR}/${copyDir}/"
+      sh "cp ${board}.zip ${env.ARTIFACT_DIR}/${copyDir}/"
+    }
+  } catch (err) {
+    error "No ${board} hw_deployment_* build artifacts found in ${findDir}"
   }
 }
 
