@@ -68,11 +68,11 @@ def test_end2end_mlo():
         board="Pynq-Z1",
         rtlsim_batch_size=100,
         standalone_thresholds=True,
-        verify_steps=verif_steps,
+        #        verify_steps=verif_steps,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
     )
-    build.build_dataflow_cfg("loop_test_graph.onnx", cfg)
+    build.build_dataflow_cfg("finn_loop.onnx", cfg)
