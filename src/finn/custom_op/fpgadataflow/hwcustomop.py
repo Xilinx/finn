@@ -95,6 +95,7 @@ class HWCustomOp(CustomOp):
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
+            "mlo": ("i", False, 0, {0, 1}),
         }
 
     def make_shape_compatible_op(self, model):

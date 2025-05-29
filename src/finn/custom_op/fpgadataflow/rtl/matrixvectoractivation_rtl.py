@@ -91,7 +91,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 nbits = self.get_instream_width(0)
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 super().reset_rtlsim(sim)
-                if mem_mode in ["external", "internal_decoupled"]:
+                if mem_mode in ["external", "internal_decoupled"] or self.get_nodeattr("mlo"):
                     wnbits = self.get_instream_width(1)
                     export_wdt = self.get_input_datatype(1)
                     wei = npy_to_rtlsim_input(
@@ -159,7 +159,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled":
+        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo"):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
@@ -259,7 +259,8 @@ class MVAU_rtl(MVAU, RTLBackend):
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        self.generate_params(model, code_gen_dir)
+        if not self.get_nodeattr("mlo"):
+            self.generate_params(model, code_gen_dir)
 
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # determine if weights are narrow range and add parameter to code gen dict

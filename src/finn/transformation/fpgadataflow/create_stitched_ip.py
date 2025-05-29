@@ -56,7 +56,9 @@ def is_external_input(model, node, i):
             return True
         else:
             if op_type.startswith("MVAU"):
-                if node_inst.get_nodeattr("mem_mode") == "external":
+                if node_inst.get_nodeattr("mem_mode") == "external" or node_inst.get_nodeattr(
+                    "mlo"
+                ):
                     return True
     return False
 

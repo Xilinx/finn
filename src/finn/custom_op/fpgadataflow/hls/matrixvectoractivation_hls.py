@@ -229,7 +229,7 @@ class MVAU_hls(MVAU, HLSBackend):
                 numReps,
             )
         ]
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             wdt = self.get_input_datatype(1)
             self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
 
@@ -259,7 +259,7 @@ class MVAU_hls(MVAU, HLSBackend):
         )
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             wdt = self.get_input_datatype(1)
             elem_bits = wdt.bitwidth()
             packed_bits = self.get_instream_width(1)
@@ -289,7 +289,7 @@ class MVAU_hls(MVAU, HLSBackend):
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
             )
@@ -318,7 +318,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             wdt = self.get_input_datatype(1)
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]
@@ -386,7 +386,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     self.get_outstream_width(),
                 )
             ]
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(
                     hls::stream<ap_uint<{}>> &in0_V,
@@ -420,7 +420,7 @@ class MVAU_hls(MVAU, HLSBackend):
             self.code_gen_dict["$PRAGMAS$"].append(
                 ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
             )
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or mem_mode == "external" or self.get_nodeattr("mlo"):
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 
         else:
@@ -531,7 +531,11 @@ class MVAU_hls(MVAU, HLSBackend):
             nbits = self.get_instream_width(0)
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
-            if mem_mode == "external" or mem_mode == "internal_decoupled":
+            if (
+                mem_mode == "external"
+                or mem_mode == "internal_decoupled"
+                or self.get_nodeattr("mlo")
+            ):
                 wnbits = self.get_instream_width(1)
                 export_wdt = self.get_input_datatype(1)
                 # we have converted bipolar weights to binary for export,
