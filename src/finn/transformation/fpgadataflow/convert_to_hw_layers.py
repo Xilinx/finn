@@ -1990,6 +1990,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
             loop_body_inputs_to_remove.append(inp)
         else:
             consumer.attributes["mlo"] = ir.Attr("mlo", ir.AttributeType.INT, 1)
+            consumer.attributes["inFIFODepths"] = ir.Attr("inFIFODepths", ir.AttributeType.INTS, [2, 2])
 
     # Remove the inputs that are not supported by the MLO
     for inp in loop_body_inputs_to_remove:
