@@ -418,9 +418,9 @@ class VVAU(HWCustomOp):
             or self.get_nodeattr("mem_mode") == "external"
         ):
             wdt = self.get_input_datatype(1)
-            lower_worst = wdt.min() * np.ones_like(weights)
+            lower_worst = wdt.min() * np.ones((k_h * k_w, fm))
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like(weights)
+            upper_worst = wdt.max() * np.ones((k_h * k_w, fm))
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(lower_range), max(upper_range))
