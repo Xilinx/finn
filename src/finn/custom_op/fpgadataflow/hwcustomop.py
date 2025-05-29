@@ -95,7 +95,7 @@ class HWCustomOp(CustomOp):
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
-            "mlo": ("i", False, 0, {0, 1}),
+            "mlo_max_iter": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -341,6 +341,51 @@ class HWCustomOp(CustomOp):
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
+                "w",
+            ) as f:
+                f.write(template_wrapper)
+        else:
+            pass
+
+    def generate_hdl_fetch_weights(self, fpgapart):
+        """Helper function to generate verilog code for fetch_weights component.
+        Currently utilized by MVAU."""
+        ops = ["MVAU_hls", "MVAU_rtl"]
+        if self.onnx_node.op_type in ops:
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/fetch_weights_wrapper.v"
+            mname = self.onnx_node.name
+            padded_width = self.get_instream_width_padded(1)
+            mw = self.get_nodeattr("MW")
+            mh = self.get_nodeattr("MH")
+            pe = self.get_nodeattr("PE")
+            simd = self.get_nodeattr("SIMD")
+            n_reps = 1
+            addr_weights = 1
+            layer_offs = 1
+            n_max_layers = self.get_nodeattr("mlo_max_iter")
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+            code_gen_dict = {
+                "$MODULE_NAME$": [mname + "_fetch_weights_wrapper"],
+                "$MW$": [str(mw)],
+                "$MH$": [str(mh)],
+                "$PE$": [str(pe)],
+                "$SIMD$": [str(simd)],
+                "$N_REPS$": [str(n_reps)],
+                "$WEIGHT_WIDTH$": [str(padded_width)],
+                "$ADDR_WEIGHTS$": [str(addr_weights)],
+                "$LAYER_OFFS$": [str(layer_offs)],
+                "$N_MAX_LAYERS$": [str(n_max_layers)],
+            }
+            # apply code generation to template
+            with open(template_path, "r") as f:
+                template_wrapper = f.read()
+            for key in code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(code_gen_dict[key])
+                template_wrapper = template_wrapper.replace(key, code_gen_line)
+            with open(
+                os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
                 "w",
             ) as f:
                 f.write(template_wrapper)

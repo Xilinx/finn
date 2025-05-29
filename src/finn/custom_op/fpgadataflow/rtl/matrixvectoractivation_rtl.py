@@ -91,7 +91,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                 nbits = self.get_instream_width(0)
                 inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
                 super().reset_rtlsim(sim)
-                if mem_mode in ["external", "internal_decoupled"] or self.get_nodeattr("mlo"):
+                if mem_mode in ["external", "internal_decoupled"] or self.get_nodeattr(
+                    "mlo_max_iter"
+                ):
                     wnbits = self.get_instream_width(1)
                     export_wdt = self.get_input_datatype(1)
                     wei = npy_to_rtlsim_input(
@@ -159,7 +161,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo"):
+        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
@@ -259,7 +261,7 @@ class MVAU_rtl(MVAU, RTLBackend):
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        if not self.get_nodeattr("mlo"):
+        if not self.get_nodeattr("mlo_max_iter"):
             self.generate_params(model, code_gen_dir)
 
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
@@ -292,7 +294,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        if self.get_nodeattr("mem_mode") == "internal_decoupled" and not self.get_nodeattr(
+            "mlo_max_iter"
+        ):
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
                 assert (
@@ -300,6 +304,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
+        elif self.get_nodeattr("mlo_max_iter"):
+            self.generate_hdl_fetch_weights(fpgapart)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)

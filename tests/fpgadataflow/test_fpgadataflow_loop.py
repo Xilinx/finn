@@ -53,7 +53,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list((1, 3, 3)),
-        mlo=1,
+        mlo_max_iter=3,
         inFIFODepths=[2, 2],
         name="MVAU_rtl0",
     )
@@ -90,7 +90,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list([1, 3, 3]),
-        mlo=1,
+        mlo_max_iter=3,
         inFIFODepths=[2, 2],
         name="MVAU_rtl1",
     )
