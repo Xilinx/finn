@@ -1968,6 +1968,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         # Remove Loop Dimension from the input
         inp.shape = ir.Shape(inp.shape.dims[1:])
 
+    iteration = int(M.const_value.numpy()[0])
     # This is a temporary fix to support the gradual integration
     # of hardware layers into the multi-layer offload paradigm.
     # If the op is not supported by the MLO, we convert it to an initializer
@@ -1989,7 +1990,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
             g_loop_body.register_initializer(inp)
             loop_body_inputs_to_remove.append(inp)
         else:
-            consumer.attributes["mlo"] = ir.Attr("mlo", ir.AttributeType.INT, 1)
+            consumer.attributes["mlo_max_iter"] = ir.Attr("mlo_max_iter", ir.AttributeType.INT, iteration)
             consumer.attributes["inFIFODepths"] = ir.Attr("inFIFODepths", ir.AttributeType.INTS, [2, 2])
 
     # Remove the inputs that are not supported by the MLO
@@ -2001,7 +2002,6 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         # Remove the input from the loop node
         inputs.pop(ind)
 
-    iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
     loop_body_actout = g_loop_body.outputs[0]
     odt = loop_body_actout.meta["quant_parameter_tensor_names"]["finn_datatype"]
