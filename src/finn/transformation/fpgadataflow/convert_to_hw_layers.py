@@ -1988,6 +1988,8 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
             loop_node_input_indexes_to_remove.append(ind + 3)
             g_loop_body.register_initializer(inp)
             loop_body_inputs_to_remove.append(inp)
+        else:
+            consumer.attributes["mlo"] = ir.Attr("mlo", ir.AttributeType.INT, 1)
 
     # Remove the inputs that are not supported by the MLO
     for inp in loop_body_inputs_to_remove:
@@ -1997,7 +1999,6 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
     for ind in sorted(loop_node_input_indexes_to_remove, reverse=True):
         # Remove the input from the loop node
         inputs.pop(ind)
-
 
     iteration = int(M.const_value.numpy()[0])
     # TODO: Make this more Robust, e.g. input or output type may not have quant_annotation
