@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
@@ -353,16 +352,6 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
-            if node.onnx_node.op_type in extw_optypes:
-                mmode = node.get_nodeattr("mem_mode")
-                if mmode == "external":
-                    modified_fc_nodes.append(node.onnx_node.name)
-                    node.set_nodeattr("mem_mode", "internal_decoupled")
-                    reset_implementation(node)
-                    warnings.warn(
-                        "Changed mem_mode from external to internal_decoupled for "
-                        + node.onnx_node.name
-                    )
 
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())

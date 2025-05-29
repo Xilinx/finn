@@ -53,7 +53,8 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list((1, 3, 3)),
-        mem_mode="external",
+        mlo=1,
+        inFIFODepths=[2, 2],
         name="MVAU_rtl0",
     )
     mt_node0 = helper.make_node(
@@ -89,7 +90,8 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list([1, 3, 3]),
-        mem_mode="external",
+        mlo=1,
+        inFIFODepths=[2, 2],
         name="MVAU_rtl1",
     )
     mt_node1 = helper.make_node(
@@ -163,6 +165,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
 def test_fpgadataflow_loop():
     model = make_loop_modelwrapper(16, 16, 3)
     model = model.transform(InferShapes())
+    model.save("finn_loop.onnx")
     inst = getCustomOp(model.graph.node[0])
     for i in range(len(model.graph.node[0].input)):
         idt = inst.get_input_datatype(i)

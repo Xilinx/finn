@@ -261,6 +261,7 @@ class MVAU(HWCustomOp):
             if (
                 self.get_nodeattr("mem_mode") == "internal_decoupled"
                 or self.get_nodeattr("mem_mode") == "external"
+                or self.get_nodeattr("mlo")
             ):
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
@@ -299,7 +300,7 @@ class MVAU(HWCustomOp):
         if ind == 0:
             # calculate shape of input 0
             folded_input_shape = tuple(vecs + [sf, simd])
-        elif ind == 1 and self.get_nodeattr("mem_mode") == "external":
+        elif ind == 1 and (self.get_nodeattr("mem_mode") == "external" or self.get_nodeattr("mlo")):
             # calculate shape of input 1 (weights)
             folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
         else:
@@ -372,6 +373,7 @@ class MVAU(HWCustomOp):
             (mmode == "internal_decoupled" and mstyle != "ultra")
             or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
             or (mmode == "external")
+            or self.get_nodeattr("mlo")
         ):
             return 0
         width_multiplier = math.ceil(mem_width / 72)
@@ -401,6 +403,7 @@ class MVAU(HWCustomOp):
             (mmode == "internal_decoupled" and mstyle in ["distributed", "ultra"])
             or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
             or (mmode == "external")
+            or self.get_nodeattr("mlo")
         ):
             return 0
         # assuming SDP mode RAMB18s (see UG573 Table 1-10)
@@ -476,6 +479,7 @@ class MVAU(HWCustomOp):
         if (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
+            or self.get_nodeattr("mlo")
         ):
             wdt = self.get_input_datatype(1)
             lower_worst = wdt.min() * np.ones_like(weights)
@@ -545,6 +549,7 @@ class MVAU(HWCustomOp):
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
+            or self.get_nodeattr("mlo")
         ):
             weights = model.get_initializer(self.onnx_node.input[1])
             w_min = weights.min()
@@ -889,7 +894,7 @@ class MVAU(HWCustomOp):
             intf_names["clk2x"] = ["ap_clk2x"]
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "external":
+        if mem_mode == "external" or self.get_nodeattr("mlo"):
             intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
@@ -903,7 +908,7 @@ class MVAU(HWCustomOp):
         cmd = ["file mkdir %s" % source_target]
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled":
+        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo"):
             runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
             node_name = self.onnx_node.name
             # create a hierarchy for this layer, with the same port names
@@ -1016,7 +1021,7 @@ class MVAU(HWCustomOp):
                 # TODO calculate and pass in segment size here
                 cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
-        elif mem_mode == "internal_embedded" or mem_mode == "external":
+        elif mem_mode == "internal_embedded" or mem_mode == "external" or self.get_nodeattr("mlo"):
             # base class impl sufficient for internal_embedded/external modes
             self.instantiate_ip(cmd)
         else:
