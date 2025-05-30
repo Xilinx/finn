@@ -882,7 +882,6 @@ class MoveScalarLinearPastSplit(Transformation):
         node_ind = 0
         for n in graph.node:
             node_ind += 1
-            # if n.op_type in self.fork_ops and model.is_fork_node(n):
             if n.op_type in self.fork_ops:
                 producer = model.find_producer(n.input[0])
                 if producer is not None and producer.op_type in self.ops_to_move:
@@ -935,7 +934,6 @@ class MoveTransposePastSplit(Transformation):
         node_ind = 0
         for n in graph.node:
             node_ind += 1
-            # if n.op_type in self.fork_ops and model.is_fork_node(n):
             if n.op_type in self.fork_ops:
                 producer = model.find_producer(n.input[0])
                 if producer is not None and producer.op_type in self.ops_to_move:
@@ -1401,7 +1399,6 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
 
     def move_node(self, model, n, producers):
         trans_inputs = [prod.input[0] for prod in producers]
-        # concat_in0 = n.input[0]
         concat_out = n.output[0]
         # Rewire concat inputs
         for i in range(len(n.input)):
