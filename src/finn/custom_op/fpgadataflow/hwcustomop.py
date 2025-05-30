@@ -359,10 +359,12 @@ class HWCustomOp(CustomOp):
             mh = self.get_nodeattr("MH")
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            n_reps = 1
-            addr_weights = 1
-            layer_offs = 1
-            n_max_layers = self.get_nodeattr("mlo_max_iter")
+            n_reps = self.get_nodeattr("numInputVectors")[-1]
+            # set to zero for now
+            addr_weights = 0
+            layer_offs = mw * mh
+            # upper bound on how many layers can be supported, set to 10 for now
+            n_max_layers = 10
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
             code_gen_dict = {
