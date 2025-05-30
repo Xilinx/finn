@@ -102,7 +102,7 @@ class RemoveShallowFIFOs(Transformation):
             if (
                 node.op_type.startswith("StreamingFIFO")
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
-                and (not is_first_node)
+                and (not is_first_node or getCustomOp(node).get_nodeattr("mlo_max_iter"))
             ):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
@@ -439,6 +439,19 @@ class InsertAndSetFIFODepths(Transformation):
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
+
+        # remove FIFOs from mlo parameter inputs
+        mlo_op_types = ["MVAU_hls", "MVAU_rtl"]
+        for op_type in mlo_op_types:
+            nodes = model.get_nodes_by_op_type(op_type)
+            for node in nodes:
+                # Check if there is a FIFO inserted at param input
+                fifo_node = model.find_producer(node.input[1])
+                if fifo_node.op_type.startswith("StreamingFIFO"):
+                    fifo_inst = getCustomOp(fifo_node)
+                    fifo_inst.set_nodeattr("depth", 0)
+                    fifo_inst.set_nodeattr("mlo_max_iter", 1)
+
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 
