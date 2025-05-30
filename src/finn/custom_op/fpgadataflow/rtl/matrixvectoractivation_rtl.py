@@ -161,7 +161,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
+        if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (

@@ -110,7 +110,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // TODO: Should we reg this? Would be quite wide ...
     output logic                                out0_V_TVALID,
     input  logic                                out0_V_TREADY,
-    output logic[OUTPUT_STREAM_WIDTH_BA-1:0]    out0_V_TDATA
+    output logic[WEIGHT_STREAM_WIDTH_BA-1:0]    out0_V_TDATA
 );
 
 

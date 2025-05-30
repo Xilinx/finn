@@ -56,9 +56,7 @@ def is_external_input(model, node, i):
             return True
         else:
             if op_type.startswith("MVAU"):
-                if node_inst.get_nodeattr("mem_mode") == "external" or node_inst.get_nodeattr(
-                    "mlo"
-                ):
+                if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
 
@@ -260,6 +258,46 @@ class CreateStitchedIP(Transformation):
                 "set_property name %s [get_bd_ports %s_0]" % (input_intf_name, input_intf_name)
             )
 
+    def connect_mlo_signals_external(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
+        # make index/tap external
+        external_intfs = ["in_idx0_V"]
+        for i in range(len(input_intf_names)):
+            input_intf_name = input_intf_names[i][0]
+            if input_intf_name in external_intfs:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                    % (inst_name, input_intf_name)
+                )
+                signal_name = "%s_%s" % (inst_name, input_intf_name)
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports %s_0]" % (signal_name, input_intf_name)
+                )
+                self.has_s_axis = True
+                self.intf_names["s_axis"].append((signal_name, input_intf_names[i][1]))
+                self.s_axis_idx += 1
+        # make memory-mapped interfaces external
+        # TODO: this is probably covered by other aximm code
+        # mm_intf_names = node_inst.get_verilog_top_module_intf_names()["aximm"]
+        # for mm_intf_name in mm_intf_names:
+        #    self.connect_cmds.append(
+        #        "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+        #        % (inst_name, mm_intf_name[0])
+        #    )
+        #    ext_if_name = "%s_%s" % (inst_name, mm_intf_name[0])
+        #    self.connect_cmds.append(
+        #        "set_property name %s [get_bd_intf_ports %s]" % (ext_if_name, mm_intf_name[0])
+        #    )
+        #    self.connect_cmds.append("assign_bd_address")
+        #    seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
+        #    self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
+        #    # TODO should propagate this information from the node instead of 4G
+        #    self.connect_cmds.append("set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name))
+        #    self.intf_names["aximm"] = [(ext_if_name, mm_intf_name[1])]
+        #    self.has_aximm = True
+
     def insert_signature(self, checksum_count):
         signature_vlnv = "AMD:user:axi_info_top:1.0"
         signature_name = "axi_info_top0"
@@ -342,6 +380,8 @@ class CreateStitchedIP(Transformation):
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node)
             self.connect_ap_none_external(node)
+            if node_inst.get_nodeattr("mlo_max_iter"):
+                self.connect_mlo_signals_external(node)
             self.connect_axi(node)
             for i in range(len(node.input)):
                 if not is_external_input(model, node, i):
