@@ -34,7 +34,7 @@
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	IS_MVU = $IS_MVU$,
 	parameter	COMPUTE_CORE = "$COMPUTE_CORE$",
-	parameter	PUMPED_COMPUTE = 0,
+	parameter	PUMPED_COMPUTE = $PUMPED_COMPUTE$,
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
 	parameter	PE = $PE$,
@@ -53,27 +53,27 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in1_V:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
-	// (* X_INTERFACE_PARAMETER = "ASSOCIATED_RESET ap_rst_n" *)
-	// (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
-	// input   ap_clk2x,
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	input   ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	// Weight Stream
-	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  weights_V_TDATA,
-	input   weights_V_TVALID,
-	output  weights_V_TREADY,
+	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  in1_V_TDATA,
+	input   in1_V_TVALID,
+	output  in1_V_TREADY,
 	// Input Stream
 	input	[INPUT_STREAM_WIDTH_BA-1:0]  in0_V_TDATA,
 	input	in0_V_TVALID,
 	output	in0_V_TREADY,
 	// Output Stream
-	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out_V_TDATA,
-	output	out_V_TVALID,
-	input	out_V_TREADY
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out0_V_TDATA,
+	output	out0_V_TVALID,
+	input	out0_V_TREADY
 );
 
 mvu_vvu_axi #(
@@ -82,17 +82,17 @@ mvu_vvu_axi #(
 	.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
 	) inst (
 	.ap_clk(ap_clk),
-	.ap_clk2x(1'b0), // wired to ground since double-pumped compute not enabled through FINN for now
+	.ap_clk2x(ap_clk2x),
 	.ap_rst_n(ap_rst_n),
-	.s_axis_weights_tdata(weights_V_TDATA),
-	.s_axis_weights_tvalid(weights_V_TVALID),
-	.s_axis_weights_tready(weights_V_TREADY),
+	.s_axis_weights_tdata(in1_V_TDATA),
+	.s_axis_weights_tvalid(in1_V_TVALID),
+	.s_axis_weights_tready(in1_V_TREADY),
 	.s_axis_input_tdata(in0_V_TDATA),
 	.s_axis_input_tvalid(in0_V_TVALID),
 	.s_axis_input_tready(in0_V_TREADY),
-	.m_axis_output_tdata(out_V_TDATA),
-	.m_axis_output_tvalid(out_V_TVALID),
-	.m_axis_output_tready(out_V_TREADY)
+	.m_axis_output_tdata(out0_V_TDATA),
+	.m_axis_output_tvalid(out0_V_TVALID),
+	.m_axis_output_tready(out0_V_TREADY)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

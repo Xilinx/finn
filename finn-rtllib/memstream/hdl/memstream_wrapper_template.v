@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023, Xilinx
+ * Copyright (C) 2023, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,15 +27,15 @@
  * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @author	Thomas B. Preußer <thomas.preusser@amd.com>
- */
+  */
 
-module memstream_axi_wrapper #(
-	parameter  DEPTH = 512,
-	parameter  WIDTH = 32,
+module $MODULE_NAME$_memstream_wrapper #(
+	parameter  DEPTH = $DEPTH$,
+	parameter  WIDTH = $WIDTH$,
 
-	parameter  INIT_FILE = "",
-	parameter  RAM_STYLE = "auto",
+	parameter  INIT_FILE = "$INIT_FILE$",
+	parameter  RAM_STYLE = "$RAM_STYLE$",
+	parameter  PUMPED_MEMORY = $PUMPED_MEMORY$,
 
 	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
 )(
@@ -43,34 +43,36 @@ module memstream_axi_wrapper #(
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	input	ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	// AXI-lite Write
-	output	awready,
-	input	awvalid,
-	input	[2:0]  awprot,
-	input	[AXILITE_ADDR_WIDTH-1:0]  awaddr,
+	output	s_axilite_AWREADY,
+	input	s_axilite_AWVALID,
+	input	[2:0]  s_axilite_AWPROT,
+	input	[AXILITE_ADDR_WIDTH-1:0]  s_axilite_AWADDR,
 
-	output	wready,
-	input	wvalid,
-	input	[31:0]  wdata,
-	input	[ 3:0]  wstrb,
+	output	s_axilite_WREADY,
+	input	s_axilite_WVALID,
+	input	[31:0]  s_axilite_WDATA,
+	input	[ 3:0]  s_axilite_WSTRB,
 
-	input	bready,
-	output	bvalid,
-	output	[1:0]  bresp,
+	input	s_axilite_BREADY,
+	output	s_axilite_BVALID,
+	output	[1:0]  s_axilite_BRESP,
 
 	// AXI-lite Read
-	output	arready,
-	input	arvalid,
-	input	[2:0]  arprot,
-	input	[AXILITE_ADDR_WIDTH-1:0]  araddr,
+	output	s_axilite_ARREADY,
+	input	s_axilite_ARVALID,
+	input	[2:0]  s_axilite_ARPROT,
+	input	[AXILITE_ADDR_WIDTH-1:0]  s_axilite_ARADDR,
 
-	input	rready,
-	output	rvalid,
-	output	[ 1:0]  rresp,
-	output	[31:0]  rdata,
+	input	s_axilite_RREADY,
+	output	s_axilite_RVALID,
+	output	[ 1:0]  s_axilite_RRESP,
+	output	[31:0]  s_axilite_RDATA,
 
 	// Continuous output stream
 	input	m_axis_0_tready,
@@ -78,41 +80,36 @@ module memstream_axi_wrapper #(
 	output	[((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	localparam  INIT_FILTERED =
-`ifdef SYNTHESIS
-		RAM_STYLE == "ultra"? "" :
-`endif
-		INIT_FILE;
-
 	memstream_axi #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
-		.INIT_FILE(INIT_FILTERED),
-		.RAM_STYLE(RAM_STYLE)
+		.INIT_FILE(INIT_FILE),
+		.RAM_STYLE(RAM_STYLE),
+		.PUMPED_MEMORY(PUMPED_MEMORY)
 	) core (
-		.clk(ap_clk), .rst(!ap_rst_n),
+		.clk(ap_clk), .clk2x(ap_clk2x), .rst(!ap_rst_n),
 
 		// AXI-lite Write
-		.awready(awready),
-		.awvalid(awvalid),
-		.awprot(awprot),
-		.awaddr(awaddr),
-		.wready(wready),
-		.wvalid(wvalid),
-		.wdata(wdata),
-		.wstrb(wstrb),
-		.bready(bready),
-		.bvalid(bvalid),
-		.bresp(bresp),
+		.awready(s_axilite_AWREADY),
+		.awvalid(s_axilite_AWVALID),
+		.awprot(s_axilite_AWPROT),
+		.awaddr(s_axilite_AWADDR),
+		.wready(s_axilite_WREADY),
+		.wvalid(s_axilite_WVALID),
+		.wdata(s_axilite_WDATA),
+		.wstrb(s_axilite_WSTRB),
+		.bready(s_axilite_BREADY),
+		.bvalid(s_axilite_BVALID),
+		.bresp(s_axilite_BRESP),
 
 		// AXI-lite Read
-		.arready(arready),
-		.arvalid(arvalid),
-		.arprot(arprot),
-		.araddr(araddr),
-		.rready(rready),
-		.rvalid(rvalid),
-		.rresp(rresp),
-		.rdata(rdata),
+		.arready(s_axilite_ARREADY),
+		.arvalid(s_axilite_ARVALID),
+		.arprot(s_axilite_ARPROT),
+		.araddr(s_axilite_ARADDR),
+		.rready(s_axilite_RREADY),
+		.rvalid(s_axilite_RVALID),
+		.rresp(s_axilite_RRESP),
+		.rdata(s_axilite_RDATA),
 
 		// Continuous output stream
 		.m_axis_0_tready(m_axis_0_tready),
@@ -120,4 +117,4 @@ module memstream_axi_wrapper #(
 		.m_axis_0_tdata(m_axis_0_tdata)
 	);
 
-endmodule : memstream_axi_wrapper
+endmodule // $MODULE_NAME$_memstream_wrapper

@@ -99,9 +99,9 @@ def test_npy2apintstream(test_shape, dtype):
         f.write("\n".join(test_app_string))
     cmd_compile = """
 g++ -o test_npy2apintstream test.cpp $FINN_ROOT/deps/cnpy/cnpy.cpp \
--I$FINN_ROOT/deps/cnpy/ -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
+-I$FINN_ROOT/deps/cnpy/ -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
 --std=c++11 -lz""".format(
-        os.environ["HLS_PATH"]
+        os.environ["HLS_PATH"], os.environ["VITIS_PATH"]
     )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)

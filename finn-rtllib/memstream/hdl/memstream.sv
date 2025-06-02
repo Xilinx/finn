@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023, Xilinx
+ * Copyright (c) 2023, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -70,7 +70,7 @@ module memstream #(
 	// Counter history to facilitate pipeline rollback
 	ptr_t  Ptr[3] = '{
 		0: '{ val: 0, lst: DEPTH<2 },
-		default: '{ default: 'x }
+		default: ptr_t'{ default: 'x }
 	};
 
 	//-----------------------------------------------------------------------
@@ -129,7 +129,7 @@ module memstream #(
 	// Stage #2: Memory Access
 	logic   Rb2 = 0;
 	logic   Rs2 = 0;
-	data_t  Data2 = 'x;
+	data_t  Data2;
 	if(1) begin : blkStage2
 		(* RAM_STYLE = RAM_STYLE *)
 		data_t  Mem[DEPTH];
@@ -139,11 +139,56 @@ module memstream #(
 
 		// Execute Memory Operation
 		uwire addr_t  addr = Ptr[1].val;
+		data_t  RdOut;
 		always_ff @(posedge clk) begin
 			if(en) begin
+				// NO_CHANGE mode as READ and WRITE never happen together.
 				if(Wr1)  Mem[addr] <= Data1;
-				Data2 <= Mem[addr];
+				else  RdOut <= Mem[addr];
 			end
+		end
+
+		// Stretch by Additional Pipeline Stages for Targetting URAM
+		localparam bit  STRETCH = (RAM_STYLE == "ultra") || (RAM_STYLE == "ULTRA");
+
+		uwire logic  irb  = Rb1;
+		uwire logic  irs  = Rs1 && !rollback;
+		uwire ptr_t  iptr = Ptr[1];
+		uwire logic  orb;
+		uwire logic  ors;
+		uwire ptr_t  optr;
+
+		if(!STRETCH) begin
+			assign	orb  = irb;
+			assign	ors  = irs;
+			assign	optr = iptr;
+
+			assign	Data2 = RdOut;
+		end
+		else begin
+			logic   SRb   =  0;
+			logic   SRs   =  0;
+			ptr_t   SPtr  = '{ default: 'x };
+			data_t  SData = 'x;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					SRb   <=  0;
+					SRs   <=  0;
+					SPtr  <= '{ default: 'x };
+					SData <= 'x;
+				end
+				else if(en) begin
+					SRb   <= irb;
+					SRs   <= irs;
+					SPtr  <= iptr;
+					SData <= RdOut;
+				end
+			end
+			assign	orb  = SRb;
+			assign	ors  = SRs && !rollback;
+			assign	optr = SPtr;
+
+			assign	Data2 = SData;
 		end
 
 		// Copy Output Designation
@@ -154,9 +199,9 @@ module memstream #(
 				Ptr[2] <= '{ default: 'x };
 			end
 			else if(en) begin
-				Rb2 <= Rb1;
-				Rs2 <= Rs1 && !rollback;
-				Ptr[2] <= Ptr[1];
+				Rb2 <= orb;
+				Rs2 <= ors;
+				Ptr[2] <= optr;
 			end
 		end
 	end : blkStage2

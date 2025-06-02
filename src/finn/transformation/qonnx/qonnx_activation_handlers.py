@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 import warnings
 from abc import ABC, abstractmethod
@@ -418,14 +419,9 @@ class QuantReluHandler(QuantActBaseHandler):
         num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[cdim]
 
         assert (
-                thresholds.shape[0] == 1 or thresholds.shape[
-            0] == num_output_channels
+            thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
         ), """Quant node cannot be converted to MultiThreshold because only
             per tensor or per channel quantization supported."""
-
-        final_shape = (num_output_channels, num_thresholds)
-        if thresholds.shape != final_shape:
-            thresholds = np.broadcast_to(thresholds, final_shape)
 
         return thresholds
 
@@ -589,10 +585,6 @@ class QuantIdentityHandler(QuantActBaseHandler):
                 thresholds.shape[0] == 1 or thresholds.shape[0] == num_output_channels
             ), """Quant node cannot be converted to MultiThreshold because only
                 per tensor or per channel quantization supported."""
-
-            final_shape = (num_output_channels, num_thresholds)
-            if thresholds.shape != final_shape:
-                thresholds = np.broadcast_to(thresholds, final_shape)
 
             return thresholds
 
