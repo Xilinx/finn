@@ -70,7 +70,7 @@ module memstream #(
 	// Counter history to facilitate pipeline rollback
 	ptr_t  Ptr[3] = '{
 		0: '{ val: 0, lst: DEPTH<2 },
-		default: '{ default: 'x }
+		default: ptr_t'{ default: 'x }
 	};
 
 	//-----------------------------------------------------------------------
