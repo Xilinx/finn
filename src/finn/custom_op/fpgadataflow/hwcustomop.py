@@ -366,7 +366,6 @@ class HWCustomOp(CustomOp):
             # upper bound on how many layers can be supported, set to 10 for now
             n_max_layers = 10
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -374,7 +373,7 @@ class HWCustomOp(CustomOp):
                 "$PE$": [str(pe)],
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
-                "$WEIGHT_WIDTH$": [str(wdt.name)],
+                "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$ADDR_WEIGHTS$": [str(addr_weights)],
                 "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_MAX_LAYERS$": [str(n_max_layers)],
