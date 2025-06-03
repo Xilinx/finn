@@ -157,10 +157,6 @@ class Lookup(HWCustomOp):
         obits = self.get_output_datatype().bitwidth()
         return obits * folded_oshape[-1]
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def execute_node(self, context, graph):
         # create a standard add node to help calculate the result
         node = self.onnx_node

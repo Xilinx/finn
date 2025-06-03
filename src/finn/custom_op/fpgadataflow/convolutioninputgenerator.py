@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -183,11 +182,6 @@ class ConvolutionInputGenerator(HWCustomOp):
         else:
             # if parallel variant not in use: same width for output and input stream
             return self.get_instream_width()
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        num_output_elems = np.prod(folded_oshape[:-1])
-        return num_output_elems
 
     def get_1d_conv_attrs_normalized(self):
         # support both (1, D) and (D, 1) cases transparently:

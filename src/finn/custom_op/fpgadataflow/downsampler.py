@@ -162,10 +162,6 @@ class DownSampler(HWCustomOp):
         simd = self.get_nodeattr("SIMD")
         return obits * simd
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def execute_node(self, context, graph):
         # using Im2Col node to calculate output
         node = self.onnx_node

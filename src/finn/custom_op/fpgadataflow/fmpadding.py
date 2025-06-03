@@ -146,10 +146,6 @@ class FMPadding(HWCustomOp):
         simd = self.get_nodeattr("SIMD")
         return obits * simd
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def execute_node(self, context, graph):
         # simulate behavior with Python functionality
         node = self.onnx_node

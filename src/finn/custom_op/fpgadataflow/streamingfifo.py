@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import math
-import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -129,10 +128,6 @@ class StreamingFIFO(HWCustomOp):
     def execute_node(self, context, graph):
         node = self.onnx_node
         context[node.output[0]] = context[node.input[0]]
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
 
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""

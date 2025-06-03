@@ -334,10 +334,6 @@ class MVAU(HWCustomOp):
         normal_output_shape = tuple(vecs + [mh])
         return normal_output_shape
 
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
     def calc_wmem(self):
         """Calculates and returns WMEM."""
         mw = self.get_nodeattr("MW")

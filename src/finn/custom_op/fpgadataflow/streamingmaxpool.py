@@ -128,10 +128,6 @@ class StreamingMaxPool(HWCustomOp):
             ret.insert(-1, 1)
         return tuple(ret)
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def get_exp_cycles(self):
         # derived from StreamingMaxPool_Batch loop nest
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
