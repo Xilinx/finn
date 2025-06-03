@@ -967,7 +967,7 @@ class MVAU(HWCustomOp):
                         sourcefiles.append(os.path.join(swg_rtllib_dir + "common/", file))
                 # add files from cdma dir
                 cdma_dir = os.path.join(swg_rtllib_dir, "cdma/")
-                sourcefiles.append(os.path.join(cdma_dir, "cdma_top.sv"))
+                #sourcefiles.append(os.path.join(cdma_dir, "cdma_top.sv"))
                 for file in os.listdir(cdma_dir + "cdma_a/"):
                     if file.endswith(".sv"):
                         sourcefiles.append(os.path.join(cdma_dir + "cdma_a/", file))
