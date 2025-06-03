@@ -140,9 +140,43 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
+
+                    # Get the shape of the parameter tensor of the add
+                    shape = A.shape
+                    # First try to consider the tensor layout of the input for
+                    # determining the number of output channels
+                    layout = model.get_tensor_layout(add_weight_name)
+                    # If there is no layout annotation, guess based on rank of
+                    # the parameter tensor
+                    # TODO: No support for Rank >= 5
+                    if layout is None and len(shape) < 5:
+                        # Maps tensor rank to layout annotation
+                        # fmt:off
+                        rank_to_layout = {
+                            0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"
+                        }
+                        # fmt:on
+                        # Lookup the layout required by this input shape
+                        layout = rank_to_layout[len(shape)]
+                    # If there is a layout annotation, use this to determine the
+                    # index of the channel dimension
+                    if layout is not None and "C" in layout:  # noqa: Duplicate
+                        # Lookup the index in list
+                        cdim = layout.index("C")
+                    # If no layout has been annotated or there is no channel
+                    # dimension, fall back to the previous default assumption
+                    else:
+                        # Assume the channels to be in axis 1
+                        cdim = 1
+                        # Issue a warning to the user, so they are aware of this
+                        warnings.warn(
+                            f"No layout annotations for {add_weight_name}:"
+                            f" Assuming channel dimension at index {cdim}"
+                        )
+
                     # We can only absorb up to per-channel (last dimension)
                     # granularity
-                    if is_scalar or A.shape[-1] == A.size:
+                    if is_scalar or A.shape[cdim] == A.size:
                         # Reshape addition parameters to have the elements/PE
                         # dimension first, aligned with the thresholds.
                         Tnew = T - A.reshape(-1, 1)  # noqa: Not lowercase
