@@ -782,7 +782,7 @@ class MVAU(HWCustomOp):
             # save hlslib-compatible weights in params.h
             weight_filename = "{}/params.h".format(code_gen_dir)
             self.make_weight_file(weights, "hls_header", weight_filename)
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif mem_mode == "internal_decoupled" or (mem_mode == "external" and weights):
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save internal_decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
@@ -791,11 +791,12 @@ class MVAU(HWCustomOp):
                 # This file will be ignored when synthesizing UltraScale memory.
                 weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
                 self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
-        else:
-            raise Exception(
-                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
+        elif not weights:
+            if not (mem_mode == "external" or self.get_nodeattr("mlo")):
+                raise Exception(
+                    """Invalid setting found, weight values not initialized,
+                    but neither "external" case nor MLO."""
+                )
 
         # save thresholds in thresh.h
         if len(self.onnx_node.input) > 2:
