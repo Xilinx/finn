@@ -61,6 +61,8 @@ module thresholding #(
 	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,  // offsetting the output [0, N] -> [BIAS, N+BIAS]
 
+	int unsigned  SETS = 1,  // Number of independent threshold sets
+
 	// Initial Thresholds
 	parameter  THRESHOLDS_PATH = "",
 	bit  USE_CONFIG = 1,
@@ -71,6 +73,7 @@ module thresholding #(
 	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
 	localparam int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(N+BIAS+1) :
 		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
@@ -82,7 +85,7 @@ module thresholding #(
 	// Threshold Configuration
 	input	logic  cfg_en,
 	input	logic  cfg_we,
-	input	logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  cfg_a,
+	input	logic [$clog2(SETS)+$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  cfg_a,
 	input	logic [K-1:0]  cfg_d,
 	output	logic  cfg_rack,
 	output	logic [K-1:0]  cfg_q,
@@ -90,6 +93,7 @@ module thresholding #(
 	// Input Stream
 	output	logic  irdy,
 	input	logic  ivld,
+	input	logic [S_BITS-1:0]     iset,
 	input	logic [PE-1:0][K-1:0]  idat,
 
 	// Output Stream
@@ -125,8 +129,8 @@ module thresholding #(
 	localparam int unsigned  MAX_PENDING = (DEEP_PIPELINE+1)*M + 3;
 
 	// Pipeline Link Type
-	typedef logic [$clog2(CF)+M-1:0]  ptr_t;
-	typedef logic [K           -1:0]  val_t;
+	typedef logic [$clog2(SETS)+$clog2(CF)+M-1:0]  ptr_t;
+	typedef logic [K                        -1:0]  val_t;
 	typedef struct packed {
 		op_e   op;
 		ptr_t  ptr;	// WR/RB: address;         TH: result
@@ -192,6 +196,10 @@ module thresholding #(
 
 			assign  iptr[M+:$clog2(CF)] = USE_CONFIG && cfg_en? cfg_a[$clog2(N)+$clog2(PE)+:$clog2(CF)] : CnlCnt;
 		end
+		if(SETS > 1) begin
+			// Set Selection Bits
+			assign  iptr[M+$clog2(CF)+:$clog2(SETS)] = USE_CONFIG && cfg_en? cfg_a[$clog2(N)+$clog2(PE)+$clog2(CF)+:$clog2(SETS)] : iset;
+		end
 
 		for(genvar  pe = 0; pe < PE; pe++) begin
 			assign	pipe[pe][0] = '{
@@ -218,7 +226,7 @@ module thresholding #(
 			// Threshold Memory
 			val_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
-				localparam int unsigned  DEPTH = CF * 2**stage;
+				localparam int unsigned  DEPTH = (SETS > 1? SETS * 2**$clog2(CF) : CF) * 2**stage;
 				localparam  RAM_STYLE =
 					DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
 					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" :
@@ -234,24 +242,24 @@ module thresholding #(
 
 				if(USE_CONFIG) begin : genThreshMem
 					uwire  we = (p.op ==? WR) && cs;
-					if((CF == 1) && (stage == 0)) begin
+					if((SETS == 1) && (CF == 1) && (stage == 0)) begin
 						always @(posedge clk) begin
 							if(we)  Threshs[0] <= p.val;
 						end
 					end
 					else begin
-						uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+M-1:SN+1];
+						uwire [$clog2(SETS)+$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(SETS)+$clog2(CF)+M-1:SN+1];
 						always @(posedge clk) begin
 							if(we)  Threshs[addr] <= p.val;
 						end
 					end
 				end : genThreshMem
 
-				if((CF == 1) && (stage == 0)) begin
+				if((SETS == 1) && (CF == 1) && (stage == 0)) begin
 					assign	Thresh = Threshs[0];
 				end
 				else begin
-					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+M-1:SN+1];
+					uwire [$clog2(SETS)+$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(SETS)+$clog2(CF)+M-1:SN+1];
 					always_ff @(posedge clk) begin
 						Thresh <= Threshs[addr];
 					end
