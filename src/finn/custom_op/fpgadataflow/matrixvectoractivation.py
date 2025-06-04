@@ -1053,16 +1053,17 @@ class MVAU(HWCustomOp):
             )
             # if using 2x pumped memory, connect the memstreamer's 2x clk input
             # to the 2x clock port. otherwise connect it to the regular clock port.
-            if self.get_nodeattr("pumpedMemory"):
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk2x_name, node_name, strm_inst)
-                )
-            else:
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk_name, node_name, strm_inst)
-                )
+            if not self.get_nodeattr("mlo_max_iter"):
+                if self.get_nodeattr("pumpedMemory"):
+                    cmd.append(
+                        "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                        % (node_name, clk2x_name, node_name, strm_inst)
+                    )
+                else:
+                    cmd.append(
+                        "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                        % (node_name, clk_name, node_name, strm_inst)
+                    )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)
