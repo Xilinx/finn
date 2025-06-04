@@ -44,18 +44,19 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter   LEN_BITS = 32,
     parameter   CNT_BITS = 16,
 
-    parameter   ADDR_WEIGHTS = $ADDR_WEIGHTS$,
     parameter   LAYER_OFFS = $LAYER_OFFS$,
     parameter   N_MAX_LAYERS = $N_MAX_LAYERS$,
 
 	// Safely deducible parameters
-	parameter	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in1_V:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_RESET ap_rst_n" *)
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	input	ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
@@ -108,7 +109,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // TODO: Should we reg this? Would be quite wide ...
     output logic                                out0_V_TVALID,
     input  logic                                out0_V_TREADY,
-    output logic[WEIGHT_STREAM_WIDTH_BA-1:0]    out0_V_TDATA
+    output logic[WS_BITS_BA-1:0]                out0_V_TDATA
 );
 
 
@@ -116,54 +117,54 @@ fetch_weights #(
     .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .CNT_BITS(CNT_BITS),
-    .ADDR_WEIGHTS(ADDR_WEIGHTS), .LAYER_OFFS(LAYER_OFFS), .N_MAX_LAYERS(N_MAX_LAYERS)
+    .LAYER_OFFS(LAYER_OFFS), .N_MAX_LAYERS(N_MAX_LAYERS)
 ) inst (
-    .aclk(ap_clk), .aresetn(ap_rst_n),
-    .m_done(out_done),
+    .aclk               (ap_clk),
+    .aresetn            (ap_rst_n),
 
-    .m_axi_hbm_araddr(axi_mm_araddr),
-    .m_axi_hbm_arburst(axi_mm_arburst),
-    .m_axi_hbm_arcache(axi_mm_arcache),
-    .m_axi_hbm_arid(axi_mm_arid),
-    .m_axi_hbm_arlen(axi_mm_arlen),
-    .m_axi_hbm_arlock(axi_mm_arlock),
-    .m_axi_hbm_arprot(axi_mm_arprot),
-    .m_axi_hbm_arsize(axi_mm_arsize),
-    .m_axi_hbm_arready(axi_mm_arready),
-    .m_axi_hbm_arvalid(axi_mm_arvalid),
-    .m_axi_hbm_awaddr(axi_mm_awaddr),
-    .m_axi_hbm_awburst(axi_mm_awburst),
-    .m_axi_hbm_awcache(axi_mm_awcache),
-    .m_axi_hbm_awid(axi_mm_awid),
-    .m_axi_hbm_awlen(axi_mm_awlen),
-    .m_axi_hbm_awlock(axi_mm_awlock),
-    .m_axi_hbm_awprot(axi_mm_awprot),
-    .m_axi_hbm_awsize(axi_mm_awsize),
-    .m_axi_hbm_awready(axi_mm_awready),
-    .m_axi_hbm_awvalid(axi_mm_awvalid),
-    .m_axi_hbm_rdata(axi_mm_rdata),
-    .m_axi_hbm_rid(axi_mm_rid),
-    .m_axi_hbm_rlast(axi_mm_rlast),
-    .m_axi_hbm_rresp(axi_mm_rresp),
-    .m_axi_hbm_rready(axi_mm_rready),
-    .m_axi_hbm_rvalid(axi_mm_rvalid),
-    .m_axi_hbm_wdata(axi_mm_wdata),
-    .m_axi_hbm_wlast(axi_mm_wlast),
-    .m_axi_hbm_wstrb(axi_mm_wstrb),
-    .m_axi_hbm_wready(axi_mm_wready),
-    .m_axi_hbm_wvalid(axi_mm_wvalid),
-    .m_axi_hbm_bid(axi_mm_bid),
-    .m_axi_hbm_bresp(axi_mm_bresp),
-    .m_axi_hbm_bready(axi_mm_bready),
-    .m_axi_hbm_bvalid(axi_mm_bvalid),
+    .m_axi_ddr_araddr   (axi_mm_araddr),
+    .m_axi_ddr_arburst  (axi_mm_arburst),
+    .m_axi_ddr_arcache  (axi_mm_arcache),
+    .m_axi_ddr_arid     (axi_mm_arid),
+    .m_axi_ddr_arlen    (axi_mm_arlen),
+    .m_axi_ddr_arlock   (axi_mm_arlock),
+    .m_axi_ddr_arprot   (axi_mm_arprot),
+    .m_axi_ddr_arsize   (axi_mm_arsize),
+    .m_axi_ddr_arready  (axi_mm_arready),
+    .m_axi_ddr_arvalid  (axi_mm_arvalid),
+    .m_axi_ddr_awaddr   (axi_mm_awaddr),
+    .m_axi_ddr_awburst  (axi_mm_awburst),
+    .m_axi_ddr_awcache  (axi_mm_awcache),
+    .m_axi_ddr_awid     (axi_mm_awid),
+    .m_axi_ddr_awlen    (axi_mm_awlen),
+    .m_axi_ddr_awlock   (axi_mm_awlock),
+    .m_axi_ddr_awprot   (axi_mm_awprot),
+    .m_axi_ddr_awsize   (axi_mm_awsize),
+    .m_axi_ddr_awready  (axi_mm_awready),
+    .m_axi_ddr_awvalid  (axi_mm_awvalid),
+    .m_axi_ddr_rdata    (axi_mm_rdata),
+    .m_axi_ddr_rid      (axi_mm_rid),
+    .m_axi_ddr_rlast    (axi_mm_rlast),
+    .m_axi_ddr_rresp    (axi_mm_rresp),
+    .m_axi_ddr_rready   (axi_mm_rready),
+    .m_axi_ddr_rvalid   (axi_mm_rvalid),
+    .m_axi_ddr_wdata    (axi_mm_wdata),
+    .m_axi_ddr_wlast    (axi_mm_wlast),
+    .m_axi_ddr_wstrb    (axi_mm_wstrb),
+    .m_axi_ddr_wready   (axi_mm_wready),
+    .m_axi_ddr_wvalid   (axi_mm_wvalid),
+    .m_axi_ddr_bid      (axi_mm_bid),
+    .m_axi_ddr_bresp    (axi_mm_bresp),
+    .m_axi_ddr_bready   (axi_mm_bready),
+    .m_axi_ddr_bvalid   (axi_mm_bvalid),
 
-    .s_idx_tvalid(in_idx0_V_TVALID),
-    .s_idx_tready(in_idx0_V_TREADY),
-    .s_idx_tdata (in_idx0_V_TDATA),
+    .s_idx_tvalid       (in_idx0_V_TVALID),
+    .s_idx_tready       (in_idx0_V_TREADY),
+    .s_idx_tdata        (in_idx0_V_TDATA),
 
-    .s_idx_tvalid(out0_V_TVALID),
-    .s_idx_tready(out0_V_TREADY),
-    .s_idx_tdata (out0_V_TDATA)
+    .m_axis_tvalid      (out0_V_TVALID),
+    .m_axis_tready      (out0_V_TREADY),
+    .m_axis_tdata       (out0_V_TDATA)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

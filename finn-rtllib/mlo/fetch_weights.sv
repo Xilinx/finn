@@ -50,13 +50,17 @@ module fetch_weights #(
     parameter int unsigned              LEN_BITS = 32,
     parameter int unsigned              CNT_BITS = 16,
 
-    parameter logic[ADDR_BITS-1:0]      ADDR_WEIGHTS,
     parameter logic[ADDR_BITS-1:0]      LAYER_OFFS,
     parameter int unsigned              N_MAX_LAYERS,
 
     parameter int unsigned              QDEPTH = 8,
+    parameter int unsigned              EN_OREG = 1,
     parameter int unsigned              N_DCPL_STGS = 1,
-    parameter int unsigned              DBG = 0
+    parameter int unsigned              DBG = 0,
+
+    // Safely deducible parameters
+    parameter   DS_BITS_BA = (PE+7)/8 * 8,
+	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
@@ -64,41 +68,41 @@ module fetch_weights #(
     output logic                        m_done,
 
     // AXI
-    output logic[ADDR_BITS-1:0]         m_axi_hbm_araddr,
-    output logic[1:0]		            m_axi_hbm_arburst,
-    output logic[3:0]		            m_axi_hbm_arcache,
-    output logic[1:0]      		        m_axi_hbm_arid,
-    output logic[7:0]		            m_axi_hbm_arlen,
-    output logic[0:0]		            m_axi_hbm_arlock,
-    output logic[2:0]		            m_axi_hbm_arprot,
-    output logic[2:0]		            m_axi_hbm_arsize,
-    input  logic			            m_axi_hbm_arready,
-    output logic			            m_axi_hbm_arvalid,
-    output logic[ADDR_BITS-1:0] 	    m_axi_hbm_awaddr,
-    output logic[1:0]		            m_axi_hbm_awburst,
-    output logic[3:0]		            m_axi_hbm_awcache,
-    output logic[1:0]		            m_axi_hbm_awid,
-    output logic[7:0]		            m_axi_hbm_awlen,
-    output logic[0:0]		            m_axi_hbm_awlock,
-    output logic[2:0]		            m_axi_hbm_awprot,
-    output logic[2:0]		            m_axi_hbm_awsize,
-    input  logic			            m_axi_hbm_awready,
-    output logic			            m_axi_hbm_awvalid,
-    input  logic[DATA_BITS-1:0] 	    m_axi_hbm_rdata,
-    input  logic[1:0]      		        m_axi_hbm_rid,
-    input  logic			            m_axi_hbm_rlast,
-    input  logic[1:0]		            m_axi_hbm_rresp,
-    output logic 			            m_axi_hbm_rready,
-    input  logic			            m_axi_hbm_rvalid,
-    output logic[DATA_BITS-1:0] 	    m_axi_hbm_wdata,
-    output logic			            m_axi_hbm_wlast,
-    output logic[DATA_BITS/8-1:0] 	    m_axi_hbm_wstrb,
-    input  logic			            m_axi_hbm_wready,
-    output logic			            m_axi_hbm_wvalid,
-    input  logic[1:0]      		        m_axi_hbm_bid,
-    input  logic[1:0]		            m_axi_hbm_bresp,
-    output logic			            m_axi_hbm_bready,
-    input  logic			            m_axi_hbm_bvalid,
+    output logic[ADDR_BITS-1:0]         m_axi_ddr_araddr,
+    output logic[1:0]		            m_axi_ddr_arburst,
+    output logic[3:0]		            m_axi_ddr_arcache,
+    output logic[1:0]      		        m_axi_ddr_arid,
+    output logic[7:0]		            m_axi_ddr_arlen,
+    output logic[0:0]		            m_axi_ddr_arlock,
+    output logic[2:0]		            m_axi_ddr_arprot,
+    output logic[2:0]		            m_axi_ddr_arsize,
+    input  logic			            m_axi_ddr_arready,
+    output logic			            m_axi_ddr_arvalid,
+    output logic[ADDR_BITS-1:0] 	    m_axi_ddr_awaddr,
+    output logic[1:0]		            m_axi_ddr_awburst,
+    output logic[3:0]		            m_axi_ddr_awcache,
+    output logic[1:0]		            m_axi_ddr_awid,
+    output logic[7:0]		            m_axi_ddr_awlen,
+    output logic[0:0]		            m_axi_ddr_awlock,
+    output logic[2:0]		            m_axi_ddr_awprot,
+    output logic[2:0]		            m_axi_ddr_awsize,
+    input  logic			            m_axi_ddr_awready,
+    output logic			            m_axi_ddr_awvalid,
+    input  logic[DATA_BITS-1:0] 	    m_axi_ddr_rdata,
+    input  logic[1:0]      		        m_axi_ddr_rid,
+    input  logic			            m_axi_ddr_rlast,
+    input  logic[1:0]		            m_axi_ddr_rresp,
+    output logic 			            m_axi_ddr_rready,
+    input  logic			            m_axi_ddr_rvalid,
+    output logic[DATA_BITS-1:0] 	    m_axi_ddr_wdata,
+    output logic			            m_axi_ddr_wlast,
+    output logic[DATA_BITS/8-1:0] 	    m_axi_ddr_wstrb,
+    input  logic			            m_axi_ddr_wready,
+    output logic			            m_axi_ddr_wvalid,
+    input  logic[1:0]      		        m_axi_ddr_bid,
+    input  logic[1:0]		            m_axi_ddr_bresp,
+    output logic			            m_axi_ddr_bready,
+    input  logic			            m_axi_ddr_bvalid,
 
     // Index
     input  logic                        s_idx_tvalid,
@@ -109,31 +113,42 @@ module fetch_weights #(
     // TODO: Should we reg this? Would be quite wide ...
     output logic                        m_axis_tvalid,
     input  logic                        m_axis_tready,
-    output logic[2*CNT_BITS-1:0]        m_axis_tdata
+    output logic[WS_BITS_BA-1:0]        m_axis_tdata
 );
-
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS)) s_idx ();
-`AXIS_ASSIGN_S2I(s_idx, s_idx)
-
-AXI4S #(.AXI4S_DATA_BITS(PE*SIMD*WEIGHT_WIDTH)) m_axis ();
-`AXIS_ASSIGN_I2S(m_axis, m_axis)
-
-AXI4 #(.AXI4_DATA_BITS(DATA_BITS), .AXI4_ADDR_BITS(ADDR_BITS)) m_axi_hbm ();
-`AXI_ASSIGN_I2S(m_axi_hbm, m_axi_hbm)
 
 // Offsets
 logic [N_MAX_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_MAX_LAYERS; i++) begin
-    assign l_offsets[i] = ADDR_WEIGHTS | (i * LAYER_OFFS);
+    assign l_offsets[i] = (i * LAYER_OFFS);
 end
 
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS)) q_idx_out ();
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_dma ();
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_dma_out ();
+logic q_idx_out_tvalid, q_idx_out_tready;
+logic [2*CNT_BITS-1:0] q_idx_out_tdata;
+logic q_dma_tvalid, q_dma_tready;
+logic [ADDR_BITS+LEN_BITS-1:0] q_dma_tdata;
+logic q_dma_out_tvalid, q_dma_out_tready;
+logic [ADDR_BITS+LEN_BITS-1:0] q_dma_out_tdata;
 
 // Queues
-queue #(.QDEPTH(QDEPTH), .QWIDTH(2*CNT_BITS)) inst_queue_in (.aclk(aclk), .aresetn(aresetn), .s_axis(s_idx), .m_axis(q_idx_out));
-queue #(.QDEPTH(QDEPTH), .QWIDTH(ADDR_BITS+LEN_BITS)) inst_queue_dma (.aclk(aclk), .aresetn(aresetn), .s_axis(q_dma), .m_axis(q_dma_out));
+Q_srl #(
+    .depth(QDEPTH),
+    .width(2*CNT_BITS)
+) inst_queue_in (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
+    .o_d(q_idx_out_tdata), .o_v(q_idx_out_tvalid), .o_r(q_idx_out_tready)
+);
+
+Q_srl #(
+    .depth(QDEPTH),
+    .width(ADDR_BITS+LEN_BITS)
+) inst_queue_dma (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(q_dma_tdata), .i_v(q_dma_tvalid), .i_r(q_dma_tready),
+    .o_d(q_dma_out_tdata), .o_v(q_dma_out_tvalid), .o_r(q_dma_out_tready)
+);
 
 // Regs
 typedef enum logic[0:0] {ST_IDLE, ST_READ} state_t;
@@ -169,10 +184,10 @@ always_comb begin : NSL
 
     case (state_C)
         ST_IDLE:
-            state_N = q_idx_out.tvalid ? ST_READ : ST_IDLE;
+            state_N = q_idx_out_tvalid ? ST_READ : ST_IDLE;
 
         ST_READ:
-            state_N = ((cnt_frames_C == n_frames_C - 1) && q_dma.tready) ? ST_IDLE : ST_READ;
+            state_N = ((cnt_frames_C == n_frames_C - 1) && q_dma_tready) ? ST_IDLE : ST_READ;
 
     endcase
 end
@@ -185,26 +200,26 @@ always_comb begin : DP
     len_N = len_C;
 
     // S
-    q_idx_out.tready = 1'b0;
-    q_dma.tvalid = 1'b0;
-    q_dma.tdata = {len_C, addr_C};
+    q_idx_out_tready = 1'b0;
+    q_dma_tvalid = 1'b0;
+    q_dma_tdata = {len_C, addr_C};
 
     // RD
     case (state_C)
         ST_IDLE: begin
-            q_idx_out.tready = 1'b1;
-            if(q_idx_out.tvalid) begin
+            q_idx_out_tready = 1'b1;
+            if(q_idx_out_tvalid) begin
                 cnt_frames_N = 0;
-                layer_N = q_idx_out.tdata[0+:CNT_BITS];
-                n_frames_N = q_idx_out.tdata[CNT_BITS+:CNT_BITS];
+                layer_N = q_idx_out_tdata[0+:CNT_BITS];
+                n_frames_N = q_idx_out_tdata[CNT_BITS+:CNT_BITS];
                 len_N = MH * MW;
-                addr_N = l_offsets[q_idx_out.tdata[0+:CNT_BITS]];
+                addr_N = l_offsets[q_idx_out_tdata[0+:CNT_BITS]];
             end
         end
 
         ST_READ: begin
-            q_dma.tvalid = 1'b1;
-            if(q_dma.tready) begin
+            q_dma_tvalid = 1'b1;
+            if(q_dma_tready) begin
                 cnt_frames_N = cnt_frames_C + 1;
             end
         end
@@ -213,52 +228,88 @@ always_comb begin : DP
 end
 
 // DMA
-AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) axis_tmp_f ();
-AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) axis_dma_f ();
-AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_dma ();
-AXI4S #(.AXI4S_DATA_BITS(PE*WEIGHT_WIDTH)) axis_dwc_lwb ();
+logic axis_dma_tvalid;
+logic axis_dma_tready;
+logic[DATA_BITS-1:0] axis_dma_tdata;
+logic[DATA_BITS/8-1:0] axis_dma_tkeep;
+logic axis_dma_tlast;
 
-cdma_top #(
-    .ADDR_BITS(ADDR_BITS),
+cdma_u_rd #(
     .DATA_BITS(DATA_BITS),
-    .LEN_BITS(LEN_BITS),
-    .CDMA_RD(1),
-    .CDMA_WR(0)
+    .ADDR_BITS(ADDR_BITS),
+    .LEN_BITS(LEN_BITS)
 ) inst_dma (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .rd_valid(q_dma_out.tvalid),
-    .rd_ready(q_dma_out.tready),
-    .rd_paddr(q_dma_out.tdata[0+:ADDR_BITS]),
-    .rd_len(q_dma_out.tdata[ADDR_BITS+:LEN_BITS]),
+    .aclk(aclk), .aresetn(aresetn),
+
+    .rd_valid(q_dma_out_tvalid), .rd_ready(q_dma_out_tready),
+    .rd_paddr(q_dma_out_tdata[0+:ADDR_BITS]), .rd_len(q_dma_out_tdata[ADDR_BITS+:LEN_BITS]),
     .rd_done(m_done),
-    .wr_valid(1'b0),
-    .wr_ready(),
-    .wr_paddr(0),
-    .wr_len(0),
-    .wr_done(),
-    .m_axi_ddr(m_axi_hbm),
-    .s_axis_ddr(axis_tmp_f),
-    .m_axis_ddr(axis_dma_f)
+
+    .m_axi_ddr_arvalid(m_axi_ddr_arvalid),
+    .m_axi_ddr_arready(m_axi_ddr_arready),
+    .m_axi_ddr_araddr(m_axi_ddr_araddr),
+    .m_axi_ddr_arid(m_axi_ddr_arid),
+    .m_axi_ddr_arlen(m_axi_ddr_arlen),
+    .m_axi_ddr_arsize(m_axi_ddr_arsize),
+    .m_axi_ddr_arburst(m_axi_ddr_arburst),
+    .m_axi_ddr_arlock(m_axi_ddr_arlock),
+    .m_axi_ddr_arcache(m_axi_ddr_arcache),
+    .m_axi_ddr_arprot(m_axi_ddr_arprot),
+    .m_axi_ddr_rvalid(m_axi_ddr_rvalid),
+    .m_axi_ddr_rready(m_axi_ddr_rready),
+    .m_axi_ddr_rdata(m_axi_ddr_rdata),
+    .m_axi_ddr_rlast(m_axi_ddr_rlast),
+    .m_axi_ddr_rid(m_axi_ddr_rid),
+    .m_axi_ddr_rresp(m_axi_ddr_rresp),
+
+    .m_axis_ddr_tvalid(axis_dma_tvalid),
+    .m_axis_ddr_tready(axis_dma_tready),
+    .m_axis_ddr_tdata(axis_dma_tdata),
+    .m_axis_ddr_tkeep(axis_dma_tkeep),
+    .m_axis_ddr_tlast(axis_dma_tlast),
 );
-`AXISF_TIE_OFF_M(axis_tmp_f)
-`AXISF_AXIS_ASSIGN(axis_dma_f, axis_dma)
 
 // Width conversion
-axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(PE*WEIGHT_WIDTH)) inst_dwc (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_dma), .m_axis(axis_dwc_lwb));
+logic axis_dwc_tvalid;
+logic axis_dwc_tready;
+logic[DS_BITS_BA-1:0] axis_dwc_tdata;
+logic[(DS_BITS_BA)/8-1:0] axis_dwc_tkeep;
+logic axis_dwc_tlast;
+
+axis_dwc #(
+    .S_DATA_BITS(DATA_BITS), .M_DATA_BITS(DS_BITS_BA)
+) inst_dwc (
+    .aclk(aclk), .aresetn(aresetn),
+    .s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
+    .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast),
+);
 
 // Double buffer
-AXI4S #(.AXI4S_DATA_BITS(PE*SIMD*WEIGHT_WIDTH)) m_axis_int ();
+logic axis_lwb_tvalid;
+logic axis_lwb_tready;
+logic[WS_BITS_BA-1:0] axis_lwb_tdata;
 
 local_weight_buffer #(
     .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .DBG(DBG)
 ) inst_weight_buff (
     .clk(aclk), .rst(~aresetn),
-    .ivld(axis_dwc_lwb.tvalid), .irdy(axis_dwc_lwb.tready), .idat(axis_dwc_lwb.tdata),
-    .ovld(m_axis_int.tvalid), .ordy(m_axis_int.tready), .odat(m_axis_int.tdata)
+    .ivld(axis_dwc_tvalid), .irdy(axis_dwc_tready), .idat(axis_dwc_tdata),
+    .ovld(axis_lwb_tvalid), .ordy(axis_lwb_tready), .odat(axis_lwb_tdata)
 );
 
 // Reg slice
-axis_reg_array_rtl #(.N_STAGES(1), .DATA_BITS(PE*SIMD*WEIGHT_WIDTH)) inst_reg_out (.aclk(aclk), .aresetn(aresetn), .s_axis(m_axis_int), .m_axis(m_axis));
+if(EN_OREG) begin
+    axis_reg_array_rtl #(
+        .DATA_BITS(WS_BITS_BA), .N_STAGES(N_DCPL_STGS)
+    ) inst_oreg (
+        .aclk(aclk), .aresetn(aresetn),
+        .s_axis_tvalid(axis_lwb_tvalid), .s_axis_tready(axis_lwb_tready), .s_axis_tdata(axis_lwb_tdata),
+        .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready), .m_axis_tdata(m_axis_tdata)
+    );
+end else begin
+    assign m_axis_tvalid = axis_lwb_tvalid;
+    assign axis_lwb_tready = m_axis_tready;
+    assign m_axis_tdata = axis_lwb_tdata;
+end
 
 endmodule

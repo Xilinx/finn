@@ -25,13 +25,9 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
- * @brief   Aligned CDMA top level
+ * @brief   CDMA read top level
  *
- * The aligned CDMA top level. Contains read and write DMA engines.
- * Outstanding queues at the input. Low resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size
  *  @param DATA_BITS    Size of the data bus (both AXI and stream)
@@ -40,10 +36,10 @@ import iwTypes::*;
  */
 module cdma_u_rd #(
     parameter integer                   BURST_LEN = 16,
-    parameter integer                   DATA_BITS = HBM_DATA_BITS,
-    parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
-    parameter integer                   LEN_BITS = HBM_LEN_BITS,
-    parameter integer                   ID_BITS = HBM_ID_BITS,
+    parameter integer                   DATA_BITS = 256,
+    parameter integer                   ADDR_BITS = 64,
+    parameter integer                   LEN_BITS = 32,
+    parameter integer                   ID_BITS = 2,
     parameter integer                   BURST_OUTSTANDING = 64
 ) (
     input  logic                        aclk,
@@ -75,7 +71,11 @@ module cdma_u_rd #(
     input  wire [1:0]                   m_axi_ddr_rresp,
 
     // AXI4S
-    AXI4S_PCKT.master                   m_axis_ddr
+    output logic                        m_axis_ddr_tvalid,
+    input  logic                        m_axis_ddr_tready,
+    output logic [DATA_BITS-1:0]        m_axis_ddr_tdata,
+    output logic [DATA_BITS/8-1:0]      m_axis_ddr_tkeep,
+    output logic                        m_axis_ddr_tlast
 );
 
 localparam integer DCPL_DEPTH = 4;
@@ -146,11 +146,11 @@ axi_dma_rd_inst (
     /*
      * AXI stream read data output
      */
-    .m_axis_read_data_tdata(m_axis_ddr.tdata),
-    .m_axis_read_data_tkeep(m_axis_ddr.tkeep),
-    .m_axis_read_data_tvalid(m_axis_ddr.tvalid),
-    .m_axis_read_data_tready(m_axis_ddr.tready),
-    .m_axis_read_data_tlast(m_axis_ddr.tlast),
+    .m_axis_read_data_tdata(m_axis_ddr_tdata),
+    .m_axis_read_data_tkeep(m_axis_ddr_tkeep),
+    .m_axis_read_data_tvalid(m_axis_ddr_tvalid),
+    .m_axis_read_data_tready(m_axis_ddr_tready),
+    .m_axis_read_data_tlast(m_axis_ddr_tlast),
 
     /*
      * AXI master interface
