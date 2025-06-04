@@ -356,7 +356,7 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
 
     # driver.py and python libraries
     pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
-    if not None:
+    if pynq_driver_dir is not None:
         copytree(pynq_driver_dir, deployment_dir, dirs_exist_ok=True)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
     else:
