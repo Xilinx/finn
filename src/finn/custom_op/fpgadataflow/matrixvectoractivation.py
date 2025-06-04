@@ -944,6 +944,17 @@ class MVAU(HWCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
+            if self.get_nodeattr("mlo_max_iter"):
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, "in_idx0_V")
+                )
+                                
+                cmd.append(
+                    "create_bd_intf_pin -mode Master "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, "axi_mm")
+                )
+
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -967,7 +978,7 @@ class MVAU(HWCustomOp):
                         sourcefiles.append(os.path.join(swg_rtllib_dir + "common/", file))
                 # add files from cdma dir
                 cdma_dir = os.path.join(swg_rtllib_dir, "cdma/")
-                sourcefiles.append(os.path.join(cdma_dir, "cdma_top.sv"))
+                #sourcefiles.append(os.path.join(cdma_dir, "cdma_top.sv"))
                 for file in os.listdir(cdma_dir + "cdma_a/"):
                     if file.endswith(".sv"):
                         sourcefiles.append(os.path.join(cdma_dir + "cdma_a/", file))
@@ -1007,6 +1018,18 @@ class MVAU(HWCustomOp):
             )
 
             cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                 "[get_bd_intf_pins %s/%s/%s]"
+                 % (node_name, "in_idx0_V", node_name, strm_inst, "in_idx0_V")
+             )
+            
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                 "[get_bd_intf_pins %s/%s/%s]"
+                 % (node_name, "axi_mm", node_name, strm_inst, "axi_mm")
+             )
+
+            cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/%s] "
                 "[get_bd_intf_pins %s/%s/in1_V]"
                 % (node_name, strm_inst, strm_out_name, node_name, node_name)
@@ -1021,16 +1044,17 @@ class MVAU(HWCustomOp):
             )
             # if using 2x pumped memory, connect the memstreamer's 2x clk input
             # to the 2x clock port. otherwise connect it to the regular clock port.
-            if self.get_nodeattr("pumpedMemory"):
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk2x_name, node_name, strm_inst)
-                )
-            else:
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                    % (node_name, clk_name, node_name, strm_inst)
-                )
+            if "mlo_max_iter" not in self.get_nodeattr_types(): 
+                if self.get_nodeattr("pumpedMemory"):
+                    cmd.append(
+                        "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                        % (node_name, clk2x_name, node_name, strm_inst)
+                    )
+                else:
+                    cmd.append(
+                        "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                        % (node_name, clk_name, node_name, strm_inst)
+                    )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
                 % (node_name, rst_name, node_name, node_name, rst_name)
