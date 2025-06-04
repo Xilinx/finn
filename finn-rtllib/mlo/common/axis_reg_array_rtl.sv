@@ -25,17 +25,20 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF    SUCH DAMAGE.
   */
 
-`include "axi_macros.svh"
-
 module axis_reg_array_rtl #(
-    parameter integer                   N_STAGES = 4,
+    parameter integer                   N_STAGES = 1,
     parameter integer                   DATA_BITS = 32
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
 
-    AXI4S.slave                         s_axis,
-    AXI4S.master                        m_axis
+    input  logic                        s_axis_tvalid,
+    output logic                        s_axis_tready,
+    input  logic[DATA_BITS-1:0]         s_axis_tdata,
+
+    output logic                        m_axis_tvalid,
+    input  logic                        m_axis_tready,
+    output logic[DATA_BITS-1:0]         m_axis_tdata
 );
 
 // -----------------------------------------------------------------------------------------------------------------------
@@ -43,32 +46,39 @@ module axis_reg_array_rtl #(
 // -----------------------------------------------------------------------------------------------------------------------
 AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_s [N_STAGES+1] ();
 
-`AXIS_ASSIGN(s_axis, axis_s[0])
-`AXIS_ASSIGN(axis_s[N_STAGES], m_axis)
+logic [N_STAGES:0] axis_s_tvalid;
+logic [N_STAGES:0] axis_s_tready;
+logic [N_STAGES:0][DATA_BITS-1:0] axis_s_tdata;
+
+assign axis_s_tvalid[0] = s_axis_tvalid;
+assign s_axis_tready = axis_s_tready[0];
+assign axis_s_tdata[0] = s_axis_tdata;
+
+assign m_axis_tvalid = axis_s_tvalid[N_STAGES];
+assign axis_s_tready[N_STAGES] = m_axis_tready;
+assign m_axis_tdata = axis_s_tdata[N_STAGES];
 
 for(genvar i = 0; i < N_STAGES; i++) begin
 
     axis_reg_rtl #(
-        .DATA_WIDTH(DATA_BITS),
-        .LAST_ENABLE(0),
-        .USER_ENABLE(0)
+        .DATA_WIDTH(DATA_BITS)
     ) inst_reg (
         .aclk(aclk),
         .aresetn(aresetn),
 
-        .s_axis_tdata (axis_s[i].tdata),
+        .s_axis_tdata (axis_s_tdata[i]),
         .s_axis_tkeep ('1),
-        .s_axis_tvalid(axis_s[i].tvalid),
-        .s_axis_tready(axis_s[i].tready),
+        .s_axis_tvalid(axis_s_tvalid[i]),
+        .s_axis_tready(axis_s_tready[i]),
         .s_axis_tlast ('0),
         .s_axis_tid   ('0),
         .s_axis_tdest ('0),
         .s_axis_tuser ('0),
 
-        .m_axis_tdata (axis_s[i+1].tdata),
+        .m_axis_tdata (axis_s_tdata[i+1]),
         .m_axis_tkeep (),
-        .m_axis_tvalid(axis_s[i+1].tvalid),
-        .m_axis_tready(axis_s[i+1].tready),
+        .m_axis_tvalid(axis_s_tvalid[i+1]),
+        .m_axis_tready(axis_s_tready[i+1]),
         .m_axis_tlast (),
         .m_axis_tid   (),
         .m_axis_tdest (),

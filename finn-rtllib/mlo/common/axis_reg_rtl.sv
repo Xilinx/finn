@@ -32,11 +32,11 @@ module axis_reg_rtl #
     // Width of AXI stream interfaces in bits
     parameter DATA_WIDTH = 8,
     // Propagate tkeep signal
-    parameter KEEP_ENABLE = 0,
+    parameter KEEP_ENABLE = 1,
     // tkeep signal width (words per cycle)
     parameter KEEP_WIDTH = ((DATA_WIDTH+7)/8),
     // Propagate tlast signal
-    parameter LAST_ENABLE = 0,
+    parameter LAST_ENABLE = 1,
     // Propagate tid signal
     parameter ID_ENABLE = 0,
     // tid signal width

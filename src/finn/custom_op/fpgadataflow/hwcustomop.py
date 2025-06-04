@@ -360,11 +360,9 @@ class HWCustomOp(CustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             n_reps = self.get_nodeattr("numInputVectors")[-1]
-            # set to zero for now
-            addr_weights = 0
             layer_offs = mw * mh
-            # upper bound on how many layers can be supported, set to 10 for now
-            n_max_layers = 10
+            # upper bound on how many layers can be supported, set to 64 for now
+            n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
@@ -374,7 +372,6 @@ class HWCustomOp(CustomOp):
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
-                "$ADDR_WEIGHTS$": [str(addr_weights)],
                 "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_MAX_LAYERS$": [str(n_max_layers)],
             }
