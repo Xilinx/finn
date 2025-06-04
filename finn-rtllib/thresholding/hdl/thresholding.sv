@@ -225,8 +225,7 @@ module thresholding #(
 					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
 					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
-				// TODO: consider cutting down on DEPTH of stages not even populated half (might hardly ever happen though)
-				(* RAM_STYLE = RAM_STYLE *)
+                                (* DONT_TOUCH = "true", RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
@@ -280,7 +279,6 @@ module thresholding #(
 			always_ff @(posedge clk) begin
 				assert((P.op !=? TH) || (Scope !== 1'bx)) else begin
 					$error("%m: [%0d.%0d] Broken Scope.", pe, stage);
-					$stop;
 				end
 			end
 
@@ -320,7 +318,6 @@ module thresholding #(
 					else begin
 						assert((pp.op !=? TH) || (^pp.ptr[$left(ptr_t):SN] !== 1'bx)) else begin
 							$error("%m: [%0d.%0d] Broken ptr[$left:%0d].", pe, stage, SN);
-							$stop;
 						end
 						Pf <= pp;
 					end
