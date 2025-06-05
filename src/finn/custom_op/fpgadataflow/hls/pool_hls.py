@@ -130,6 +130,7 @@ class Pool_hls(Pool, HLSBackend):
 
     def pragmas(self):
         super().pragmas()
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=in0_V compact=bit")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS aggregate variable=out0_V compact=bit")
 
