@@ -149,7 +149,8 @@ class FoldQuantWeights(Transformation):
                         mul_tensor = helper.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
-                            mul_shape,
+                            mul_shape,  # Note: This shape is known exactly as
+                            # it is an initializer with known shape
                         )
                         graph.value_info.append(mul_tensor)
                         model.set_initializer(mul_tensor.name, scale)
@@ -164,11 +165,12 @@ class FoldQuantWeights(Transformation):
                         successor = successor[0]
                         succ_output_name = successor.output[0]
 
-                        output_shape = model.get_tensor_shape(successor.output[0])
                         act_mul_tensor = helper.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             TensorProto.FLOAT,
-                            output_shape,
+                            None,  # Note: Explicitly delete the shape
+                            # annotation to be redone by the next shape
+                            # inference
                         )
                         graph.value_info.append(act_mul_tensor)
                         successor.output[0] = act_mul_tensor.name
@@ -186,19 +188,37 @@ class FoldQuantWeights(Transformation):
                             div_tensor = helper.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 TensorProto.FLOAT,
-                                mul_shape,
+                                None,  # Note: Explicitly delete the shape
+                                # annotation to be redone by the next shape
+                                # inference
                             )
                             graph.value_info.append(div_tensor)
                             model.set_initializer(div_tensor.name, scale)
 
-                            succ_input_name = successor.input[0]
+                            # Detect which input of the add-like successor is
+                            # fed by the quantizer node to select the other
+                            # branch to insert the scale factor
+                            if successor.input[0] == node_out:
+                                succ_input_name = successor.input[1]
+                            else:
+                                succ_input_name = successor.input[0]
+
                             act_mul_tensor = helper.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 TensorProto.FLOAT,
-                                output_shape,
+                                None,  # Note: Explicitly delete the shape
+                                # annotation to be redone by the next shape
+                                # inference
                             )
                             graph.value_info.append(act_mul_tensor)
-                            successor.input[0] = act_mul_tensor.name
+
+                            # Detect which input of the add-like successor is
+                            # fed by the quantizer node to select the other
+                            # branch to insert the scale factor
+                            if successor.input[0] == node_out:
+                                successor.input[1] = act_mul_tensor.name
+                            else:
+                                successor.input[0] = act_mul_tensor.name
 
                             div_node = helper.make_node(
                                 "Div",
@@ -210,6 +230,8 @@ class FoldQuantWeights(Transformation):
                     # remove old node
                     graph.node.remove(n)
                     graph_modified = True
+                    # Note: Running shape inference is necessary as shape
+                    # annotations have been deleted above
                     model = model.transform(InferShapes())
                     return (model, graph_modified)
         return (model, graph_modified)

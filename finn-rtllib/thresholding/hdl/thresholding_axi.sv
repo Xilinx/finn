@@ -39,9 +39,9 @@
  *****************************************************************************/
 
 module thresholding_axi #(
-	int unsigned  N,	// output precision
 	int unsigned  WI,	// input precision
 	int unsigned  WT,	// threshold precision
+	int unsigned  N,	// number of thresholds
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
@@ -51,7 +51,6 @@ module thresholding_axi #(
 
 	// Initial Thresholds
 	parameter  THRESHOLDS_PATH = "",
-
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
 
 	// Force Use of On-Chip Memory Blocks
@@ -60,10 +59,10 @@ module thresholding_axi #(
 	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
+	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + $clog2(N) + 2,
 	localparam int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(2**N+BIAS) :
-		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
+		/* unsigned */ $clog2(N+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -116,7 +115,7 @@ module thresholding_axi #(
 
 	if(USE_AXILITE) begin
 		uwire [ADDR_BITS-1:0]  cfg_a0;
-		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(WT)) axi (
+		axilite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(WT)) axi (
 			.aclk(ap_clk), .aresetn(ap_rst_n),
 
 			.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
@@ -178,7 +177,7 @@ module thresholding_axi #(
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
 	thresholding #(
-		.N(N), .K(WT), .C(C), .PE(PE),
+		.K(WT), .N(N), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),

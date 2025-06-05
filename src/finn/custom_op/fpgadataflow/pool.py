@@ -158,13 +158,6 @@ class Pool(HWCustomOp):
         out_width = int(dt_bits * pe)
         return out_width
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape for Pool_Batch."
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # data type stays the same

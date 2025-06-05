@@ -709,7 +709,10 @@ def test_mvau_fifocharacterize_rtlsim(
     assert period_attr == exp_total_cycles
     chrc_in = node_inst.get_nodeattr("io_chrc_in")
     chrc_out = node_inst.get_nodeattr("io_chrc_out")
-    assert chrc_in.shape == (1, 2 * exp_total_cycles)
+    if mem_mode == "internal_decoupled":
+        assert chrc_in.shape == (2, 2 * exp_total_cycles)
+    else:
+        assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # total number of transactions == 2*SF
     assert chrc_in[0, -1] == 2 * sf

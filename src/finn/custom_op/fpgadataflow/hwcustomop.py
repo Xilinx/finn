@@ -93,6 +93,11 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_out": ("ints", False, []),
         }
 
+    def make_shape_compatible_op(self, model):
+        oshape = self.get_normal_output_shape()
+        # implement tensor with correct shape
+        return super().make_const_shape_op(oshape)
+
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
@@ -110,12 +115,20 @@ class HWCustomOp(CustomOp):
         each tuple is (interface_name, interface_width_bits).
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
+        node = self.onnx_node
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        sname = self.hls_sname()
-        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
+        intf_names["s_axis"] = []
+        for i in range(len(node.input)):
+            # not every node input will result in an interface of the produced HW
+            # filter out inputs that have no stream width associated with them
+            width = self.get_instream_width_padded(i)
+            if width != 0:
+                intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
+        intf_names["m_axis"] = []
+        for i in range(len(node.output)):
+            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
@@ -209,18 +222,22 @@ class HWCustomOp(CustomOp):
 
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
-        # signal name suffix
-        sname = "_" + self.hls_sname() + "_"
         num_out_values = self.get_number_output_values()
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
-            sname=sname,
+            sname="_V_",
             liveness_threshold=get_liveness_threshold_cycles(),
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+
+    def verify_node(self):
+        """Can be implemented to verify that all attributes the node needs
+        are there and that particular attributes are set correctly. Can also
+        check if the number of inputs is equal to the expected number."""
+        pass
 
     def generate_params(self, model, path):
         """Function to generate parameters (i.e. weights and thresholds),
@@ -235,43 +252,46 @@ class HWCustomOp(CustomOp):
         by every node."""
         pass
 
+    @abstractmethod
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input stream ind."""
-        raise Exception("get_input_datatype not implemented for this op")
 
+    @abstractmethod
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output stream ind."""
-        raise Exception("get_output_datatype not implemented for this op")
 
+    @abstractmethod
     def get_normal_input_shape(self, ind=0):
         """Returns normal input shape if implemented."""
-        raise Exception("get_normal_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_normal_output_shape(self, ind=0):
         """Returns folded output shape if implemented."""
-        raise Exception("get_normal_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_input_shape(self, ind=0):
         """Returns folded input shape (according to synapse folding), if implemented."""
-        raise Exception("get_folded_input_shape not implemented for this op")
 
+    @abstractmethod
     def get_folded_output_shape(self, ind=0):
         """Returns folded output shape (according to neuron folding), if implemented."""
-        raise Exception("get_folded_output_shape not implemented for this op")
 
+    @abstractmethod
     def get_instream_width(self, ind=0):
         """Returns input stream width, if implemented."""
-        raise Exception("get_instream_width not implemented for this op")
 
+    @abstractmethod
     def get_outstream_width(self, ind=0):
         """Returns output stream width, if implemented."""
-        raise Exception("get_outstream_width not implemented for this op")
 
     def get_instream_width_padded(self, ind=0):
         """Returns input stream width padded to a multiple of 8. This is required
         by the AXI Stream spec."""
         in_width = self.get_instream_width(ind=ind)
-        return roundup_to_integer_multiple(in_width, 8)
+        if in_width != 0:
+            return roundup_to_integer_multiple(in_width, 8)
+        else:
+            return 0
 
     def get_outstream_width_padded(self, ind=0):
         """Returns output stream width padded to a multiple of 8. This is required
@@ -292,7 +312,7 @@ class HWCustomOp(CustomOp):
                 depth = self.calc_tmem()
             else:
                 depth = self.calc_wmem()
-            padded_width = self.get_weightstream_width_padded()
+            padded_width = self.get_instream_width_padded(1)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
             ram_style = self.get_nodeattr("ram_style")
@@ -343,6 +363,8 @@ class HWCustomOp(CustomOp):
             exp_cycles,
         )
         sim = self.get_rtlsim()
+        # signal name
+        sname = "_V_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
@@ -350,7 +372,7 @@ class HWCustomOp(CustomOp):
                 "inputs": {
                     "in0": [i for i in range(n_inps)],
                 },
-                "outputs": {"out": []},
+                "outputs": {"out0": []},
             }
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior

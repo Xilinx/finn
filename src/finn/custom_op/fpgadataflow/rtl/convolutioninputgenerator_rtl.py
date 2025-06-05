@@ -30,7 +30,6 @@ import math
 import numpy as np
 import os
 import shutil
-from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
@@ -40,7 +39,6 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # RTL Convolution Input Generator / Sliding Window Generator (SWG)
 # Matches and extends the functionality of all ConvolutionInputGenerator_* functions
@@ -281,7 +279,6 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         if mode == "cppsim":
             ConvolutionInputGenerator.execute_node(self, context, graph)
@@ -301,71 +298,7 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
                 im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, ifm_ch * k_h * k_w)
                 context[node.output[0]] = im2col_out
         elif mode == "rtlsim":
-            node = self.onnx_node
-            exp_ishape = self.get_normal_input_shape()
-            exp_oshape = self.get_normal_output_shape()
-            folded_ishape = self.get_folded_input_shape()
-
-            inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert (
-                inp.shape == exp_ishape
-            ), """Input shape doesn't match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-            if self.get_input_datatype() == DataType["BIPOLAR"]:
-                # store bipolar activations as binary
-                inp = (inp + 1) / 2
-                export_idt = DataType["BINARY"]
-            else:
-                export_idt = self.get_input_datatype()
-
-            # reshape input into folded form
-            inp = inp.reshape(folded_ishape)
-            # make copy before saving array
-            reshaped_input = inp.copy()
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            io_dict = {
-                "inputs": {"in0": rtlsim_inp},
-                "outputs": {"out": []},
-            }
-            self.rtlsim_multi_io(sim, io_dict)
-            super().close_rtlsim(sim)
-            rtlsim_output = io_dict["outputs"]["out"]
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-
-            # binary -> bipolar if needed
-            if self.get_output_datatype() == DataType["BIPOLAR"]:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == exp_oshape
-            ), """Output
-            shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
+            RTLBackend.execute_node(self, context, graph)
 
     def prepare_codegen_default(self):
         """Fills code generation dict for the default implementation style by computing
