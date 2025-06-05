@@ -606,7 +606,9 @@ class MVAU_hls(MVAU, HLSBackend):
         # instantiate the HLS IP
         vlnv = self.get_nodeattr("ip_vlnv")
         node_name = self.onnx_node.name
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        if self.get_nodeattr("mem_mode") == "internal_decoupled" or self.get_nodeattr(
+            "mlo_max_iter"
+        ):
             cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
             cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))

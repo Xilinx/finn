@@ -25,13 +25,9 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
- * @brief   Aligned CDMA top level
+ * @brief   CDMA write top level
  *
- * The aligned CDMA top level. Contains read and write DMA engines.
- * Outstanding queues at the input. Low resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size
  *  @param DATA_BITS    Size of the data bus (both AXI and stream)
@@ -40,10 +36,10 @@ import iwTypes::*;
  */
 module cdma_u_wr #(
     parameter integer                   BURST_LEN = 16,
-    parameter integer                   DATA_BITS = HBM_DATA_BITS,
-    parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
-    parameter integer                   LEN_BITS = HBM_LEN_BITS,
-    parameter integer                   ID_BITS = HBM_ID_BITS,
+    parameter integer                   DATA_BITS = 256,
+    parameter integer                   ADDR_BITS = 64,
+    parameter integer                   LEN_BITS = 32,
+    parameter integer                   ID_BITS = 2,
     parameter integer                   BURST_OUTSTANDING = 64
 ) (
     input  logic                        aclk,
@@ -77,7 +73,11 @@ module cdma_u_wr #(
     output wire                         m_axi_ddr_bready,
 
     // AXI4S
-    AXI4S_PCKT.slave                    s_axis_ddr
+    input  logic                        s_axis_ddr_tvalid,
+    output logic                        s_axis_ddr_tready,
+    input  logic [DATA_BITS-1:0]        s_axis_ddr_tdata,
+    input  logic [DATA_BITS/8-1:0]      s_axis_ddr_tkeep,
+    input  logic                        s_axis_ddr_tlast
 );
 
 localparam integer DCPL_DEPTH = 4;
@@ -148,11 +148,11 @@ axi_dma_wr_inst (
     /*
      * AXI stream write data input
      */
-    .s_axis_write_data_tdata(s_axis_ddr.tdata),
-    .s_axis_write_data_tkeep(s_axis_ddr.tkeep),
-    .s_axis_write_data_tvalid(s_axis_ddr.tvalid),
-    .s_axis_write_data_tready(s_axis_ddr.tready),
-    .s_axis_write_data_tlast(s_axis_ddr.tlast),
+    .s_axis_write_data_tdata(s_axis_ddr_tdata),
+    .s_axis_write_data_tkeep(s_axis_ddr_tkeep),
+    .s_axis_write_data_tvalid(s_axis_ddr_tvalid),
+    .s_axis_write_data_tready(s_axis_ddr_tready),
+    .s_axis_write_data_tlast(s_axis_ddr_tlast),
 
     /*
      * AXI master interface

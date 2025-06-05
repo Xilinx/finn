@@ -25,8 +25,6 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
  * @brief   Unaligned CDMA top level
  *
@@ -49,6 +47,7 @@ module cdma_u #(
     input  wire                         aclk,
     input  wire                         aresetn,
 
+    // Control and status
     input  logic                        rd_valid,
     output logic                        rd_ready,
     input  logic[ADDR_BITS-1:0]         rd_paddr,
@@ -61,10 +60,55 @@ module cdma_u #(
     input  logic[LEN_BITS-1:0]          wr_len,
     output logic                        wr_done,
 
-    AXI4.master                         m_axi_ddr,
+    // AXI4
+    output wire                         m_axi_ddr_arvalid,
+    input  wire                         m_axi_ddr_arready,
+    output wire [ADDR_BITS-1:0]         m_axi_ddr_araddr,
+    output wire [ID_BITS-1:0]           m_axi_ddr_arid,
+    output wire [7:0]                   m_axi_ddr_arlen,
+    output wire [2:0]                   m_axi_ddr_arsize,
+    output wire [1:0]                   m_axi_ddr_arburst,
+    output wire [0:0]                   m_axi_ddr_arlock,
+    output wire [3:0]                   m_axi_ddr_arcache,
+    output wire [2:0]                   m_axi_ddr_arprot,
+    input  wire                         m_axi_ddr_rvalid,
+    output wire                         m_axi_ddr_rready,
+    input  wire [DATA_BITS-1:0]         m_axi_ddr_rdata,
+    input  wire                         m_axi_ddr_rlast,
+    input  wire [ID_BITS-1:0]           m_axi_ddr_rid,
+    input  wire [1:0]                   m_axi_ddr_rresp,
 
-    AXI4SU.slave                        s_axis_ddr,
-    AXI4SU.master                       m_axis_ddr
+    output wire                         m_axi_ddr_awvalid,
+    input  wire                         m_axi_ddr_awready,
+    output wire [ADDR_BITS-1:0]         m_axi_ddr_awaddr,
+    output wire [ID_BITS-1:0]           m_axi_ddr_awid,
+    output wire [7:0]                   m_axi_ddr_awlen,
+    output wire [2:0]                   m_axi_ddr_awsize,
+    output wire [1:0]                   m_axi_ddr_awburst,
+    output wire [0:0]                   m_axi_ddr_awlock,
+    output wire [3:0]                   m_axi_ddr_awcache,
+    output wire [DATA_BITS-1:0]         m_axi_ddr_wdata,
+    output wire [DATA_BITS/8-1:0]       m_axi_ddr_wstrb,
+    output wire                         m_axi_ddr_wlast,
+    output wire                         m_axi_ddr_wvalid,
+    input  wire                         m_axi_ddr_wready,
+    input  wire [ID_BITS-1:0]           m_axi_ddr_bid,
+    input  wire [1:0]                   m_axi_ddr_bresp,
+    input  wire                         m_axi_ddr_bvalid,
+    output wire                         m_axi_ddr_bready,
+
+    // AXI4S
+    output logic                        m_axis_ddr_tvalid,
+    input  logic                        m_axis_ddr_tready,
+    output logic [DATA_BITS-1:0]        m_axis_ddr_tdata,
+    output logic [DATA_BITS/8-1:0]      m_axis_ddr_tkeep,
+    output logic                        m_axis_ddr_tlast,
+
+    input  logic                        s_axis_ddr_tvalid,
+    output logic                        s_axis_ddr_tready,
+    input  logic [DATA_BITS-1:0]        s_axis_ddr_tdata,
+    input  logic [DATA_BITS/8-1:0]      s_axis_ddr_tkeep,
+    input  logic                        s_axis_ddr_tlast
 );
 
 // RD ------------------------------------------------------------------------------------------
@@ -160,31 +204,31 @@ axi_dma_rd_inst (
     /*
      * AXI stream read data output
      */
-    .m_axis_read_data_tdata(m_axis_ddr.tdata),
-    .m_axis_read_data_tkeep(m_axis_ddr.tkeep),
-    .m_axis_read_data_tvalid(m_axis_ddr.tvalid),
-    .m_axis_read_data_tready(m_axis_ddr.tready),
-    .m_axis_read_data_tlast(m_axis_ddr.tlast),
+    .m_axis_read_data_tdata(m_axis_ddr_tdata),
+    .m_axis_read_data_tkeep(m_axis_ddr_tkeep),
+    .m_axis_read_data_tvalid(m_axis_ddr_tvalid),
+    .m_axis_read_data_tready(m_axis_ddr_tready),
+    .m_axis_read_data_tlast(m_axis_ddr_tlast),
 
     /*
      * AXI master interface
      */
-    .m_axi_arid(m_axi_ddr.arid),
-    .m_axi_araddr(m_axi_ddr.araddr),
-    .m_axi_arlen(m_axi_ddr.arlen),
-    .m_axi_arsize(m_axi_ddr.arsize),
-    .m_axi_arburst(m_axi_ddr.arburst),
-    .m_axi_arlock(m_axi_ddr.arlock),
-    .m_axi_arcache(m_axi_ddr.arcache),
-    .m_axi_arprot(m_axi_ddr.arprot),
-    .m_axi_arvalid(m_axi_ddr.arvalid),
-    .m_axi_arready(m_axi_ddr.arready),
-    .m_axi_rid(m_axi_ddr.rid),
-    .m_axi_rdata(m_axi_ddr.rdata),
-    .m_axi_rresp(m_axi_ddr.rresp),
-    .m_axi_rlast(m_axi_ddr.rlast),
-    .m_axi_rvalid(m_axi_ddr.rvalid),
-    .m_axi_rready(m_axi_ddr.rready)
+    .m_axi_arid(m_axi_ddr_arid),
+    .m_axi_araddr(m_axi_ddr_araddr),
+    .m_axi_arlen(m_axi_ddr_arlen),
+    .m_axi_arsize(m_axi_ddr_arsize),
+    .m_axi_arburst(m_axi_ddr_arburst),
+    .m_axi_arlock(m_axi_ddr_arlock),
+    .m_axi_arcache(m_axi_ddr_arcache),
+    .m_axi_arprot(m_axi_ddr_arprot),
+    .m_axi_arvalid(m_axi_ddr_arvalid),
+    .m_axi_arready(m_axi_ddr_arready),
+    .m_axi_rid(m_axi_ddr_rid),
+    .m_axi_rdata(m_axi_ddr_rdata),
+    .m_axi_rresp(m_axi_ddr_rresp),
+    .m_axi_rlast(m_axi_ddr_rlast),
+    .m_axi_rvalid(m_axi_ddr_rvalid),
+    .m_axi_rready(m_axi_ddr_rready)
 );
 
 axi_dma_wr_u #(
@@ -219,33 +263,33 @@ axi_dma_wr_inst (
     /*
      * AXI stream write data input
      */
-    .s_axis_write_data_tdata(s_axis_ddr.tdata),
-    .s_axis_write_data_tkeep(s_axis_ddr.tkeep),
-    .s_axis_write_data_tvalid(s_axis_ddr.tvalid),
-    .s_axis_write_data_tready(s_axis_ddr.tready),
-    .s_axis_write_data_tlast(s_axis_ddr.tlast),
+    .s_axis_write_data_tdata(s_axis_ddr_tdata),
+    .s_axis_write_data_tkeep(s_axis_ddr_tkeep),
+    .s_axis_write_data_tvalid(s_axis_ddr_tvalid),
+    .s_axis_write_data_tready(s_axis_ddr_tready),
+    .s_axis_write_data_tlast(s_axis_ddr_tlast),
 
     /*
      * AXI master interface
      */
-    .m_axi_awid(m_axi_ddr.awid),
-    .m_axi_awaddr(m_axi_ddr.awaddr),
-    .m_axi_awlen(m_axi_ddr.awlen),
-    .m_axi_awsize(m_axi_ddr.awsize),
-    .m_axi_awburst(m_axi_ddr.awburst),
-    .m_axi_awlock(m_axi_ddr.awlock),
-    .m_axi_awcache(m_axi_ddr.awcache),
-    .m_axi_awvalid(m_axi_ddr.awvalid),
-    .m_axi_awready(m_axi_ddr.awready),
-    .m_axi_wdata(m_axi_ddr.wdata),
-    .m_axi_wstrb(m_axi_ddr.wstrb),
-    .m_axi_wlast(m_axi_ddr.wlast),
-    .m_axi_wvalid(m_axi_ddr.wvalid),
-    .m_axi_wready(m_axi_ddr.wready),
-    .m_axi_bid(m_axi_ddr.bid),
-    .m_axi_bresp(m_axi_ddr.bresp),
-    .m_axi_bvalid(m_axi_ddr.bvalid),
-    .m_axi_bready(m_axi_ddr.bready)
+    .m_axi_awid(m_axi_ddr_awid),
+    .m_axi_awaddr(m_axi_ddr_awaddr),
+    .m_axi_awlen(m_axi_ddr_awlen),
+    .m_axi_awsize(m_axi_ddr_awsize),
+    .m_axi_awburst(m_axi_ddr_awburst),
+    .m_axi_awlock(m_axi_ddr_awlock),
+    .m_axi_awcache(m_axi_ddr_awcache),
+    .m_axi_awvalid(m_axi_ddr_awvalid),
+    .m_axi_awready(m_axi_ddr_awready),
+    .m_axi_wdata(m_axi_ddr_wdata),
+    .m_axi_wstrb(m_axi_ddr_wstrb),
+    .m_axi_wlast(m_axi_ddr_wlast),
+    .m_axi_wvalid(m_axi_ddr_wvalid),
+    .m_axi_wready(m_axi_ddr_wready),
+    .m_axi_bid(m_axi_ddr_bid),
+    .m_axi_bresp(m_axi_ddr_bresp),
+    .m_axi_bvalid(m_axi_ddr_bvalid),
+    .m_axi_bready(m_axi_ddr_bready)
 );
 
 /////////////////////////////////////////////////////////////////////////////

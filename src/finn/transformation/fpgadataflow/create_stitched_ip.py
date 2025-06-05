@@ -184,22 +184,54 @@ class CreateStitchedIP(Transformation):
                 len(self.intf_names["axilite"]),
             )
             self.intf_names["axilite"].append(ext_if_name)
-        if len(aximm_intf_name) != 0:
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (inst_name, aximm_intf_name[0][0])
-            )
-            ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
-            self.connect_cmds.append(
-                "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
-            )
-            self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
-            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
-            # TODO should propagate this information from the node instead of 4G
-            self.connect_cmds.append("set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name))
-            self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
-            self.has_aximm = True
+
+        if not node_inst.get_nodeattr("mlo_max_iter"):
+            if len(aximm_intf_name) != 0:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                    % (inst_name, aximm_intf_name[0][0])
+                )
+                ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
+                )
+                self.connect_cmds.append("assign_bd_address")
+                seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
+                self.connect_cmds.append(
+                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                # TODO should propagate this information from the node instead of 4G
+                self.connect_cmds.append(
+                    "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
+                self.has_aximm = True
+        else:
+            for mm_intf_name in aximm_intf_name:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                    % (inst_name, mm_intf_name[0])
+                )
+                ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
+                )
+                self.connect_cmds.append("assign_bd_address")
+
+                seg_name = "%s/%s_fetch_weights/axi_mm/SEG_%s_Reg" % (
+                    inst_name,
+                    inst_name,
+                    ext_if_name,
+                )
+                self.connect_cmds.append(
+                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                # TODO should propagate this information from the node instead of 4G
+                self.connect_cmds.append(
+                    "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                self.intf_names["aximm"] = [(ext_if_name, mm_intf_name[1])]
+                self.has_aximm = True
 
     def connect_m_axis_external(self, node, idx=None):
         inst_name = node.name
@@ -228,6 +260,7 @@ class CreateStitchedIP(Transformation):
         inst_name = node.name
         node_inst = getCustomOp(node)
         input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
+
         # make input axis external
         for i in range(len(input_intf_names)):
             if idx is not None and idx != i:

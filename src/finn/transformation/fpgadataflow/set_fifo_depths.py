@@ -317,15 +317,13 @@ class InsertAndSetFIFODepths(Transformation):
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
         self.fifosim_input_throttle = fifosim_input_throttle
-        self.cfg_n_inferences = cfg_n_inferences
+        self.mlo_max_iter = 0
 
     def apply(self, model):
-        # these optypes may potentially use external weights
-        # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
-        # change external to decoupled and warn user
-        # this way we are sure we have exactly one input/output
-        modified_fc_nodes = []
+        # these optypes may potentially be param nodes in an mlo
+        # we'll temporarily change them to use external mode for FIFO sizing
+        mlo_optypes = ["MVAU_hls", "MVAU_rtl"]
+        modified_mlo_nodes = []
         for node in model.graph.node:
             # verify assumptions
             assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
@@ -352,6 +350,14 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
+            if node.onnx_node.op_type in mlo_optypes:
+                mlo_max_iter = node.get_nodeattr("mlo_max_iter")
+                if mlo_max_iter:
+                    modified_mlo_nodes.append(node.onnx_node.name)
+                    node.set_nodeattr("mlo_max_iter", 0)
+                    node.set_nodeattr("mem_mode", "external")
+                    self.mlo_max_iter = mlo_max_iter
+                    reset_implementation(node)
 
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
@@ -451,15 +457,16 @@ class InsertAndSetFIFODepths(Transformation):
                 # (removed setting of node FIFO size attributes to 0 here)
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
-                if node.op_type in extw_optypes:
-                    if node.name in modified_fc_nodes:
+                if node.op_type in mlo_optypes:
+                    if node.name in modified_mlo_nodes:
                         node_inst = getCustomOp(node)
-                        node_inst.set_nodeattr("mem_mode", "external")
+                        node_inst.set_nodeattr("mlo_max_iter", self.mlo_max_iter)
+                        node_inst.set_nodeattr("mem_mode", "internal_decoupled")
                         reset_implementation(node_inst)
-                        modified_fc_nodes.remove(node.name)
+                        modified_mlo_nodes.remove(node.name)
 
         assert (
-            len(modified_fc_nodes) == 0 and len(fifos.keys()) == 0
+            len(modified_mlo_nodes) == 0 and len(fifos.keys()) == 0
         ), "FIFO/FC nodes left untouched after model reconfiguration"
 
         # handle custom sizing for SWG FIFOs if desired
