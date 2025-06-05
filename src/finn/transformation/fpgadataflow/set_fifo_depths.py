@@ -317,6 +317,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
         self.fifosim_input_throttle = fifosim_input_throttle
+        self.cfg_n_inferences = cfg_n_inferences
         self.mlo_max_iter = 0
 
     def apply(self, model):
