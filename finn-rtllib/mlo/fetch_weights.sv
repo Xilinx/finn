@@ -266,7 +266,7 @@ cdma_u_rd #(
     .m_axis_ddr_tready(axis_dma_tready),
     .m_axis_ddr_tdata(axis_dma_tdata),
     .m_axis_ddr_tkeep(axis_dma_tkeep),
-    .m_axis_ddr_tlast(axis_dma_tlast),
+    .m_axis_ddr_tlast(axis_dma_tlast)
 );
 
 // Width conversion
@@ -281,7 +281,7 @@ axis_dwc #(
 ) inst_dwc (
     .aclk(aclk), .aresetn(aresetn),
     .s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
-    .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast),
+    .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
 );
 
 // Double buffer
