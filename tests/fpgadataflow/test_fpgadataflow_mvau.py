@@ -951,14 +951,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    # input names might have changed through applying the transformations
-    input_dict = {}
-    for inp in model.graph.input:
-        shape = tuple(model.get_tensor_shape(inp.name))
-        if shape == inpTensor_A.shape:
-            input_dict[inp.name] = inpTensor_A
-        elif shape == inpTensor_W.shape:
-            input_dict[inp.name] = inpTensor_W
     model.set_metadata_prop("exec_mode", "rtlsim")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)[outp_name]
 
