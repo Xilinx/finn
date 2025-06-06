@@ -94,6 +94,7 @@ class CreateStitchedIP(Transformation):
         self.vitis = vitis
         self.signature = signature
         self.has_aximm = False
+        self.aximm_idx = 0
         self.has_m_axis = False
         self.m_axis_idx = 0
         self.has_s_axis = False
@@ -189,7 +190,7 @@ class CreateStitchedIP(Transformation):
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                     % (inst_name, aximm_intf_name[0][0])
                 )
-                ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
+                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
                 self.connect_cmds.append(
                     "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
                 )
@@ -204,13 +205,14 @@ class CreateStitchedIP(Transformation):
                 )
                 self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
                 self.has_aximm = True
+                self.aximm_idx += 1
         else:
             for mm_intf_name in aximm_intf_name:
                 self.connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                     % (inst_name, mm_intf_name[0])
                 )
-                ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
+                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
                 self.connect_cmds.append(
                     "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
                 )
@@ -230,6 +232,7 @@ class CreateStitchedIP(Transformation):
                 )
                 self.intf_names["aximm"] = [(ext_if_name, mm_intf_name[1])]
                 self.has_aximm = True
+                self.aximm_idx += 1
 
     def connect_m_axis_external(self, node, idx=None):
         inst_name = node.name
