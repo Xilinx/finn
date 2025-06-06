@@ -70,6 +70,8 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
+        mlo_max_iter=3,
+        inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl0",
     )
@@ -107,6 +109,8 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
+        mlo_max_iter=3,
+        inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl1",
     )
@@ -114,18 +118,16 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     loop_body = helper.make_graph(
         nodes=nodes,
         name="matmul_graph",
-        inputs=[ifm, weights0, weights1],
+        inputs=[ifm, weights0, thresh0, weights1, thresh1],
         outputs=[ofm],
-        value_info=[mm0_out, mt0_out, mm1_out, thresh0, thresh1],
+        value_info=[mm0_out, mt0_out, mm1_out],
     )
     loop_body_model = qonnx_make_model(loop_body, producer_name="loop-body-model")
     loop_body_model = ModelWrapper(loop_body_model)
 
     loop_body_model.set_tensor_datatype("weights0", dtype)
     loop_body_model.set_tensor_datatype("weights1", dtype)
-    loop_body_model.set_initializer("thresh0", T0)
     loop_body_model.set_tensor_datatype("thresh0", dtype)
-    loop_body_model.set_initializer("thresh1", T1)
     loop_body_model.set_tensor_datatype("thresh1", dtype)
     loop_body_model.set_tensor_datatype("ifm", dtype)
     loop_body_model.set_tensor_datatype("ofm", dtype)
@@ -136,10 +138,12 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     # stack according to iteration count
     W0 = np.stack([W0] * iter_count)
     W1 = np.stack([W1] * iter_count)
+    T0 = np.stack([T0] * iter_count)
+    T1 = np.stack([T1] * iter_count)
     loop_node = helper.make_node(
         "FINNLoop",
         domain="finn.custom_op.fpgadataflow",
-        inputs=["ifm", "weights0", "weights1"],
+        inputs=["ifm", "weights0", "thresh0", "weights1", "thresh1"],
         outputs=["ofm"],
         body=loop_body_model.graph,
         iteration=iteration,
@@ -154,6 +158,10 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     model.set_tensor_datatype("weights0", dtype)
     model.set_initializer("weights1", W1)
     model.set_tensor_datatype("weights1", dtype)
+    model.set_initializer("thresh0", T0)
+    model.set_tensor_datatype("thresh0", dtype)
+    model.set_initializer("thresh1", T1)
+    model.set_tensor_datatype("thresh1", dtype)
     model.set_tensor_datatype("ifm", dtype)
     model.set_tensor_datatype("ofm", dtype)
 
