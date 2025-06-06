@@ -31,6 +31,7 @@ import json
 import numpy as np
 import os
 import shutil
+import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
@@ -87,7 +88,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -732,15 +733,31 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
-def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Create a PYNQ Python driver that can be used to interface the generated
-    accelerator."""
+def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Create a driver that can be used to interface the generated accelerator.
+    Use DataflowBuildConfig to select PYNQ Python or C++ driver."""
 
+    driver_dir = os.path.join(cfg.output_dir, "driver")
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
-        driver_dir = cfg.output_dir + "/driver"
+        # generate PYNQ driver
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
+    elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
+        # generate C++ Driver
+        model = model.transform(
+            MakeCPPDriver(
+                cfg._resolve_driver_platform(),
+                version=cfg.cpp_driver_version,
+            )
+        )
+        shutil.copytree(model.get_metadata_prop("cpp_driver_dir"), driver_dir, dirs_exist_ok=True)
+        print("C++ driver written into " + driver_dir)
+    else:
+        warnings.warn(
+            "The step step_make_driver is in the build list but will not be executed"
+            + " since no driver is selected in generate_outputs in your build.py file!"
+        )
     return model
 
 
@@ -862,7 +879,7 @@ build_dataflow_step_lookup = {
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
-    "step_make_pynq_driver": step_make_pynq_driver,
+    "step_make_driver": step_make_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,
