@@ -449,16 +449,17 @@ class InsertAndSetFIFODepths(Transformation):
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
 
         # remove FIFOs from mlo parameter inputs
-        mlo_op_types = ["MVAU_hls", "MVAU_rtl"]
-        for op_type in mlo_op_types:
+        for op_type in mlo_optypes:
             nodes = model.get_nodes_by_op_type(op_type)
             for node in nodes:
-                # Check if there is a FIFO inserted at param input
-                fifo_node = model.find_producer(node.input[1])
-                if fifo_node.op_type.startswith("StreamingFIFO"):
-                    fifo_inst = getCustomOp(fifo_node)
-                    fifo_inst.set_nodeattr("depth", 0)
-                    fifo_inst.set_nodeattr("mlo_max_iter", 1)
+                node_inst = getCustomOp(node)
+                if node_inst.get_nodeattr("mlo_max_iter"):
+                    # Check if there is a FIFO inserted at param input
+                    fifo_node = model.find_producer(node.input[1])
+                    if fifo_node and fifo_node.op_type.startswith("StreamingFIFO"):
+                        fifo_inst = getCustomOp(fifo_node)
+                        fifo_inst.set_nodeattr("depth", 0)
+                        fifo_inst.set_nodeattr("mlo_max_iter", 1)
 
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
