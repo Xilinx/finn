@@ -47,8 +47,9 @@ module thresholding_tb;
 		bit  deep_pipeline;
 		bit  throttled;	// throttle input and output interfaces occasionally
 	} testcfg_t;
-	localparam int unsigned  TEST_CNT = 3;
+	localparam int unsigned  TEST_CNT = 4;
 	localparam testcfg_t  TESTS[TEST_CNT] = '{
+		testcfg_t'{ k:  5, n: 1, c:  1, pe: 1, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 0 },
 		testcfg_t'{ k: 10, n: 8, c: 12, pe: 3, sign: 1, fparg: 0, deep_pipeline: 1, throttled: 1 },
 		testcfg_t'{ k:  8, n: 3, c:  8, pe: 4, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 1 },
 		testcfg_t'{ k: 17, n: 9, c: 10, pe: 5, sign: 1, fparg: 1, deep_pipeline: 1, throttled: 0 }
@@ -122,14 +123,27 @@ module thresholding_tb;
 			.ordy, .ovld, .odat
 		);
 
+		// Expected Ordering
+		function val_t reord(input val_t  x);
+			automatic val_t  res = x;
+			if(SIGNED) begin
+				if(FPARG && x[K-1])  res[K-2:0] = ~x[K-2:0];
+				res[K-1] = !x[K-1];
+			end
+			return  res;
+		endfunction : reord
+
 		//- Threshold Definition --------
 		typedef val_t  threshs_t[C][N];
 		threshs_t  THRESHS;
 		initial begin
+			static val_t  row[N];
+
 			// Generate thresholds
-			void'(std::randomize(THRESHS));
 			foreach(THRESHS[c]) begin
-				val_t  row[N] = THRESHS[c];
+				static val_t [N-1:0]  r;
+				void'(std::randomize(r));
+				foreach(row[i])  row[i] = r[i];
 				row.sort with (reord(item));
 				THRESHS[c] = row;
 			end
@@ -142,16 +156,6 @@ module thresholding_tb;
 				$display(" }");
 			end
 		end
-
-		// Expected Ordering
-		function val_t reord(input val_t  x);
-			automatic val_t  res = x;
-			if(SIGNED) begin
-				if(FPARG && x[K-1])  res[K-2:0] = ~x[K-2:0];
-				res[K-1] = !x[K-1];
-			end
-			return  res;
-		endfunction : reord
 
 		//- Stimulus Driver -------------
 		input_t  QW[$];  // Input tracing

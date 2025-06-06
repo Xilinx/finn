@@ -154,12 +154,10 @@ module thresholding #(
 
 		// PE Configuration Address Decoding
 		logic  cfg_sel[PE];
-		logic  cfg_oob;
-		logic [$clog2(N)-1:0]  cfg_ofs;
+		logic  cfg_oob; // Map readbacks from padded rows (non-existent PEs) to padded highest threshold index of first PE
 		if(PE == 1) begin
 			assign	cfg_sel[0] = 1;
 			assign	cfg_oob = 0;
-			assign	cfg_ofs = cfg_a[0+:$clog2(N)];
 		end
 		else begin
 			uwire [$clog2(PE)-1:0]  cfg_pe = cfg_a[$clog2(N)+:$clog2(PE)];
@@ -167,18 +165,16 @@ module thresholding #(
 				foreach(cfg_sel[pe]) begin
 					cfg_sel[pe] = USE_CONFIG && cfg_en && (cfg_pe == pe);
 				end
-				cfg_oob = (cfg_pe >= PE);
-				cfg_ofs = cfg_a[0+:$clog2(N)];
-				if(cfg_oob && !cfg_we) begin
-					// Map readbacks from padded rows (non-existent PEs) to padded highest threshold index of first PE
-					cfg_sel[0] = 1;
-					cfg_ofs = '1;
-				end
+				cfg_oob = (cfg_pe >= PE) && !cfg_we;
+				if(cfg_oob)  cfg_sel[0] = 1;
 			end
 		end
+		uwire [M-1:0]  cfg_ofs;	// Zero-extend for N = 2^k
+		if($clog2(N) < M)  assign  cfg_ofs[M-1] = cfg_oob;
+		if(       N  > 1)  assign  cfg_ofs[0+:$clog2(N)] = cfg_oob? {($clog2(N)){1'b1}} : cfg_a[0+:$clog2(N)];
 
 		uwire ptr_t  iptr;
-		assign	iptr[0+:M] = cfg_ofs;	// Zero-extend Expand for N = 2^k
+		assign	iptr[0+:M] = cfg_ofs;
 		if(CF > 1) begin
 			// Channel Fold Rotation
 			logic [$clog2(CF)-1:0]  CnlCnt = 0;
