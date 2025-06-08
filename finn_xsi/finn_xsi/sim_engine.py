@@ -23,18 +23,32 @@ class SimEngine:
             if p.isInput():
                 p.clear().write_back()
 
+        def cycle(updates):
+            # Rising Edge
+            clk.set(1).write_back()
+            if clk2x is not None:
+                clk2x.set(1).write_back()
+            # Updates after Active Edge
+            top.run(1)
+            for port, update in updates.items():
+                port.set_hexstr(update).write_back()
+
+            # Edges inactive on interface & finish Cycle
+            if clk2x is None:
+                top.run(4999)
+                clk.set(0).write_back()
+                top.run(5000)
+            else:
+                top.run(2499)
+                clk2x.set(0).write_back()
+                top.run(2500)
+                clk.set(0).write_back()
+                clk2x.set(1).write_back()
+                top.run(2500)
+                clk2x.set(0).write_back()
+                top.run(2500)
         self.top = top
-        self.cycle = (
-            lambda up: (clk.set(up).write_back(), top.run(5000))
-            if clk2x is None
-            else (
-                clk.set(up).write_back(),
-                clk2x.set(1).write_back(),
-                top.run(2500),
-                clk2x.set(0).write_back(),
-                top.run(2500),
-            )
-        )
+        self.cycle = cycle
         self.ticks = 0
         self.tasks = []
         self.watchdogs = []
@@ -91,21 +105,17 @@ class SimEngine:
             tasks = []
             updates = {}
 
-            # Active Clock Edge -> read
+            # Execute Cycle
             self.ticks += 1
-            self.cycle(0)
             strong = False
             for task in self.tasks:
+                # Tasks read signals and derive updates to schedule for after the clock cycle
                 ret = task(self)
                 if ret is not None:
                     updates.update(ret)
                     tasks.append(task)
                     strong |= bool(task)
-
-            # Write Back
-            self.cycle(1)
-            for port, update in updates.items():
-                port.set_hexstr(update).write_back()
+            self.cycle(updates)
 
             # Step Watchdogs
             for watchdog in self.watchdogs:
