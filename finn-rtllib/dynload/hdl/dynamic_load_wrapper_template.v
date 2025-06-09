@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,52 +27,58 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @brief	Verilog AXI-lite wrapper for dynamic MVU.
  *****************************************************************************/
 
-module $TOP_MODULE_NAME$ (
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
+module $MODULE_NAME$_dynamic_load_wrapper #(
+	parameter	PE = $PE$,
+	parameter	SIMD = $SIMD$,
+	parameter	MW = $MW$,
+	parameter	MH = $MH$,
+
+	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
+	parameter   N_REPS = $N_REPS$,
+
+	// Safely deducible parameters
+	parameter	INPUT_STREAM_WIDTH_BA = (PE*WEIGHT_WIDTH+7)/8 * 8,
+	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+)(
+	// Global Control
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-	input  ap_clk,
+	input	ap_clk,
+	//(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
+	//input	ap_clk2x,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
-	input  ap_rst_n,
-	input  [IN_WIDTH_PADDED-1:0] in0_V_TDATA,
-	input  in0_V_TVALID,
-	output in0_V_TREADY,
-	output [OUT_WIDTH_PADDED-1:0] out0_V_TDATA,
-	output out0_V_TVALID,
-	input  out0_V_TREADY
+	input	ap_rst_n,
+
+	// Input stream
+	input	[INPUT_STREAM_WIDTH_BA-1:0]  s_axis_0_TDATA,
+	input	s_axis_0_TVALID,
+	output	s_axis_0_TREADY,
+	// Output Stream
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_0_TDATA,
+	output	m_axis_0_TVALID,
+	input	m_axis_0_TREADY
 );
 
-// top-level parameters (set via code-generation)
-parameter BIT_WIDTH = $BIT_WIDTH$;
-parameter SIMD = $SIMD$;
-parameter MMV_IN = $MMV_IN$;
-parameter MMV_OUT = $MMV_OUT$;
-parameter IN_WIDTH_PADDED = $IN_WIDTH_PADDED$;
-parameter OUT_WIDTH_PADDED = $OUT_WIDTH_PADDED$;
-
-// derived constants
-parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
-parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
-
-$TOP_MODULE_NAME$_impl #(
-	.BIT_WIDTH(BIT_WIDTH),
+dynamic_load #(
+	.PE(PE),
 	.SIMD(SIMD),
-	.MMV_IN(MMV_IN),
-	.MMV_OUT(MMV_OUT)
-) impl (
+	.MW(MW),
+	.MH(MH),
+	.WEIGHT_WIDTH(WEIGHT_WIDTH),
+	.N_REPS(N_REPS)
+) inst (
 	.ap_clk(ap_clk),
 	.ap_rst_n(ap_rst_n),
-	.in0_V_V_TDATA(in0_V_TDATA[BUF_IN_WIDTH-1:0]),
-	.in0_V_V_TVALID(in0_V_TVALID),
-	.in0_V_V_TREADY(in0_V_TREADY),
-	.out_V_V_TDATA(out0_V_TDATA[BUF_OUT_WIDTH-1:0]),
-	.out_V_V_TVALID(out0_V_TVALID),
-	.out_V_V_TREADY(out0_V_TREADY)
+	.ivld(s_axis_0_TVALID),
+	.irdy(s_axis_0_TREADY),
+	.idat(s_axis_0_TDATA),
+	.ovld(m_axis_0_TVALID),
+	.ordy(m_axis_0_TREADY),
+	.odat(m_axis_0_TDATA)
 );
 
-if (OUT_WIDTH_PADDED > BUF_OUT_WIDTH) begin
-	assign out0_V_TDATA[OUT_WIDTH_PADDED-1:BUF_OUT_WIDTH] = {(OUT_WIDTH_PADDED-BUF_OUT_WIDTH){1'b0}};
-end
-
-endmodule // $TOP_MODULE_NAME$
+endmodule // $MODULE_NAME$_dynamic_load_wrapper

@@ -1487,23 +1487,26 @@ class InferQuantizedMatrixVectorActivation(Transformation):
             if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
-                # if mm_weight is not constant, skip node
-                if model.get_initializer(n.input[1]) is None:
-                    continue
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
                 idt = model.get_tensor_datatype(mm_input)
                 wdt = model.get_tensor_datatype(mm_weight)
+                W = model.get_initializer(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
-                    mm_output = n.output[0]
-                    W = model.get_initializer(mm_weight)
                     # extract weight shape, note that ONNX and finn-hlslib
                     # make different assumptions about dim order here
                     # ONNX assumes W has (in, out) shape
                     # finn-hlslib assumes W has (out, in) shape
-                    mh = int(W.shape[1])
-                    mw = int(W.shape[0])
+                    if W is None:
+                        # dynamic
+                        mm_dyn_shape = model.get_tensor_shape(mm_weight)
+                        mh = int(mm_dyn_shape[-1])
+                        mw = int(mm_dyn_shape[-2])
+                    else:
+                        # static
+                        mh = int(W.shape[1])
+                        mw = int(W.shape[0])
                     # create node with no parallelization first
                     pe = 1
                     simd = 1
@@ -1567,6 +1570,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            dynamic_input=W is None,
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -1597,6 +1602,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            dynamic_input=W is None,
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

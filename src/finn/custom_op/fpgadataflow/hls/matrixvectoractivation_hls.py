@@ -137,7 +137,11 @@ class MVAU_hls(MVAU, HLSBackend):
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
+        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
+
+        if dynamic_input:
+            self.generate_hdl_dynload()
         if mem_mode == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
@@ -266,7 +270,7 @@ class MVAU_hls(MVAU, HLSBackend):
             packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = wdt.get_hls_datatype_str()
             npy_type = "float"
-            npy_in = "%s/weights.npy" % code_gen_dir
+            npy_in = "%s/input_1.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
                 'npy2apintstream<%s, %s, %d, %s>("%s", in1_V, false, numReps);'
@@ -468,6 +472,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
@@ -485,17 +490,17 @@ class MVAU_hls(MVAU, HLSBackend):
             )
 
         # create a npy file fore each input of the node (in_ind is input index)
-        in_ind = 0
-        for inputs in node.input:
+        for in_ind, inputs in enumerate(node.input):
             # it is assumed that the first input of the node is the data input
             # the second input are the weights
-            # the third input are the thresholds
+            assert (
+                str(context[inputs].dtype) == "float32"
+            ), """Input datatype is
+            not float32 as expected."""
+
             if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
-                expected_inp_shape = self.get_folded_input_shape()
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
+
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype(0) == DataType["BIPOLAR"]:
                     # store bipolar activations as binary
@@ -506,12 +511,16 @@ class MVAU_hls(MVAU, HLSBackend):
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
-                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    os.path.join(code_gen_dir, "input_0.npy"),
                     reshaped_input,
                 )
-            elif in_ind > 2:
-                raise Exception("Unexpected input found for MatrixVectorActivation")
-            in_ind += 1
+
+            if in_ind == 1:
+                if dynamic_input:
+                    reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                    self.make_weight_file(
+                        reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                    )
 
         if mode == "cppsim":
             # execute the precompiled model
@@ -531,15 +540,19 @@ class MVAU_hls(MVAU, HLSBackend):
             nbits = self.get_instream_width(0)
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
-            if mem_mode == "external" or mem_mode == "internal_decoupled":
+
+            if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_instream_width(1)
                 export_wdt = self.get_input_datatype(1)
+
                 # we have converted bipolar weights to binary for export,
                 # so use it as such for weight generation
                 if self.get_input_datatype(1) == DataType["BIPOLAR"]:
                     export_wdt = DataType["BINARY"]
-                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
+
+                wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+
                 io_dict = {
                     "inputs": {"in0": inp, "in1": wei * num_w_reps},
                     "outputs": {"out0": []},
@@ -549,6 +562,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     "inputs": {"in0": inp},
                     "outputs": {"out0": []},
                 }
+
             self.rtlsim_multi_io(sim, io_dict)
             super().close_rtlsim(sim)
             output = io_dict["outputs"]["out0"]
