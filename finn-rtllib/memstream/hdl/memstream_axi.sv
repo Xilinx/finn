@@ -85,11 +85,11 @@ module memstream_axi #(
 	uwire  config_rack;
 	uwire [WIDTH-1:0]  config_d0;
 	uwire [WIDTH-1:0]  config_q0;
-	axi4lite_if #(
+	axilite #(
 		.ADDR_WIDTH(AXILITE_ADDR_WIDTH),
 		.DATA_WIDTH(32),
 		.IP_DATA_WIDTH(WIDTH)
-	) config_if (
+	) cfg (
 		.aclk(clk), .aresetn(!rst),
 
 		// Write Channels
