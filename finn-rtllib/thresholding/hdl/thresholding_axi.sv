@@ -49,6 +49,8 @@ module thresholding_axi #(
 	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
+	int unsigned  SETS = 1,  // Number of independent threshold sets
+
 	// Initial Thresholds
 	parameter  THRESHOLDS_PATH = "",
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
@@ -59,7 +61,8 @@ module thresholding_axi #(
 	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + $clog2(N) + 2,
+	localparam int unsigned  ADDR_BITS = $clog2(SETS) + $clog2(CF) + $clog2(PE) + $clog2(N) + 2,
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
 	localparam int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(N+BIAS+1) :
 		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
@@ -92,6 +95,12 @@ module thresholding_axi #(
 	input	logic         s_axilite_RREADY,
 	output	logic [31:0]  s_axilite_RDATA,
 	output	logic [ 1:0]  s_axilite_RRESP,
+
+	//- AXI Stream - Set Selection ------
+	// (ignored for SETS < 2)
+	output	logic  s_axis_set_tready,
+	input	logic  s_axis_set_tvalid,
+	input	logic [((S_BITS+7)/8)*8-1:0]  s_axis_set_tdata,
 
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
@@ -143,6 +152,26 @@ module thresholding_axi #(
 	end
 
 	//-----------------------------------------------------------------------
+	// Join set selection and data streams
+	uwire  irdy;
+	uwire  ivld;
+	uwire [S_BITS-1:0]  iset;
+	if(SETS < 2) begin
+		assign	ivld = s_axis_tvalid;
+		assign	iset = 'x;
+
+		assign  s_axis_tready     = irdy;
+		assign  s_axis_set_tready = 'x;
+	end
+	else begin
+		assign	ivld = s_axis_tvalid && s_axis_set_tvalid;
+		assign	iset = s_axis_set_tdata[S_BITS-1:0];
+
+		assign  s_axis_tready     = irdy && s_axis_set_tvalid;
+		assign  s_axis_set_tready = irdy && s_axis_tvalid;
+	end
+
+	//-----------------------------------------------------------------------
 	// Cast Inputs into Threshold Data Type
 	uwire [PE-1:0][WT-1:0]  idat;
 	for(genvar  pe = 0; pe < PE; pe++) begin
@@ -188,7 +217,7 @@ module thresholding_axi #(
 		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
 		.cfg_rack, .cfg_q,
 
-		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat,
+		.irdy, .ivld, .iset, .idat,
 		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
 	);
 	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
