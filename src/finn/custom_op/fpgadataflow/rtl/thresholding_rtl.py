@@ -453,7 +453,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             # If a single threshold value is found, broadcast the value
             if thresholds.shape[0] == 1:
                 thresholds = np.broadcast_to(thresholds, (pe, expected_thresholds))
-                ch = pe
+                num_channels = pe
             width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
             thresh_padded = np.zeros((thresholds.shape[0], width_padded))
             thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds
@@ -462,7 +462,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             padding = np.zeros(width_padded, dtype=np.int32)
 
             chan_ind = 0
-            cf = ch // pe
+            cf = num_channels // pe
             for fold in range(cf):
                 for c in range(2 ** (pe - 1).bit_length()):
                     if (c == 0 or c % pe != 0) and c < pe:
