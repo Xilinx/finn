@@ -175,6 +175,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if expected_thresholds != n_thres_steps:
             if DataType[output_data_type].signed():
                 bias = bias - 1
+            else:
+                max_val = wdt.max()
+                if max_val <= DataType[input_data_type].max():
+                    max_val = max_val + 1
+                    # increase wdt
+                    if not wdt.signed():
+                        wdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        wdt = DataType.get_smallest_possible(-max_val - 1)
+
         # If a single threshold value is found, set num_channels to PE
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if thresholds.shape[0] == 1:
