@@ -44,8 +44,6 @@ module axis_reg_array_rtl #(
 // -----------------------------------------------------------------------------------------------------------------------
 // Register slices
 // -----------------------------------------------------------------------------------------------------------------------
-AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_s [N_STAGES+1] ();
-
 logic [N_STAGES:0] axis_s_tvalid;
 logic [N_STAGES:0] axis_s_tready;
 logic [N_STAGES:0][DATA_BITS-1:0] axis_s_tdata;
