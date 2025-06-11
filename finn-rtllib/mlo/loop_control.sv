@@ -41,7 +41,7 @@
 
     `include "axi_macros.svh"
 
-    module mlo_wrapper #(
+    module loop_control #(
         parameter int unsigned      PUMPED_COMPUTE = 0
     ) (
         AXI4L.slave                 s_axi_ctrl,
