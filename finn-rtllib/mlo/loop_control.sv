@@ -42,7 +42,7 @@
     `include "axi_macros.svh"
 
     module loop_control (
-        AXI4.master                 m_axi_hbm [N_HBM_PORTS],
+        AXI4.master                 m_axi_hbm,
 
         AXI4S.master                core_in,
         AXI4S.master                core_in_fw_idx [N_FW_CORES],
@@ -114,7 +114,7 @@
 
         .m_done(done_if),
 
-        .m_axi_hbm(m_axi_hbm[2]),
+        .m_axi_hbm(m_axi_hbm),
 
         .s_idx(idx_if_in),
         .m_idx(idx_if_out),
