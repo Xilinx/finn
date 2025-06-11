@@ -47,6 +47,7 @@ class SimEngine:
                 top.run(2500)
                 clk2x.set(0).write_back()
                 top.run(2500)
+
         self.top = top
         self.cycle = cycle
         self.ticks = 0
@@ -274,7 +275,7 @@ class SimEngine:
                 self.wvalid = top.get_bus_port(m_axilite, "wvalid")
                 self.wdata = top.get_bus_port(m_axilite, "wdata")
                 wstrb = top.get_bus_port(m_axilite, "wstrb")
-                wstrb.set_binstr('1' * wstrb.width()).write_back()
+                wstrb.set_binstr("1" * wstrb.width()).write_back()
                 self.bready = top.get_bus_port(m_axilite, "bready")
                 self.bvalid = top.get_bus_port(m_axilite, "bvalid")
                 self.bresp = top.get_bus_port(m_axilite, "bresp")
