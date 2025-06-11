@@ -41,7 +41,19 @@
 
     `include "axi_macros.svh"
 
-    module loop_control (
+    module loop_control #(
+        parameter int unsigned N_MAX_LAYERS = 16, // Maximum number of layers in the FINN pipeline
+        parameter int unsigned N_FW_CORES = 1, // Number of FETCH_WEIGHTS cores in the FINN pipeline
+        parameter int unsigned ADDR_BITS = 64, // Address bits for 
+        parameter int unsigned DATA_BITS = 512, // Data bits for AXI4
+        parameter int unsigned LEN_BITS = 32, // Length bits for AXI4
+        parameter int unsigned CNT_BITS = 16, // Counter bits for AXI4S
+        parameter int unsigned ILEN_BITS = 16, // Length bits for AXI4S input
+        parameter int unsigned OLEN_BITS = 16, // Length bits for AXI4S output
+        parameter int unsigned ADDR_INT   = 64'h4100000000, // Start address for intermediate frames
+        parameter int unsigned LAYER_OFFS_INT = 64'h10000,
+
+    ) (
         AXI4.master                 m_axi_hbm,
 
         AXI4S.master                core_in,
@@ -62,33 +74,6 @@
         AXI4S.slave                idx_fs;
         AXI4S.master               idx_se;
     );
-
-
-    // ================-----------------------------------------------------------------
-    // Params
-    // ================-----------------------------------------------------------------
-    localparam int unsigned N_DMA_PORTS = 3;
-    localparam int unsigned N_FW_CORES = N_HBM_PORTS - N_DMA_PORTS;
-    localparam int PE_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 8, 8, 8, 8, 16, 16 }; 
-
-    localparam int SIMD_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 12, 12, 12, 12, 24, 24 }; 
-
-    localparam int MW_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 384, 384, 384, 384, 1536, 384 }; 
-
-    localparam int MH_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 384, 384, 384, 384, 384, 1536 }; 
-
-    localparam logic[ADDR_BITS-1:0] WADDR_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 64'h4180000000, 64'h4200000000, 64'h4280000000, 64'h4300000000, 64'h4380000000, 64'h4400000000 }; 
-
-    localparam logic[ADDR_BITS-1:0] WOFFS_ARRAY[N_HBM_PORTS-N_DMA_PORTS] = '{ 64'h100000, 64'h100000, 64'h100000, 64'h100000, 64'h100000, 64'h100000 }; 
-
-
-    localparam logic[ADDR_BITS-1:0] ADDR_SRC = 64'h4000000000;
-    localparam logic[ADDR_BITS-1:0] ADDR_DST = 64'h4080000000;
-    localparam logic[ADDR_BITS-1:0] ADDR_INT = 64'h4100000000;
-    localparam logic[ADDR_BITS-1:0] LAYER_OFFS_INT = 64'h10000;
-    localparam integer N_REPS = 128;
-    
-    localparam int unsigned ACTIVATION_WIDTH = 8;
 
     // ================-----------------------------------------------------------------
     // Intermediate frames
