@@ -51,14 +51,16 @@
         input  logic                aclk,
         input  logic                aresetn
     
+        // activation signals
+        AXI4S.slave                axis_fs;
+        AXI4S.master               axis_se;
+        
         // control signals
         input  logic [CNT_BITS-1:0] n_layers;
         output logic [1:0]         done_if;
         
         AXI4S.slave                idx_fs;
-        AXI4S.slave                axis_fs;
         AXI4S.master               idx_se;
-        AXI4S.master               axis_se;
     );
 
 
