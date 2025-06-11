@@ -44,9 +44,6 @@
     module loop_control (
         AXI4.master                 m_axi_hbm [N_HBM_PORTS],
 
-        AXI4SF.slave                s_axis_h2c,
-        AXI4SF.master               m_axis_c2h,
-
         AXI4S.master                core_in,
         AXI4S.master                core_in_fw_idx [N_FW_CORES],
         AXI4S.slave                 core_out,
@@ -64,8 +61,6 @@
         AXI4S.master               axis_se;
     );
 
-    `AXISF_TIE_OFF_S(s_axis_h2c)
-    `AXISF_TIE_OFF_M(m_axis_c2h)
 
     // ================-----------------------------------------------------------------
     // Params
