@@ -28,8 +28,12 @@
 
 import pytest
 
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import copy
-import finn_xsi.adapter as finnxsi
 import numpy as np
 import onnx.parser as oprs
 import os

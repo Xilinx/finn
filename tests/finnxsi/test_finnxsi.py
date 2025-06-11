@@ -8,7 +8,11 @@
 # @author	Yaman Umuroglu <yaman.umuroglu@amd.com>
 #############################################################################
 
-import finn_xsi.adapter as finnxsi
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import os
 import shutil
 
