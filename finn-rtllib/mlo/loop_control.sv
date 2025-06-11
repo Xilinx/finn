@@ -42,8 +42,6 @@
     `include "axi_macros.svh"
 
     module loop_control (
-        AXI4L.slave                 s_axi_ctrl,
-
         AXI4.master                 m_axi_hbm [N_HBM_PORTS],
 
         AXI4SF.slave                s_axis_h2c,
@@ -55,6 +53,13 @@
     
         input  logic                aclk,
         input  logic                aresetn
+    
+        // control signals
+        input  logic [CNT_BITS-1:0] n_layers;
+        output logic               done;
+        output logic [1:0]         done_if;
+        AXI4S.slave                f_ctrl_fs;
+        AXI4S.slave                f_ctrl_se;
     );
 
     `AXISF_TIE_OFF_S(s_axis_h2c)
@@ -85,38 +90,6 @@
     localparam integer N_REPS = 128;
     
     localparam int unsigned ACTIVATION_WIDTH = 8;
-
-    // ================-----------------------------------------------------------------
-    // CTRL
-    // ================-----------------------------------------------------------------
-
-    AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+CNT_BITS+LEN_BITS)) f_ctrl_fs ();
-    AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS)) f_ctrl_se ();
-    logic done;
-    logic [1:0] done_if;
-    logic [N_FW_CORES-1:0] done_w;
-    logic [CNT_BITS-1:0] n_layers;
-
-    // Slave
-    axil_iw_slv_mlo #(
-        .LEN_BITS(LEN_BITS),
-        .ADDR_BITS(ADDR_BITS),
-        .CNT_BITS(CNT_BITS),
-        .N_FW_CORES(N_FW_CORES)
-    ) inst_axil_iw_core_slv_mm (
-        .aclk(aclk),
-        .aresetn(aresetn),
-
-        .axi_ctrl(s_axi_ctrl),
-
-        .n_layers(n_layers),
-
-        .f_ctrl_fs(f_ctrl_fs),
-        .f_ctrl_se(f_ctrl_se),
-        .s_done(done),
-        .s_done_if(done_if),
-        .s_done_w(done_w)
-    );
 
     // ================-----------------------------------------------------------------
     // Intermediate frames
