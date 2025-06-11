@@ -58,8 +58,12 @@
         input  logic [CNT_BITS-1:0] n_layers;
         output logic               done;
         output logic [1:0]         done_if;
-        AXI4S.slave                f_ctrl_fs;
+        
+        AXI4S.slave                idx_fs;
+        AXI4S.slave                axis_fs;
+
         AXI4S.slave                f_ctrl_se;
+
     );
 
     `AXISF_TIE_OFF_S(s_axis_h2c)
@@ -122,30 +126,6 @@
 
         .s_axis(axis_if_in),
         .m_axis(axis_if_out)
-    );
-
-    // ================-----------------------------------------------------------------
-    // Fetch start
-    // ================-----------------------------------------------------------------
-
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_fs ();
-    AXI4S #(.AXI4S_DATA_BITS(ILEN_BITS)) axis_fs ();
-
-    fetch_start #(
-        .ADDR_BITS(ADDR_BITS),
-        .DATA_BITS(DATA_BITS),
-        .LEN_BITS(LEN_BITS),
-        .CNT_BITS(CNT_BITS),
-
-        .ILEN_BITS(ILEN_BITS),
-        .ADDR_SRC(ADDR_SRC)
-    ) inst_fetch_start (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .m_axi_hbm(m_axi_hbm[0]),
-        .s_ctrl(f_ctrl_fs),
-        .m_idx(idx_fs),
-        .m_axis(axis_fs)
     );
 
     // ================-----------------------------------------------------------------
