@@ -50,6 +50,7 @@
         AXI4SF.master               m_axis_c2h,
 
         AXI4S.master                core_in,
+        AXI4S.master                core_in_fw_idx [N_FW_CORES],
         AXI4S.slave                 core_out,
     
         input  logic                aclk,
@@ -178,7 +179,6 @@
     // Mux in
     // ================-----------------------------------------------------------------
 
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS)) idx_fw [N_FW_CORES] ();
     AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_out ();
 
     mux_in #(
@@ -194,7 +194,7 @@
         .aresetn(aresetn),
         .s_idx_fs(idx_fs),
         .s_idx_if(idx_if_out),
-        .m_idx_fw(idx_fw),
+        .m_idx_fw(core_in_fw_idx),
         .m_idx_out(idx_out),
 
         .s_axis_fs(axis_fs),
