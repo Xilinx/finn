@@ -413,7 +413,7 @@ class HWCustomOp(CustomOp):
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
         # signal name, note no underscore at the end (new finnxsi behavior)
-        sname = "_" + self.hls_sname()
+        sname = "_V"
         self.reset_rtlsim(sim)
         # create stream tracers for all input and output streams
         for k in txns_in.keys():

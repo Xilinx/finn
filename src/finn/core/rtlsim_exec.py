@@ -108,7 +108,6 @@ def rtlsim_exec_cppxsi(
     model,
     execution_context,
     dummy_data_mode=False,
-    postproc_cpp="",
     timeout_cycles=None,
     throttle_cycles=0,
 ):
@@ -126,9 +125,6 @@ def rtlsim_exec_cppxsi(
             "<tensor_name>" : <np.ndarray>
         }
 
-    The postproc_cpp optional argument can be used to inject C++ code to retrieve
-    extra data when the simulation is finished. See the @POSTPROC_CPP@ template argument
-    in the xsi_simdriver.cpp file to see what context and functions are available.
     If timeout_cycles is not None, the default value from get_liveness_threshold_cycles
     will be used.
     throttle_cycles will be used to pause the input stream every time an input frame is finished.
@@ -245,8 +241,6 @@ def rtlsim_exec_cppxsi(
         "OSTREAM_DESC": outstream_descrs_str,
         # control tracing and trace filename
         "TRACE_FILE": "nullptr" if trace_file is None else f'"{trace_file}"',
-        # code to post-process final sim status to extract more data
-        "POSTPROC_CPP": postproc_cpp,
         # sim kernel .so to use (depends on Vivado version)
         "SIMKERNEL_SO": finnxsi.get_simkernel_so(),
         # log file for xsi (not the sim driver)
