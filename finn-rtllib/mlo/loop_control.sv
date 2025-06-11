@@ -49,8 +49,7 @@
         parameter int unsigned ILEN_BITS = 16, // Length bits for AXI4S input
         parameter int unsigned OLEN_BITS = 16, // Length bits for AXI4S output
         parameter int unsigned ADDR_INT   = 64'h4100000000, // Start address for intermediate frames
-        parameter int unsigned LAYER_OFFS_INT = 64'h10000,
-
+        parameter int unsigned LAYER_OFFS_INT = 64'h10000
     ) (
         AXI4.master                 m_axi_hbm,
 
