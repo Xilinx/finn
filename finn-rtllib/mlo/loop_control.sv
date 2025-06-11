@@ -37,8 +37,6 @@
     //
     // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
-    import iwTypes::*;
-
     `include "axi_macros.svh"
 
     module loop_control #(
