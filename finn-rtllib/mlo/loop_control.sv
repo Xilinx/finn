@@ -41,9 +41,7 @@
 
     `include "axi_macros.svh"
 
-    module loop_control #(
-        parameter int unsigned      PUMPED_COMPUTE = 0
-    ) (
+    module loop_control (
         AXI4L.slave                 s_axi_ctrl,
 
         AXI4.master                 m_axi_hbm [N_HBM_PORTS],
@@ -51,6 +49,9 @@
         AXI4SF.slave                s_axis_h2c,
         AXI4SF.master               m_axis_c2h,
 
+        AXI4S.master                core_in,
+        AXI4S.slave                 core_out,
+    
         input  logic                aclk,
         input  logic                aclk_dp,
         input  logic                aresetn
@@ -84,54 +85,6 @@
     localparam integer N_REPS = 128;
     
     localparam int unsigned ACTIVATION_WIDTH = 8;
-
-    // ================-----------------------------------------------------------------
-    // FINN core
-    // ================-----------------------------------------------------------------
-
-    AXI4S #(.AXI4S_DATA_BITS(ILEN_BITS)) core_in ();
-    AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) core_out ();
-
-    // Core
-    if(PUMPED_COMPUTE) begin
-        finn_design_0 inst_CORE_dp (
-            .ap_clk(aclk),
-            .ap_clk2x(aclk_dp),
-            .ap_rst_n(aresetn),
-
-            
-
-            
-        .s_axis_tvalid(core_in.tvalid),
-        .s_axis_tready(core_in.tready),
-        .s_axis_tdata (core_in.tdata),
-    
-
-
-            .m_axis_0_tvalid(core_out.tvalid),
-            .m_axis_0_tready(core_out.tready),
-            .m_axis_0_tdata (core_out.tdata)
-        );
-    end
-    else begin
-        finn_design_0 inst_CORE (
-            .ap_clk(aclk),
-            .ap_rst_n(aresetn),
-
-            
-
-            
-        .s_axis_tvalid(core_in.tvalid),
-        .s_axis_tready(core_in.tready),
-        .s_axis_tdata (core_in.tdata),
-    
-
-
-            .m_axis_0_tvalid(core_out.tvalid),
-            .m_axis_0_tready(core_out.tready),
-            .m_axis_0_tdata (core_out.tdata)
-        );
-    end
 
     // ================-----------------------------------------------------------------
     // CTRL
