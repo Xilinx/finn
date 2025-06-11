@@ -53,7 +53,6 @@
         AXI4S.slave                 core_out,
     
         input  logic                aclk,
-        input  logic                aclk_dp,
         input  logic                aresetn
     );
 
