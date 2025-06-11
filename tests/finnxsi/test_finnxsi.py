@@ -8,6 +8,8 @@
 # @author	Yaman Umuroglu <yaman.umuroglu@amd.com>
 #############################################################################
 
+import pytest
+
 try:
     import finn_xsi.adapter as finnxsi
 except ModuleNotFoundError:
@@ -19,6 +21,7 @@ import shutil
 from finn.util.basic import get_finn_root, make_build_dir
 
 
+@pytest.mark.vivado
 def test_finnxsi():
     testcase_root_dir = get_finn_root() + "/finn_xsi/testcase"
     sim_dir = make_build_dir("rtlsim_test_finnxsi_")
@@ -41,7 +44,7 @@ def test_finnxsi():
     i1 = [1, 2, 3, 4]
     exp = [x - y for x, y in zip(i0, i1)]
     io_dict = {"inputs": {"in0": i0, "in1": i1}, "outputs": {"out": []}}
-    sname = "_V_"
+    sname = "_V"
     cycles = finnxsi.rtlsim_multi_io(sim, io_dict, 4, sname)
     output = io_dict["outputs"]["out"]
     assert output == exp
