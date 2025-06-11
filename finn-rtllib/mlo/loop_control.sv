@@ -56,14 +56,12 @@
     
         // control signals
         input  logic [CNT_BITS-1:0] n_layers;
-        output logic               done;
         output logic [1:0]         done_if;
         
         AXI4S.slave                idx_fs;
         AXI4S.slave                axis_fs;
-
-        AXI4S.slave                f_ctrl_se;
-
+        AXI4S.master               idx_se;
+        AXI4S.master               axis_se;
     );
 
     `AXISF_TIE_OFF_S(s_axis_h2c)
@@ -159,9 +157,6 @@
     // Mux out
     // ================-----------------------------------------------------------------
 
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_se ();
-    AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) axis_se ();
-
     mux_out #(
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
@@ -183,28 +178,6 @@
         .m_axis_se(axis_se),
         .m_axis_if(axis_if_in)
     );
-
-    // ================-----------------------------------------------------------------
-    // Store end
-    // ================-----------------------------------------------------------------
-
-    store_end #(
-        .ADDR_BITS(ADDR_BITS),
-        .DATA_BITS(DATA_BITS),
-        .LEN_BITS(LEN_BITS),
-        .CNT_BITS(CNT_BITS),
-
-        .OLEN_BITS(OLEN_BITS),
-        .ADDR_DST(ADDR_DST)
-    ) inst_store_end (
-        .aclk(aclk),
-        .aresetn(aresetn),
-        .m_axi_hbm(m_axi_hbm[1]),
-        .s_ctrl(f_ctrl_se),
-        .s_idx(idx_se),
-        .m_done(done),
-        .s_axis(axis_se)
-    );
    
-    endmodule
+endmodule
     
