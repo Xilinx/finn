@@ -32,7 +32,13 @@
 module axilite #(
 	int unsigned  ADDR_WIDTH,
 	int unsigned  DATA_WIDTH,	// AXI4 spec requires this to be strictly 32 or 64
-	int unsigned  IP_DATA_WIDTH
+	int unsigned  IP_DATA_WIDTH,
+
+	localparam int unsigned  BSEL_BITS = $clog2(DATA_WIDTH/8),
+	localparam int unsigned  FOLD      = 1 + (IP_DATA_WIDTH-1)/DATA_WIDTH,
+	localparam int unsigned  WSEL_BITS = $clog2(FOLD),
+	localparam int unsigned  IP_ADDR_WIDTH0 = ADDR_WIDTH - WSEL_BITS - BSEL_BITS,
+	localparam int unsigned  IP_ADDR_WIDTH = IP_ADDR_WIDTH0? IP_ADDR_WIDTH0 : 1
 )(
 	// Global Control
 	input	logic  aclk,
@@ -67,7 +73,7 @@ module axilite #(
 	// IP-side Interface
 	output	logic  ip_en,
 	output	logic  ip_wen,
-	output	logic [ADDR_WIDTH   -1:0]  ip_addr,
+	output	logic [IP_ADDR_WIDTH-1:0]  ip_addr,
 	output	logic [IP_DATA_WIDTH-1:0]  ip_wdata,
 	input	logic  ip_rack,
 	input	logic [IP_DATA_WIDTH-1:0]  ip_rdata
@@ -79,11 +85,10 @@ module axilite #(
 	// AXI-lite Frontend
 	localparam bit [1:0]  RESP_OKAY   = 'b00;
 	localparam bit [1:0]  RESP_SLVERR = 'b10;
-	localparam int unsigned  BSEL_BITS = $clog2(DATA_WIDTH/8);
 
 	typedef struct {
 		logic  vld;
-		logic [ADDR_WIDTH-BSEL_BITS-1:0]  val;
+		logic [IP_ADDR_WIDTH+WSEL_BITS-1:0]  val;
 	} addr_t;
 	typedef struct {
 		logic  vld;
@@ -127,8 +132,8 @@ module axilite #(
 
 	uwire  snk_we = WAddr.vld && WData.vld && !WIssued;
 	uwire  snk_re = !snk_we && RAddr.vld && !RLock && !RData.vld;
-	uwire [ADDR_WIDTH-BSEL_BITS-1:0]  snk_addr = snk_we? WAddr.val : RAddr.val;
-	uwire [IP_DATA_WIDTH       -1:0]  snk_data = WData.val;
+	uwire [IP_ADDR_WIDTH+WSEL_BITS-1:0]  snk_addr = snk_we? WAddr.val : RAddr.val;
+	uwire [IP_DATA_WIDTH          -1:0]  snk_data = WData.val;
 
 	// Write
 	always_ff @(posedge aclk) begin
@@ -153,31 +158,35 @@ module axilite #(
 
 	//-----------------------------------------------------------------------
 	// IP Backend
-	localparam int unsigned  FOLD = 1 + (IP_DATA_WIDTH-1)/DATA_WIDTH;
 	if(FOLD == 1) begin : genNoFold
 
 		// Command Issue
 		logic  IpEn =  0;
 		logic  IpWe = 'x;
-		logic [ADDR_WIDTH-BSEL_BITS-1:0]  IpAddr = 'x;
-		logic [IP_DATA_WIDTH       -1:0]  IpData = 'x;
+		logic [IP_DATA_WIDTH-1:0]  IpData = 'x;
 		always_ff @(posedge aclk) begin
 			if(rst) begin
 				IpEn <=  0;
 				IpWe <= 'x;
-				IpAddr <= 'x;
 				IpData <= 'x;
 			end
 			else begin
 				IpEn <= snk_we || snk_re;
 				IpWe <= snk_we;
-				IpAddr <= snk_addr;
 				IpData <= snk_data;
 			end
 		end
+		if(IP_ADDR_WIDTH0 == 0)  assign  ip_addr = 0;
+		else begin
+			logic [IP_ADDR_WIDTH-1:0]  IpAddr = 'x;
+			always_ff @(posedge aclk) begin
+				if(rst)  IpAddr <= 'x;
+				else     IpAddr <= snk_addr;
+			end
+			assign	ip_addr = IpAddr;
+		end
 		assign	ip_en = IpEn;
 		assign	ip_wen = IpWe;
-		assign	ip_addr = IpAddr;
 		assign	ip_wdata = IpData;
 
 		// Reply Capture
@@ -187,7 +196,6 @@ module axilite #(
 
 	end : genNoFold
 	else begin : genFold
-		localparam int unsigned  WSEL_BITS = $clog2(FOLD);
 		uwire [WSEL_BITS-1:0]  ofs_fold = snk_addr[WSEL_BITS-1:0];
 		uwire  sel_fold[FOLD];
 		for(genvar  i = 0; i < FOLD; i++)  assign  sel_fold[i] = (ofs_fold == i);
@@ -213,8 +221,9 @@ module axilite #(
 		end
 		assign	ip_en = IpEn;
 		assign	ip_wen = IpWe;
-		assign	ip_addr = IpAddr[$left(IpAddr):WSEL_BITS];
 		assign	ip_wdata = IpWData;
+		if(IP_ADDR_WIDTH0 == 0)  assign  ip_addr = 0;
+		else  assign  ip_addr = IpAddr[$left(IpAddr):WSEL_BITS];
 
 		// Reply Capture
 		logic  IpRAck = 0;

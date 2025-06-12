@@ -76,7 +76,7 @@ module axilite_tb #(
 	// IP-side Interface
 	uwire  ip_en;
 	uwire  ip_wen;
-	uwire [AXI_ADDR_WIDTH-1:0]  ip_addr;
+	uwire [IP_ADDR_WIDTH-1:0]  ip_addr;
 	uwire [IP_DATA_WIDTH-1:0]  ip_wdata;
 	logic  ip_rack;
 	logic [IP_DATA_WIDTH-1:0]  ip_rdata;
