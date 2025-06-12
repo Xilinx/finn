@@ -1,15 +1,15 @@
 `include "axi_macros.svh"
 
-module loop_control_wrapper #(
-    parameter N_MAX_LAYERS = 16,
-    parameter ADDR_BITS = 64,
-    parameter DATA_BITS = 256,
-    parameter LEN_BITS = 16,
-    parameter CNT_BITS = 16,
-    parameter ILEN_BITS = 512,
-    parameter OLEN_BITS = 512,
-    parameter ADDR_INT   = 0,
-    parameter LAYER_OFFS_INT = 0
+module $LOOP_CONTROL_WRAPPER_NAME$ #(
+    parameter N_MAX_LAYERS = $N_MAX_LAYERS$,
+    parameter ADDR_BITS = $ADDR_BITS$,
+    parameter DATA_BITS = $DATA_BITS$,
+    parameter LEN_BITS = $LEN_BITS$,
+    parameter CNT_BITS = $CNT_BITS$,
+    parameter ILEN_BITS = $ILEN_BITS$,
+    parameter OLEN_BITS = $OLEN_BITS$,
+    parameter ADDR_INT   = $ADDR_INT$,
+    parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$
 ) (
     input  wire           aclk,
     input  wire           aresetn,
