@@ -2,7 +2,6 @@
 
 module loop_control_wrapper #(
     parameter N_MAX_LAYERS = 16,
-    parameter N_FW_CORES = 1,
     parameter ADDR_BITS = 64,
     parameter DATA_BITS = 256,
     parameter LEN_BITS = 16,
@@ -57,7 +56,7 @@ module loop_control_wrapper #(
     output                 m_axis_core_in_tvalid,
     input                  m_axis_core_in_tready,
 
-    // AXI4S master interface for core_in_fw_idx [N_FW_CORES]
+    // AXI4S master interface for core_in_fw_idx 
     output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
     output                 m_axis_core_in_fw_idx_tvalid,
     input                  m_axis_core_in_fw_idx_tready,
@@ -91,7 +90,6 @@ module loop_control_wrapper #(
 
     loop_control #(
         .N_MAX_LAYERS(N_MAX_LAYERS),
-        .N_FW_CORES(N_FW_CORES),
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
         .LEN_BITS(LEN_BITS),
