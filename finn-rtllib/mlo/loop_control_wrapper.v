@@ -1,15 +1,20 @@
-module $MODULE_NAME_AXI_WRAPPER$ #(
-    parameter N_MAX_LAYERS = $N_MAX_LAYERS$,
-    parameter N_FW_CORES = $N_FW_CORES$,
-    parameter ADDR_BITS = $ADDR_BITS$,
-    parameter DATA_BITS = $DATA_BITS$,
-    parameter LEN_BITS = $LEN_BITS$,
-    parameter CNT_BITS = $CNT_BITS$,
-    parameter ILEN_BITS = $ILEN_BITS$,
-    parameter OLEN_BITS = $OLEN_BITS$,
-    parameter ADDR_INT   = $ADDR_INT$,
-    parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$
+`include "axi_macros.svh"
+
+module loop_control_wrapper #(
+    parameter N_MAX_LAYERS = 16,
+    parameter N_FW_CORES = 1,
+    parameter ADDR_BITS = 64,
+    parameter DATA_BITS = 256,
+    parameter LEN_BITS = 16,
+    parameter CNT_BITS = 16,
+    parameter ILEN_BITS = 512,
+    parameter OLEN_BITS = 512,
+    parameter ADDR_INT   = 0,
+    parameter LAYER_OFFS_INT = 0
 ) (
+    input  wire           aclk,
+    input  wire           aresetn,
+
     // AXI4 master interface for m_axi_hbm
     output [ADDR_BITS-1:0] m_axi_hbm_araddr,
     output [1:0]           m_axi_hbm_arburst,
@@ -48,22 +53,19 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     input                  m_axi_hbm_bvalid,
 
     // AXI4S master interface for core_in
-    output [DATA_BITS-1:0] core_in_tdata,
-    output                 core_in_tvalid,
-    input                  core_in_tready,
+    output [DATA_BITS-1:0] m_axis_core_in_tdata,
+    output                 m_axis_core_in_tvalid,
+    input                  m_axis_core_in_tready,
 
     // AXI4S master interface for core_in_fw_idx [N_FW_CORES]
-    output [N_FW_CORES-1:0][DATA_BITS-1:0] core_in_fw_idx_tdata,
-    output [N_FW_CORES-1:0]                core_in_fw_idx_tvalid,
-    input  [N_FW_CORES-1:0]                core_in_fw_idx_tready,
+    output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
+    output                 m_axis_core_in_fw_idx_tvalid,
+    input                  m_axis_core_in_fw_idx_tready,
 
     // AXI4S slave interface for core_out
-    input  [DATA_BITS-1:0] core_out_tdata,
-    input                  core_out_tvalid,
-    output                 core_out_tready,
-
-    input  logic           aclk,
-    input  logic           aresetn,
+    input  [DATA_BITS-1:0] s_axis_core_out_tdata,
+    input                  s_axis_core_out_tvalid,
+    output                 s_axis_core_out_tready,
 
     // activation signals
     input  [DATA_BITS-1:0] axis_fs_tdata,
@@ -74,8 +76,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     input                  axis_se_tready,
 
     // control signals
-    input  logic [CNT_BITS-1:0] n_layers,
-    output logic [1:0]         done_if,
+    input  wire [CNT_BITS-1:0] n_layers,
+    output wire [1:0]         done_if,
 
     // AXI4S slave interface for idx_fs
     input  [DATA_BITS-1:0] idx_fs_tdata,
@@ -99,81 +101,82 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
         .ADDR_INT(ADDR_INT),
         .LAYER_OFFS_INT(LAYER_OFFS_INT)
     ) loop_control_inst (
-        // AXI4 master interface for m_axi_hbm
-        .m_axi_hbm_araddr(m_axi_hbm_araddr),
-        .m_axi_hbm_arburst(m_axi_hbm_arburst),
-        .m_axi_hbm_arcache(m_axi_hbm_arcache),
-        .m_axi_hbm_arid(m_axi_hbm_arid),
-        .m_axi_hbm_arlen(m_axi_hbm_arlen),
-        .m_axi_hbm_arlock(m_axi_hbm_arlock),
-        .m_axi_hbm_arprot(m_axi_hbm_arprot),
-        .m_axi_hbm_arsize(m_axi_hbm_arsize),
-        .m_axi_hbm_arready(m_axi_hbm_arready),
-        .m_axi_hbm_arvalid(m_axi_hbm_arvalid),
-        .m_axi_hbm_awaddr(m_axi_hbm_awaddr),
-        .m_axi_hbm_awburst(m_axi_hbm_awburst),
-        .m_axi_hbm_awcache(m_axi_hbm_awcache),
-        .m_axi_hbm_awid(m_axi_hbm_awid),
-        .m_axi_hbm_awlen(m_axi_hbm_awlen),
-        .m_axi_hbm_awlock(m_axi_hbm_awlock),
-        .m_axi_hbm_awprot(m_axi_hbm_awprot),
-        .m_axi_hbm_awsize(m_axi_hbm_awsize),
-        .m_axi_hbm_awready(m_axi_hbm_awready),
-        .m_axi_hbm_awvalid(m_axi_hbm_awvalid),
-        .m_axi_hbm_rdata(m_axi_hbm_rdata),
-        .m_axi_hbm_rid(m_axi_hbm_rid),
-        .m_axi_hbm_rlast(m_axi_hbm_rlast),
-        .m_axi_hbm_rresp(m_axi_hbm_rresp),
-        .m_axi_hbm_rready(m_axi_hbm_rready),
-        .m_axi_hbm_rvalid(m_axi_hbm_rvalid),
-        .m_axi_hbm_wdata(m_axi_hbm_wdata),
-        .m_axi_hbm_wlast(m_axi_hbm_wlast),
-        .m_axi_hbm_wstrb(m_axi_hbm_wstrb),
-        .m_axi_hbm_wready(m_axi_hbm_wready),
-        .m_axi_hbm_wvalid(m_axi_hbm_wvalid),
-        .m_axi_hbm_bid(m_axi_hbm_bid),
-        .m_axi_hbm_bresp(m_axi_hbm_bresp),
-        .m_axi_hbm_bready(m_axi_hbm_bready),
-        .m_axi_hbm_bvalid(m_axi_hbm_bvalid),
+       .aclk(aclk),
+       .aresetn(aresetn),
 
-        // AXI4S master interface for core_in
-        .core_in_tdata(core_in_tdata),
-        .core_in_tvalid(core_in_tvalid),
-        .core_in_tready(core_in_tready),
+       // AXI4 master interface for m_axi_hbm
+       .m_axi_hbm_araddr(m_axi_hbm_araddr),
+       .m_axi_hbm_arburst(m_axi_hbm_arburst),
+       .m_axi_hbm_arcache(m_axi_hbm_arcache),
+       .m_axi_hbm_arid(m_axi_hbm_arid),
+       .m_axi_hbm_arlen(m_axi_hbm_arlen),
+       .m_axi_hbm_arlock(m_axi_hbm_arlock),
+       .m_axi_hbm_arprot(m_axi_hbm_arprot),
+       .m_axi_hbm_arsize(m_axi_hbm_arsize),
+       .m_axi_hbm_arready(m_axi_hbm_arready),
+       .m_axi_hbm_arvalid(m_axi_hbm_arvalid),
+       .m_axi_hbm_awaddr(m_axi_hbm_awaddr),
+       .m_axi_hbm_awburst(m_axi_hbm_awburst),
+       .m_axi_hbm_awcache(m_axi_hbm_awcache),
+       .m_axi_hbm_awid(m_axi_hbm_awid),
+       .m_axi_hbm_awlen(m_axi_hbm_awlen),
+       .m_axi_hbm_awlock(m_axi_hbm_awlock),
+       .m_axi_hbm_awprot(m_axi_hbm_awprot),
+       .m_axi_hbm_awsize(m_axi_hbm_awsize),
+       .m_axi_hbm_awready(m_axi_hbm_awready),
+       .m_axi_hbm_awvalid(m_axi_hbm_awvalid),
+       .m_axi_hbm_rdata(m_axi_hbm_rdata),
+       .m_axi_hbm_rid(m_axi_hbm_rid),
+       .m_axi_hbm_rlast(m_axi_hbm_rlast),
+       .m_axi_hbm_rresp(m_axi_hbm_rresp),
+       .m_axi_hbm_rready(m_axi_hbm_rready),
+       .m_axi_hbm_rvalid(m_axi_hbm_rvalid),
+       .m_axi_hbm_wdata(m_axi_hbm_wdata),
+       .m_axi_hbm_wlast(m_axi_hbm_wlast),
+       .m_axi_hbm_wstrb(m_axi_hbm_wstrb),
+       .m_axi_hbm_wready(m_axi_hbm_wready),
+       .m_axi_hbm_wvalid(m_axi_hbm_wvalid),
+       .m_axi_hbm_bid(m_axi_hbm_bid), 
+       .m_axi_hbm_bresp(m_axi_hbm_bresp), 
+       .m_axi_hbm_bready(m_axi_hbm_bready), 
+       .m_axi_hbm_bvalid(m_axi_hbm_bvalid),   
 
-        // AXI4S master interface for core_in_fw_idx [N_FW_CORES]
-        .core_in_fw_idx_tdata(core_in_fw_idx_tdata),
-        .core_in_fw_idx_tvalid(core_in_fw_idx_tvalid),
-        .core_in_fw_idx_tready(core_in_fw_idx_tready),
+       // AXI4S master interface for core_in
+       .m_axis_core_in_tdata(m_axis_core_in_tdata),
+       .m_axis_core_in_tvalid(m_axis_core_in_tvalid),
+       .m_axis_core_in_tready(m_axis_core_in_tready),
+        
+       // AXI4S slave interface for core_out
+       .s_axis_core_out_tdata(s_axis_core_out_tdata),
+       .s_axis_core_out_tvalid(s_axis_core_out_tvalid),
+       .s_axis_core_out_tready(s_axis_core_out_tready),
+                
+       // AXI4S master interface for core_in_fw_idx 
+       .m_axis_core_in_fw_idx_tdata(m_axis_core_in_fw_idx_tdata),
+       .m_axis_core_in_fw_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
+       .m_axis_core_in_fw_idx_tready(m_axis_core_in_fw_idx_tready),
+        
+       .axis_fs_tdata(axis_fs_tdata),
+       .axis_fs_tvalid(axis_fs_tvalid),
+       .axis_fs_tready(axis_fs_tready),
+       .axis_se_tdata(axis_se_tdata),
+       .axis_se_tvalid(axis_se_tvalid),
+       .axis_se_tready(axis_se_tready),
 
-        // AXI4S slave interface for core_out
-        .core_out_tdata(core_out_tdata),
-        .core_out_tvalid(core_out_tvalid),
-        .core_out_tready(core_out_tready),
+       // control signals
+       .n_layers(n_layers),
+       .done_if(done_if),
 
-        .aclk(aclk),
-        .aresetn(aresetn),
-
-        // activation signals
-        .axis_fs_tdata(axis_fs_tdata),
-        .axis_fs_tvalid(axis_fs_tvalid),
-        .axis_fs_tready(axis_fs_tready),
-        .axis_se_tdata(axis_se_tdata),
-        .axis_se_tvalid(axis_se_tvalid),
-        .axis_se_tready(axis_se_tready),
-
-        // control signals
-        .n_layers(n_layers),
-        .done_if(done_if),
-
-        // AXI4S slave interface for idx_fs
-        .idx_fs_tdata(idx_fs_tdata),
-        .idx_fs_tvalid(idx_fs_tvalid),
-        .idx_fs_tready(idx_fs_tready),
-        // AXI4S master interface for idx_se
-        .idx_se_tdata(idx_se_tdata),
-        .idx_se_tvalid(idx_se_tvalid),
-        .idx_se_tready(idx_se_tready)
+       // AXI4S slave interface for idx_fs
+      .idx_fs_tdata(idx_fs_tdata),
+      .idx_fs_tvalid(idx_fs_tvalid),
+      .idx_fs_tready(idx_fs_tready),
+    
+      // AXI4S master interface for idx_se
+      .idx_se_tdata(idx_se_tdata),
+      .idx_se_tvalid(idx_se_tvalid),
+      .idx_se_tready(idx_se_tready) 
+            
     );
 
 endmodule
