@@ -142,7 +142,8 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     T1 = np.stack([T1] * iter_count)
     loop_node = helper.make_node(
         "FINNLoop",
-        domain="finn.custom_op.fpgadataflow",
+        domain="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
         inputs=["ifm", "weights0", "thresh0", "weights1", "thresh1"],
         outputs=["ofm"],
         body=loop_body_model.graph,

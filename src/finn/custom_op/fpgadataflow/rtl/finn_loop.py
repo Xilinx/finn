@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import numpy as np
+import os
+import shutil
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -33,15 +35,16 @@ from qonnx.util.basic import get_by_name, is_finn_op, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 
 
-class FINNLoop(HWCustomOp):
+class FINNLoop(HWCustomOp, RTLBackend):
     """Class that corresponds to the meta/container node FINN loop
     which is a placeholder for a group of fpgadataflow nodes that have been separated
     out into a FINN-ONNX model of its own and are meant to be executed in a loop."""
 
     def get_nodeattr_types(self):
-        return {
+        my_attrs = {
             "body": ("g", True, ""),
             "iteration": ("i", False, 1),
             # FINN input datatype
@@ -49,6 +52,9 @@ class FINNLoop(HWCustomOp):
             # FINN output datatype
             "outputDataType": ("s", True, ""),
         }
+        my_attrs.update(HWCustomOp.get_nodeattr_types(self))
+        my_attrs.update(RTLBackend.get_nodeattr_types(self))
+        return my_attrs
 
     def get_nodeattr(self, name):
         """Get a node attribute by name. Data is stored inside the ONNX node's
@@ -66,6 +72,16 @@ class FINNLoop(HWCustomOp):
                     return ret
                 else:
                     return super().get_nodeattr(name)
+            else:
+                if req:
+                    raise Exception(
+                        """Required attribute %s unspecified in
+                    a %s node"""
+                        % (name, self.onnx_node.op_type)
+                    )
+                else:
+                    # not set, return default value
+                    return def_val
         except KeyError:
             raise AttributeError("Op has no such attribute: " + name)
 
@@ -81,7 +97,9 @@ class FINNLoop(HWCustomOp):
                 if dtype == "g":
                     attr.g.CopyFrom(value)
                 else:
-                    return super().set_nodeattr(name, value)
+                    super().set_nodeattr(name, value)
+            else:
+                super().set_nodeattr(name, value)
         except KeyError:
             raise AttributeError("Op has no such attribute: " + name)
 
@@ -218,3 +236,46 @@ class FINNLoop(HWCustomOp):
             inp_values = outp_dict[loop_body.graph.output[0].name]
         result = outp_dict[loop_body.graph.output[0].name]
         context[node.output[0]] = np.asarray(result, dtype=np.float32)
+
+    def generate_hdl(self, model, fpgapart, clk):
+        # Generate params as part of IP preparation
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_params(model, code_gen_dir)
+
+    def generate_params(self, model, path):
+        iteration = self.get_nodeattr("iteration")
+        loop_node = self.onnx_node
+        loop_body = self.get_nodeattr("body")
+        for i, inp in enumerate(loop_node.input[1:]):
+            params = model.get_initializer(inp)
+            param_dtype = model.get_tensor_datatype(inp)
+            assert params.shape[0] == iteration
+            # get node that initializer is attached to
+            loop_tensor = loop_body.graph.input[i + 1].name
+            param_node = loop_body.find_consumer(loop_tensor)
+            for iter in range(iteration):
+                loop_body.set_initializer(loop_tensor, params[iter])
+                loop_body.set_tensor_datatype(loop_tensor, param_dtype)
+                inst = getCustomOp(param_node)
+                inst.generate_params(loop_body, path)
+                # if param_node.op_type.startswith("MVAU"):
+                param_file = "{}/memblock.dat".format(path)
+                new_param_file = "{}/memblock_{}.dat".format(path, iter)
+                # rename so it doesn't get overwritten
+                shutil.move(param_file, new_param_file)
+            # if param_node.op_type.startswith("MVAU"):
+            # concatinate all .dat files together
+            param_file = "{}/memblock_{}.dat".format(path, param_node.name)
+            with open(param_file, "w") as outfile:
+                for iter in range(iteration):
+                    memblock_file = "{}/memblock_{}.dat".format(path, iter)
+                    with open(memblock_file, "r") as infile:
+                        for line in infile:
+                            outfile.write(line)
+                    os.remove(memblock_file)
+
+    def code_generation_ipi(self):
+        pass
+
+    def get_rtl_file_list(self, abspath=False):
+        pass
