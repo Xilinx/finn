@@ -77,9 +77,12 @@ module memstream_axi #(
 	output	logic [((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
+	localparam int unsigned  IP_ADDR_WIDTH0 = $clog2(DEPTH);
+	localparam int unsigned  IP_ADDR_WIDTH = IP_ADDR_WIDTH0? IP_ADDR_WIDTH0 : 1;
+
 	//-----------------------------------------------------------------------
 	// AXI-lite to ap_memory Adapter
-	uwire [31:0]  config_address;
+	uwire [IP_ADDR_WIDTH-1:0]  config_address;
 	uwire  config_ce;
 	uwire  config_we;
 	uwire  config_rack;
