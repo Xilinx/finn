@@ -751,7 +751,12 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
                 version=cfg.cpp_driver_version,
             )
         )
-        shutil.copytree(model.get_metadata_prop("cpp_driver_dir"), driver_dir, dirs_exist_ok=True)
+        shutil.copytree(
+            model.get_metadata_prop("cpp_driver_dir"),
+            driver_dir,
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
         print("C++ driver written into " + driver_dir)
     else:
         warnings.warn(
@@ -858,7 +863,12 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
         shutil.copytree(bitfile_dir, deploy_dir + "/bitfile", dirs_exist_ok=True)
-        shutil.copytree(driver_dir, deploy_dir + "/driver", dirs_exist_ok=True)
+        shutil.copytree(
+            driver_dir,
+            deploy_dir + "/driver",
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
     return model
 
 
