@@ -157,7 +157,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         t_path = self.get_nodeattr("code_gen_dir_ipgen")
 
-        self.generate_params(model, t_path)
+        if not self.get_nodeattr("mlo_max_iter"):
+            self.generate_params(model, t_path)
 
         bias = self.get_nodeattr("ActVal")  # activation bias value
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
@@ -186,8 +187,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                         wdt = DataType.get_smallest_possible(-max_val - 1)
 
         # If a single threshold value is found, set num_channels to PE
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        if thresholds.shape[0] == 1:
+        thresholds_shape = model.get_tensor_shape(self.onnx_node.input[1])
+        if thresholds_shape[0] == 1:
             num_channels = pe
 
         code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
