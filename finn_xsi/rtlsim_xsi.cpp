@@ -54,11 +54,11 @@ int main(int argc, char *argv[]) {
 			size_t  job_size;
 			size_t  job_txns;  // [0:job_size]
 			size_t  total_txns;
+			size_t  first_complete; // First completion timestamp
 
 			union {
 				// Input Stream
 				struct {
-					size_t  first_complete; // First completion timestamp
 					size_t  job_ticks;      // throttle if job_size < job_ticks
 					size_t  await_iter;     // iteration allowing start of next job
 				};
