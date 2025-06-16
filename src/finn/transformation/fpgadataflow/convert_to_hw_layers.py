@@ -1049,6 +1049,7 @@ class InferPool(Transformation):
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
+                    cpp_interface="hls_vector",
                     name="Pool_" + node.name,
                 )
 

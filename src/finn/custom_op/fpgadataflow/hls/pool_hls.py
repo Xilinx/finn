@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.pool import Pool
@@ -70,21 +69,6 @@ class Pool_hls(Pool, HLSBackend):
             "constexpr unsigned  K = {};".format(k),
         ]
 
-    def read_npy_data(self):
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-
-        self.code_gen_dict["$READNPYDATA$"] = [
-            'npy2vectorstream<%s, float, %d>("%s/input_0.npy", in0_V, false);'
-            % (
-                dtype.get_hls_datatype_str(),
-                self.get_nodeattr("PE"),
-                self.get_nodeattr("code_gen_dir_cppsim"),
-            )
-        ]
-
     def docompute(self):
         pe = self.get_nodeattr("PE")
         fxn = self.get_nodeattr("Function")
@@ -111,23 +95,6 @@ class Pool_hls(Pool, HLSBackend):
 
         self.code_gen_dict["$DOCOMPUTE$"] += ["Pool_batch<ISIZE, K>(in0_V, out0_V, pool_fxn);"]
 
-    def dataoutstrm(self):
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        oshape = str(self.get_folded_output_shape()).replace("(", "{").replace(")", "}")
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'vectorstream2npy<%s, float, %d>(out0_V, %s, "%s/output_0.npy", false);'
-            % (
-                dtype.get_hls_datatype_str(),
-                self.get_nodeattr("PE"),
-                oshape,
-                self.get_nodeattr("code_gen_dir_cppsim"),
-            )
-        ]
-
     def pragmas(self):
         super().pragmas()
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
@@ -145,35 +112,6 @@ class Pool_hls(Pool, HLSBackend):
             "void %s(hls::stream<%s> &in0_V, hls::stream<%s> &out0_V)"
             % (self.onnx_node.name, i_hls_dt, o_hls_dt)
         ]
-
-    def strm_decl(self):
-        """Function to generate the commands for the stream declaration in c++,
-        is member function of HLSBackend class but might need to be filled
-        by node."""
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_input_hls_type = dtype.get_hls_datatype_str()
-
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{},{}>> in0_V ("in0_V");'.format(
-                elem_input_hls_type, self.get_folded_input_shape()[-1]
-            )
-        )
-
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_output_hls_type = dtype.get_hls_datatype_str()
-
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{},{}>> out0_V ("out0_V");'.format(
-                elem_output_hls_type, self.get_folded_output_shape()[-1]
-            )
-        )
 
     def execute_node(self, context, graph):
         HLSBackend.execute_node(self, context, graph)

@@ -447,13 +447,44 @@ compilation transformations?
         """Function to generate the commands for the stream declaration in c++,
         is member function of HLSBackend class but might need to be filled
         by node."""
+        cpp_interface = self.get_nodeattr("cpp_interface")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
-        )
+        if cpp_interface == "packed":
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
+            )
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
+            )
+        else:
+            dtype = self.get_input_datatype()
+            if dtype == DataType["BIPOLAR"]:
+                # use binary for bipolar storage
+                dtype = DataType["BINARY"]
+            elem_input_hls_type = dtype.get_hls_datatype_str()
+
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::vector<{},{}>> in0_V ("in0_V");'.format(
+                    elem_input_hls_type, self.get_folded_input_shape()[-1]
+                )
+            )
+
+            dtype = self.get_output_datatype()
+            if dtype == DataType["BIPOLAR"]:
+                # use binary for bipolar storage
+                dtype = DataType["BINARY"]
+            elem_output_hls_type = dtype.get_hls_datatype_str()
+
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::vector<{},{}>> out0_V ("out0_V");'.format(
+                    elem_output_hls_type, self.get_folded_output_shape()[-1]
+                )
+            )
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
+                    elem_output_hls_type, self.get_folded_output_shape()[-1]
+                )
+            )
 
     @abstractmethod
     def docompute(self):
