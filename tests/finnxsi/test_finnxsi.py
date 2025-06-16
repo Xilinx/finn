@@ -22,6 +22,7 @@ from finn.util.basic import get_finn_root, make_build_dir
 
 
 @pytest.mark.vivado
+@pytest.mark.util
 def test_finnxsi():
     testcase_root_dir = get_finn_root() + "/finn_xsi/testcase"
     sim_dir = make_build_dir("rtlsim_test_finnxsi_")

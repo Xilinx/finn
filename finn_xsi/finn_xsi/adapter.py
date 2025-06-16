@@ -57,7 +57,6 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
                 raise Exception(f"Unknown extension for .prj file sources: {src_line}")
 
     # now call xelab to generate the .so for the design to be simulated
-    # TODO make debug controllable to allow faster sim when desired
     # list of libs for xelab retrieved from Vitis HLS cosim cmdline
     # the particular lib version used depends on the Vivado/Vitis version being used
     # but putting in multiple (nonpresent) versions seems to pose no problem as long
@@ -143,13 +142,11 @@ def load_sim_obj(sim_out_dir, out_so_relative_path, tracefile=None, simkernel_so
 def reset_rtlsim(
     sim, rst_name="ap_rst_n", active_low=True, clk_name="ap_clk", clk2x_name="ap_clk2x", n_cycles=16
 ):
-    # TODO OK to remove all the unused arguments?
     sim.do_reset()
     sim.run()
 
 
 def close_rtlsim(sim):
-    # TODO any other explicit action needed?
     del sim
 
 
@@ -160,11 +157,6 @@ def rtlsim_multi_io(
     sname="_V_V",
     liveness_threshold=10000,
 ):
-    # TODO HACKY FIX! better to fix this at either source or destination
-    # strip trailing underscore from stream name suffix, since finnxsi already
-    # adds one when generating the stream name
-    if sname.endswith("_"):
-        sname = sname[:-1]
     if len(io_dict["outputs"]) > 1:
         assert isinstance(
             num_out_values, dict

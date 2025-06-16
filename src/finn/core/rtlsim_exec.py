@@ -355,7 +355,7 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         sim,
         io_dict,
         num_out_values,
-        sname="_",
+        sname="",
         liveness_threshold=get_liveness_threshold_cycles() * batchsize,
     )
     if post_hook is not None:

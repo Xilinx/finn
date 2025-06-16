@@ -231,7 +231,7 @@ class HWCustomOp(CustomOp):
             sim,
             io_dict,
             num_out_values,
-            sname="_V_",
+            sname="_V",
             liveness_threshold=get_liveness_threshold_cycles(),
         )
 
@@ -400,8 +400,6 @@ class HWCustomOp(CustomOp):
             exp_cycles,
         )
         sim = self.get_rtlsim()
-        # signal name
-        sname = "_V_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
