@@ -483,12 +483,12 @@ compilation transformations?
                 )
             )
 
-        if self.get_nodeattr("hls_style") == "freerunning":
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
-                    elem_output_hls_type, self.get_folded_output_shape()[-1]
+            if self.get_nodeattr("hls_style") == "freerunning":
+                self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                    'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
+                        elem_output_hls_type, self.get_folded_output_shape()[-1]
+                    )
                 )
-            )
 
     @abstractmethod
     def docompute(self):
