@@ -242,6 +242,34 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_params(model, code_gen_dir)
+        
+        code_gen_dict = {}
+        code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
+        code_gen_dict["$N_MAX_LAYERS$"] = str(self.get_nodeattr("iteration")),
+        code_gen_dict["$ADDR_BITS$"] = ["64"] # need to get correct value
+        code_gen_dict["$DATA_BITS$"] = ["512"] # need to get correct value
+        code_gen_dict["$LEN_BITS$"] = ["16"] # need to get correct value
+        code_gen_dict["$CNT_BITS$"] = ["32"] # need to get correct value
+        code_gen_dict["$ILEN_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
+        code_gen_dict["$OLEN_BITS$"] = [str(self.get_output_datatype(0).bitwidth())]
+        code_gen_dict["$ADDR_INT$"] = ["0x41000000"] # need to get correct value
+        code_gen_dict["$LAYER_OFFS_INT$"] = ["0x10000"] # need to get correct value        
+        
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v" 
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, self.onnx_node.name + "_wrapper.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+            
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
 
     def generate_params(self, model, path):
         iteration = self.get_nodeattr("iteration")
@@ -321,7 +349,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 os.remove(iter_file)
 
     def code_generation_ipi(self):
-        pass
+        return ""
 
     def get_rtl_file_list(self, abspath=False):
         pass
