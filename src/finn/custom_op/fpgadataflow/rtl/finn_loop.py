@@ -28,6 +28,7 @@
 import numpy as np
 import os
 import shutil
+from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -261,18 +262,63 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # if param_node.op_type.startswith("MVAU"):
                 param_file = "{}/memblock.dat".format(path)
                 new_param_file = "{}/memblock_{}.dat".format(path, iter)
-                # rename so it doesn't get overwritten
-                shutil.move(param_file, new_param_file)
-            # if param_node.op_type.startswith("MVAU"):
-            # concatinate all .dat files together
-            param_file = "{}/memblock_{}.dat".format(path, param_node.name)
-            with open(param_file, "w") as outfile:
-                for iter in range(iteration):
-                    memblock_file = "{}/memblock_{}.dat".format(path, iter)
-                    with open(memblock_file, "r") as infile:
-                        for line in infile:
-                            outfile.write(line)
-                    os.remove(memblock_file)
+                if param_node.op_type.startswith("MVAU"):
+                    # rename so it doesn't get overwritten
+                    shutil.move(param_file, new_param_file)
+                else:
+                    # get all generated Thresholding dat files
+                    pe = inst.get_nodeattr("PE")
+                    output_data_type = inst.get_nodeattr("outputDataType")
+                    o_bitwidth = DataType[output_data_type].bitwidth()
+                    param_files = []
+                    for stage in range(o_bitwidth):
+                        for pe_value in range(pe):
+                            param_files.append(
+                                path
+                                + "/%s_threshs_%s_%s.dat"
+                                % (
+                                    param_node.name,
+                                    pe_value,
+                                    stage,
+                                )
+                            )
+                    for param_file in param_files:
+                        param_path = Path(param_file)
+                        new_param_file = param_path.with_name(
+                            param_path.stem + "_i" + str(iter) + param_path.suffix
+                        )
+                        shutil.move(param_path, new_param_file)
+            if param_node.op_type.startswith("MVAU"):
+                # concatinate all .dat files together
+                param_file = "{}/memblock_{}.dat".format(path, param_node.name)
+                with open(param_file, "w") as outfile:
+                    for iter in range(iteration):
+                        memblock_file = "{}/memblock_{}.dat".format(path, iter)
+                        with open(memblock_file, "r") as infile:
+                            for line in infile:
+                                outfile.write(line)
+                        os.remove(memblock_file)
+            if param_node.op_type.startswith("Thresholding"):
+                # concatinate all .dat files together
+                pe = inst.get_nodeattr("PE")
+                output_data_type = inst.get_nodeattr("outputDataType")
+                o_bitwidth = DataType[output_data_type].bitwidth()
+                for stage in range(o_bitwidth):
+                    for pe_value in range(pe):
+                        param_file = path + "/%s_threshs_%s_%s.dat" % (
+                            param_node.name,
+                            pe_value,
+                            stage,
+                        )
+                        with open(param_file, "w") as outfile:
+                            for iter in range(iteration):
+                                iter_file = "{}/{}_threshs_{}_{}_i{}.dat".format(
+                                    path, param_node.name, pe_value, stage, iter
+                                )
+                                with open(iter_file, "r") as infile:
+                                    for line in infile:
+                                        outfile.write(line)
+                                os.remove(iter_file)
 
     def code_generation_ipi(self):
         pass
