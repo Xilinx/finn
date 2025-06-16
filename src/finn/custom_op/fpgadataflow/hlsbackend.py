@@ -57,6 +57,8 @@ class HLSBackend(ABC):
             "res_hls": ("s", False, ""),
             # temporary node attribute to keep track of interface style of hls ops
             "cpp_interface": ("s", False, "packed", {"packed", "hls_vector"}),
+            # temporary node attribute to keep track of execution style of hls ops
+            "hls_style": ("s", False, "ifm_aware", {"ifm_aware", "freerunning"}),
         }
 
     def get_all_verilog_paths(self):
@@ -204,7 +206,7 @@ class HLSBackend(ABC):
         self.dataoutstrm()
         self.save_as_npy()
 
-        if self.get_nodeattr("cpp_interface") == "hls_vector":
+        if self.get_nodeattr("hls_style") == "freerunning":
             self.timeout_value()
             self.timeout_condition()
             self.timeout_read_stream()
@@ -480,6 +482,8 @@ compilation transformations?
                     elem_output_hls_type, self.get_folded_output_shape()[-1]
                 )
             )
+
+        if self.get_nodeattr("hls_style") == "freerunning":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
                     elem_output_hls_type, self.get_folded_output_shape()[-1]
@@ -532,16 +536,28 @@ compilation transformations?
                 )
             else:
                 folded_shape = self.get_folded_output_shape(o)
-                self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                    'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
-                    % (
-                        elem_hls_type,
-                        npy_type,
-                        folded_shape[-1],
-                        oshape_cpp_str,
-                        npy_out,
+                if self.get_nodeattr("hls_style") == "freerunning":
+                    self.code_gen_dict["$DATAOUTSTREAM$"].append(
+                        'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
+                        % (
+                            elem_hls_type,
+                            npy_type,
+                            folded_shape[-1],
+                            oshape_cpp_str,
+                            npy_out,
+                        )
                     )
-                )
+                else:
+                    self.code_gen_dict["$DATAOUTSTREAM$"].append(
+                        'vectorstream2npy<%s, %s, %d>(out0_V, %s, "%s");'
+                        % (
+                            elem_hls_type,
+                            npy_type,
+                            folded_shape[-1],
+                            oshape_cpp_str,
+                            npy_out,
+                        )
+                    )
 
     def save_as_npy(self):
         """Function to generate the commands for saving data in .npy file in c++"""
