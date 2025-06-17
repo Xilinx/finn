@@ -252,8 +252,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$CNT_BITS$"] = ["32"] # need to get correct value
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_output_datatype(0).bitwidth())]
-        code_gen_dict["$ADDR_INT$"] = ["0x41000000"] # need to get correct value
-        code_gen_dict["$LAYER_OFFS_INT$"] = ["0x10000"] # need to get correct value        
+        code_gen_dict["$ADDR_INT$"] = ["32'h41000000"] # need to get correct value
+        code_gen_dict["$LAYER_OFFS_INT$"] = ["32'h10000"] # need to get correct value        
         
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v" 
         with open(template_path, "r") as f:
@@ -349,7 +349,19 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 os.remove(iter_file)
 
     def code_generation_ipi(self):
-        return ""
+        cmd = []
+        
+        
+        source_files = [
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_macros.svh",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/loop_control.sv",
+            f"{self.get_nodeattr('code_gen_dir_ipgen')}/FINNLoop_0_wrapper.v"
+        ]
+        for f in source_files:
+            cmd += [f"add_files -norecurse {f}"]
+        
+        cmd.append(f"create_bd_cell -type module -reference {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}")
+        return cmd
 
     def get_rtl_file_list(self, abspath=False):
         pass

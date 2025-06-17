@@ -1,5 +1,3 @@
-`include "axi_macros.svh"
-
 module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter N_MAX_LAYERS = $N_MAX_LAYERS$,
     parameter ADDR_BITS = $ADDR_BITS$,
@@ -11,8 +9,8 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter ADDR_INT   = $ADDR_INT$,
     parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$
 ) (
-    input  wire           aclk,
-    input  wire           aresetn,
+    input  wire           ap_clk,
+    input  wire           ap_rst_n,
 
     // AXI4 master interface for m_axi_hbm
     output [ADDR_BITS-1:0] m_axi_hbm_araddr,
@@ -99,8 +97,8 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
         .ADDR_INT(ADDR_INT),
         .LAYER_OFFS_INT(LAYER_OFFS_INT)
     ) loop_control_inst (
-       .aclk(aclk),
-       .aresetn(aresetn),
+       .aclk(ap_clk),
+       .aresetn(ap_rst_n),
 
        // AXI4 master interface for m_axi_hbm
        .m_axi_hbm_araddr(m_axi_hbm_araddr),
