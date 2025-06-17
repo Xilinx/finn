@@ -565,8 +565,8 @@ class TestEnd2End:
         model = model.transform(to_hw.InferThresholdingLayer())
         # needed for convolutions
         if "fc" not in topology:
-            model = model.transform(to_hw.InferConvInpGen())
             model = model.transform(to_hw.InferPool())
+            model = model.transform(to_hw.InferConvInpGen())
             model = model.transform(RemoveCNVtoFCFlatten())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
@@ -595,7 +595,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
-                ("ConvolutionInputGenerator", 6),
+                ("ConvolutionInputGenerator", 8),
                 ("MVAU", 9),
                 ("Pool", 2),
                 ("LabelSelect", 1),
@@ -638,7 +638,7 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_rtl", 1),
-                ("ConvolutionInputGenerator_rtl", 6),
+                ("ConvolutionInputGenerator_rtl", 8),
                 ("MVAU_hls", 9),
                 ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
