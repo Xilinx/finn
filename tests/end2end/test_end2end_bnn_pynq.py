@@ -188,8 +188,9 @@ def fold_cnv_large(model):
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
-        simd = folding[i][1]
-        swg_inst.set_nodeattr("SIMD", simd)
+        if not swg_inst.get_nodeattr("depthwise"):
+            simd = folding[i][1]
+            swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     return model
 
@@ -219,8 +220,9 @@ def fold_cnv_small(model):
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
-        simd = folding[i][1]
-        swg_inst.set_nodeattr("SIMD", simd)
+        if not swg_inst.get_nodeattr("depthwise"):
+            simd = folding[i][1]
+            swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
