@@ -219,11 +219,6 @@ class HWCustomOp(CustomOp):
         back to one"""
         finnxsi.reset_rtlsim(sim)
 
-    def toggle_clk(self, sim):
-        """Toggles the clock input in finnxsi once."""
-        # finnxsi.toggle_clk(sim)
-        pass
-
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
