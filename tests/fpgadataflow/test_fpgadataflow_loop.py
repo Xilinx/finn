@@ -9,6 +9,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.util.create import adjacency_list
 
 
 def generate_random_threshold_values(data_type, num_input_channels, num_steps):
@@ -187,6 +188,8 @@ def test_fpgadataflow_loop():
         owidth = inst.get_outstream_width(o)
         print(odt, oshape, ofshape, owidth)
     body = inst.get_nodeattr("body")
+    adj_list = adjacency_list(body, ["Thresholding_rtl", "MVAU_rtl"])
+    print(adj_list)
     body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)
     x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, 16])
