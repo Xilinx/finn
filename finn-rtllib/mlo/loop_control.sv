@@ -47,7 +47,7 @@
         parameter int unsigned CNT_BITS = 16, // Counter bits for AXI4S
         parameter int unsigned ILEN_BITS = 16, // Length bits for AXI4S input
         parameter int unsigned OLEN_BITS = 16, // Length bits for AXI4S output
-        parameter int unsigned ADDR_INT   = 64'h4100000000, // Start address for intermediate frames
+        parameter int unsigned M_AXI_HBM_BASE_ADDR   = 64'h4100000000, // Start address for intermediate frames
         parameter int unsigned LAYER_OFFS_INT = 64'h10000
     ) (
         input  logic                aclk,
@@ -163,7 +163,7 @@
        .LEN_BITS(LEN_BITS),
        .CNT_BITS(CNT_BITS),
 
-       .ADDR_INT(ADDR_INT),
+       .ADDR_INT(M_AXI_HBM_BASE_ADDR),
        .LAYER_OFFS_INT(LAYER_OFFS_INT),
        .N_MAX_LAYERS(N_MAX_LAYERS)
    ) inst_intermediate_frames (
