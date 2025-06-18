@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -66,8 +65,6 @@ def throughput_test_rtlsim(model, clk_ns, batchsize=100):
         odt = model.get_tensor_datatype(oname)
         o_bytes += (np.prod(oshape_batch) * odt.bitwidth()) / 8
 
-    # remove liveness threshold, launch rtlsim
-    os.environ["LIVENESS_THRESHOLD"] = "-1"
     rtlsim_exec(model, ctx)
     # extract metrics
     cycles = int(model.get_metadata_prop("cycles_rtlsim"))
