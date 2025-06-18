@@ -11,21 +11,21 @@
  *****************************************************************************/
 
 module stream_tap #(
-	type  T,
+	int unsigned  DATA_WIDTH,
 	int unsigned  TAP_REP = 1
 )(
 	input	logic  clk,
 	input	logic  rst,
 
-	input	T  idat,
+	input	logic [DATA_WIDTH-1:0]  idat,
 	input	logic  ivld,
 	output	logic  irdy,
 
-	output	T  odat,
+	output	logic [DATA_WIDTH-1:0]  odat,
 	output	logic  ovld,
 	input	logic  ordy,
 
-	output	T  tdat,
+	output	logic [DATA_WIDTH-1:0]  tdat,
 	output	logic  tvld,
 	input	logic  trdy
 );
@@ -34,11 +34,11 @@ module stream_tap #(
 	typedef logic signed [CNT_BITS-1:0]  cnt_t;
 
 	// Input Sidestep Register Stage
-	T  A = 'x;
+	logic [DATA_WIDTH-1:0]  A = 'x;
 	logic  AVld = 0;
 
 	// Output Register Stage
-	T  B = 'x;
+	logic [DATA_WIDTH-1:0]  B = 'x;
 	logic  OVld = 0;
 	cnt_t  TCnt = '{ CNT_BITS-1: 0, default: 'x };
 	logic  TLst = 'x;

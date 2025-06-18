@@ -32,49 +32,39 @@
  *****************************************************************************/
 
 module $MODULE_NAME$_stream_tap_wrapper #(
-	parameter	T_WIDTH = $T_WIDTH$,
-	parameter	TAP_REP = $TAP_REP$,
-
-        reg [T_WIDTH-1:0] T;
-
+	parameter  DATA_WIDTH = $DATA_WIDTH$,
+	parameter  TAP_REP = $TAP_REP$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0,m_axis_1 ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	// Input stream
-	input	T  s_axis_0_TDATA,
+	input	[DATA_WIDTH-1:0]  s_axis_0_TDATA,
 	input	s_axis_0_TVALID,
 	output	s_axis_0_TREADY,
 	// Output Stream
-	output	T  m_axis_0_TDATA,
+	output	[DATA_WIDTH-1:0]  m_axis_0_TDATA,
 	output	m_axis_0_TVALID,
 	input	m_axis_0_TREADY
-        // Tap Stream
-        output  T  m_axis_1_TDATA,
-        output  m_axis_1_TVALID,
-        input   m_axis_1_TREADY
 
+	// Tap Stream
+	output	[DATA_WIDTH-1:0]  m_axis_1_TDATA,
+	output	m_axis_1_TVALID,
+	input	m_axis_1_TREADY
 );
 
-stream_tap #(
-	.T(T),
-	.TAP_REP(TAP_REP),
-) inst (
-	.clk(ap_clk),
-	.rst(ap_rst_n),
-	.ivld(s_axis_0_TVALID),
-	.irdy(s_axis_0_TREADY),
-	.idat(s_axis_0_TDATA),
-	.ovld(m_axis_0_TVALID),
-	.ordy(m_axis_0_TREADY),
-	.odat(m_axis_0_TDATA),
-        .tvld(m_axis_1_TVALID),
-        .trdy(m_axis_1_TREADY),
-        .tdat(m_axis_1_TDATA),
-);
+	stream_tap #(
+		.DATA_WIDTH(DATA_WIDTH),
+		.TAP_REP(TAP_REP),
+	) inst (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(s_axis_0_TDATA), .ivld(s_axis_0_TVALID), .irdy(s_axis_0_TREADY),
+		.odat(m_axis_0_TDATA), .ovld(m_axis_0_TVALID), .ordy(m_axis_0_TREADY),
+		.tdat(m_axis_1_TDATA), .tvld(m_axis_1_TVALID), .trdy(m_axis_1_TREADY)
+	);
 
-endmodule
+endmodule // $MODULE_NAME$_stream_tap_wrapper
