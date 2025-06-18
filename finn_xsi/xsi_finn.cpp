@@ -163,7 +163,7 @@ void Kernel::open(std::string const &design_lib, s_xsi_setup_info const &setup_i
 	try {
 		auto      const  f   = t_fp_xsi_open(resolve_or_throw(_design_lib, "xsi_open"));
 		xsiHandle const  hdl = f(const_cast<p_xsi_setup_info>(&setup_info));
-		if(!hdl)  std::runtime_error("Loading of design failed");
+		if(!hdl)  throw  std::runtime_error("Loading of design failed");
 		_xsi.setHandle(hdl);
 
 		// Enumerate Ports

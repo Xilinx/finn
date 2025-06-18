@@ -241,7 +241,7 @@ int main(int argc, char *argv[]) {
 			"interval_cycles\t" << max_interval << "\n"
 			"TIMEOUT\t" << (timeout > max_iters? "1" : "0") << "\n"
 			"UNFINISHED_INS\t" << itodo << "\n"
-			"UNFINISHED_OUTS\t" << itodo << "\n"
+			"UNFINISHED_OUTS\t" << otodo << "\n"
 			"RUNTIME_S\t" << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - begin).count();
 		synopsis = bld.str();
 
