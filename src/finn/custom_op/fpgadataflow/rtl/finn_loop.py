@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import math
 import numpy as np
 import os
 import shutil
@@ -246,14 +247,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
         code_gen_dict["$N_MAX_LAYERS$"] = str(self.get_nodeattr("iteration")),
-        code_gen_dict["$ADDR_BITS$"] = ["64"] # need to get correct value
-        code_gen_dict["$DATA_BITS$"] = ["512"] # need to get correct value
-        code_gen_dict["$LEN_BITS$"] = ["16"] # need to get correct value
-        code_gen_dict["$CNT_BITS$"] = ["32"] # need to get correct value
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_output_datatype(0).bitwidth())]
-        code_gen_dict["$ADDR_INT$"] = ["32'h41000000"] # need to get correct value
-        code_gen_dict["$LAYER_OFFS_INT$"] = ["32'h10000"] # need to get correct value        
+        
+        input_elements = np.prod(self.get_normal_input_shape(0))
+        input_bytes    = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
+        # round up to next power of 2
+        input_bytes_rounded_to_power_of_2 = 2**(math.ceil(math.log2(input_bytes)))
+        code_gen_dict["$LAYER_OFFS_INT$"] = [str(input_bytes_rounded_to_power_of_2)] # need to get correct value        
         
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v" 
         with open(template_path, "r") as f:
