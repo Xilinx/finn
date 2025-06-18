@@ -992,7 +992,7 @@ class MVAU(HWCustomOp):
                     "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, win_name)
                 )
                 # dynamic loader
-                swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
+                dynld_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
                 file_suffix = "_dynamic_load_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1001,8 +1001,8 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
-                    swg_rtllib_dir + "ram_p_c.sv",
-                    swg_rtllib_dir + "dynamic_load.sv",
+                    dynld_rtllib_dir + "ram_p_c.sv",
+                    dynld_rtllib_dir + "dynamic_load.sv",
                 ]
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
@@ -1010,7 +1010,7 @@ class MVAU(HWCustomOp):
                 strm_out_name = "m_axis_0"
             elif self.get_nodeattr("mlo_max_iter"):
                 # instantiate a fetch weights component and connect it to the IP
-                swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mlo/")
+                mlo_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mlo/")
                 file_suffix = "_fetch_weights_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1019,17 +1019,17 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
-                    swg_rtllib_dir + "fetch_weights.sv",
-                    swg_rtllib_dir + "local_weight_buffer.sv",
+                    mlo_rtllib_dir + "fetch_weights.sv",
+                    mlo_rtllib_dir + "local_weight_buffer.sv",
                 ]
                 # add files from common dir
-                for file in os.listdir(swg_rtllib_dir + "common/"):
+                for file in os.listdir(mlo_rtllib_dir + "common/"):
                     if file.endswith(".sv") or file.endswith(".svh") or file.endswith(".v"):
-                        sourcefiles.append(os.path.join(swg_rtllib_dir + "common/", file))
+                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "common/", file))
                 # add files from cdma dir
-                for file in os.listdir(swg_rtllib_dir + "cdma/"):
+                for file in os.listdir(mlo_rtllib_dir + "cdma/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(swg_rtllib_dir + "cdma/", file))
+                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/", file))
 
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
@@ -1040,7 +1040,8 @@ class MVAU(HWCustomOp):
 
             elif mem_mode == "internal_decoupled":
                 # instantiate a streamer and connect it to the IP
-                swg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+                axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
+                ms_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
                 file_suffix = "_memstream_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1049,9 +1050,9 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
-                    swg_rtllib_dir + "axilite_if.v",
-                    swg_rtllib_dir + "memstream_axi.sv",
-                    swg_rtllib_dir + "memstream.sv",
+                    axi_dir + "axilite.sv",
+                    ms_rtllib_dir + "memstream_axi.sv",
+                    ms_rtllib_dir + "memstream.sv",
                 ]
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
