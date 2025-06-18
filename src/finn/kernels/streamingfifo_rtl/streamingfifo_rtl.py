@@ -75,7 +75,7 @@ class StreamingFIFORTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "kernels/streamingfifo_rtl/hdl/fifo_template.v"
+        template_path = "streamingfifo_rtl/hdl/fifo_template.v"
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
         code_gen_dict = {}
@@ -88,7 +88,7 @@ class StreamingFIFORTL(Kernel):
         code_gen_dict["DEPTH"] = str(self.depth)
 
         # Find and replace parameters in template, then return
-        template = get_data('finn', template_path).decode('utf-8')
+        template = get_data('finn.kernels', template_path).decode('utf-8')
         for key_name in code_gen_dict:
             key = "$%s$" % key_name
             template = template.replace(key, str(code_gen_dict[key_name]))

@@ -83,7 +83,7 @@ class FMPaddingRTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "kernels/fmpadding_rtl/hdl/fmpadding_template.v"
+        template_path = "fmpadding_rtl/hdl/fmpadding_template.v"
         dimY, dimX = self.ImgDim
         padT, padL, padB, padR = self.Padding
         y_counter_bits = int(math.ceil(math.log2(padT + dimY + padB + 1)))
@@ -106,7 +106,7 @@ class FMPaddingRTL(Kernel):
         }
 
         # Find and replace parameters in template, then return
-        template = get_data('finn', template_path).decode('utf-8')
+        template = get_data('finn.kernels', template_path).decode('utf-8')
         for key_name in code_gen_dict:
             key = "$%s$" % key_name
             template = template.replace(key, str(code_gen_dict[key_name]))

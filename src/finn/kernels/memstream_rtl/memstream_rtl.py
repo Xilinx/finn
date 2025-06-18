@@ -108,7 +108,7 @@ class MemstreamRTL(Kernel):
                     runtime_writeable == 1
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
-            template_path = "kernels/memstream_rtl/hdl/memstream_wrapper_template.v"
+            template_path = "memstream_rtl/hdl/memstream_wrapper_template.v"
             depth = self.calc_wmem()
             padded_width = self.get_instream_width_padded(1)
 
@@ -125,7 +125,7 @@ class MemstreamRTL(Kernel):
                 "$PUMPED_MEMORY$": [str(self.pumpedMemory)],
             }
             # apply code generation to template
-            template_wrapper = get_data('finn', template_path).decode('utf-8')
+            template_wrapper = get_data('finn.kernels', template_path).decode('utf-8')
             for key in code_gen_dict:
                 # transform list into long string separated by '\n'
                 code_gen_line = "\n".join(code_gen_dict[key])

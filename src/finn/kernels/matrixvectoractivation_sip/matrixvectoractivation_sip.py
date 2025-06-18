@@ -392,8 +392,8 @@ wire WSTRM_TDATA;
 
         # Find and replace parameters in template, then return
         node_dir = ctx.directory
-        template_path = "kernels/matrixvectoractivation_sip/hdl/mvau_sip_template.v"
-        template = get_data('finn', template_path).decode('utf-8')
+        template_path = "matrixvectoractivation_sip/hdl/mvau_sip_template.v"
+        template = get_data('finn.kernels', template_path).decode('utf-8')
         for key in code_gen_dict:
             template = template.replace(key, str(code_gen_dict[key]))
         with open(node_dir / Path(f'{self.name}.v'), 'w') as f:

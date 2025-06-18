@@ -70,12 +70,12 @@ class StreamingDataWidthConverterRTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "kernels/streamingdatawidthconverter_rtl/hdl/dwc_template.v"
+        template_path = "streamingdatawidthconverter_rtl/hdl/dwc_template.v"
 
         code_gen_dict = self.get_template_values()
 
         # Find and replace parameters in template, then return
-        template = get_data('finn', template_path).decode('utf-8')
+        template = get_data('finn.kernels', template_path).decode('utf-8')
         for key_name in code_gen_dict:
             key = "$%s$" % key_name
             template = template.replace(key, str(code_gen_dict[key_name]))

@@ -534,6 +534,61 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Generate IP for nodes. Generate RTL for RTL nodes, generate and
+    synthesise HLS for HLS nodes with Vitis HLS. Then create stitched IP."""
+
+    ####### Until step_specialize_layers is removed, this is necessary. ############
+
+    from qonnx.transformation.base import Transformation
+
+    class SuffixRemover(Transformation):
+
+        """ Remove _rtl or _hls suffixes from node types """
+
+        def apply(self, model: ModelWrapper):
+
+            # Iterate over nodes in graph
+            graph = model.graph
+            for node in graph.node:
+
+                if '_' in node.op_type:
+                    node.op_type = node.op_type.rsplit('_', 1)[0]
+
+            return (model, False)
+
+    model_mod = model.transform(SuffixRemover())
+
+    ####### Until step_specialize_layers is removed, this is necessary. ############
+
+    import importlib.resources
+    from pathlib import Path
+    from finn.util.context import Context
+    from finn.transformation.fpgadataflow.code_builder import CodeBuilder
+    from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
+
+    libraries = {
+        "finnkernel" : importlib.resources.files("finn"),
+        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
+    }
+
+    # (self, directory: Path, libraries: Dict[str,Path], fpga_part: str, clk_ns: int, top_ctx: "Context" = None, ip_name: str="finn_design", vitis: bool=False, signature=[])
+    ctx = Context(
+        directory=Path(cfg.output_dir+"_new_flow"),
+        libraries=libraries,
+        fpga_part=cfg._resolve_fpga_part(),
+        clk_ns=cfg.synth_clk_period_ns,
+        clk_hls=cfg._resolve_hls_clk_period(),
+        vitis=cfg.stitched_ip_gen_dcp,
+        signature=cfg.signature,
+    )
+
+    model_mod = model_mod.transform(CodeBuilder(ctx))
+    model_mod = model_mod.transform(StitchedIPBuilder(ctx))
+
+    return model
+
+
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
@@ -893,6 +948,7 @@ build_dataflow_step_lookup = {
     "step_hw_ipgen": step_hw_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
+    "step_create_stitched_ip_new": step_create_stitched_ip_new,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_driver": step_make_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,
