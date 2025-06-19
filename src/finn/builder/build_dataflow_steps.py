@@ -592,6 +592,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                 ),
                 apply_to_subgraphs=True,
+                use_preorder_traversal=False,
             )
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
@@ -658,6 +659,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 signature=cfg.signature,
             ),
             apply_to_subgraphs=True,
+            use_preorder_traversal=False,
         )
         # TODO copy all ip sources into output dir? as zip?
         # shutil.copytree(
