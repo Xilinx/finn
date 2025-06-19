@@ -36,7 +36,7 @@ module $MODULE_NAME$_stream_tap_wrapper #(
 	parameter  TAP_REP = $TAP_REP$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0,m_axis_1 ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0:m_axis_1 ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -49,7 +49,7 @@ module $MODULE_NAME$_stream_tap_wrapper #(
 	// Output Stream
 	output	[DATA_WIDTH-1:0]  m_axis_0_TDATA,
 	output	m_axis_0_TVALID,
-	input	m_axis_0_TREADY
+	input	m_axis_0_TREADY,
 
 	// Tap Stream
 	output	[DATA_WIDTH-1:0]  m_axis_1_TDATA,
@@ -59,7 +59,7 @@ module $MODULE_NAME$_stream_tap_wrapper #(
 
 	stream_tap #(
 		.DATA_WIDTH(DATA_WIDTH),
-		.TAP_REP(TAP_REP),
+		.TAP_REP(TAP_REP)
 	) inst (
 		.clk(ap_clk), .rst(!ap_rst_n),
 		.idat(s_axis_0_TDATA), .ivld(s_axis_0_TVALID), .irdy(s_axis_0_TREADY),
