@@ -35,7 +35,10 @@ module memstream #(
 	int unsigned  WIDTH,
 
 	parameter  INIT_FILE = "",
-	parameter  RAM_STYLE = "auto"
+	parameter  RAM_STYLE = "auto",
+
+	localparam int unsigned  ADDR_WIDTH0 = $clog2(DEPTH),
+	localparam int unsigned  ADDR_WIDTH = ADDR_WIDTH0? ADDR_WIDTH0 : 1
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -43,7 +46,7 @@ module memstream #(
 	// Configuration and readback interface - compatible with ap_memory
 	input	logic  config_ce,
 	input	logic  config_we,
-	input	logic [31     :0]  config_address,
+	input	logic [ADDR_WIDTH-1:0]  config_address,
 	input	logic [WIDTH-1:0]  config_d0,
 
 	output	logic  config_rack,
@@ -55,8 +58,8 @@ module memstream #(
 	output	logic [WIDTH-1:0]  odat
 );
 
-	typedef logic [$clog2(DEPTH)-1:0]  addr_t;
-	typedef logic [WIDTH        -1:0]  data_t;
+	typedef logic [ADDR_WIDTH-1:0]  addr_t;
+	typedef logic [WIDTH     -1:0]  data_t;
 
 	uwire  en;       // Pipeline enable
 	uwire  rollback; // Rollback stream reads if backpressure would block read back
@@ -81,7 +84,7 @@ module memstream #(
 	data_t  Data1 = 'x;
 	if(1) begin : blkStage1
 		// Increment for wrapping DEPTH-1 back to zero
-		localparam int unsigned  WRAP_INC = 2**$bits(addr_t) - DEPTH + 1;
+		localparam int unsigned  WRAP_INC = 2**ADDR_WIDTH - DEPTH + 1;
 
 		uwire ptr_t  ptr_eff = rollback? Ptr[2] : Ptr[0];
 		uwire ptr_t  ptr_nxt;

@@ -246,12 +246,14 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/thresholding/hdl/")
+            axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
         else:
             code_gen_dir = ""
             rtllib_dir = ""
+            axi_dir = ""
 
         verilog_files = [
-            rtllib_dir + "axilite_if.v",
+            axi_dir + "axilite.sv",
             rtllib_dir + "thresholding.sv",
             rtllib_dir + "thresholding_axi.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
@@ -269,7 +271,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         # Set the 'gen_top_module' attribute for use later
         # by xsi and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-
+        axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl"
         template_path = rtlsrc + "/thresholding_template_wrapper.v"
         with open(template_path, "r") as f:
@@ -284,9 +286,10 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
-        sv_files = ["axilite_if.v", "thresholding.sv", "thresholding_axi.sv"]
+        sv_files = ["thresholding.sv", "thresholding_axi.sv"]
         for sv_file in sv_files:
             shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
+        shutil.copy(axi_dir + "axilite.sv", code_gen_dir)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain

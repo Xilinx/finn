@@ -40,13 +40,13 @@ verif_steps = [
 ]
 
 steps = [
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
+    #    "step_convert_to_hw",
+    #    "step_create_dataflow_partition",
+    #    "step_specialize_layers",
+    #    "step_target_fps_parallelization",
+    #    "step_apply_folding_config",
     "step_minimize_bit_width",
-    "step_generate_estimate_reports",
+    #    "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",

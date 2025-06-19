@@ -57,7 +57,8 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+
+# from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
@@ -521,13 +522,13 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run Vitis HLS synthesis on generated code for HLSBackend nodes,
     in order to generate IP blocks. For RTL nodes this step does not do anything."""
 
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-        json.dump(estimate_layer_resources_hls, f, indent=2)
+    model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
+    model = model.transform(ReplaceVerilogRelPaths(), apply_to_subgraphs=True)
+    # report_dir = cfg.output_dir + "/report"
+    # os.makedirs(report_dir, exist_ok=True)
+    # estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
+    # with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+    #    json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
         model = model.transform(PrepareRTLSim())
@@ -574,6 +575,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            model = model.transform(GiveUniqueNodeNames(), apply_to_subgraphs=True)
+            model = model.transform(GiveReadableTensorNames(), apply_to_subgraphs=True)
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
                 os.makedirs(report_dir, exist_ok=True)
@@ -587,7 +590,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
-                )
+                ),
+                apply_to_subgraphs=True,
+                use_preorder_traversal=False,
             )
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
@@ -628,13 +633,15 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # json file has been written. otherwise, since these transforms may add/remove
     # FIFOs, we get name mismatch problems when trying to reuse the final config.
     if cfg.split_large_fifos:
-        model = model.transform(SplitLargeFIFOs())
-    model = model.transform(RemoveShallowFIFOs())
+        model = model.transform(SplitLargeFIFOs(), apply_to_subgraphs=True)
+    model = model.transform(RemoveShallowFIFOs(), apply_to_subgraphs=True)
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP())
+    model = model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True
+    )
+    model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
 
 
@@ -643,20 +650,22 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        # stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
             CreateStitchedIP(
                 cfg._resolve_fpga_part(),
                 cfg.synth_clk_period_ns,
                 vitis=cfg.stitched_ip_gen_dcp,
                 signature=cfg.signature,
-            )
+            ),
+            apply_to_subgraphs=True,
+            use_preorder_traversal=False,
         )
         # TODO copy all ip sources into output dir? as zip?
-        shutil.copytree(
-            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
-        )
-        print("Vivado stitched IP written into " + stitched_ip_dir)
+        # shutil.copytree(
+        #    model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        # )
+        # print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -753,7 +762,12 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
                 version=cfg.cpp_driver_version,
             )
         )
-        shutil.copytree(model.get_metadata_prop("cpp_driver_dir"), driver_dir, dirs_exist_ok=True)
+        shutil.copytree(
+            model.get_metadata_prop("cpp_driver_dir"),
+            driver_dir,
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
         print("C++ driver written into " + driver_dir)
     else:
         warnings.warn(
@@ -860,7 +874,12 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
         shutil.copytree(bitfile_dir, deploy_dir + "/bitfile", dirs_exist_ok=True)
-        shutil.copytree(driver_dir, deploy_dir + "/driver", dirs_exist_ok=True)
+        shutil.copytree(
+            driver_dir,
+            deploy_dir + "/driver",
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
     return model
 
 
