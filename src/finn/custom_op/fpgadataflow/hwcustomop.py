@@ -244,12 +244,11 @@ class HWCustomOp(CustomOp):
         by every node that needs to generate parameters."""
         pass
 
-    @abstractmethod
     def get_number_output_values(self):
         """Function to get the number of expected output values,
         is member function of HWCustomOp class but has to be filled
         by every node."""
-        pass
+        return np.prod(self.get_folded_output_shape()[:-1])
 
     @abstractmethod
     def get_input_datatype(self, ind=0):

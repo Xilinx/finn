@@ -131,10 +131,6 @@ class Pool(HWCustomOp):
         folded_oshape = normal_oshape[:-1] + [fold, pe]
         return tuple(folded_oshape)
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[1:-1])
-
     def get_exp_cycles(self):
         # (Channels * kernel * kernel) / PE * odim * odim * batch_size
         ifm_ch = self.get_nodeattr("Channels")

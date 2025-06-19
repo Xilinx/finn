@@ -125,10 +125,6 @@ class StreamingDataWidthConverter(HWCustomOp):
 
         return dummy_t.shape
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
         return in_width

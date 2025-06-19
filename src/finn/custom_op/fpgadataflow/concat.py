@@ -107,9 +107,6 @@ class StreamingConcat(HWCustomOp):
         out_width = total_elems * obits
         return out_width
 
-    def get_number_output_values(self):
-        return np.prod(self.get_folded_output_shape()[:-1])
-
     def get_exp_cycles(self):
         return np.prod(self.get_folded_output_shape()[:-1])
 

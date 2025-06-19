@@ -131,10 +131,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         else:
             raise Exception("Undefined input ind for this layer type")
 
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
     def npy_to_dynamic_output(self, context):
         super().npy_to_dynamic_output(context)
         node = self.onnx_node

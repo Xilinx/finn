@@ -131,9 +131,6 @@ class GlobalAccPool(HWCustomOp):
         out_width = pe * obits
         return out_width
 
-    def get_number_output_values(self):
-        return np.prod(self.get_folded_output_shape()[1:-1])
-
     def get_exp_cycles(self):
         # Channels/PE * batch size * idim * idim + Channels/PE
         ch = self.get_nodeattr("NumChannels")

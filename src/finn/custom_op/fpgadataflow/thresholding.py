@@ -193,10 +193,6 @@ class Thresholding(HWCustomOp):
         # same shape as input
         return self.get_normal_input_shape()
 
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])

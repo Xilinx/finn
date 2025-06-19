@@ -133,9 +133,6 @@ class AddStreams(HWCustomOp):
         out_width = pe * obits
         return out_width
 
-    def get_number_output_values(self):
-        return np.prod(self.get_folded_output_shape()[:-1])
-
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])

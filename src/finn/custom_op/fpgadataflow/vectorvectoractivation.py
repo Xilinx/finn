@@ -278,10 +278,6 @@ class VVAU(HWCustomOp):
         normal_output_shape = tuple([1, dim_h, dim_w, ch])
         return normal_output_shape
 
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
     def calc_wmem(self):
         """Calculates and returns WMEM."""
         ch = self.get_nodeattr("Channels")
