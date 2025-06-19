@@ -356,7 +356,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         source_files = [
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_macros.svh",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/loop_control.sv",
-            f"{self.get_nodeattr('code_gen_dir_ipgen')}/FINNLoop_0_wrapper.v"
+            f"{self.get_nodeattr('code_gen_dir_ipgen')}/{self.onnx_node.name}_wrapper.v"
         ]
         for f in source_files:
             cmd += [f"add_files -norecurse {f}"]
