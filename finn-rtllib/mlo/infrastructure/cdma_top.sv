@@ -37,14 +37,12 @@
 //
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
-import iwTypes::*;
-
 module cdma_top #(
     parameter integer                   BURST_LEN = 16,
-    parameter integer                   DATA_BITS = HBM_DATA_BITS,
-    parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
-    parameter integer                   ID_BITS = HBM_ID_BITS,
-    parameter integer                   LEN_BITS = HBM_LEN_BITS,
+    parameter integer                   DATA_BITS = 256,
+    parameter integer                   ADDR_BITS = 64,
+    parameter integer                   ID_BITS = 2,
+    parameter integer                   LEN_BITS = 32,
     parameter integer                   CDMA_TYPE = 1, // (0: Aligned, 1: Unaglined)
     parameter integer                   CDMA_RD = 1,
     parameter integer                   CDMA_WR = 1
