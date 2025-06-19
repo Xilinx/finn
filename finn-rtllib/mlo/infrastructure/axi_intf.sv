@@ -31,7 +31,7 @@
 `timescale 1ns / 1ps
 
 // ----------------------------------------------------------------------------
-// AXI4 stream
+// AXI4 stream 
 // ----------------------------------------------------------------------------
 interface AXI4S #(
 	parameter AXI4S_DATA_BITS = 64
@@ -45,21 +45,25 @@ data_t          tdata;
 logic           tready;
 logic           tvalid;
 
+// Tie off unused master signals
 task tie_off_m ();
     tdata      = 0;
     tvalid     = 1'b0;
 endtask
 
+// Tie off unused slave signals
 task tie_off_s ();
     tready     = 1'b1;
 endtask
 
+// Master
 modport master (
 	import tie_off_m,
 	input tready,
 	output tdata, tvalid
 );
 
+// Slave
 modport slave (
     import tie_off_s,
     input tdata, tvalid,
@@ -68,47 +72,10 @@ modport slave (
 
 endinterface
 
-interface AXI4S_PCKT #(
-	parameter AXI4S_DATA_BITS = 64
-) (
-    input  logic aclk
-);
-
-typedef logic [AXI4S_DATA_BITS-1:0] data_t;
-typedef logic [AXI4S_DATA_BITS/8-1:0] keep_t;
-
-data_t          tdata;
-keep_t          tkeep;
-logic           tready;
-logic           tvalid;
-logic           tlast;
-
-task tie_off_m ();
-    tdata      = 0;
-    tkeep      = 0;
-    tlast      = 0;
-    tvalid     = 1'b0;
-endtask
-
-task tie_off_s ();
-    tready     = 1'b1;
-endtask
-
-modport master (
-	import tie_off_m,
-	input tready,
-	output tdata, tvalid, tlast, tkeep
-);
-
-modport slave (
-    import tie_off_s,
-    input tdata, tvalid, tlast, tkeep,
-    output tready
-);
-
-endinterface
-
-interface AXI4S_USER #(
+// ----------------------------------------------------------------------------
+// AXI4 stream full
+// ----------------------------------------------------------------------------
+interface AXI4SF #(
 	parameter AXI4S_DATA_BITS = 64,
     parameter AXI4S_USER_BITS = 1
 ) (
@@ -122,31 +89,35 @@ typedef logic [AXI4S_USER_BITS-1:0] user_t;
 data_t          tdata;
 keep_t          tkeep;
 user_t          tuser;
+logic           tlast;
 logic           tready;
 logic           tvalid;
-logic           tlast;
 
+// Tie off unused master signals
 task tie_off_m ();
     tdata      = 0;
     tkeep      = 0;
-    tlast      = 0;
     tuser      = 0;
+    tlast      = 1'b0;
     tvalid     = 1'b0;
 endtask
 
+// Tie off unused slave signals
 task tie_off_s ();
     tready     = 1'b1;
 endtask
 
+// Master
 modport master (
 	import tie_off_m,
 	input tready,
-	output tdata, tvalid, tlast, tkeep, tuser
+	output tdata, tvalid, tuser, tkeep, tlast
 );
 
+// Slave
 modport slave (
     import tie_off_s,
-    input tdata, tvalid, tlast, tkeep, tuser,
+    input tdata, tvalid, tuser, tkeep, tlast,
     output tready
 );
 
@@ -175,7 +146,7 @@ logic			arvalid;
 addr_t 			awaddr;
 logic			awready;
 logic			awvalid;
-
+ 
 // R channel
 data_t 			rdata;
 logic[1:0]		rresp;
@@ -196,19 +167,19 @@ logic			bvalid;
 // Tie off unused master signals
 task tie_off_m ();
 	araddr    = 0;
-    arvalid   = 1'b0;
-    awaddr    = 0;
-    awvalid   = 1'b0;
-    bready    = 1'b0;
-    rready    = 1'b0;
-    wdata     = 0;
-    wstrb     = 0;
-    wvalid    = 1'b0;
+    arvalid   = 1'b0;	
+    awaddr    = 0;	
+    awvalid   = 1'b0;	
+    bready    = 1'b0;	
+    rready    = 1'b0;	
+    wdata     = 0;	
+    wstrb     = 0;	
+    wvalid    = 1'b0;	
 endtask
 
 // Tie off unused slave signals
 task tie_off_s ();
-	arready  = 1'b0;
+	arready  = 1'b0;     
     awready  = 1'b0;
     bresp    = 2'b0;
     bvalid   = 1'b0;
@@ -299,7 +270,7 @@ logic[2:0]		awprot;
 logic[2:0]		awsize;
 logic			awready;
 logic			awvalid;
-
+ 
 // R channel
 data_t 			rdata;
 id_t      		rid;
@@ -327,35 +298,35 @@ task tie_off_m ();
     arburst   = 2'b01;
     arcache   = 4'b0;
     arid      = 0;
-    arlen     = 8'b0;
-    arlock    = 1'b0;
-    arprot    = 3'b0;
-    arsize    = 3'b0;
-    arvalid   = 1'b0;
-    awaddr    = 0;
+    arlen     = 8'b0;	
+    arlock    = 1'b0;	
+    arprot    = 3'b0;	
+    arsize    = 3'b0;	
+    arvalid   = 1'b0;	
+    awaddr    = 0;	
     awburst   = 2'b01;
-    awcache   = 4'b0;
+    awcache   = 4'b0;	
     awid      = 0;
-    awlen     = 8'b0;
-    awlock    = 1'b0;
-    awprot    = 3'b0;
-    awsize    = 3'b0;
+    awlen     = 8'b0;	
+    awlock    = 1'b0;	
+    awprot    = 3'b0;	
+    awsize    = 3'b0;	
     awvalid   = 1'b0;
-    bready    = 1'b0;
-    rready    = 1'b0;
-    wdata     = 0;
+    bready    = 1'b0;    
+    rready    = 1'b0;	
+    wdata     = 0;	
     wlast     = 1'b0;
-    wstrb     = 0;
-    wvalid    = 1'b0;
+    wstrb     = 0;	
+    wvalid    = 1'b0;	
 endtask
 
 // Tie off unused slave signals
 task tie_off_s ();
-	arready  = 1'b0;
+	arready  = 1'b0;     
     awready  = 1'b0;
     bresp    = 2'b0;
     bvalid   = 1'b0;
-    bid      = 0;
+    bid      = 0;	
     rdata    = 0;
     rid      = 0;
     rlast    = 1'b0;
