@@ -65,12 +65,12 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     output                 s_axis_core_out_tready,
 
     // activation signals
-    input  [DATA_BITS-1:0] axis_fs_tdata,
-    input                  axis_fs_tvalid,
-    output                 axis_fs_tready,
-    output [DATA_BITS-1:0] axis_se_tdata,
-    output                 axis_se_tvalid,
-    input                  axis_se_tready,
+    input  [DATA_BITS-1:0] in0_V_tdata,
+    input                  in0_V_tvalid,
+    output                 in0_V_tready,
+    output [DATA_BITS-1:0] out0_V_tdata,
+    output                 out0_V_tvalid,
+    input                  out0_V_tready,
 
     // control signals
     input  wire [CNT_BITS-1:0] n_layers,
@@ -152,11 +152,11 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .m_axis_core_in_fw_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
        .m_axis_core_in_fw_idx_tready(m_axis_core_in_fw_idx_tready),
         
-       .axis_fs_tdata(axis_fs_tdata),
-       .axis_fs_tvalid(axis_fs_tvalid),
-       .axis_fs_tready(axis_fs_tready),
-       .axis_se_tdata(axis_se_tdata),
-       .axis_se_tvalid(axis_se_tvalid),
+       .axis_fs_tdata(in0_V_tdata),
+       .axis_fs_tvalid(in0_V_tvalid),
+       .axis_fs_tready(in0_V_tready),
+       .axis_se_tdata(out0_V_tdata),
+       .axis_se_tvalid(out0_V_tvalid),
        .axis_se_tready(axis_se_tready),
 
        // control signals
