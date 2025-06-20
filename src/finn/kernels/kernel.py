@@ -90,6 +90,58 @@ class Kernel:
         for generator, _ in self.instanceFiles:
             generator(ctx)
 
+    def get_abs_verilog_files(self, node_ctx: Context) -> set[Path]:
+        """Return list of all Verilog files used for this node, abs paths."""
+
+        if self.impl_style == "hls":
+            verilog_paths: set[Path] = set()
+            verilog_path = Path("{}/project_{}/sol1/impl/verilog/".format(node_ctx.directory, self.name))
+            subcore_verilog_path = Path("{}/project_{}/sol1/impl/ip/hdl/ip/".format(node_ctx.directory, self.name))
+            # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir if it exists
+            # TODO: Might be able to remove subcore_verilog_path after splitting MVAU-like into SIP kernels?
+            verilog_paths.add(verilog_path)
+            if Path(subcore_verilog_path).is_dir():
+                verilog_paths.add(subcore_verilog_path)
+
+            verilog_files = set()
+            for verilog_path in verilog_paths:
+                for f in verilog_path.iterdir():
+                    if f.suffix == ".v":
+                        verilog_files.add(f)
+            return verilog_files
+
+        elif self.impl_style == "rtl":
+            rtl_suffixes = [".v", ".sv", ".vhd", ".vh"]
+            code_gen_dir = node_ctx.directory
+            kernel_dir = node_ctx.top_ctx.get_kernel_dir(type(self).__name__)
+            shared_dir = node_ctx.top_ctx.shared_dir
+            # Get paths to instance files.
+            instance_verilog_files = {file for file in code_gen_dir.rglob('*') if (file.is_file() and file.suffix in rtl_suffixes)}
+            # Get paths to kernel files.
+            kernel_verilog_files = {file for file in kernel_dir.rglob('*') if (file.is_file() and file.suffix in rtl_suffixes)}
+            # Get paths to shared files.
+            shared_verilog_files = set()
+            for shared_path in node_ctx.shared:
+                if (shared_path.is_file() and shared_path.suffix in rtl_suffixes):
+                    shared_verilog_files.add(shared_dir / shared_path.name)
+                else:
+                    shared_verilog_files |= {shared_dir / file.name for file in shared_path.rglob('*') if (file.is_file() and file.suffix in rtl_suffixes)}
+            return instance_verilog_files | kernel_verilog_files | shared_verilog_files
+
+        elif self.impl_style == "sip":
+            rtl_suffixes = [".v", ".sv", ".vhd", ".vh"]
+            code_gen_dir = node_ctx.directory
+            # Get paths to instance files.
+            instance_verilog_files = {file for file in code_gen_dir.rglob('*') if (file.is_file() and file.suffix in rtl_suffixes)}
+
+            verilog_files = set()
+            for subkernel in self.subkernels:
+                verilog_files |= subkernel.get_abs_verilog_files(node_ctx.get_subcontext(subkernel.name))
+            return instance_verilog_files | verilog_files
+
+        else:
+            raise RuntimeError(f"Instance {self.name} of kernel {type(self).__name__} has unknown impl_style {self.impl_style}.")
+
     ######################### Stitched kernel things #########################
     # Keep a list of kernels that have to be generated as subnodes.
     # The __init__ method calls _init_subkernels and assigns its output to subkernels.

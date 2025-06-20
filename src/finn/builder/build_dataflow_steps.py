@@ -566,11 +566,15 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
     from finn.util.context import Context
     from finn.transformation.fpgadataflow.code_builder import CodeBuilder
     from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
+    from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
 
     libraries = {
         "finnkernel" : importlib.resources.files("finn"),
         "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
     }
+
+    report_dir = cfg.output_dir+"_new_flow" + "/report"
+    os.makedirs(report_dir, exist_ok=True)
 
     # (self, directory: Path, libraries: Dict[str,Path], fpga_part: str, clk_ns: int, top_ctx: "Context" = None, ip_name: str="finn_design", vitis: bool=False, signature=[])
     ctx = Context(
@@ -581,10 +585,12 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
         clk_hls=cfg._resolve_hls_clk_period(),
         vitis=cfg.stitched_ip_gen_dcp,
         signature=cfg.signature,
+        rtlsim_trace=Path(os.path.abspath(report_dir) + "/fifosim_trace.wdb"),
     )
 
     model_mod = model_mod.transform(CodeBuilder(ctx))
     model_mod = model_mod.transform(StitchedIPBuilder(ctx))
+    model_mode = model_mod.transform(RTLSimBuilder(ctx))
 
     return model
 
