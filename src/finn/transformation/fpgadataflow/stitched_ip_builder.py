@@ -264,8 +264,8 @@ class StitchedIPBuilder(Transformation):
             file_paths = {file for file in full_path.rglob('*') if file.is_file()}
             self.create_cmds += [f"add_files -norecurse ../{path.relative_to(self.ctx.directory)}" for path in file_paths]
 
-        # Make cmds for kernel files.
-        full_path = self.ctx.directory / Path('shared_rtl')
+        # Make cmds for shared files.
+        full_path = self.ctx.shared_dir
         file_paths = {file for file in full_path.rglob('*') if file.is_file()}
         self.create_cmds += [f"add_files -norecurse ../{path.relative_to(self.ctx.directory)}" for path in file_paths]
 
@@ -334,7 +334,7 @@ class StitchedIPBuilder(Transformation):
         tcl = []
         # create vivado project
         tcl.append(
-            "create_project %s %s -part %s" % (prjname, '.', self.ctx.fpga_part)
+            "create_project %s %s -part %s -force" % (prjname, '.', self.ctx.fpga_part)
         )
         # no warnings on long module names
         tcl.append("set_msg_config -id {[BD 41-1753]} -suppress")

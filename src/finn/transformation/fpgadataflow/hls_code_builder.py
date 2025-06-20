@@ -9,13 +9,10 @@ import os
 import subprocess
 
 
-def gen_hls_node(kernel: Kernel, ctx: Context):
+def gen_hls_node(kernel: Kernel, node_ctx: Context):
 
     # Ensure vitis_hls is available
     assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
-
-    # Make subcontext
-    node_ctx = ctx.get_subcontext(Path(kernel.name))
 
     # Generate instance HLS files in "output/node"
     kernel.generate_instance_files(node_ctx)
@@ -30,11 +27,11 @@ def gen_hls_node(kernel: Kernel, ctx: Context):
     ]
     code_gen_dict = {}
     code_gen_dict["$PROJECTNAME$"] = f"project_{kernel.name}"
-    code_gen_dict["$FPGAPART$"] = ctx.fpga_part
+    code_gen_dict["$FPGAPART$"] = node_ctx.fpga_part
     code_gen_dict["$TOPFXN$"] = kernel.name
-    code_gen_dict["$CLKPERIOD$"] = str(ctx.clk_hls)
+    code_gen_dict["$CLKPERIOD$"] = str(node_ctx.clk_hls)
     code_gen_dict["$DEFAULT_DIRECTIVES$"] = "\n".join(default_directives)
-    shared_includes = [ctx.resolve_library(shared_dep) for shared_dep in kernel.sharedFiles]
+    shared_includes = [node_ctx.resolve_library(shared_dep) for shared_dep in kernel.sharedFiles]
     kernel_includes = [importlib.resources.files("finn") / path for path in kernel.kernelFiles]
     code_gen_dict["$INCLUDE_SOURCES$"] = " \\\n".join(["-I"+str(path) for path in shared_includes])
     code_gen_dict["$INCLUDE_SOURCES$"] += " \\\n".join(["-I"+str(path) for path in kernel_includes])

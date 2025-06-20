@@ -79,6 +79,9 @@ ipstitching_template = """
 set core [ipx::current_core]
 
 # Add rudimentary driver
+if {[file isdirectory "ip/data"]} {
+    file delete -force "ip/data"
+}
 file copy -force data ip/
 set file_group [ipx::add_file_group -type software_driver {} $core]
 set_property type mdd       [ipx::add_file data/finn_design.mdd $file_group]

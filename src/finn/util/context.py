@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Set, Dict, Tuple
+from dataclasses import dataclass, field
 
 
 class ContextLibraryNotFound(Exception):
@@ -67,7 +68,7 @@ class Context:
         return kernel_files_all
 
     @property
-    def children(self) -> Dict[str,"Context"]:
+    def children(self) -> Dict[Path,"Context"]:
         return self._children
 
     def add_shared(self, sharedFile: Tuple[str,Path]) -> None:
@@ -81,7 +82,7 @@ class Context:
 
     def get_subcontext(self, subdirectory: Path) -> "Context":
         if subdirectory in self._children.keys():
-            return self._children[subdirectory]
+            return self._children[Path(subdirectory)]
         else:
             top_ctx = self if self.top_ctx == None else self.top_ctx
             child = Context(
@@ -94,8 +95,14 @@ class Context:
                 ip_name=self.ip_name,
                 vitis=self.vitis,
                 signature=self.signature)
-            self._children[subdirectory] = child
+            self._children[Path(subdirectory)] = child
             return child
+
+    def update_subcontext(self, subctx: "Context") -> None:
+        subctx.top_ctx = self if self.top_ctx == None else self.top_ctx
+        for _, subchild in subctx._children.items():
+            subctx.update_subcontext(subchild)
+        self._children[Path(subctx.directory.name)] = subctx
 
     @property
     def shared_dir(self) -> Path: # Return path to shared RTL folder at top level dir
