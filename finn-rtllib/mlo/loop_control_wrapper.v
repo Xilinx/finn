@@ -157,7 +157,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .axis_fs_tready(in0_V_tready),
        .axis_se_tdata(out0_V_tdata),
        .axis_se_tvalid(out0_V_tvalid),
-       .axis_se_tready(axis_se_tready),
+       .axis_se_tready(out0_V_tready),
 
        // control signals
        .n_layers(n_layers),
