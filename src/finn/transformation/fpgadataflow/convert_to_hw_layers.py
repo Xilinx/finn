@@ -460,14 +460,8 @@ class InferAddStreamsLayer(Transformation):
                 idt0 = model.get_tensor_datatype(in0)
                 idt1 = model.get_tensor_datatype(in1)
 
-                # skip if different data types on inputs
-                if idt0 != idt1:
-                    continue
-
-                idt = idt0
-
                 # skip conversion for layers with float input
-                if not idt.is_integer():
+                if not idt0.is_integer() or not idt1.is_integer():
                     continue
 
                 # check layout and convert if necessary
@@ -507,7 +501,7 @@ class InferAddStreamsLayer(Transformation):
                     backend="fpgadataflow",
                     NumChannels=num_channels,
                     PE=pe,
-                    inputDataType=idt.name,
+                    inputDataTypes=[idt0.name, idt1.name],
                     numInputVectors=in0_shape[:-1],
                     name="AddStreams_" + node.name,
                 )
@@ -1493,21 +1487,19 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                 mm_out_shape = model.get_tensor_shape(mm_output)
                 idt = model.get_tensor_datatype(mm_input)
                 wdt = model.get_tensor_datatype(mm_weight)
+                W = model.get_initializer(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
-                    mm_output = n.output[0]
-                    # if mm_weight is not constant, skip node
-                    if model.get_initializer(mm_weight) is None:
-                        # TODO: AB: Hack for dynamic MM
-                        #           Assume that the weight tensor is the same as the input tensor B
-                        inp_B = model.get_tensor_shape(mm_weight)
-                        mh = int(inp_B[-1])
-                        mw = int(inp_B[-2])
+                    # extract weight shape, note that ONNX and finn-hlslib
+                    # make different assumptions about dim order here
+                    # ONNX assumes W has (in, out) shape
+                    # finn-hlslib assumes W has (out, in) shape
+                    if W is None:
+                        # dynamic
+                        mm_dyn_shape = model.get_tensor_shape(mm_weight)
+                        mh = int(mm_dyn_shape[-1])
+                        mw = int(mm_dyn_shape[-2])
                     else:
-                        W = model.get_initializer(mm_weight)
-                        # extract weight shape, note that ONNX and finn-hlslib
-                        # make different assumptions about dim order here
-                        # ONNX assumes W has (in, out) shape
-                        # finn-hlslib assumes W has (out, in) shape
+                        # static
                         mh = int(W.shape[1])
                         mw = int(W.shape[0])
                     # create node with no parallelization first
@@ -1573,6 +1565,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            dynamic_input=W is None,
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -1603,6 +1597,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
+                            dynamic_input=W is None,
+                            inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

@@ -193,20 +193,6 @@ def _determine_impl_style(node, fpgapart, model):
         )
 
 
-def _determine_hw_op_type(node, fpgapart, model):
-    impl_style = _determine_impl_style(node, fpgapart, model)
-
-    # There are some variants of MVAU that are only supported in RTL
-    if impl_style == "rtl" and node.op_type == "MVAU":
-        # TODO: AB: Dont use the initializer to determine mvau type
-        if model.get_initializer(node.input[1]) is not None:
-            return "MVAU_rtl", impl_style
-        else:
-            return "DynMVU_rtl", impl_style
-
-    return node.op_type + "_" + impl_style, impl_style
-
-
 def _dwc_determine_impl_style(node):
     # when possible use rtl variant
     dwc = getCustomOp(node)
@@ -278,10 +264,13 @@ def _mvu_rtl_possible(n, fpgapart, model):
     dsp_block = get_dsp_block(fpgapart)
     # check if weights are narrow
     weights = model.get_initializer(n.input[1])
-    if weights is not None:
-        if not wdt.signed():
-            return False
-    narrow_weights = False if np.min(weights) == wdt.min() else True
+    # if dynamic input, set minimum of weights to wdt.min()
+    # otherwise set it to the minimum value in the weight matrix
+    if weights is None:
+        weights_min = wdt.min()
+    else:
+        weights_min = np.min(weights)
+    narrow_weights = False if weights_min == wdt.min() else True
     # if non narrow weights and only DSP48E1 available return False
     if not narrow_weights and dsp_block == "DSP48E1":
         return False
@@ -331,7 +320,8 @@ class SpecializeLayers(Transformation):
             if not node.domain.endswith(".custom_op.fpgadataflow"):
                 continue
             node_ind += 1
-            optype, impl_style = _determine_hw_op_type(node, self.fpgapart, model)
+            impl_style = _determine_impl_style(node, self.fpgapart, model)
+            optype = node.op_type + "_" + impl_style
 
             new_node = helper.make_node(
                 optype,

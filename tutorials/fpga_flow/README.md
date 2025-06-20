@@ -57,7 +57,7 @@ The build should finish in about 10 minutes, and the FINN docker will close on s
    Running step: step_measure_rtlsim_performance [13/18]
    Running step: step_out_of_context_synthesis [14/18]
    Running step: step_synthesize_bitfile [15/18]
-   Running step: step_make_pynq_driver [16/18]
+   Running step: step_make_driver [16/18]
    Running step: step_deployment_package [17/18]
    Running step: custom_step_gen_tb_and_io [18/18]
    Completed successfully
