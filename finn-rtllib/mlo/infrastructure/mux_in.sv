@@ -260,32 +260,32 @@ axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg (
 //
 
 if(DBG == 1) begin
-    ila_mux_in inst_ila_mux_in (
-        .clk(aclk),
-        .probe0(s_idx_fs.tvalid),
-        .probe1(s_idx_fs.tready),
-        .probe2(m_idx_out.tvalid),
-        .probe3(m_idx_out.tready),
-        .probe4(fw_rdy),
-        .probe5(s_idx_if.tvalid),
-        .probe6(s_idx_if.tready),
-        .probe7(seq.tvalid),
-        .probe8(seq.tready),
-        .probe9(state_C), // 2
-        .probe10(cnt_frames_C), // 16
-        .probe11(n_frames_C), // 16
-        .probe12(len_C), // 32
-        .probe13(cnt_C), // 16
-        .probe14(s_axis_fs.tvalid),
-        .probe15(s_axis_fs.tready),
-        .probe16(s_axis_if.tvalid),
-        .probe17(s_axis_if.tready),
-        .probe18(m_axis.tvalid),
-        .probe19(m_axis.tready),
-        .probe20(s_idx_if.tdata), // 64
-        .probe21(s_idx_fs.tdata),  // 64
-        .probe22(cnt_out) // 32
-    );
+    // ila_mux_in inst_ila_mux_in (
+    //     .clk(aclk),
+    //     .probe0(s_idx_fs.tvalid),
+    //     .probe1(s_idx_fs.tready),
+    //     .probe2(m_idx_out.tvalid),
+    //     .probe3(m_idx_out.tready),
+    //     .probe4(fw_rdy),
+    //     .probe5(s_idx_if.tvalid),
+    //     .probe6(s_idx_if.tready),
+    //     .probe7(seq.tvalid),
+    //     .probe8(seq.tready),
+    //     .probe9(state_C), // 2
+    //     .probe10(cnt_frames_C), // 16
+    //     .probe11(n_frames_C), // 16
+    //     .probe12(len_C), // 32
+    //     .probe13(cnt_C), // 16
+    //     .probe14(s_axis_fs.tvalid),
+    //     .probe15(s_axis_fs.tready),
+    //     .probe16(s_axis_if.tvalid),
+    //     .probe17(s_axis_if.tready),
+    //     .probe18(m_axis.tvalid),
+    //     .probe19(m_axis.tready),
+    //     .probe20(s_idx_if.tdata), // 64
+    //     .probe21(s_idx_fs.tdata),  // 64
+    //     .probe22(cnt_out) // 32
+    // );
 end
 
 
