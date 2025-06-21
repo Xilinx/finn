@@ -25,8 +25,6 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
  * @brief   Aligned CDMA AXI read engine
  *

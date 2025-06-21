@@ -31,92 +31,98 @@ module axis_reg_tmplt #(
 	input logic 			aclk,
 	input logic 			aresetn,
 	
-	AXI4S.slave				s_axis,
-	AXI4S.master            m_axis
+    input logic                 s_axis_tvalid,
+    output logic                s_axis_tready,
+    input logic [DATA_BITS-1:0] s_axis_tdata,
+	
+    output logic                 m_axis_tvalid,
+    input logic                  m_axis_tready,
+    output logic [DATA_BITS-1:0] m_axis_tdata
 );
+  
 
 if(DATA_BITS == 8) begin
 axis_register_slice_8 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 16) begin
 axis_register_slice_16 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 32) begin
 axis_register_slice_32 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 64) begin
 axis_register_slice_64 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 128) begin
 axis_register_slice_128 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 256) begin
 axis_register_slice_256 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 else if(DATA_BITS == 512) begin
 axis_register_slice_512 inst_reg_slice (
     .aclk(aclk),
     .aresetn(aresetn),
-    .s_axis_tvalid(s_axis.tvalid),
-    .s_axis_tready(s_axis.tready),
-    .s_axis_tdata(s_axis.tdata),
-    .m_axis_tvalid(m_axis.tvalid),
-    .m_axis_tready(m_axis.tready),
-    .m_axis_tdata(m_axis.tdata)
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata(s_axis_tdata),
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata(m_axis_tdata)
 );
 end
 

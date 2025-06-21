@@ -194,8 +194,7 @@
        .LEN_BITS(LEN_BITS),
        .CNT_BITS(CNT_BITS),
 
-       .ILEN_BITS(ILEN_BITS),
-       .N_FW_CORES(1)
+       .ILEN_BITS(ILEN_BITS)
    ) inst_mux_in (
        .aclk(aclk),
        .aresetn(aresetn),

@@ -233,7 +233,15 @@ always_comb begin : DP
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(s_axis), .m_axis(s_axis_int));
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) 
+                       inst_reg (.aclk(aclk), 
+                                 .aresetn(aresetn), 
+                                 .s_axis_tvalid(s_axis.tvalid),
+                                 .s_axis_tready(s_axis.tready),
+                                 .s_axis_tdata(s_axis.tdata),
+                                 .m_axis_tvalid(s_axis_int.tvalid),
+                                 .m_axis_tready(s_axis_int.tready),
+                                 .m_axis_tdata(s_axis_int.tdata));
 
 //
 // DBG

@@ -34,8 +34,13 @@ module axis_reg_array_tmplt #(
     input  logic                        aclk,
     input  logic                        aresetn,
 
-    AXI4S.slave                         s_axis,
-    AXI4S.master                        m_axis
+    input  logic                        s_axis_tvalid,
+    output logic                        s_axis_tready,
+    input  logic[DATA_BITS-1:0]         s_axis_tdata,
+
+    output logic                        m_axis_tvalid,
+    input  logic                        m_axis_tready,
+    output logic[DATA_BITS-1:0]         m_axis_tdata
 );
 
 // ----------------------------------------------------------------------------------------------------------------------- 
@@ -43,11 +48,25 @@ module axis_reg_array_tmplt #(
 // ----------------------------------------------------------------------------------------------------------------------- 
 AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_s [N_STAGES+1] ();
 
-`AXIS_ASSIGN(s_axis, axis_s[0])
-`AXIS_ASSIGN(axis_s[N_STAGES], m_axis)
+assign axis_s[0].tdata      = s_axis_tdata;
+assign axis_s[0].tvalid     = s_axis_tvalid;
+assign s_axis_tready        = axis_s[0].tready;
+
+assign m_axis_tdata  = axis_s[N_STAGES].tdata;
+assign m_axis_tvalid = axis_s[N_STAGES].tvalid;
+assign axis_s[N_STAGES].tready = m_axis_tready;
 
 for(genvar i = 0; i < N_STAGES; i++) begin
-    axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_s[i]), .m_axis(axis_s[i+1]));  
+    axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk), 
+                                                      .aresetn(aresetn), 
+                                                      
+                                                      .s_axis_tvalid(axis_s[i].tvalid),
+                                                      .s_axis_tready(axis_s[i].tready),
+                                                      .s_axis_tdata(axis_s[i].tdata),
+                                                      
+                                                      .m_axis_tvalid(axis_s[i+1].tvalid),
+                                                      .m_axis_tready(axis_s[i+1].tready),
+                                                      .m_axis_tdata(axis_s[i+1].tdata));  
 end
 
 endmodule

@@ -46,8 +46,6 @@ module mux_in #(
     parameter int unsigned              ILEN_BITS = 32,
     parameter int unsigned              BEAT_SHIFT = $clog2(ILEN_BITS/8),
 
-    parameter int unsigned              N_FW_CORES,
-
     parameter int unsigned              QDEPTH = 32,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0
@@ -57,7 +55,7 @@ module mux_in #(
 
     AXI4S.slave                         s_idx_fs,
     AXI4S.slave                         s_idx_if,
-    AXI4S.master                        m_idx_fw [N_FW_CORES],
+    AXI4S.master                        m_idx_fw,
     AXI4S.master                        m_idx_out,
 
     AXI4S.slave                         s_axis_fs,
@@ -70,15 +68,14 @@ module mux_in #(
 //
 
 logic fw_rdy;
-logic [N_FW_CORES-1:0] m_idx_fw_ready;
-logic [N_FW_CORES-1:0] m_idx_fw_valid;
-logic [N_FW_CORES-1:0][2*CNT_BITS-1:0] m_idx_fw_data;
+logic m_idx_fw_ready;
+logic m_idx_fw_valid;
+logic [2*CNT_BITS-1:0] m_idx_fw_data;
 
-for(genvar i = 0; i < N_FW_CORES; i++) begin
-    assign m_idx_fw_ready[i] = m_idx_fw[i].tready;
-    assign m_idx_fw[i].tvalid = m_idx_fw_valid[i];
-    assign m_idx_fw[i].tdata = m_idx_fw_data[i];
-end
+assign m_idx_fw_ready = m_idx_fw.tready;
+assign m_idx_fw.tvalid = m_idx_fw_valid;
+assign m_idx_fw.tdata = m_idx_fw_data;
+
 assign fw_rdy = &m_idx_fw_ready;
 
 //
@@ -109,8 +106,8 @@ always_comb begin
             m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
-            for(int i = 0; i < N_FW_CORES; i++)
-                m_idx_fw_data[i] = s_idx_fs.tdata[0+:2*CNT_BITS];
+            
+            m_idx_fw_data = s_idx_fs.tdata[0+:2*CNT_BITS];
             m_idx_out.tdata = s_idx_fs.tdata;
             seq.tdata = {1'b0, s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
         end
@@ -119,9 +116,8 @@ always_comb begin
             m_idx_fw_valid = '1;
             m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
-
-            for(int i = 0; i < N_FW_CORES; i++)
-                m_idx_fw_data[i] = s_idx_if.tdata[0+:2*CNT_BITS];
+            
+            m_idx_fw_data = s_idx_if.tdata[0+:2*CNT_BITS];
             m_idx_out.tdata = s_idx_if.tdata;
             seq.tdata = {1'b1, s_idx_if.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
         end
@@ -253,7 +249,15 @@ always_comb begin : DP
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(m_axis_int), .m_axis(m_axis));
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) 
+                       inst_reg (.aclk(aclk), 
+                                 .aresetn(aresetn), 
+                                 .s_axis_tvalid(m_axis_int.tvalid),
+                                 .s_axis_tready(m_axis_int.tready),
+                                 .s_axis_tdata(m_axis_int.tdata),
+                                 .m_axis_tvalid(m_axis.tvalid),
+                                 .m_axis_tready(m_axis.tready),
+                                 .m_axis_tdata(m_axis.tdata));
 
 //
 // DBG

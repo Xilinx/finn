@@ -25,8 +25,6 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
  * @brief   Aligned CDMA AXI write engine
  *
@@ -40,10 +38,11 @@ import iwTypes::*;
  */
 module axi_dma_wr_a #(
   parameter integer                     BURST_LEN = 16,
-  parameter integer                     DATA_BITS = AXI_DATA_BITS,
-  parameter integer                     ADDR_BITS = AXI_ADDR_BITS,
-  parameter integer                     ID_BITS = AXI_ID_BITS,
-  parameter integer                     MAX_OUTSTANDING = 8
+  parameter integer                     DATA_BITS = 256,
+  parameter integer                     ADDR_BITS = 64,
+  parameter integer                     ID_BITS = 2,
+  parameter integer                     MAX_OUTSTANDING = 8,
+  parameter integer                     LEN_BITS = 32
 ) (
   // AXI Interface 
   input  wire                           aclk,

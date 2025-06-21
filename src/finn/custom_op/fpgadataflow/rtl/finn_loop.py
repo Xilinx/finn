@@ -425,6 +425,21 @@ class FINNLoop(HWCustomOp, RTLBackend):
             cmd += [f"add_files -norecurse {f}"]
         
         cmd.append(f"create_bd_cell -type module -reference {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}")
+        
+        # Connect the Loop Control Wrapper to the Loop Body
+        loop_body = self.get_nodeattr("body")
+        first_node_name = loop_body.find_consumer(loop_body.model.graph.input[0].name).name 
+        last_node_name  = loop_body.find_producer(loop_body.model.graph.output[0].name).name 
+        
+        cmd.append(f"connect_bd_intf_net [get_bd_intf_pins {self.onnx_node.name}/m_axis_core_in] [get_bd_intf_pins {first_node_name}/in0_V]")
+        cmd.append(f"connect_bd_intf_net [get_bd_intf_pins {last_node_name}/out0_V] [get_bd_intf_pins {self.onnx_node.name}/s_axis_core_out]")
+        
+        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/m_axi_hbm]")
+        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/idx_fs]")
+        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/idx_se]")
+        cmd.append(f"make_bd_pins_external [get_bd_pins {self.onnx_node.name}/n_layers]")
+        cmd.append(f"make_bd_pins_external [get_bd_pins {self.onnx_node.name}/done_if]")
+        
         return cmd
 
     def get_rtl_file_list(self, abspath=False):
