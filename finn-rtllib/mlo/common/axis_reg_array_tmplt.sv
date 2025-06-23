@@ -43,9 +43,9 @@ module axis_reg_array_tmplt #(
     output logic[DATA_BITS-1:0]         m_axis_tdata
 );
 
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 // Register slices
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_s [N_STAGES+1] ();
 
 assign axis_s[0].tdata      = s_axis_tdata;
@@ -57,16 +57,16 @@ assign m_axis_tvalid = axis_s[N_STAGES].tvalid;
 assign axis_s[N_STAGES].tready = m_axis_tready;
 
 for(genvar i = 0; i < N_STAGES; i++) begin
-    axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk), 
-                                                      .aresetn(aresetn), 
-                                                      
+    axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk),
+                                                      .aresetn(aresetn),
+
                                                       .s_axis_tvalid(axis_s[i].tvalid),
                                                       .s_axis_tready(axis_s[i].tready),
                                                       .s_axis_tdata(axis_s[i].tdata),
-                                                      
+
                                                       .m_axis_tvalid(axis_s[i+1].tvalid),
                                                       .m_axis_tready(axis_s[i+1].tready),
-                                                      .m_axis_tdata(axis_s[i+1].tdata));  
+                                                      .m_axis_tdata(axis_s[i+1].tdata));
 end
 
 endmodule

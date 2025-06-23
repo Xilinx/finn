@@ -364,9 +364,9 @@ cdma_top #(
 assign m_done = {rd_done, wr_done};
 
 // DWC
-axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) 
-          inst_dwc_wr (.aclk(aclk), 
-                       .aresetn(aresetn), 
+axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS))
+          inst_dwc_wr (.aclk(aclk),
+                       .aresetn(aresetn),
 
                        .s_axis_tvalid(dma_wr_dwc.tvalid),
                        .s_axis_tready(dma_wr_dwc.tready),
@@ -378,11 +378,11 @@ axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS))
                        .m_axis_tready(dma_wr_f.tready),
                        .m_axis_tdata(dma_wr_f.tdata),
                        .m_axis_tkeep(dma_wr_f.tkeep),
-                       .m_axis_tlast(dma_wr_f.tlast)   
+                       .m_axis_tlast(dma_wr_f.tlast)
                     );
-axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) 
-         inst_dwc_rd (.aclk(aclk), 
-                      .aresetn(aresetn), 
+axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS))
+         inst_dwc_rd (.aclk(aclk),
+                      .aresetn(aresetn),
 
                       .s_axis_tvalid(dma_rd_f.tvalid),
                       .s_axis_tready(dma_rd_f.tready),
@@ -398,27 +398,27 @@ axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS))
 
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) 
-                     inst_reg_wr (.aclk(aclk), 
-                                  .aresetn(aresetn), 
-                                  
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS))
+                     inst_reg_wr (.aclk(aclk),
+                                  .aresetn(aresetn),
+
                                   .s_axis_tvalid(s_axis.tvalid),
                                   .s_axis_tready(s_axis.tready),
                                   .s_axis_tdata(s_axis.tdata),
-                                  
+
                                   .m_axis_tvalid(dma_wr_dwc.tvalid),
                                   .m_axis_tready(dma_wr_dwc.tready),
                                   .m_axis_tdata(dma_wr_dwc.tdata)
                                   );
 
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) 
-                     inst_reg_rd (.aclk(aclk), 
-                                  .aresetn(aresetn), 
-                                  
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS))
+                     inst_reg_rd (.aclk(aclk),
+                                  .aresetn(aresetn),
+
                                   .s_axis_tvalid(dma_rd_dwc.tvalid),
                                   .s_axis_tready(dma_rd_dwc.tready),
                                   .s_axis_tdata(dma_rd_dwc.tdata),
-                                  
+
                                   .m_axis_tvalid(m_axis.tvalid),
                                   .m_axis_tready(m_axis.tready),
                                   .m_axis_tdata(m_axis.tdata)

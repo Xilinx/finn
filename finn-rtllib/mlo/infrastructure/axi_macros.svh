@@ -35,10 +35,10 @@
 
 `define AXIS_TIE_OFF_M(m)				            \
 	assign m.tvalid		= 1'b0;			            \
-	assign m.tdata		= 0;			            
+	assign m.tdata		= 0;
 
 `define AXIS_TIE_OFF_S(s)				            \
-	assign s.tready		= 1'b1;			
+	assign s.tready		= 1'b1;
 
 `define AXIS_ASSIGN_S2I(s, m)                       \
     assign ``m``.tdata    = ``s``_tdata;            \
@@ -63,10 +63,10 @@
 	assign m.tkeep		= 0;			            \
 	assign m.tlast		= 1'b0;			            \
 	assign m.tuser		= 0;			            \
-	assign m.tdata		= 0;			            
+	assign m.tdata		= 0;
 
 `define AXISF_TIE_OFF_S(s)				            \
-	assign s.tready		= 1'b1;			
+	assign s.tready		= 1'b1;
 
 `define AXISF_ASSIGN_S2I(s, m)                      \
     assign ``m``.tdata    = ``s``_tdata;            \
@@ -135,7 +135,7 @@
 	assign s.rvalid 	= 1'b0;			            \
 	assign s.wready 	= 1'b0;			            \
 	assign s.bresp 		= 0;			            \
-	assign s.bvalid		= 1'b0;		
+	assign s.bvalid		= 1'b0;
 
 `define AXIL_ASSIGN_S2I(s, m)              	        \
 	assign ``m``.araddr 	= ``s``_araddr;		    \
@@ -154,7 +154,7 @@
 	assign ``s``_rdata		= ``m``.rdata;		    \
 	assign ``s``_rresp		= ``m``.rresp;		    \
 	assign ``s``_rvalid		= ``m``.rvalid;		    \
-	assign ``s``_wready 	= ``m``.wready;	
+	assign ``s``_wready 	= ``m``.wready;
 
 `define AXIL_ASSIGN_I2S(s, m)              	        \
 	assign ``m``_araddr 	= ``s``.araddr;		    \
@@ -173,7 +173,7 @@
 	assign ``s``.rdata		= ``m``_rdata;		    \
 	assign ``s``.rresp		= ``m``_rresp;		    \
 	assign ``s``.rvalid		= ``m``_rvalid;		    \
-	assign ``s``.wready 	= ``m``_wready;	
+	assign ``s``.wready 	= ``m``_wready;
 
 `define AXI_ASSIGN(s, m) 				            \
 	assign m.araddr 	= s.araddr;		            \
@@ -210,7 +210,7 @@
 	assign s.bid		= m.bid;		            \
 	assign s.bresp		= m.bresp;		            \
 	assign m.bready		= s.bready;		            \
-	assign s.bvalid		= m.bvalid;			
+	assign s.bvalid		= m.bvalid;
 
 `define AXI_TIE_OFF_M(m)				            \
 	assign m.araddr		= 0;			            \
@@ -249,7 +249,7 @@
 	assign s.wready 	= 1'b0;			            \
 	assign s.bresp 		= 0;			            \
 	assign s.bvalid		= 1'b0;			            \
-	assign s.bid 		= 1'b0;	
+	assign s.bid 		= 1'b0;
 
 `define AXI_ASSIGN_S2I(s, m) 				        \
 	assign ``m``.araddr 	= ``s``_araddr;		    \
@@ -286,7 +286,7 @@
 	assign ``s``_bid		= ``m``.bid;		    \
 	assign ``s``_bresp		= ``m``.bresp;		    \
 	assign ``m``.bready		= ``s``_bready;		    \
-	assign ``s``_bvalid		= ``m``.bvalid;	
+	assign ``s``_bvalid		= ``m``.bvalid;
 
 `define AXI_ASSIGN_I2S(s, m) 				        \
 	assign ``m``_araddr 	= ``s``.araddr;		    \
@@ -323,7 +323,7 @@
 	assign ``s``.bid		= ``m``_bid;		    \
 	assign ``s``.bresp		= ``m``_bresp;		    \
 	assign ``m``_bready		= ``s``.bready;		    \
-	assign ``s``.bvalid		= ``m``_bvalid;	
+	assign ``s``.bvalid		= ``m``_bvalid;
 
 
 `endif

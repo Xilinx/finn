@@ -44,7 +44,7 @@ module axi_dma_wr_a #(
   parameter integer                     MAX_OUTSTANDING = 8,
   parameter integer                     LEN_BITS = 32
 ) (
-  // AXI Interface 
+  // AXI Interface
   input  wire                           aclk,
   input  wire                           aresetn,
 
@@ -90,7 +90,7 @@ localparam integer AXI_MAX_BURST_LEN = BURST_LEN;
 localparam integer AXI_DATA_BYTES = DATA_BITS / 8;
 localparam integer LOG_DATA_LEN = $clog2(AXI_DATA_BYTES);
 localparam integer LOG_BURST_LEN = $clog2(AXI_MAX_BURST_LEN);
-localparam integer LP_MAX_OUTSTANDING_CNTR_WIDTH = $clog2(MAX_OUTSTANDING+1); 
+localparam integer LP_MAX_OUTSTANDING_CNTR_WIDTH = $clog2(MAX_OUTSTANDING+1);
 localparam integer LP_TRANSACTION_CNTR_WIDTH = LEN_BITS-LOG_BURST_LEN-LOG_DATA_LEN;
 
 logic [LP_TRANSACTION_CNTR_WIDTH-1:0] num_full_bursts;
@@ -137,7 +137,7 @@ assign stat_ready = aw_idle;
 
 // Count the number of transfers and assert done when the last bvalid is received.
 assign num_full_bursts = ctrl_len[LOG_DATA_LEN+LOG_BURST_LEN+:LEN_BITS-LOG_DATA_LEN-LOG_BURST_LEN];
-assign num_partial_bursts = ctrl_len[LOG_DATA_LEN+:LOG_BURST_LEN] ? 1'b1 : 1'b0; 
+assign num_partial_bursts = ctrl_len[LOG_DATA_LEN+:LOG_BURST_LEN] ? 1'b1 : 1'b0;
 
 always_ff @(posedge aclk) begin
   if(~aresetn) begin
@@ -156,7 +156,7 @@ always_ff @(posedge aclk) begin
   end
 end
 
-// Special case if there is only 1 AXI transaction. 
+// Special case if there is only 1 AXI transaction.
 assign single_transaction = (num_transactions == {LP_TRANSACTION_CNTR_WIDTH{1'b0}}) ? 1'b1 : 1'b0;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -176,21 +176,21 @@ assign awxfer = awvalid & awready;
 
 // Send aw_valid
 always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
+  if (~aresetn) begin
     awvalid_r <= 1'b0;
   end
   else begin
-    awvalid_r <= ~aw_idle & ~awvalid_r & b_ready_snk ? 1'b1 : 
+    awvalid_r <= ~aw_idle & ~awvalid_r & b_ready_snk ? 1'b1 :
                  awready ? 1'b0 : awvalid_r;
   end
 end
 
 // When aw_idle, there are no transactions to issue.
 always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
-    aw_idle <= 1'b1; 
+  if (~aresetn) begin
+    aw_idle <= 1'b1;
   end
-  else begin 
+  else begin
     aw_idle <= (ctrl_valid & stat_ready) ? 1'b0 :
                aw_done    ? 1'b1 : aw_idle;
   end
@@ -212,9 +212,9 @@ end
 // Counts down the number of transactions to send.
 krnl_counter #(
   .C_WIDTH ( LP_TRANSACTION_CNTR_WIDTH         ) ,
-  .C_INIT  ( {LP_TRANSACTION_CNTR_WIDTH{1'b0}} ) 
+  .C_INIT  ( {LP_TRANSACTION_CNTR_WIDTH{1'b0}} )
 )
-inst_aw_transaction_cntr ( 
+inst_aw_transaction_cntr (
   .aclk       ( aclk                   ) ,
   .clken      ( 1'b1                   ) ,
   .aresetn    ( aresetn                ) ,
@@ -223,7 +223,7 @@ inst_aw_transaction_cntr (
   .decr       ( awxfer                 ) ,
   .load_value ( num_transactions       ) ,
   .count      ( aw_transactions_to_go  ) ,
-  .is_zero    ( aw_final_transaction   ) 
+  .is_zero    ( aw_final_transaction   )
 );
 
 assign aw_done = aw_final_transaction && awxfer;
@@ -241,20 +241,20 @@ assign wxfer = wvalid & wready;
 assign burst_load = burst_ready_src && ((wlast & wxfer) || ~burst_active);
 
 always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
+  if (~aresetn) begin
     burst_active <= 1'b0;
   end
   else begin
-    burst_active <=  burst_load ? 1'b1 : 
+    burst_active <=  burst_load ? 1'b1 :
                         (wlast & wxfer) ? 1'b0 : burst_active;
   end
 end
 
 krnl_counter #(
   .C_WIDTH ( LOG_BURST_LEN         ) ,
-  .C_INIT  ( {LOG_BURST_LEN{1'b1}} ) 
+  .C_INIT  ( {LOG_BURST_LEN{1'b1}} )
 )
-inst_burst_cntr ( 
+inst_burst_cntr (
   .aclk       ( aclk            ) ,
   .clken      ( 1'b1            ) ,
   .aresetn    ( aresetn         ) ,
@@ -263,11 +263,11 @@ inst_burst_cntr (
   .decr       ( wxfer           ) ,
   .load_value ( burst_len       ) ,
   .count      ( wxfers_to_go    ) ,
-  .is_zero    ( wlast           ) 
+  .is_zero    ( wlast           )
 );
 
 Q_srl #(
-    .depth(MAX_OUTSTANDING), 
+    .depth(MAX_OUTSTANDING),
     .width(LOG_BURST_LEN)
 ) inst_q_wr_req (
     .clock(aclk),
@@ -289,7 +289,7 @@ assign bready = 1'b1;
 assign bxfer = bready & bvalid;
 
 Q_srl #(
-    .depth(MAX_OUTSTANDING), 
+    .depth(MAX_OUTSTANDING),
     .width(1)
 ) inst_q_wr_rsp (
     .clock(aclk),

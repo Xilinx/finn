@@ -6,8 +6,8 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter CNT_BITS       = 16,
     parameter ILEN_BITS      = $ILEN_BITS$,
     parameter OLEN_BITS      = $OLEN_BITS$,
-    parameter M_AXI_HBM_BASE_ADDR = 0, // m_axi_hbm base address 
-    parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0 
+    parameter M_AXI_HBM_BASE_ADDR = 0, // m_axi_hbm base address
+    parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0
 ) (
     input  wire           ap_clk,
     input  wire           ap_rst_n,
@@ -54,7 +54,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     output                 m_axis_core_in_tvalid,
     input                  m_axis_core_in_tready,
 
-    // AXI4S master interface for core_in_fw_idx 
+    // AXI4S master interface for core_in_fw_idx
     output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
     output                 m_axis_core_in_fw_idx_tvalid,
     input                  m_axis_core_in_fw_idx_tready,
@@ -132,26 +132,26 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .m_axi_hbm_wstrb(m_axi_hbm_wstrb),
        .m_axi_hbm_wready(m_axi_hbm_wready),
        .m_axi_hbm_wvalid(m_axi_hbm_wvalid),
-       .m_axi_hbm_bid(m_axi_hbm_bid), 
-       .m_axi_hbm_bresp(m_axi_hbm_bresp), 
-       .m_axi_hbm_bready(m_axi_hbm_bready), 
-       .m_axi_hbm_bvalid(m_axi_hbm_bvalid),   
+       .m_axi_hbm_bid(m_axi_hbm_bid),
+       .m_axi_hbm_bresp(m_axi_hbm_bresp),
+       .m_axi_hbm_bready(m_axi_hbm_bready),
+       .m_axi_hbm_bvalid(m_axi_hbm_bvalid),
 
        // AXI4S master interface for core_in
        .m_axis_core_in_tdata(m_axis_core_in_tdata),
        .m_axis_core_in_tvalid(m_axis_core_in_tvalid),
        .m_axis_core_in_tready(m_axis_core_in_tready),
-        
+
        // AXI4S slave interface for core_out
        .s_axis_core_out_tdata(s_axis_core_out_tdata),
        .s_axis_core_out_tvalid(s_axis_core_out_tvalid),
        .s_axis_core_out_tready(s_axis_core_out_tready),
-                
-       // AXI4S master interface for core_in_fw_idx 
+
+       // AXI4S master interface for core_in_fw_idx
        .m_axis_core_in_fw_idx_tdata(m_axis_core_in_fw_idx_tdata),
        .m_axis_core_in_fw_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
        .m_axis_core_in_fw_idx_tready(m_axis_core_in_fw_idx_tready),
-        
+
        .axis_fs_tdata(in0_V_tdata),
        .axis_fs_tvalid(in0_V_tvalid),
        .axis_fs_tready(in0_V_tready),
@@ -167,12 +167,12 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
       .idx_fs_tdata(idx_fs_tdata),
       .idx_fs_tvalid(idx_fs_tvalid),
       .idx_fs_tready(idx_fs_tready),
-    
+
       // AXI4S master interface for idx_se
       .idx_se_tdata(idx_se_tdata),
       .idx_se_tvalid(idx_se_tvalid),
-      .idx_se_tready(idx_se_tready) 
-            
+      .idx_se_tready(idx_se_tready)
+
     );
 
 endmodule

@@ -28,7 +28,7 @@
 /**
  * @brief   Aligned CDMA top level
  *
- * The aligned CDMA top level. Contains read and write DMA engines. 
+ * The aligned CDMA top level. Contains read and write DMA engines.
  * Outstanding queues at the input. Low resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size
@@ -54,7 +54,7 @@ module cdma_a_rd #(
     input  logic[LEN_BITS-1:0]          rd_len,
     output logic                        rd_done,
 
-    // AXI4 master interface                             
+    // AXI4 master interface
     output wire                         m_axi_ddr_arvalid,
     input  wire                         m_axi_ddr_arready,
     output wire [ADDR_BITS-1:0]         m_axi_ddr_araddr,
@@ -85,7 +85,7 @@ logic rd_valid_int, rd_ready_int;
 logic rd_done_int;
 
 Q_srl #(
-    .depth(DCPL_DEPTH), 
+    .depth(DCPL_DEPTH),
     .width(ADDR_BITS+LEN_BITS)
 ) inst_q_rd (
     .clock(aclk),
@@ -107,7 +107,7 @@ always_ff @(posedge aclk) begin
         rd_done <= rd_done_int;
 end
 
-// 
+//
 // CDMA
 //
 
