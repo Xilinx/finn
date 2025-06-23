@@ -28,6 +28,11 @@
 
 import pytest
 
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import copy
 import numpy as np
 import onnx.parser as oprs
@@ -64,11 +69,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import get_liveness_threshold_cycles
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
@@ -164,8 +164,9 @@ def config_hook(configs):
         return None
 
     def write_swg_config(sim):
-        pyxsi_utils.reset_rtlsim(sim)
+        finnxsi.reset_rtlsim(sim)
         for axi_name, config in configs:
+            writes = []
             # Write config registers to the SWG/FMPadding dict
             # defines (addr, value) tuples
             for config_entry in config.values():
@@ -174,8 +175,12 @@ def config_hook(configs):
                     # ensure any negative vals are expressed as two's complement,
                     # SWG control regs are currently always 32 bits
                     val = BitArray(int=val, length=32).uint
-                pyxsi_utils.axilite_write(sim, addr, val, basename=axi_name)
-        pyxsi_utils.reset_rtlsim(sim)
+                # convert value to hex value and without '0x' prefix
+                hex_val = format(val, "x")
+                writes.append((addr, hex_val))
+            sim.write_axilite(axi_name, iter(writes))
+            sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     return write_swg_config
 
@@ -337,13 +342,13 @@ def test_fpgadataflow_conv_dynamic(cfg):
             update_tensor_dim(model, padder1.onnx_node.output[0], (conv1_idim_h, conv1_idim_w))
             pad_config1 = padder1.get_dynamic_config((int_dim_h, int_dim_w), pad1)
             configs = [
-                ("s_axilite_0_", pad_config0),
-                ("s_axilite_1_", swg_config0),
-                ("s_axilite_2_", pad_config1),
-                ("s_axilite_3_", swg_config1),
+                ("s_axilite_0", pad_config0),
+                ("s_axilite_1", swg_config0),
+                ("s_axilite_2", pad_config1),
+                ("s_axilite_3", swg_config1),
             ]
         else:
-            configs = [("s_axilite_0_", swg_config0), ("s_axilite_1_", swg_config1)]
+            configs = [("s_axilite_0", swg_config0), ("s_axilite_1", swg_config1)]
         # adjust folded shapes for I/O FIFOs
         # (since rtlsim_exec uses folded shape info to fold global i/o tensors)
         first_node = getCustomOp(model.graph.node[0])
@@ -563,7 +568,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
 
             # Generate config, also overwrites IFMDim/OFMDim attributes:
             config = swg_inst.get_dynamic_config(ifm_dim)
-            configs = [("s_axilite_0_", config)]
+            configs = [("s_axilite_0", config)]
 
             # Also update FIFO nodes and corresponding tensors
             fifo_node = model.get_nodes_by_op_type("StreamingFIFO_rtl")[0]
