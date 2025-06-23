@@ -106,7 +106,7 @@ always_comb begin
             m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
-            
+
             m_idx_fw_data = s_idx_fs.tdata[0+:2*CNT_BITS];
             m_idx_out.tdata = s_idx_fs.tdata;
             seq.tdata = {1'b0, s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
@@ -116,7 +116,7 @@ always_comb begin
             m_idx_fw_valid = '1;
             m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
-            
+
             m_idx_fw_data = s_idx_if.tdata[0+:2*CNT_BITS];
             m_idx_out.tdata = s_idx_if.tdata;
             seq.tdata = {1'b1, s_idx_if.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
@@ -249,9 +249,9 @@ always_comb begin : DP
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) 
-                       inst_reg (.aclk(aclk), 
-                                 .aresetn(aresetn), 
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS))
+                       inst_reg (.aclk(aclk),
+                                 .aresetn(aresetn),
                                  .s_axis_tvalid(m_axis_int.tvalid),
                                  .s_axis_tready(m_axis_int.tready),
                                  .s_axis_tdata(m_axis_int.tdata),

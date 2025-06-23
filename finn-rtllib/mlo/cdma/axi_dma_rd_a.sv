@@ -49,14 +49,14 @@ module axi_dma_rd_a #(
   input  wire                       aresetn,
 
   // Control and status
-  input  wire                       ctrl_valid, 
+  input  wire                       ctrl_valid,
   output wire                       stat_ready,
   input  wire [ADDR_BITS-1:0]       ctrl_addr,
   input  wire [LEN_BITS-1:0]        ctrl_len,
   input  wire                       ctrl_ctl,
   output wire                       stat_done,
 
-  // AXI4 master interface                             
+  // AXI4 master interface
   output wire                       arvalid,
   input  wire                       arready,
   output wire [ADDR_BITS-1:0]       araddr,
@@ -73,7 +73,7 @@ module axi_dma_rd_a #(
   input  wire                       rlast,
   input  wire [ID_BITS-1:0]         rid,
   input  wire [1:0]                 rresp,
-  
+
   // AXI4-Stream master interface
   output wire                       axis_out_tvalid,
   input  wire                       axis_out_tready,
@@ -89,7 +89,7 @@ localparam integer AXI_MAX_BURST_LEN = BURST_LEN;
 localparam integer AXI_DATA_BYTES = DATA_BITS / 8;
 localparam integer LOG_DATA_LEN = $clog2(AXI_DATA_BYTES);
 localparam integer LOG_BURST_LEN = $clog2(AXI_MAX_BURST_LEN);
-localparam integer LP_MAX_OUTSTANDING_CNTR_WIDTH = $clog2(MAX_OUTSTANDING+1); 
+localparam integer LP_MAX_OUTSTANDING_CNTR_WIDTH = $clog2(MAX_OUTSTANDING+1);
 localparam integer LP_TRANSACTION_CNTR_WIDTH = LEN_BITS-LOG_BURST_LEN-LOG_DATA_LEN;
 
 logic [LP_TRANSACTION_CNTR_WIDTH-1:0] num_full_bursts;
@@ -102,7 +102,7 @@ logic [LOG_BURST_LEN-1:0] final_burst_len;
 logic single_transaction;
 
 // AR
-logic arvalid_r; 
+logic arvalid_r;
 logic [ADDR_BITS-1:0] addr_r;
 logic ctl_r;
 logic ar_done;
@@ -126,7 +126,7 @@ assign  stat_ready = ar_idle;
 
 // Determine how many full burst to issue and if there are any partial bursts.
 assign num_full_bursts = ctrl_len[LOG_DATA_LEN+LOG_BURST_LEN+:LEN_BITS-LOG_DATA_LEN-LOG_BURST_LEN];
-assign num_partial_bursts = ctrl_len[LOG_DATA_LEN+:LOG_BURST_LEN] ? 1'b1 : 1'b0; 
+assign num_partial_bursts = ctrl_len[LOG_DATA_LEN+:LOG_BURST_LEN] ? 1'b1 : 1'b0;
 
 always_ff @(posedge aclk) begin
   if(~aresetn) begin
@@ -145,7 +145,7 @@ always_ff @(posedge aclk) begin
   end
 end
 
-// Special case if there is only 1 AXI transaction. 
+// Special case if there is only 1 AXI transaction.
 assign single_transaction = (num_transactions == {LP_TRANSACTION_CNTR_WIDTH{1'b0}}) ? 1'b1 : 1'b0;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -166,21 +166,21 @@ assign arxfer = arvalid & arready;
 
 // Send ar_valid
  always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
+  if (~aresetn) begin
     arvalid_r <= 1'b0;
   end
   else begin
-    arvalid_r <= ~ar_idle & ~arvalid_r & burst_ready_snk ? 1'b1 : 
+    arvalid_r <= ~ar_idle & ~arvalid_r & burst_ready_snk ? 1'b1 :
                  arready ? 1'b0 : arvalid_r;
   end
 end
 
 // When ar_idle, there are no transactions to issue.
  always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
-    ar_idle <= 1'b1; 
+  if (~aresetn) begin
+    ar_idle <= 1'b1;
   end
-  else begin 
+  else begin
     ar_idle <= (ctrl_valid & stat_ready) ? 1'b0 :
                ar_done    ? 1'b1 : ar_idle;
   end
@@ -188,7 +188,7 @@ end
 
 // Increment to next address after each transaction is issued. Ctl latching.
  always_ff @(posedge aclk) begin
-  if (~aresetn) begin 
+  if (~aresetn) begin
     ctl_r <= 1'b0;
     addr_r <= 'X;
   end
@@ -202,9 +202,9 @@ end
 // Counts down the number of transactions to send.
 krnl_counter #(
   .C_WIDTH ( LP_TRANSACTION_CNTR_WIDTH         ) ,
-  .C_INIT  ( {LP_TRANSACTION_CNTR_WIDTH{1'b0}} ) 
+  .C_INIT  ( {LP_TRANSACTION_CNTR_WIDTH{1'b0}} )
 )
-inst_ar_transaction_cntr ( 
+inst_ar_transaction_cntr (
   .aclk       ( aclk                   ) ,
   .clken      ( 1'b1                   ) ,
   .aresetn    ( aresetn                ) ,
@@ -213,7 +213,7 @@ inst_ar_transaction_cntr (
   .decr       ( arxfer                 ) ,
   .load_value ( num_transactions       ) ,
   .count      ( ar_transactions_to_go  ) ,
-  .is_zero    ( ar_final_transaction   ) 
+  .is_zero    ( ar_final_transaction   )
 );
 
 assign ar_done = ar_final_transaction && arxfer;
@@ -221,7 +221,7 @@ assign ar_done = ar_final_transaction && arxfer;
 ///////////////////////////////////////////////////////////////////////////////
 // AXI Read Channel
 ///////////////////////////////////////////////////////////////////////////////
-assign axis_out_tvalid = rvalid; 
+assign axis_out_tvalid = rvalid;
 assign axis_out_tdata = rdata;
 assign axis_out_tkeep = ~0;
 assign axis_out_tlast = rlast & r_final_transaction;
@@ -230,7 +230,7 @@ assign rready = axis_out_tready;
 assign rxfer = rready & rvalid;
 
 Q_srl #(
-    .depth(MAX_OUTSTANDING), 
+    .depth(MAX_OUTSTANDING),
     .width(1)
 ) inst_q_rd (
     .clock(aclk),

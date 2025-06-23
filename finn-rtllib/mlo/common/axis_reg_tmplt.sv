@@ -30,16 +30,16 @@ module axis_reg_tmplt #(
 ) (
 	input logic 			aclk,
 	input logic 			aresetn,
-	
+
     input logic                 s_axis_tvalid,
     output logic                s_axis_tready,
     input logic [DATA_BITS-1:0] s_axis_tdata,
-	
+
     output logic                 m_axis_tvalid,
     input logic                  m_axis_tready,
     output logic [DATA_BITS-1:0] m_axis_tdata
 );
-  
+
 
 if(DATA_BITS == 8) begin
 axis_register_slice_8 inst_reg_slice (

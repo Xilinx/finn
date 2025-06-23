@@ -41,7 +41,7 @@
 
     module loop_control #(
         parameter int unsigned N_MAX_LAYERS = 16, // Maximum number of layers in the FINN pipeline
-        parameter int unsigned ADDR_BITS = 64, // Address bits for 
+        parameter int unsigned ADDR_BITS = 64, // Address bits for
         parameter int unsigned DATA_BITS = 512, // Data bits for AXI4
         parameter int unsigned LEN_BITS = 32, // Length bits for AXI4
         parameter int unsigned CNT_BITS = 16, // Counter bits for AXI4S
@@ -100,7 +100,7 @@
         input                  s_axis_core_out_tvalid,
         output                 s_axis_core_out_tready,
 
-        // AXI4S master interface for core_in_fw_idx 
+        // AXI4S master interface for core_in_fw_idx
         output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
         output                 m_axis_core_in_fw_idx_tvalid,
         input                  m_axis_core_in_fw_idx_tready,
@@ -142,16 +142,16 @@
     `AXIS_ASSIGN_S2I(s_axis_core_out,  core_out)
 
     `AXIS_ASSIGN_I2S(core_in_fw_idx, m_axis_core_in_fw_idx)
-    
+
     `AXIS_ASSIGN_I2S(axis_fs_if, axis_fs)
-    `AXIS_ASSIGN_S2I(axis_se, axis_se_if)   
+    `AXIS_ASSIGN_S2I(axis_se, axis_se_if)
     `AXIS_ASSIGN_I2S(idx_fs_if, idx_fs)
     `AXIS_ASSIGN_S2I(idx_se, idx_se_if)
 
   //  ================-----------------------------------------------------------------
   //  Intermediate frames
   //  ================-----------------------------------------------------------------
-    
+
    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_if_in ();
    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_if_out ();
    AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) axis_if_in ();
@@ -233,6 +233,5 @@
        .m_axis_se(axis_se_if),
        .m_axis_if(axis_if_in)
    );
-   
+
 endmodule
-    
