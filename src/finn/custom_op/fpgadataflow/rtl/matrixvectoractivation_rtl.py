@@ -104,6 +104,8 @@ class MVAU_rtl(MVAU, RTLBackend):
 
             if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
                 wnbits = self.get_instream_width(1)
+                if dynamic_input:
+                    wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
