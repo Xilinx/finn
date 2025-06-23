@@ -442,7 +442,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {512} CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1} CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14} CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}] [get_ips axi_register_slice_512]",
 
             "create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 -module_name axil_register_slice_64",
-            "set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64} CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1} CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ] [get_ips axil_register_slice_64]"
+            "set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64} CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1} CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ] [get_ips axil_register_slice_64]",
         
             "create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 -module_name cdma_datamover_rd",
             "set_property -dict [list \
@@ -472,9 +472,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/cdma_top.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/cdma_u_wr.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cmda_x.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cmda/cdma_x_rd.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cmda/cdma_x_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x_rd.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x_wr.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_dma_wr_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/intermediate_frames.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_in.sv",
