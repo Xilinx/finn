@@ -209,26 +209,11 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     # define execution context for dummy data mode:
     # only number of transactions, no real data
     ctx = {k.name: n_inferences for k in model.graph.input}
-    # create C++ code snippet for postprocessing:
-    # grab maxcount values from FIFOs, dump into existing results file
-    fifo_log = []
-    fifo_log_templ = '    results_file << "maxcount%s" << "\\t" '
-    fifo_log_templ += '<< to_string(read_signal_uint("maxcount%s")) << endl;'
-    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
-    fifo_ind = 0
-    for fifo_node in fifo_nodes:
-        fifo_node = getCustomOp(fifo_node)
-        if fifo_node.get_nodeattr("depth_monitor") == 1:
-            suffix = "" if fifo_ind == 0 else "_%d" % fifo_ind
-            fifo_log.append(fifo_log_templ % (suffix, suffix))
-            fifo_ind += 1
-    fifo_log = "\n".join(fifo_log)
-    # run XSI sim with postproc
+    # run XSI sim
     ret_dict = rtlsim_exec_cppxsi(
         model,
         ctx,
         dummy_data_mode=True,
-        postproc_cpp=fifo_log,
         timeout_cycles=max_iters,
         throttle_cycles=throttle_cycles,
     )

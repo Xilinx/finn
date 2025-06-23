@@ -71,11 +71,6 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import is_versal
 
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
-
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
     mw = W.shape[0]
@@ -629,19 +624,28 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     # helper functions to write or read axilite
     def write_weights(sim):
         addr = 0
-        for weight in weight_stream:
-            pyxsi_utils.axilite_write(sim, addr, weight, basename="s_axilite_0_")
+        writes = []
+        for nw in weight_stream:
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
 
     extracted_weight_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(weight_stream)):
-            extracted_weight_stream.append(
-                pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_")
-            )
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     if not is_versal(part) and ram_style == "ultra":
         rtlsim_exec(model, exec_ctx_dict, pre_hook=write_weights, post_hook=read_weights)
