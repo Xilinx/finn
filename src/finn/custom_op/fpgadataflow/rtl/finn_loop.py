@@ -479,7 +479,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         
         loop_body = self.get_nodeattr("body")
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
+        cmd.append("file mkdir %s" % source_target)
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         # create a hierarchy for this layer, with the same port names
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
