@@ -389,94 +389,94 @@ class FINNLoop(HWCustomOp, RTLBackend):
     def code_generation_ipi(self):
         # AXI regs
         cmd = [
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_reg_32""",
             "set_property CONFIG.TDATA_NUM_BYTES {4} [get_ips axis_reg_32]",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_8""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {1} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {1} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_8]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_16""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {2} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {2} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_16]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_32""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {4} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {4} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_32]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_64""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {8} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {8} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_64]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_128""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {16} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {16} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_128]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_256""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {32} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {32} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_256]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axis_register_slice_512""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.REG_CONFIG {8}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0}] [get_ips axis_register_slice_512]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_8""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {1} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {1} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} \
             CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_8]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
-            -module_name axisf_register_slice_16""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {2} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34}
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
+            -module_name axisf_register_slice_16""", \
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {2} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} \
             CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_16]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_32""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {4} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {4} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_32]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_64""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {8} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {8} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_64]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_128""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {16} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {16} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_128]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_256""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {32} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {32} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_256]""",
-            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1
+            """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
             -module_name axisf_register_slice_512""",
-            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.REG_CONFIG {8}
-            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1}
+            """set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.REG_CONFIG {8} \
+            CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_512]""",
-            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1
-            -module_name axi_register_slice_256""",
-            """set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {256}
-            CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1}
-            CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14}
-            CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}]
+            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 \
+            -module_name axi_register_slice_256""", \
+            """set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {256} \
+            CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1} \
+            CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14} \
+            CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}] \
              [get_ips axi_register_slice_256]""",
-            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1
+            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 \
             -module_name axi_register_slice_512""",
-            """set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {512}
-            CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1}
-            CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14}
-            CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}]
+            """set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {512} \
+            CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1} \
+            CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14} \
+            CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}] \
              [get_ips axi_register_slice_512]""",
-            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1
-            -module_name axil_register_slice_64""",
-            """set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64}
-            CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1}
-            CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ]
+            """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 \
+            -module_name axil_register_slice_64""", 
+            """set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64} \
+            CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1} \
+            CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ] \
              [get_ips axil_register_slice_64]""",
         
-            """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 
+            """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
               -module_name cdma_datamover_rd""",
             "set_property -dict [list \
               CONFIG.c_addr_width {64} \
@@ -487,7 +487,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
               CONFIG.c_mm2s_burst_size {64} \
              ] [get_ips cdma_datamover_rd]",
 
-            """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 
+            """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
              -module_name cdma_datamover_wr""",
             "set_property -dict [list \
              CONFIG.c_addr_width {64} \
@@ -504,11 +504,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_macros.svh",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_intf.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/cdma_top.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/cdma_u_wr.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x_rd.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_top.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_rd.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_wr.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_dma_wr_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/intermediate_frames.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_in.sv",
@@ -520,7 +520,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             cmd += [f"add_files -norecurse {f}"]
 
         cmd.append(
-            f"""create_bd_cell -type module -reference
+            f"""create_bd_cell -type module -reference \
             {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}"""
         )
 
@@ -530,11 +530,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         last_node_name = loop_body.find_producer(loop_body.model.graph.output[0].name).name
 
         cmd.append(
-            f"""connect_bd_intf_net [get_bd_intf_pins {self.onnx_node.name}/m_axis_core_in]
+            f"""connect_bd_intf_net [get_bd_intf_pins {self.onnx_node.name}/m_axis_core_in] \
             [get_bd_intf_pins {first_node_name}/in0_V]"""
         )
         cmd.append(
-            f"""connect_bd_intf_net [get_bd_intf_pins {last_node_name}/out0_V]
+            f"""connect_bd_intf_net [get_bd_intf_pins {last_node_name}/out0_V] \
             [get_bd_intf_pins {self.onnx_node.name}/s_axis_core_out]"""
         )
 
