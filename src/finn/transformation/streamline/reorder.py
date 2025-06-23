@@ -93,13 +93,27 @@ class MoveAddPastMul(Transformation):
                     graph.node.insert(node_ind + 1, new_add)
                     # replace add value
                     model.set_initializer(add_weight_name, BA)
+                    # Delete the datatype annotation of the parameter tensor
+                    # TODO: Maybe we should derive the new type properly...
+                    model.set_tensor_datatype(add_weight_name, None)
+                    # Delete the shape annotation of the connecting tensors
+                    # to be re-done later. This prevents shapes from propagating
+                    # backwards.
+                    # Note: Do not delete annotation for the input tensor, as
+                    # this prevents future shape inference.
+                    model.set_tensor_shape(middle_name, None)
+                    model.set_tensor_shape(end_name, None)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
-
+        # Note: Running shape inference is necessary as shape
+        # annotations have been deleted above
         model = model.transform(InferShapes())
-        return (model, graph_modified)
+        # Note. Running datatype inference is necessary as datatype
+        # annotations have been deleted above
+        model = model.transform(InferDataTypes())
+        return model, graph_modified
 
 
 class MoveScalarMulPastMatMul(Transformation):
@@ -118,7 +132,12 @@ class MoveScalarMulPastMatMul(Transformation):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MatMul":
                     mul_weight_name = n.input[1]
+                    matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
+                    W = model.get_initializer(matmul_weight_name)
+                    if (A is None) or (W is None):
+                        warnings.warn("MatMul or Mul params are not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]

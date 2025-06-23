@@ -31,9 +31,12 @@ import qonnx.core.data_layout as DataLayout
 import warnings
 
 # Protobuf onnx graph node type
-from onnx import NodeProto  # noqa
+from onnx import NodeProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+
+# QONNX wrapper of ONNX model graphs
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -103,6 +106,19 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
         return (model, graph_modified)
 
 
+# Groups inputs by categories, i.e., groups dynamic inputs first, followed by
+# initializers. Keeps order of inputs in each category.
+def group_inputs_by_category(node: NodeProto, model: ModelWrapper):  # noqa
+    # First select all dynamic inputs, which are those without initializer
+    # tensor
+    dynamics = [i for i in node.input if model.get_initializer(i) is None]
+    # Select all input which are initializers, which, by exclusion, are all
+    # those not among the dynamic inputs
+    initializers = [i for i in node.input if i not in dynamics]
+    # Return lists of dynamic anc initializer inputs
+    return dynamics, initializers
+
+
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
     values. Only scalar/1D add vectors can be absorbed."""
@@ -123,13 +139,47 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert A is not None, "Initializer for add weights is not set."
                     assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
-                    # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                    actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
-                    is_1d = actual_ndims == 1
-                    if is_scalar or is_1d:
-                        Tnew = T - A.reshape(-1, 1)
-                        # Tnew = T - A.reshape(-1, T.shape[1])
+
+                    # Get the shape of the parameter tensor of the add
+                    shape = A.shape
+                    # First try to consider the tensor layout of the input for
+                    # determining the number of output channels
+                    layout = model.get_tensor_layout(add_weight_name)
+                    # If there is no layout annotation, guess based on rank of
+                    # the parameter tensor
+                    # TODO: No support for Rank >= 5
+                    if layout is None and len(shape) < 5:
+                        # Maps tensor rank to layout annotation
+                        # fmt:off
+                        rank_to_layout = {
+                            0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"
+                        }
+                        # fmt:on
+                        # Lookup the layout required by this input shape
+                        layout = rank_to_layout[len(shape)]
+                    # If there is a layout annotation, use this to determine the
+                    # index of the channel dimension
+                    if layout is not None and "C" in layout:  # noqa: Duplicate
+                        # Lookup the index in list
+                        cdim = layout.index("C")
+                    # If no layout has been annotated or there is no channel
+                    # dimension, fall back to the previous default assumption
+                    else:
+                        # Assume the channels to be in axis 1
+                        cdim = 1
+                        # Issue a warning to the user, so they are aware of this
+                        warnings.warn(
+                            f"No layout annotations for {add_weight_name}:"
+                            f" Assuming channel dimension at index {cdim}"
+                        )
+
+                    # We can only absorb up to per-channel (last dimension)
+                    # granularity
+                    if is_scalar or A.shape[cdim] == A.size:
+                        # Reshape addition parameters to have the elements/PE
+                        # dimension first, aligned with the thresholds.
+                        Tnew = T - A.reshape(-1, 1)  # noqa: Not lowercase
                         # compute new thresholds and set initializer
                         model.set_initializer(threshold_name, Tnew)
                         # wire add input directly to MultiThreshold
@@ -189,7 +239,7 @@ class FactorOutMulSignMagnitude(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if n.op_type == "Mul" and not model.is_join_node(n):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."

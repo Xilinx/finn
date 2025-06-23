@@ -29,6 +29,7 @@
 
 # template for single node execution
 docompute_template = """
+#define HLS_CONSTEXPR_ENABLE
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 #define HLS_NO_XIL_FPO_LIB
 #include "cnpy.h"
@@ -109,6 +110,7 @@ $SAVEASCNPY$
 
 # cpp file
 ipgen_template = """
+#define HLS_CONSTEXPR_ENABLE
 #define AP_INT_MAX_W $AP_INT_MAX_W$
 
 #include "bnn-library.h"
