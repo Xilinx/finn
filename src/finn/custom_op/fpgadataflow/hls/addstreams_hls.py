@@ -57,7 +57,7 @@ class AddStreams_hls(AddStreams, HLSBackend):
             self.get_nodeattr("executable_path")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
-            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("inputDataTypes")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
@@ -76,10 +76,10 @@ class AddStreams_hls(AddStreams, HLSBackend):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width(0))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
@@ -91,8 +91,8 @@ class AddStreams_hls(AddStreams, HLSBackend):
             """{}<{}, {}, {}, {}, {}> (in0_V, in1_V, out0_V, 1);""".format(
                 hls_call,
                 self.get_nodeattr("PE"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_input_datatype().get_hls_datatype_str(),
+                self.get_input_datatype(0).get_hls_datatype_str(),
+                self.get_input_datatype(1).get_hls_datatype_str(),
                 self.get_output_datatype().get_hls_datatype_str(),
                 self.get_number_output_values(),
             )
@@ -103,8 +103,8 @@ class AddStreams_hls(AddStreams, HLSBackend):
             """void {}(hls::stream<ap_uint<{}>> &in0_V, hls::stream<ap_uint<{}>> &in1_V,
                 hls::stream<ap_uint<{}>> &out0_V)""".format(
                 self.onnx_node.name,
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
             )
         ]

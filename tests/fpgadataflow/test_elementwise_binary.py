@@ -99,7 +99,7 @@ from finn.transformation.streamline.absorb import (
     AbsorbMulIntoMultiThreshold,
     AbsorbSignBiasIntoMultiThreshold,
 )
-from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
+from finn.transformation.streamline.reorder import MoveMulPastJoinAdd
 
 # Checks whether a node is a fpgadataflow backend node handled by FINN
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -783,7 +783,7 @@ def test_elementwise_binary_operation_integration_elementwise_add(
         # operator to avoid sign and range issues.
         model = model.transform(AbsorbSignBiasIntoMultiThreshold())
         # There might be identical Mul in front of the joining Add node
-        model = model.transform(MoveLinearPastEltwiseAdd())
+        model = model.transform(MoveMulPastJoinAdd())
         model = model.transform(AbsorbMulIntoMultiThreshold())
         # Do a single round of standard streamlining of the model graph
         model = model.transform(Streamline())

@@ -127,7 +127,10 @@ class DuplicateStreams(HWCustomOp):
         return out_width
 
     def get_number_output_values(self):
-        return self.get_num_output_streams() * np.prod(self.get_folded_output_shape()[1:-1])
+        out_val = {}
+        for i in range(len(self.onnx_node.output)):
+            out_val["out%s" % i] = np.prod(self.get_folded_output_shape(i)[1:-1])
+        return out_val
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim

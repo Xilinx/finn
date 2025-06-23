@@ -62,6 +62,7 @@ class DataflowOutputType(str, Enum):
     RTLSIM_PERFORMANCE = "rtlsim_performance"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
+    CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
@@ -123,7 +124,7 @@ default_build_dataflow_steps = [
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
-    "step_make_pynq_driver",
+    "step_make_driver",
     "step_deployment_package",
 ]
 
@@ -366,6 +367,11 @@ class DataflowBuildConfig:
     #: be used for the loop body hierarchy. Each item in the list should
     #: be a string that represents a level in the hierarchy.
     loop_body_hierarchy: Optional[List[str]] = None
+
+    #: Determine if the C++ driver should be generated instead of the PYNQ driver
+    #: If set to latest newest version will be used
+    #: If set to commit hash specified version will be used
+    cpp_driver_version: Optional[str] = "latest"
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
