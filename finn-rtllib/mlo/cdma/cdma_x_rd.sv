@@ -25,8 +25,6 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
   */
 
-import iwTypes::*;
-
 /**
  * @brief   Unaligned CDMA top level
  *
@@ -40,9 +38,9 @@ import iwTypes::*;
  */
 module cdma_x_rd #(
     parameter integer                   BURST_LEN = 64,
-    parameter integer                   DATA_BITS = AXI_DATA_BITS,
-    parameter integer                   ADDR_BITS = AXI_ADDR_BITS,
-    parameter integer                   ID_BITS = AXI_ID_BITS
+    parameter integer                   DATA_BITS = 256,
+    parameter integer                   ADDR_BITS = 64,
+    parameter integer                   ID_BITS = 2
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
