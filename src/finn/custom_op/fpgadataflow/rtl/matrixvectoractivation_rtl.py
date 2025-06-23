@@ -58,6 +58,7 @@ class MVAU_rtl(MVAU, RTLBackend):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
@@ -66,61 +67,74 @@ class MVAU_rtl(MVAU, RTLBackend):
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # create a npy file fore each input of the node (in_ind is input index)
-            in_ind = 0
-            for inputs in node.input:
+            for in_ind, inputs in enumerate(node.input):
                 # it is assumed that the first input of the node is the data input
                 # the second input are the weights
+                assert (
+                    str(context[inputs].dtype) == "float32"
+                ), """Input datatype is
+                not float32 as expected."""
+
                 if in_ind == 0:
                     assert (
                         str(context[inputs].dtype) == "float32"
                     ), """Input datatype is
                     not float32 as expected."""
-                    expected_inp_shape = self.get_folded_input_shape()
+                    expected_inp_shape = self.get_folded_input_shape(in_ind)
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype(0)
+                    export_idt = self.get_input_datatype(in_ind)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                        os.path.join(code_gen_dir, "input_0.npy"),
                         reshaped_input,
                     )
-                elif in_ind > 1:
-                    raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
-                in_ind += 1
-                sim = self.get_rtlsim()
-                nbits = self.get_instream_width(0)
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                super().reset_rtlsim(sim)
-                if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_instream_width(1)
-                    export_wdt = self.get_input_datatype(1)
-                    wei = npy_to_rtlsim_input(
-                        "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                    )
-                    num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                    io_dict = {
-                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
-                        "outputs": {"out0": []},
-                    }
-                else:
-                    io_dict = {
-                        "inputs": {"in0": inp},
-                        "outputs": {"out0": []},
-                    }
-                self.rtlsim_multi_io(sim, io_dict)
-                super().close_rtlsim(sim)
-                output = io_dict["outputs"]["out0"]
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
+
+                if in_ind == 1:
+                    if dynamic_input:
+                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                        self.make_weight_file(
+                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                        )
+
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            super().reset_rtlsim(sim)
+
+            if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
+                wnbits = self.get_instream_width(1)
+                if dynamic_input:
+                    wnbits = wnbits * self.get_nodeattr("SIMD")
+                export_wdt = self.get_input_datatype(1)
+
+                wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+
+                io_dict = {
+                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "outputs": {"out0": []},
+                }
+            else:
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -265,7 +279,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         # determine if weights are narrow range and add parameter to code gen dict
         weights = model.get_initializer(self.onnx_node.input[1])
         wdt = self.get_input_datatype(1)
-        narrow_weights = 0 if np.min(weights) == wdt.min() else 1
+        narrow_weights = (
+            0 if np.min(weights) == wdt.min() or self.get_nodeattr("dynamic_input") else 1
+        )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
@@ -291,7 +307,12 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        dynamic_input = self.get_nodeattr("dynamic_input")
+        mem_mode = self.get_nodeattr("mem_mode")
+
+        if dynamic_input:
+            self.generate_hdl_dynload()
+        elif mem_mode == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
                 assert (
@@ -299,6 +320,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
+
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)

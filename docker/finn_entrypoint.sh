@@ -60,10 +60,10 @@ mv ${FINN_DEPS_DIR}/qonnx/pyproject.toml ${FINN_DEPS_DIR}/qonnx/pyproject.tmp
 pip install --user -e ${FINN_DEPS_DIR}/qonnx
 mv ${FINN_DEPS_DIR}/qonnx/pyproject.tmp ${FINN_DEPS_DIR}/qonnx/pyproject.toml
 
-cat <(tail -n +3 python_repos.txt) | while IFS=',' read -a arr ; do
-    # extract line to $arr as array separated by ','
-    pip install --user -e ${FINN_DEPS_DIR}/"${arr[0]}"
-done
+# finn-experimental
+pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+# brevitas
+pip install --user -e ${FINN_ROOT}/deps/brevitas
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
@@ -105,18 +105,17 @@ else
 fi
 
 if [ -z "${XILINX_VIVADO}" ]; then
-  yecho "pyxsi will be unavailable since Vivado was not found"
+  yecho "finnxsi will be unavailable since Vivado was not found"
 else
-  if [ -f "${FINN_DEPS_DIR}/pyxsi/pyxsi.so" ]; then
-    gecho "Found pyxsi at ${FINN_DEPS_DIR}/pyxsi/pyxsi.so"
+  if [ -f "${FINN_ROOT}/finn_xsi/xsi.so" ]; then
+    gecho "Found finnxsi at ${FINN_ROOT}/finn_xsi/xsi.so"
   else
     OLDPWD=$(pwd)
-    OLDPWD=$(pwd)
-    cd ${FINN_DEPS_DIR}/pyxsi
+    cd ${FINN_ROOT}/finn_xsi
     make
     cd $OLDPWD
   fi
-  export PYTHONPATH=$PYTHONPATH:${FINN_DEPS_DIR}/pyxsi:${FINN_DEPS_DIR}/pyxsi/py
+  export PYTHONPATH=$PYTHONPATH:${FINN_ROOT}/finn_xsi
   export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/lib/x86_64-linux-gnu/:${XILINX_VIVADO}/lib/lnx64.o
 fi
 

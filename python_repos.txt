@@ -1,4 +1,0 @@
-dir,url,commit_hash
-qonnx,https://github.com/fastmachinelearning/qonnx.git,ed339373246d84626cf8e1d9038a8acad7111031
-finn-experimental,https://github.com/Xilinx/finn-experimental.git,0724be21111a21f0d81a072fccc1c446e053f851
-brevitas,https://github.com/Xilinx/brevitas.git,4617f7bd136e96fa21c7f76e3c7e2e37fe563837

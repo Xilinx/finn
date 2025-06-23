@@ -37,6 +37,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -47,24 +48,18 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def make_addstreams_modelwrapper(ch, pe, idt):
+def make_addstreams_modelwrapper(ch, idts):
     inp1 = helper.make_tensor_value_info("inp1", TensorProto.FLOAT, [1, ch])
     inp2 = helper.make_tensor_value_info("inp2", TensorProto.FLOAT, [1, ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch])
 
-    addstreams_node = helper.make_node(
-        "AddStreams",
+    add_node = helper.make_node(
+        "Add",
         ["inp1", "inp2"],
         ["outp"],
-        domain="finn.custom_op.fpgadataflow",
-        backend="fpgadataflow",
-        NumChannels=ch,
-        PE=pe,
-        inputDataType=idt.name,
-        preferred_impl_style="hls",
     )
     graph = helper.make_graph(
-        nodes=[addstreams_node],
+        nodes=[add_node],
         name="graph",
         inputs=[inp1, inp2],
         outputs=[outp],
@@ -73,8 +68,8 @@ def make_addstreams_modelwrapper(ch, pe, idt):
     model = qonnx_make_model(graph, producer_name="addstreams-model")
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp1", idt)
-    model.set_tensor_datatype("inp2", idt)
+    model.set_tensor_datatype("inp1", idts[0])
+    model.set_tensor_datatype("inp2", idts[1])
 
     return model
 
@@ -84,7 +79,9 @@ def prepare_inputs(input1, input2):
 
 
 # data types
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize(
+    "idts", [(DataType["UINT4"], DataType["UINT5"]), (DataType["UINT8"], DataType["INT7"])]
+)
 # channels
 @pytest.mark.parametrize("ch", [1, 64])
 # folding
@@ -93,7 +90,7 @@ def prepare_inputs(input1, input2):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
+def test_fpgadataflow_addstreams(idts, ch, fold, exec_mode):
     if fold == -1:
         pe = 1
     else:
@@ -101,10 +98,10 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     assert ch % pe == 0
 
     # generate input data
-    x1 = gen_finn_dt_tensor(idt, (1, ch))
-    x2 = gen_finn_dt_tensor(idt, (1, ch))
+    x1 = gen_finn_dt_tensor(idts[0], (1, ch))
+    x2 = gen_finn_dt_tensor(idts[1], (1, ch))
 
-    model = make_addstreams_modelwrapper(ch, pe, idt)
+    model = make_addstreams_modelwrapper(ch, idts)
 
     # prepare input data
     input_dict = prepare_inputs(x1, x2)
@@ -116,6 +113,10 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all(), "Execution of hw layer failed"
 
+    model = model.transform(to_hw.InferAddStreamsLayer())
+    addstreams_node = model.get_nodes_by_op_type("AddStreams")[0]
+    addstreams_node = getCustomOp(addstreams_node)
+    addstreams_node.set_nodeattr("PE", pe)
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     if exec_mode == "cppsim":

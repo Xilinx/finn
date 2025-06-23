@@ -50,11 +50,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
-
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
@@ -194,18 +189,25 @@ def test_fpgadataflow_checksum():
     def read_checksum_and_drain(sim):
         chk_addr = 16
         drain_addr = 32
+        read_handles = []
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
-            axi_name = "s_axi_checksum_{}_".format(i)
-            checksums.append(pyxsi_utils.axilite_read(sim, chk_addr, basename=axi_name))
-            drain.append(pyxsi_utils.axilite_read(sim, drain_addr, basename=axi_name))
+            axi_name = "s_axi_checksum_{}".format(i)
+            read_handles.append(sim.read_axilite(axi_name, iter([chk_addr, drain_addr])))
+        sim.run()
+        for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
+            checksums.append(int(read_handles[i][chk_addr], 16))
+            drain.append(int(read_handles[i][drain_addr], 16))
 
-    drain_value = False
+    # hex string for drain_value=False
+    drain_value = "00000000"
 
     def write_drain(sim):
         addr = 32
         for i in range(len(model.get_nodes_by_op_type("CheckSum_hls"))):
-            axi_name = "s_axi_checksum_{}_".format(i)
-            pyxsi_utils.axilite_write(sim, addr, drain_value, basename=axi_name)
+            axi_name = "s_axi_checksum_{}".format(i)
+            writes = [(addr, drain_value)]
+            sim.write_axilite(axi_name, iter(writes))
+        sim.run()
 
     rtlsim_exec(model, inp, pre_hook=write_drain, post_hook=read_checksum_and_drain)
     checksum0_rtlsim = int(checksums[0])

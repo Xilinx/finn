@@ -163,7 +163,7 @@ void Kernel::open(std::string const &design_lib, s_xsi_setup_info const &setup_i
 	try {
 		auto      const  f   = t_fp_xsi_open(resolve_or_throw(_design_lib, "xsi_open"));
 		xsiHandle const  hdl = f(const_cast<p_xsi_setup_info>(&setup_info));
-		if(!hdl)  std::runtime_error("Loading of design failed");
+		if(!hdl)  throw  std::runtime_error("Loading of design failed");
 		_xsi.setHandle(hdl);
 
 		// Enumerate Ports
@@ -216,6 +216,8 @@ std::string Port::as_binstr() const {
 
 	s_xsi_vlog_logicval const *si = buf();
 	std::string::iterator      di = res.end();
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 	uint32_t  a;
 	uint32_t  b;
 	for(unsigned  i = 0; i < w; i++) {
@@ -228,6 +230,7 @@ std::string Port::as_binstr() const {
 		a >>= 1;
 		b >>= 1;
 	}
+#pragma GCC diagnostic pop
 	return  res;
 }
 
@@ -318,14 +321,18 @@ Port& Port::set_hexstr(std::string const &val) {
 		l  -= m;
 		si -= m;
 		for(unsigned  j = 0; j < m; j++) {
-			char const  c = *si++;
+			char  c = *si++;
 			a <<= 4;
 			b <<= 4;
 
 			if(('0' <= c) && c <= '9')  a |= c & 0xF;
 			else {
-				b |= 0xF;
-				if((c|0x20) != 'z')  a |= 0xF;
+				c |= 0x20;
+				if(('a' <= c) && (c <= 'f'))  a |= c - ('a'-10);
+				else {
+					b |= 0xF;
+					if(c != 'z')  a |= 0xF;
+				}
 			}
 		}
 		si -= m;

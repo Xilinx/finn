@@ -30,19 +30,19 @@
  *
  * @brief	Testbench for thresholding_axi.
  * @author	Monica Chiosa <monica.chiosa@amd.com>
- *
- */
+ * @author	Thomas B. Preußer <tpreusse@amd.com>
+ *****************************************************************************/
 
 module thresholding_axi_tb #(
-	int unsigned  N  = 4,	// output precision
-	int unsigned  C  = 6,	// number of channels
-	int unsigned  PE = 2,
+	int unsigned  N  = 14,	// number of thresholds
+	int unsigned  C  =  6,	// number of channels
+	int unsigned  PE =  2,
 	real  M0 = 7.3,			// slope of the uniform thresholding line
 	real  B0 = 3.1,			// offset of the uniform thresholding line
 	bit  THROTTLED = 1,
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2
+	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + $clog2(N) + 2
 );
 
 	//-----------------------------------------------------------------------
@@ -53,12 +53,12 @@ module thresholding_axi_tb #(
 	//	 B_channel = B0 + CX*channel
 	// Input/threshold precision computed according with the maximum posible value
 	localparam real  CX = 1.375;
-	localparam int unsigned K = $clog2((2**N-1)*(M0+C*CX) + (B0+C*CX)); // unused sign + magnitude
+	localparam int unsigned K = $clog2(N*(M0+C*CX) + (B0+C*CX)); // unused sign + magnitude
 	localparam int unsigned C_BITS = C < 2? 1 : $clog2(C);
 
 	localparam int unsigned MST_STRM_WROUNDS = 503;
 
-	typedef int unsigned  threshs_t[C][2**N-1];
+	typedef int unsigned  threshs_t[C][N];
 	function threshs_t init_thresholds();
 		automatic threshs_t  res;
 		for(int unsigned  c = 0; c < C; c++) begin
@@ -108,7 +108,7 @@ module thresholding_axi_tb #(
 
 	logic  ordy = 0;
 	uwire  ovld;
-	uwire [PE-1:0][N-1:0]  odat;
+	uwire [PE-1:0][$clog2(N+1)-1:0]  odat;
 
 	thresholding_axi #(.N(N), .WI(K), .WT(K), .C(C), .PE(PE), .SIGNED(0), .USE_AXILITE(1)) dut (
 		.ap_clk(clk), .ap_rst_n(!rst),
@@ -128,7 +128,7 @@ module thresholding_axi_tb #(
 	//-----------------------------------------------------------------------
 	// Input Stimuli
 	typedef logic [PE-1:0][K-1:0]  input_t;
-	typedef logic [$clog2(CF)+$clog2(PE)+N-1:0]  addr_t;
+	typedef logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  addr_t;
 	input_t  QW[$];  // Input Feed Tracing
 	addr_t   QC[$];
 
@@ -136,10 +136,10 @@ module thresholding_axi_tb #(
 	bit  done = 0;
 	initial begin
 		// Report testbench details
-		$display("Testbench - tresholding K=%0d -> N=%0d", K, N);
+		$display("Testbench - thresholding K=%0d -> N=%0d", K, N);
 		for(int unsigned  c = 0; c < C; c++) begin
 			$write("Channel #%0d: Thresholds = {", c);
-			for(int unsigned  i = 0; i < 2**N-1; i++)  $write(" %0d", THRESHS[c][i]);
+			for(int unsigned  i = 0; i < N; i++)  $write(" %0d", THRESHS[c][i]);
 			$display(" }");
 		end
 
@@ -161,11 +161,11 @@ module thresholding_axi_tb #(
 		// Threshold Configuration
 		for(int unsigned  c = 0; c < C; c+=PE) begin
 			automatic addr_t  addr = 0;
-			if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = c/PE;
+			if(CF > 1)  addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] = c/PE;
 			for(int unsigned  pe = 0; pe < PE; pe++) begin
-				if(PE > 1)  addr[N+:$clog2(PE)] = pe;
-				for(int unsigned  t = 0; t < 2**N-1; t++) begin
-					addr[0+:N] = t;
+				if(PE > 1)  addr[$clog2(N)+:$clog2(PE)] = pe;
+				for(int unsigned  t = 0; t < N; t++) begin
+					addr[0+:$clog2(N)] = t;
 					fork
 						begin
 							s_axilite_AWVALID <= 1;
@@ -204,9 +204,9 @@ module thresholding_axi_tb #(
 					@(posedge clk);
 				end
 				else begin
-					automatic addr_t  addr = $urandom()%(N-1);
-					if(PE > 1)  addr[N+:$clog2(PE)] = $urandom()%PE;
-					if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
+					automatic addr_t  addr = $urandom()%N;
+					if(PE > 1)  addr[$clog2(N)+:$clog2(PE)] = $urandom()%PE;
+					if(CF > 1)  addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
 
 					s_axilite_ARVALID <= 1;
 					s_axilite_ARADDR  <= { addr, 2'b00 };
@@ -232,7 +232,7 @@ module thresholding_axi_tb #(
 			end
 		join_any
 		done <= 1;
-		repeat(2*N+8)  @(posedge clk);
+		repeat(N+16)  @(posedge clk);
 
 		assert(QW.size() == 0) else begin
 			$error("Missing %0d outputs.", QW.size());
@@ -259,11 +259,11 @@ module thresholding_axi_tb #(
 		assert(QC.size()) begin
 			automatic addr_t  addr = QC.pop_front();
 			automatic int unsigned  cnl =
-				(CF == 1? 0 : addr[N+$clog2(PE)+:$clog2(CF)] * PE) +
-				(PE == 1? 0 : addr[N+:$clog2(PE)]);
-			automatic logic [K-1:0]  exp = THRESHS[cnl][addr[0+:N]];
+				(CF == 1? 0 : addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] * PE) +
+				(PE == 1? 0 : addr[$clog2(N)+:$clog2(PE)]);
+			automatic logic [K-1:0]  exp = THRESHS[cnl][addr[0+:$clog2(N)]];
 			assert(s_axilite_RDATA == exp) else begin
-				$error("Readback mismatch on #%0d.%0d: %0d instead of %0d", cnl, addr[0+:N], s_axilite_RDATA, exp);
+				$error("Readback mismatch on #%0d.%0d: %0d instead of %0d", cnl, addr[0+:$clog2(N)], s_axilite_RDATA, exp);
 				$stop;
 			end
 		end
@@ -293,7 +293,7 @@ module thresholding_axi_tb #(
 						$display("Mapped CNL=%0d DAT=%3d -> #%2d", cnl, x[pe], odat[pe]);
 						assert(
 							((odat[pe] == 0) || (THRESHS[cnl][odat[pe]-1] <= x[pe])) &&
-							((odat[pe] == 2**N-1) || (x[pe] < THRESHS[cnl][odat[pe]]))
+							((odat[pe] == N) || (x[pe] < THRESHS[cnl][odat[pe]]))
 						) else begin
 							$error("Output error on presumed input CNL=%0d DAT=0x%0x -> #%0d", cnl, x[pe], odat[pe]);
 							error_cnt++;

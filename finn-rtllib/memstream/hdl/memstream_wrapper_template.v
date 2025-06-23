@@ -117,4 +117,4 @@ module $MODULE_NAME$_memstream_wrapper #(
 		.m_axis_0_tdata(m_axis_0_tdata)
 	);
 
-endmodule : $MODULE_NAME$_memstream_wrapper
+endmodule // $MODULE_NAME$_memstream_wrapper
