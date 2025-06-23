@@ -40,7 +40,8 @@ module cdma_x_rd #(
     parameter integer                   BURST_LEN = 64,
     parameter integer                   DATA_BITS = 256,
     parameter integer                   ADDR_BITS = 64,
-    parameter integer                   ID_BITS = 2
+    parameter integer                   ID_BITS = 2,
+    parameter integer                   LEN_BITS = 32
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
