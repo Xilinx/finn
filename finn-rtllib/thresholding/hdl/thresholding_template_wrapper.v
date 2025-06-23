@@ -43,7 +43,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	parameter  SETS = 1,  // Number of independent threshold sets
+	parameter  SETS = $SETS$,  // Number of independent threshold sets
 
 	parameter  THRESHOLDS_PATH = $THRESHOLDS_PATH$,	// Directory with initial threshold data
 	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write

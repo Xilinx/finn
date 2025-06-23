@@ -314,9 +314,7 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         if dynamic_input:
             self.generate_hdl_dynload()
-        if self.get_nodeattr("mem_mode") == "internal_decoupled" and not self.get_nodeattr(
-            "mlo_max_iter"
-        ):
+        elif mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
                 assert (
