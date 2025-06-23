@@ -37,6 +37,7 @@ from qonnx.util.basic import get_by_name, is_finn_op, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.create import adjacency_list
 
 
 class FINNLoop(HWCustomOp, RTLBackend):
@@ -241,7 +242,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_hdl_stream_tap()
         self.generate_params(model, code_gen_dir)
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
 
     def generate_params(self, model, path):
         iteration = self.get_nodeattr("iteration")
@@ -320,8 +326,131 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                         outfile.write(line)
                                 os.remove(iter_file)
 
+    def generate_hdl_stream_tap(self):
+        """Helper function to generate verilog code for stream tap components."""
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/stream_tap/hdl/stream_tap_wrapper_template.v"
+        )
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        iteration = self.get_nodeattr("iteration")
+        loop_body = self.get_nodeattr("body")
+        graph_inputs = [x.name for x in loop_body.graph.input]
+        # TODO check if this needs to be padded
+        data_width = DataType.get_smallest_possible(iteration).bitwidth()
+        for node in loop_body.graph.node:
+            node_inst = getCustomOp(node)
+            if node_inst.get_nodeattr("mlo_max_iter"):
+                stname = "IN_%s" % graph_inputs.index(node.input[1])
+                code_gen_dict = {
+                    "$MODULE_NAME$": [stname],
+                    "$DATA_WIDTH$": [str(data_width)],
+                    "$TAP_REP$": [str(iteration)],
+                }
+            # apply code generation to template
+            with open(template_path, "r") as f:
+                template_wrapper = f.read()
+            for key in code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(code_gen_dict[key])
+                template_wrapper = template_wrapper.replace(key, code_gen_line)
+            with open(
+                os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
+                "w",
+            ) as f:
+                f.write(template_wrapper)
+
     def code_generation_ipi(self):
-        pass
+        loop_body = self.get_nodeattr("body")
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # create a hierarchy for this layer, with the same port names
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        bd_name = "Stream_tap_graph"
+        cmd.append("create_bd_cell -type hier %s" % bd_name)
+        # clock and reset
+        cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (bd_name, clk_name))
+        cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (bd_name, rst_name))
+        # streams
+        cmd.append(
+            "create_bd_intf_pin -mode Master "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
+        )
+        cmd.append(
+            "create_bd_intf_pin -mode Slave "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/s_axis_0" % bd_name
+        )
+        for id, inp in enumerate(loop_body.graph.input[1:]):
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_%d" % (bd_name, id + 1)
+            )
+        # get stream tap components
+        stream_tap_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/stream_tap/hdl/")
+        file_suffix = "_stream_tap_wrapper.v"
+        # automatically find stream tap verilog components in code generation directory
+        st_tmpl_names = []
+        st_verilog_files = []
+        for fname in os.listdir(code_gen_dir):
+            if fname.endswith(file_suffix):
+                st_verilog_files.append(os.path.join(code_gen_dir, fname))
+                st_tmpl_names.append(fname[:-2])
+        sourcefiles = st_verilog_files + [
+            stream_tap_dir + "stream_tap.sv",
+        ]
+        for f in sourcefiles:
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+
+        mlo_optypes = ["MVAU_rtl", "MVAU_hls", "Thresholding_rtl"]
+        adj_list = adjacency_list(loop_body, mlo_optypes)
+        # create map that maps each stream tap to its param node
+        st_map = {}
+        for id, inp in enumerate(loop_body.graph.input[1:]):
+            consumer = loop_body.find_consumer(inp.name)
+            st_map[consumer.name] = "IN_%d_stream_tap_wrapper" % (id + 1)
+
+        producer = "__INPUT0__"
+        for id, inp in enumerate(loop_body.graph.input[1:]):
+            node_name = adj_list[producer][0]
+            inst_name = st_map[node_name]
+            cmd.append(
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (st_map[node_name], bd_name, inst_name)
+            )
+            # connect
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+                % (bd_name, clk_name, bd_name, inst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
+                % (bd_name, rst_name, bd_name, inst_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
+                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, inst_name)
+            )
+
+            if "INPUT" not in producer:
+                src_intf_name = "m_axis_0"
+                dst_intf_name = "s_axis_0"
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (bd_name, st_map[producer], src_intf_name, bd_name, inst_name, dst_intf_name)
+                )
+            producer = node_name
+            if id == 0:
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/s_axis_0] "
+                    "[get_bd_intf_pins %s/%s/s_axis_0]" % (bd_name, bd_name, inst_name)
+                )
+            elif id == len(loop_body.graph.input[1:]) - 1:
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
+                    "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, inst_name)
+                )
 
     def get_rtl_file_list(self, abspath=False):
         pass

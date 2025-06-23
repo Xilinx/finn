@@ -342,8 +342,6 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def apply(self, model):
-        if "FINNLoop" in [x.op_type for x in model.graph.node]:
-            return (model, False)
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]

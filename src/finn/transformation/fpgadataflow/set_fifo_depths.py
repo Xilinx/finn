@@ -301,10 +301,10 @@ class InsertAndSetFIFODepths(Transformation):
         self.ind_map = {}
 
     def apply(self, model):
-        # these optypes may potentially be param nodes in an mlo
-        # we'll temporarily change them to use external mode for FIFO sizing
         if "FINNLoop" in [x.op_type for x in model.graph.node]:
             return (model, False)
+        # these optypes may potentially be param nodes in an mlo
+        # we'll temporarily change them to use external mode for FIFO sizing
         mlo_optypes = ["MVAU_hls", "MVAU_rtl", "Thresholding_rtl"]
         modified_mlo_nodes = []
         for node in model.graph.node:
