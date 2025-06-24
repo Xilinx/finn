@@ -46,7 +46,8 @@ module intermediate_frames #(
     parameter logic[ADDR_BITS-1:0]      ADDR_INT,
     parameter logic[ADDR_BITS-1:0]      LAYER_OFFS_INT,
     parameter int unsigned              N_MAX_LAYERS,
-
+    parameter int unsigned              ILEN_BITS,
+    parameter int unsigned              OLEN_BITS,
     parameter int unsigned              N_OUTSTANDING_DMAS = 32,
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1,
@@ -328,10 +329,8 @@ end
 
 AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) dma_rd_f ();
 AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) dma_wr_f ();
-AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) dma_rd ();
-AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) dma_wr ();
-AXI4S #(.AXI4S_DATA_BITS(ILEN_BITS)) dma_rd_dwc ();
-AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) dma_wr_dwc ();
+AXI4SF #(.AXI4S_DATA_BITS(ILEN_BITS)) dma_rd_dwc ();
+AXI4SF #(.AXI4S_DATA_BITS(OLEN_BITS)) dma_wr_dwc ();
 
 cdma_top #(
     .ADDR_BITS(ADDR_BITS),
@@ -360,82 +359,135 @@ cdma_top #(
     .s_axis_ddr(dma_wr_f),
     .m_axis_ddr(dma_rd_f)
 );
-`AXIS_AXISF_ASSIGN(dma_wr, dma_wr_f)
-`AXISF_AXIS_ASSIGN(dma_rd_f, dma_rd)
+//`AXIS_AXISF_ASSIGN(dma_wr, dma_wr_f)
+//`AXISF_AXIS_ASSIGN(dma_rd_f, dma_rd)
 assign m_done = {rd_done, wr_done};
 
 // DWC
-axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (.aclk(aclk), .aresetn(aresetn), .s_axis(dma_wr_dwc), .m_axis(dma_wr));
-axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) inst_dwc_rd (.aclk(aclk), .aresetn(aresetn), .s_axis(dma_rd), .m_axis(dma_rd_dwc));
+axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS))
+          inst_dwc_wr (.aclk(aclk),
+                       .aresetn(aresetn),
+
+                       .s_axis_tvalid(dma_wr_dwc.tvalid),
+                       .s_axis_tready(dma_wr_dwc.tready),
+                       .s_axis_tdata(dma_wr_dwc.tdata),
+                       .s_axis_tkeep(dma_wr_dwc.tkeep),
+                       .s_axis_tlast(dma_wr_dwc.tlast),
+
+                       .m_axis_tvalid(dma_wr_f.tvalid),
+                       .m_axis_tready(dma_wr_f.tready),
+                       .m_axis_tdata(dma_wr_f.tdata),
+                       .m_axis_tkeep(dma_wr_f.tkeep),
+                       .m_axis_tlast(dma_wr_f.tlast)
+                    );
+axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS))
+         inst_dwc_rd (.aclk(aclk),
+                      .aresetn(aresetn),
+
+                      .s_axis_tvalid(dma_rd_f.tvalid),
+                      .s_axis_tready(dma_rd_f.tready),
+                      .s_axis_tdata(dma_rd_f.tdata),
+                      .s_axis_tkeep(dma_rd_f.tkeep),
+                      .s_axis_tlast(dma_rd_f.tlast),
+
+                      .m_axis_tvalid(dma_rd_dwc.tvalid),
+                      .m_axis_tready(dma_rd_dwc.tready),
+                      .m_axis_tdata(dma_rd_dwc.tdata),
+                      .m_axis_tkeep(dma_rd_dwc.tkeep),
+                      .m_axis_tlast(dma_rd_dwc.tlast));
+
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg_wr (.aclk(aclk), .aresetn(aresetn), .s_axis(s_axis), .m_axis(dma_wr_dwc));
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg_rd (.aclk(aclk), .aresetn(aresetn), .s_axis(dma_rd_dwc), .m_axis(m_axis));
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS))
+                     inst_reg_wr (.aclk(aclk),
+                                  .aresetn(aresetn),
+
+                                  .s_axis_tvalid(s_axis.tvalid),
+                                  .s_axis_tready(s_axis.tready),
+                                  .s_axis_tdata(s_axis.tdata),
+
+                                  .m_axis_tvalid(dma_wr_dwc.tvalid),
+                                  .m_axis_tready(dma_wr_dwc.tready),
+                                  .m_axis_tdata(dma_wr_dwc.tdata)
+                                  );
+
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS))
+                     inst_reg_rd (.aclk(aclk),
+                                  .aresetn(aresetn),
+
+                                  .s_axis_tvalid(dma_rd_dwc.tvalid),
+                                  .s_axis_tready(dma_rd_dwc.tready),
+                                  .s_axis_tdata(dma_rd_dwc.tdata),
+
+                                  .m_axis_tvalid(m_axis.tvalid),
+                                  .m_axis_tready(m_axis.tready),
+                                  .m_axis_tdata(m_axis.tdata)
+                                  );
 
 //
 // DBG
 //
 
-if(DBG == 1) begin
-    ila_if inst_ila_if (
-        .clk(aclk),
-        .probe0(s_idx.tvalid),
-        .probe1(s_idx.tready),
-        .probe2(q_s0_dma_out.tvalid),
-        .probe3(q_s0_dma_out.tready),
-        .probe4(q_s0_buf_out.tvalid),
-        .probe5(q_s0_buf_out.tready),
-        .probe6(state_wr_C),
-        .probe7(cnt_frames_wr_C), // 16
-        .probe8(n_frames_wr_C), // 16
-        .probe9(len_wr_C), // 32
-        .probe10(addr_wr_C), // 64
-        .probe11(cnt_outstanding_C), // 16
-        .probe12(cnt_outstanding_decr),
-        .probe13(cnt_outstanding_incr),
-        .probe14(q_wr_dma_out.tvalid),
-        .probe15(q_wr_dma_out.tready),
-        .probe16(q_wr_fr_done_out.tvalid),
-        .probe17(q_wr_fr_done_out.tready),
-        .probe18(wr_done),
-        .probe19(q_s1_dma_out.tvalid),
-        .probe20(q_s1_dma_out.tready),
-        .probe21(m_idx.tvalid),
-        .probe22(m_idx.tready),
-        .probe23(state_rd_C),
-        .probe24(cnt_frames_rd_C), // 16
-        .probe25(n_frames_rd_C), // 16
-        .probe26(len_rd_C), // 32
-        .probe27(addr_rd_C), // 64
-        .probe28(rd_done),
-        .probe29(q_rd_dma_out.tvalid),
-        .probe30(q_rd_dma_out.tready),
-        .probe31(s_axis.tvalid),
-        .probe32(s_axis.tready),
-        .probe33(m_axis.tvalid),
-        .probe34(m_axis.tready),
-        .probe35(m_idx.tdata[0+:CNT_BITS]), // 16
-        .probe36(dma_wr_dwc.tready),
-        .probe37(dma_wr_dwc.tvalid),
-        .probe38(dma_wr.tvalid),
-        .probe39(dma_wr.tready),
-        .probe40(q_rd_dma_out.tdata[0+:64]), // 64
-        .probe41(q_wr_dma_out.tdata[0+:64]), // 64
-        .probe42(q_rd_dma_out.tdata[64+:32]), // 32
-        .probe43(q_wr_dma_out.tdata[64+:32]), // 32
-        .probe44(wr_done),
-        .probe45(rd_done),
-        .probe46(m_axi_hbm.arvalid),
-        .probe47(m_axi_hbm.arready),
-        .probe48(m_axi_hbm.awvalid),
-        .probe49(m_axi_hbm.awready),
-        .probe50(m_axi_hbm.araddr), // 64
-        .probe51(m_axi_hbm.awaddr), // 64
-        .probe52(m_axi_hbm.rvalid),
-        .probe53(m_axi_hbm.rready),
-        .probe54(m_axi_hbm.wvalid),
-        .probe55(m_axi_hbm.wready)
-    );
-end
+//if(DBG == 1) begin
+//    ila_if inst_ila_if (
+//        .clk(aclk),
+//        .probe0(s_idx.tvalid),
+//        .probe1(s_idx.tready),
+//        .probe2(q_s0_dma_out.tvalid),
+//        .probe3(q_s0_dma_out.tready),
+//        .probe4(q_s0_buf_out.tvalid),
+//        .probe5(q_s0_buf_out.tready),
+//        .probe6(state_wr_C),
+//        .probe7(cnt_frames_wr_C), // 16
+//        .probe8(n_frames_wr_C), // 16
+//        .probe9(len_wr_C), // 32
+//        .probe10(addr_wr_C), // 64
+//        .probe11(cnt_outstanding_C), // 16
+//        .probe12(cnt_outstanding_decr),
+//        .probe13(cnt_outstanding_incr),
+//        .probe14(q_wr_dma_out.tvalid),
+//        .probe15(q_wr_dma_out.tready),
+//        .probe16(q_wr_fr_done_out.tvalid),
+//        .probe17(q_wr_fr_done_out.tready),
+//        .probe18(wr_done),
+//        .probe19(q_s1_dma_out.tvalid),
+//        .probe20(q_s1_dma_out.tready),
+//        .probe21(m_idx.tvalid),
+//        .probe22(m_idx.tready),
+//        .probe23(state_rd_C),
+//        .probe24(cnt_frames_rd_C), // 16
+//        .probe25(n_frames_rd_C), // 16
+//        .probe26(len_rd_C), // 32
+//        .probe27(addr_rd_C), // 64
+//        .probe28(rd_done),
+//        .probe29(q_rd_dma_out.tvalid),
+//        .probe30(q_rd_dma_out.tready),
+//        .probe31(s_axis.tvalid),
+//        .probe32(s_axis.tready),
+//        .probe33(m_axis.tvalid),
+//        .probe34(m_axis.tready),
+//        .probe35(m_idx.tdata[0+:CNT_BITS]), // 16
+//        .probe36(dma_wr_dwc.tready),
+//        .probe37(dma_wr_dwc.tvalid),
+//        .probe38(dma_wr.tvalid),
+//        .probe39(dma_wr.tready),
+//        .probe40(q_rd_dma_out.tdata[0+:64]), // 64
+//        .probe41(q_wr_dma_out.tdata[0+:64]), // 64
+//        .probe42(q_rd_dma_out.tdata[64+:32]), // 32
+//        .probe43(q_wr_dma_out.tdata[64+:32]), // 32
+//        .probe44(wr_done),
+//        .probe45(rd_done),
+//        .probe46(m_axi_hbm.arvalid),
+//        .probe47(m_axi_hbm.arready),
+//        .probe48(m_axi_hbm.awvalid),
+//        .probe49(m_axi_hbm.awready),
+//        .probe50(m_axi_hbm.araddr), // 64
+//        .probe51(m_axi_hbm.awaddr), // 64
+//        .probe52(m_axi_hbm.rvalid),
+//        .probe53(m_axi_hbm.rready),
+//        .probe54(m_axi_hbm.wvalid),
+//        .probe55(m_axi_hbm.wready)
+//    );
+//end
 
 endmodule

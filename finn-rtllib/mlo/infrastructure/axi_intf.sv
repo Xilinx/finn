@@ -45,21 +45,25 @@ data_t          tdata;
 logic           tready;
 logic           tvalid;
 
+// Tie off unused master signals
 task tie_off_m ();
     tdata      = 0;
     tvalid     = 1'b0;
 endtask
 
+// Tie off unused slave signals
 task tie_off_s ();
     tready     = 1'b1;
 endtask
 
+// Master
 modport master (
 	import tie_off_m,
 	input tready,
 	output tdata, tvalid
 );
 
+// Slave
 modport slave (
     import tie_off_s,
     input tdata, tvalid,
@@ -68,47 +72,10 @@ modport slave (
 
 endinterface
 
-interface AXI4S_PCKT #(
-	parameter AXI4S_DATA_BITS = 64
-) (
-    input  logic aclk
-);
-
-typedef logic [AXI4S_DATA_BITS-1:0] data_t;
-typedef logic [AXI4S_DATA_BITS/8-1:0] keep_t;
-
-data_t          tdata;
-keep_t          tkeep;
-logic           tready;
-logic           tvalid;
-logic           tlast;
-
-task tie_off_m ();
-    tdata      = 0;
-    tkeep      = 0;
-    tlast      = 0;
-    tvalid     = 1'b0;
-endtask
-
-task tie_off_s ();
-    tready     = 1'b1;
-endtask
-
-modport master (
-	import tie_off_m,
-	input tready,
-	output tdata, tvalid, tlast, tkeep
-);
-
-modport slave (
-    import tie_off_s,
-    input tdata, tvalid, tlast, tkeep,
-    output tready
-);
-
-endinterface
-
-interface AXI4S_USER #(
+// ----------------------------------------------------------------------------
+// AXI4 stream full
+// ----------------------------------------------------------------------------
+interface AXI4SF #(
 	parameter AXI4S_DATA_BITS = 64,
     parameter AXI4S_USER_BITS = 1
 ) (
@@ -122,31 +89,35 @@ typedef logic [AXI4S_USER_BITS-1:0] user_t;
 data_t          tdata;
 keep_t          tkeep;
 user_t          tuser;
+logic           tlast;
 logic           tready;
 logic           tvalid;
-logic           tlast;
 
+// Tie off unused master signals
 task tie_off_m ();
     tdata      = 0;
     tkeep      = 0;
-    tlast      = 0;
     tuser      = 0;
+    tlast      = 1'b0;
     tvalid     = 1'b0;
 endtask
 
+// Tie off unused slave signals
 task tie_off_s ();
     tready     = 1'b1;
 endtask
 
+// Master
 modport master (
 	import tie_off_m,
 	input tready,
-	output tdata, tvalid, tlast, tkeep, tuser
+	output tdata, tvalid, tuser, tkeep, tlast
 );
 
+// Slave
 modport slave (
     import tie_off_s,
-    input tdata, tvalid, tlast, tkeep, tuser,
+    input tdata, tvalid, tuser, tkeep, tlast,
     output tready
 );
 

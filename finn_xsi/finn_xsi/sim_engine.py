@@ -10,6 +10,7 @@
 #############################################################################
 
 import xsi
+import numpy as np
 
 
 class SimEngine:
@@ -405,5 +406,73 @@ class SimEngine:
                 return self.replies[addr]
 
         ret = AxiLiteReader(self, m_axilite, reads)
+        self.enlist(ret)
+        return ret
+
+    def aximm_ro_image(self, mm_axi, base, img):
+        class AximmRoImage:
+            def __init__(self, top, mm_axi, base, img):
+                # Tie off Write Channels
+                for tie_off in ("awready", "wready", "bvalid"):
+                    top.get_bus_port(mm_axi, tie_off).set(0).write_back()
+
+                # Collect Ports of Read Channels
+                for name in (
+                    "arready", "arvalid", "araddr", "arlen", "arburst", "arsize",
+                    "rready", "rvalid", "rdata", "rresp", "rlast"
+                ):
+                    self.__dict__[name] = top.get_bus_port(mm_axi, name)
+                self.arready.set(1).write_back()
+                self.rvalid.set(0).write_back()
+                self.rresp.set(0).write_back()
+
+                # Hold on to Image
+                self.base = base
+                self.img  = [f"{_:02x}" for _ in np.array(img).astype(np.uint8)]
+                self.queue = []
+
+            def __bool__(self):
+                return False
+
+            def __call__(self, sim):
+                ret = {}
+
+                if self.rready.read().as_bool() or not self.rvalid.as_bool():
+                    if len(self.queue) > 0:
+                        # Work on Head of Queue
+                        addr, length, size = self.queue.pop(0)
+                        data = ''
+                        for i in range(size):
+                            data = self.img[addr] + data
+                        ret[self.rdata] = data
+
+                        if length > 1:
+                            self.queue.insert(0, (addr + size, length - 1, size))
+                            ret[self.rlast] = "0"
+                        else:
+                            ret[self.rlast] = "1"
+                        ret[self.rvalid] = "1"
+
+                    elif self.rvalid.as_bool():
+                        # Silent Reply Interface
+                        ret[self.rvalid] = "0"
+
+                # Queue up newly received Read Requests
+                if self.arvalid.read().as_bool():
+                    assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
+
+                    addr = int(self.araddr.read().as_hexstr(), 16)
+                    assert self.base <= addr, "Read address out of range."
+                    addr -= self.base
+
+                    length = 1 + self.arlen.read().as_unsigned()
+                    size   = 2 ** self.arsize.read().as_unsigned()
+                    assert addr + length*size <= length*size, "Read extends beyond range."
+
+                    self.queue.append((addr, length, size))
+
+                return  ret
+
+        ret = AxiLiteReader(self, mm_axi, base, img)
         self.enlist(ret)
         return ret
