@@ -233,36 +233,44 @@ always_comb begin : DP
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(s_axis), .m_axis(s_axis_int));
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS))
+                       inst_reg (.aclk(aclk),
+                                 .aresetn(aresetn),
+                                 .s_axis_tvalid(s_axis.tvalid),
+                                 .s_axis_tready(s_axis.tready),
+                                 .s_axis_tdata(s_axis.tdata),
+                                 .m_axis_tvalid(s_axis_int.tvalid),
+                                 .m_axis_tready(s_axis_int.tready),
+                                 .m_axis_tdata(s_axis_int.tdata));
 
 //
 // DBG
 //
 
 if(DBG == 1) begin
-    ila_mux_out inst_ila_mux_out (
-        .clk(aclk),
-        .probe0(q_idx_out.tvalid),
-        .probe1(q_idx_out.tready),
-        .probe2(m_idx_se.tvalid),
-        .probe3(m_idx_se.tready),
-        .probe4(m_idx_if.tvalid),
-        .probe5(m_idx_if.tready),
-        .probe6(seq.tvalid),
-        .probe7(seq.tready),
-        .probe8(state_C), // 2
-        .probe9(cnt_frames_C), // 16
-        .probe10(n_frames_C), // 16
-        .probe11(len_C), // 32
-        .probe12(cnt_C), // 16
-        .probe13(s_axis.tvalid),
-        .probe14(s_axis.tready),
-        .probe15(m_axis_se.tvalid),
-        .probe16(m_axis_se.tready),
-        .probe17(m_axis_if.tvalid),
-        .probe18(m_axis_if.tready),
-        .probe19(cnt_out) // 32
-    );
+    // ila_mux_out inst_ila_mux_out (
+    //     .clk(aclk),
+    //     .probe0(q_idx_out.tvalid),
+    //     .probe1(q_idx_out.tready),
+    //     .probe2(m_idx_se.tvalid),
+    //     .probe3(m_idx_se.tready),
+    //     .probe4(m_idx_if.tvalid),
+    //     .probe5(m_idx_if.tready),
+    //     .probe6(seq.tvalid),
+    //     .probe7(seq.tready),
+    //     .probe8(state_C), // 2
+    //     .probe9(cnt_frames_C), // 16
+    //     .probe10(n_frames_C), // 16
+    //     .probe11(len_C), // 32
+    //     .probe12(cnt_C), // 16
+    //     .probe13(s_axis.tvalid),
+    //     .probe14(s_axis.tready),
+    //     .probe15(m_axis_se.tvalid),
+    //     .probe16(m_axis_se.tready),
+    //     .probe17(m_axis_if.tvalid),
+    //     .probe18(m_axis_if.tready),
+    //     .probe19(cnt_out) // 32
+    // );
 end
 
 

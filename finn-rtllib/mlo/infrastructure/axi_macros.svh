@@ -28,7 +28,6 @@
 `ifndef AXI_MACROS_SVH_
 `define AXI_MACROS_SVH_
 
-// AXIS BASE
 `define AXIS_ASSIGN(s, m)              	            \
 	assign m.tdata      = s.tdata;     	            \
 	assign m.tvalid     = s.tvalid;    	            \
@@ -51,51 +50,7 @@
 	assign ``m``_tvalid   = ``s``.tvalid;           \
 	assign ``s``.tready   = ``m``_tready;
 
-// AXIS PCKT
-`define AXISP_ASSIGN(s, m)              	       	\
-	assign m.tdata      = s.tdata;     	            \
-	assign m.tkeep      = s.tkeep;     	            \
-	assign m.tlast      = s.tlast;     	            \
-	assign m.tvalid     = s.tvalid;    	            \
-	assign s.tready     = m.tready;
-
-`define AXISP_TIE_OFF_M(m)				            \
-	assign m.tvalid		= 1'b0;			            \
-	assign m.tkeep		= 0;			            \
-	assign m.tlast		= 1'b0;			            \
-	assign m.tdata		= 0;
-
-`define AXISP_TIE_OFF_S(s)				            \
-	assign s.tready		= 1'b1;
-
-`define AXISP_ASSIGN_S2I(s, m)                      \
-    assign ``m``.tdata    = ``s``_tdata;            \
-	assign ``m``.tvalid   = ``s``_tvalid;           \
-	assign ``m``.tlast    = ``s``_tlast;           	\
-	assign ``m``.tkeep    = ``s``_tkeep;           	\
-	assign ``s``_tready   = ``m``.tready;
-
-`define AXISP_ASSIGN_I2S(s, m)                      \
-    assign ``m``_tdata    = ``s``.tdata;            \
-	assign ``m``_tvalid   = ``s``.tvalid;           \
-	assign ``m``_tlast    = ``s``.tlast;           	\
-	assign ``m``_tkeep    = ``s``.tkeep;           	\
-	assign ``s``.tready   = ``m``_tready;
-
-`define AXISP_AXIS_ASSIGN(s, m)                     \
-    assign ``m``.tdata    = ``s``.tdata;            \
-	assign ``m``.tvalid   = ``s``.tvalid;           \
-	assign ``s``.tready   = ``m``.tready;
-
-`define AXIS_AXISP_ASSIGN(s, m)                     \
-    assign ``m``.tdata    = ``s``.tdata;            \
-	assign ``m``.tvalid   = ``s``.tvalid;           \
-	assign ``m``.tkeep    = '1;            			\
-	assign ``m``.tlast    = 1'b0;            		\
-	assign ``s``.tready   = ``m``.tready;
-
-// AXIS USER
-`define AXISU_ASSIGN(s, m)              	       	\
+`define AXISF_ASSIGN(s, m)              	       	\
 	assign m.tdata      = s.tdata;     	            \
 	assign m.tkeep      = s.tkeep;     	            \
 	assign m.tlast      = s.tlast;     	            \
@@ -103,17 +58,17 @@
 	assign m.tvalid     = s.tvalid;    	            \
 	assign s.tready     = m.tready;
 
-`define AXISU_TIE_OFF_M(m)				            \
+`define AXISF_TIE_OFF_M(m)				            \
 	assign m.tvalid		= 1'b0;			            \
 	assign m.tkeep		= 0;			            \
 	assign m.tlast		= 1'b0;			            \
 	assign m.tuser		= 0;			            \
 	assign m.tdata		= 0;
 
-`define AXISU_TIE_OFF_S(s)				            \
+`define AXISF_TIE_OFF_S(s)				            \
 	assign s.tready		= 1'b1;
 
-`define AXISU_ASSIGN_S2I(s, m)                      \
+`define AXISF_ASSIGN_S2I(s, m)                      \
     assign ``m``.tdata    = ``s``_tdata;            \
 	assign ``m``.tvalid   = ``s``_tvalid;           \
 	assign ``m``.tuser    = ``s``_tuser;           	\
@@ -121,7 +76,7 @@
 	assign ``m``.tkeep    = ``s``_tkeep;           	\
 	assign ``s``_tready   = ``m``.tready;
 
-`define AXISU_ASSIGN_I2S(s, m)                      \
+`define AXISF_ASSIGN_I2S(s, m)                      \
     assign ``m``_tdata    = ``s``.tdata;            \
 	assign ``m``_tvalid   = ``s``.tvalid;           \
 	assign ``m``_tuser    = ``s``.tuser;           	\
@@ -129,12 +84,12 @@
 	assign ``m``_tkeep    = ``s``.tkeep;           	\
 	assign ``s``.tready   = ``m``_tready;
 
-`define AXISU_AXIS_ASSIGN(s, m)                     \
+`define AXISF_AXIS_ASSIGN(s, m)                     \
     assign ``m``.tdata    = ``s``.tdata;            \
 	assign ``m``.tvalid   = ``s``.tvalid;           \
 	assign ``s``.tready   = ``m``.tready;
 
-`define AXIS_AXISU_ASSIGN(s, m)                     \
+`define AXIS_AXISF_ASSIGN(s, m)                     \
     assign ``m``.tdata    = ``s``.tdata;            \
 	assign ``m``.tvalid   = ``s``.tvalid;           \
 	assign ``m``.tkeep    = '1;            			\
@@ -142,22 +97,6 @@
 	assign ``m``.tuser    = '0;            			\
 	assign ``s``.tready   = ``m``.tready;
 
-`define AXISU_AXISP_ASSIGN(s, m)                    \
-    assign ``m``.tdata    = ``s``.tdata;            \
-	assign ``m``.tvalid   = ``s``.tvalid;           \
-	assign ``m``.tkeep    = ``s``.tkeep;   			\
-	assign ``m``.tlast    = ``s``.tlast;       		\
-	assign ``s``.tready   = ``m``.tready;
-
-`define AXISP_AXISU_ASSIGN(s, m)                    \
-    assign ``m``.tdata    = ``s``.tdata;            \
-	assign ``m``.tvalid   = ``s``.tvalid;           \
-	assign ``m``.tkeep    = ``s``.tkeep;            \
-	assign ``m``.tlast    = ``s``.tlast;           	\
-	assign ``m``.tuser    = '0;            			\
-	assign ``s``.tready   = ``m``.tready;
-
-// AXIL
 `define AXIL_ASSIGN(s, m)              	            \
 	assign m.araddr 	= s.araddr;		            \
 	assign m.arvalid 	= s.arvalid;	            \
@@ -236,7 +175,6 @@
 	assign ``s``.rvalid		= ``m``_rvalid;		    \
 	assign ``s``.wready 	= ``m``_wready;
 
-// AXI
 `define AXI_ASSIGN(s, m) 				            \
 	assign m.araddr 	= s.araddr;		            \
 	assign m.arburst 	= s.arburst;	            \
