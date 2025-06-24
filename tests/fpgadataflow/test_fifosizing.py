@@ -144,7 +144,7 @@ def make_multi_io_modelwrapper(ch, pe, idt):
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,
-        inputDataType=idt.name,
+        inputDataTypes=[idt.name, idt.name],
         inFIFODepths=[2, 2],
     )
     duplicate_node = helper.make_node(

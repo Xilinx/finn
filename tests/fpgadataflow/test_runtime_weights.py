@@ -1,5 +1,5 @@
 # Copyright (C) 2020, Xilinx, Inc.
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -43,12 +43,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.create import hls_random_mlp_maker
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
-
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -104,11 +98,15 @@ def test_runtime_weights_single_layer():
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(
-                pyxsi_utils.axilite_read(sim, addr, basename="s_axilite_0_")
-            )
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
     assert extracted_weight_stream == old_weight_stream
@@ -127,9 +125,14 @@ def test_runtime_weights_single_layer():
 
     def write_weights(sim):
         addr = 0
+        writes = []
         for nw in new_weight_stream:
-            pyxsi_utils.axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["act_1"]

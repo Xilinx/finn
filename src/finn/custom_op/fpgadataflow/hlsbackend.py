@@ -26,6 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import numpy as np
 import os
 import subprocess
@@ -37,11 +42,6 @@ from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.hls import CallHLS
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
 
 
 class HLSBackend(ABC):
@@ -102,7 +102,7 @@ class HLSBackend(ABC):
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
         trace_file = self.get_nodeattr("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
-        ret = pyxsi_utils.compile_sim_obj(
+        ret = finnxsi.compile_sim_obj(
             self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug
         )
         # save generated lib filename in attribute

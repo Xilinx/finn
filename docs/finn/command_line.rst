@@ -81,7 +81,7 @@ as it goes through numerous steps:
   Running step: step_measure_rtlsim_performance [15/19]
   Running step: step_out_of_context_synthesis [16/19]
   Running step: step_synthesize_bitfile [17/19]
-  Running step: step_make_pynq_driver [18/19]
+  Running step: step_make_driver [18/19]
   Running step: step_deployment_package [19/19]
 
 
