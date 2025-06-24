@@ -453,14 +453,14 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     and other attributes, if config file is specified."""
 
     if cfg.folding_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(ApplyConfig(cfg.folding_config_file))
+        model = model.transform(GiveUniqueNodeNames(), apply_to_subgraphs=True)
+        model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
-        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
+        model = model.transform(CompileCppSim(), apply_to_subgraphs=True)
+        model = model.transform(SetExecMode("cppsim"), apply_to_subgraphs=True)
         verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
     return model
 
@@ -489,7 +489,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
         # need to call AnnotateCycles before dataflow_performance
-        model = model.transform(AnnotateCycles())
+        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False)
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
         n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
@@ -538,8 +538,8 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     #    json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        model = model.transform(PrepareRTLSim())
-        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareRTLSim(), apply_to_subgraphs=True)
+        model = model.transform(SetExecMode("rtlsim"), apply_to_subgraphs=True)
         verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
@@ -717,7 +717,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
         # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-        model = model.transform(AnnotateCycles())
+        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False)
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 20
