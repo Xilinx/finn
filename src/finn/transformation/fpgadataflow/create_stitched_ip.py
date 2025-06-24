@@ -451,6 +451,7 @@ class CreateStitchedIP(Transformation):
             tcl.append(
                 "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2 * fclk_hz)
             )
+        tcl.append("save_bd_design")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)

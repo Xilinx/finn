@@ -420,32 +420,32 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         intf_names["s_axis"] = []
         # AXI4S slave interface in input activation from loop_body to loop_control
-        intf_names["s_axis"].append(("s_axis_core_out", str(data_bits)))
+        # intf_names["s_axis"].append(("s_axis_core_out", str(data_bits)))
         # AXI4S slave interface from outside loop to loop control externalize
         # to block diagram interface port and connect to fetch_start component
-        intf_names["s_axis"].append(("axis_fs", str(data_bits)))
+        # intf_names["s_axis"].append(("axis_fs", str(data_bits)))
         # AXI4S slave interface for idx_fs
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the fetch_start component
-        intf_names["s_axis"].append(("idx_fs", str(data_bits)))
+        # intf_names["s_axis"].append(("idx_fs", str(data_bits)))
 
         intf_names["m_axis"] = []
         # AXI4S master interface to output activation from loop_control to loop body
-        intf_names["m_axis"].append(("m_axis_core_in", str(data_bits)))
+        # intf_names["m_axis"].append(("m_axis_core_in", str(data_bits)))
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
-        intf_names["m_axis"].append(("axis_se", str(data_bits)))
+        # intf_names["m_axis"].append(("axis_se", str(data_bits)))
         # AXI4S master interface to output index from loop_control to stream tap
-        intf_names["m_axis"].append(("m_axis_core_in_fw_idx", str(data_bits)))
+        # intf_names["m_axis"].append(("m_axis_core_in_fw_idx", str(data_bits)))
         # AXI4S master interface for idx_se
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the store_end component
-        intf_names["m_axis"].append(("idx_se", str(data_bits)))
+        # intf_names["m_axis"].append(("idx_se", str(data_bits)))
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
         # TODO: rename because it might not be hbm?
-        intf_names["aximm"].append(("m_axi_hbm", str(addr_bits)))
+        # intf_names["aximm"].append(("m_axi_hbm", str(addr_bits)))
         intf_names["axilite"] = []
 
         # using ap_none field to add control signals
@@ -587,10 +587,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for f in source_files:
             cmd += [f"add_files -norecurse {f}"]
 
+        cmd.append("create_bd_cell -type hier %s" % (self.onnx_node.name))
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        # clock and reset
+        cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk_name))
+        cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (self.onnx_node.name, rst_name))
+
         loop_shell_name = f"{self.onnx_node.name}_loop_cont_wrapper"
         cmd.append(
             f"""create_bd_cell -type module -reference \
-            {self.onnx_node.name}_loop_cont_wrapper {loop_shell_name}"""
+            {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}/{loop_shell_name}"""
         )
 
         # stream tap graph generation
@@ -599,12 +606,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("file mkdir %s" % source_target)
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         # create a hierarchy for this layer, with the same port names
-        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
         stg_intf = {}
         stg_intf["clk"] = self.get_verilog_top_module_intf_names()["clk"]
         stg_intf["rst"] = self.get_verilog_top_module_intf_names()["rst"]
-        bd_name = "Stream_tap_graph"
+        bd_name = f"{self.onnx_node.name}/stream_tap_graph"
         cmd.append("create_bd_cell -type hier %s" % bd_name)
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (bd_name, clk_name))
