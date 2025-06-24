@@ -536,28 +536,17 @@ compilation transformations?
                 )
             else:
                 folded_shape = self.get_folded_output_shape(o)
-                if self.get_nodeattr("hls_style") == "freerunning":
-                    self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                        'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
-                        % (
-                            elem_hls_type,
-                            npy_type,
-                            folded_shape[-1],
-                            oshape_cpp_str,
-                            npy_out,
-                        )
+                self.code_gen_dict["$DATAOUTSTREAM$"].append(
+                    'vectorstream2npy<%s, %s, %d>(%s, %s, "%s");'
+                    % (
+                        elem_hls_type,
+                        npy_type,
+                        folded_shape[-1],
+                        "strm" if self.get_nodeattr("hls_style") == "freerunning" else "out0_V",
+                        oshape_cpp_str,
+                        npy_out,
                     )
-                else:
-                    self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                        'vectorstream2npy<%s, %s, %d>(out0_V, %s, "%s");'
-                        % (
-                            elem_hls_type,
-                            npy_type,
-                            folded_shape[-1],
-                            oshape_cpp_str,
-                            npy_out,
-                        )
-                    )
+                )
 
     def save_as_npy(self):
         """Function to generate the commands for saving data in .npy file in c++"""
