@@ -41,6 +41,28 @@ from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.create import adjacency_list
 
 
+def collect_ip_dirs(model, ipstitch_path):
+    # collect list of all IP dirs
+    ip_dirs = []
+    need_memstreamer = False
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        ip_dir_value = node_inst.get_nodeattr("ip_path")
+        assert os.path.isdir(
+            ip_dir_value
+        ), """The directory that should
+        contain the generated ip blocks doesn't exist."""
+        ip_dirs += [ip_dir_value]
+        if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
+            if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
+                need_memstreamer = True
+    ip_dirs += [ipstitch_path + "/ip"]
+    if need_memstreamer:
+        # add RTL streamer IP
+        ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
+    return ip_dirs
+
+
 class FINNLoop(HWCustomOp, RTLBackend):
     """Class that corresponds to the meta/container node FINN loop
     which is a placeholder for a group of fpgadataflow nodes that have been separated
@@ -386,6 +408,55 @@ class FINNLoop(HWCustomOp, RTLBackend):
             ) as f:
                 f.write(template_wrapper)
 
+    def get_verilog_top_module_intf_names(self):
+        # from wrapper template
+        addr_bits = 64
+        data_bits = 256
+        cnt_bits = 16
+
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+
+        intf_names["s_axis"] = []
+        # AXI4S slave interface in input activation from loop_body to loop_control
+        intf_names["s_axis"].append(("s_axis_core_out", str(data_bits)))
+        # AXI4S slave interface from outside loop to loop control externalize
+        # to block diagram interface port and connect to fetch_start component
+        intf_names["s_axis"].append(("axis_fs", str(data_bits)))
+        # AXI4S slave interface for idx_fs
+        # This interface should be externalized to an interface port on the block diagram
+        # and connected to the fetch_start component
+        intf_names["s_axis"].append(("idx_fs", str(data_bits)))
+
+        intf_names["m_axis"] = []
+        # AXI4S master interface to output activation from loop_control to loop body
+        intf_names["m_axis"].append(("m_axis_core_in", str(data_bits)))
+        # AXI4S master interface to drive final loop output externalize
+        # to block diagram interface port and connect to store_end component
+        intf_names["m_axis"].append(("axis_se", str(data_bits)))
+        # AXI4S master interface to output index from loop_control to stream tap
+        intf_names["m_axis"].append(("m_axis_core_in_fw_idx", str(data_bits)))
+        # AXI4S master interface for idx_se
+        # This interface should be externalized to an interface port on the block diagram
+        # and connected to the store_end component
+        intf_names["m_axis"].append(("idx_se", str(data_bits)))
+
+        intf_names["aximm"] = []
+        # AXI4 master interface for intermediate buffering between layers
+        # TODO: rename because it might not be hbm?
+        intf_names["aximm"].append(("m_axi_hbm", str(addr_bits)))
+        intf_names["axilite"] = []
+
+        # using ap_none field to add control signals
+        intf_names["ap_none"] = []
+        # n_layers and done_if should be externalize to a block diagram port
+        # and connected to the axil_iw_slv_mlo component
+        # intf_names["ap_none"].append(("n_layers", str(cnt_bits)))
+        # intf_names["ap_none"].append(("done_if", 2))
+
+        return intf_names
+
     def code_generation_ipi(self):
         # AXI regs
         cmd = [
@@ -426,7 +497,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} \
             CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_8]""",
             """create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 \
-            -module_name axisf_register_slice_16""", \
+            -module_name axisf_register_slice_16""",
             """set_property -dict [list CONFIG.TDATA_NUM_BYTES {2} CONFIG.REG_CONFIG {8} \
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} \
             CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_16]""",
@@ -456,7 +527,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             CONFIG.HAS_TKEEP {0} CONFIG.HAS_TLAST {0} CONFIG.TUSER_WIDTH {34} CONFIG.HAS_TKEEP {1} \
             CONFIG.HAS_TLAST {1}] [get_ips axisf_register_slice_512]""",
             """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 \
-            -module_name axi_register_slice_256""", \
+            -module_name axi_register_slice_256""",
             """set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {256} \
             CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1} \
             CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14} \
@@ -470,12 +541,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
             CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}] \
              [get_ips axi_register_slice_512]""",
             """create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 \
-            -module_name axil_register_slice_64""", 
+            -module_name axil_register_slice_64""",
             """set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64} \
             CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1} \
             CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ] \
              [get_ips axil_register_slice_64]""",
-        
             """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
               -module_name cdma_datamover_rd""",
             "set_property -dict [list \
@@ -486,7 +556,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
               CONFIG.c_m_axis_mm2s_tdata_width {256} \
               CONFIG.c_mm2s_burst_size {64} \
              ] [get_ips cdma_datamover_rd]",
-
             """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
              -module_name cdma_datamover_wr""",
             "set_property -dict [list \
@@ -496,8 +565,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
              CONFIG.c_m_axi_s2mm_data_width {256} \
              CONFIG.c_s2mm_burst_size {64} \
              CONFIG.c_s_axis_s2mm_tdata_width {256} \
-            ] [get_ips cdma_datamover_wr]"
-
+            ] [get_ips cdma_datamover_wr]",
         ]
 
         source_files = [
@@ -519,30 +587,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for f in source_files:
             cmd += [f"add_files -norecurse {f}"]
 
+        loop_shell_name = f"{self.onnx_node.name}_loop_cont_wrapper"
         cmd.append(
             f"""create_bd_cell -type module -reference \
-            {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}"""
+            {self.onnx_node.name}_loop_cont_wrapper {loop_shell_name}"""
         )
-
-        # Connect the Loop Control Wrapper to the Loop Body
-        loop_body = self.get_nodeattr("body")
-        first_node_name = loop_body.find_consumer(loop_body.model.graph.input[0].name).name
-        last_node_name = loop_body.find_producer(loop_body.model.graph.output[0].name).name
-
-        cmd.append(
-            f"""connect_bd_intf_net [get_bd_intf_pins {self.onnx_node.name}/m_axis_core_in] \
-            [get_bd_intf_pins {first_node_name}/in0_V]"""
-        )
-        cmd.append(
-            f"""connect_bd_intf_net [get_bd_intf_pins {last_node_name}/out0_V] \
-            [get_bd_intf_pins {self.onnx_node.name}/s_axis_core_out]"""
-        )
-
-        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/m_axi_hbm]")
-        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/idx_fs]")
-        cmd.append(f"make_bd_intf_pins_external [get_bd_intf_pins {self.onnx_node.name}/idx_se]")
-        cmd.append(f"make_bd_pins_external [get_bd_pins {self.onnx_node.name}/n_layers]")
-        cmd.append(f"make_bd_pins_external [get_bd_pins {self.onnx_node.name}/done_if]")
 
         # stream tap graph generation
         loop_body = self.get_nodeattr("body")
@@ -552,6 +601,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create a hierarchy for this layer, with the same port names
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
         rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        stg_intf = {}
+        stg_intf["clk"] = self.get_verilog_top_module_intf_names()["clk"]
+        stg_intf["rst"] = self.get_verilog_top_module_intf_names()["rst"]
         bd_name = "Stream_tap_graph"
         cmd.append("create_bd_cell -type hier %s" % bd_name)
         # clock and reset
@@ -636,6 +688,20 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
                     "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, inst_name)
                 )
+        loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
+        loop_body_vlnv = loop_body.get_metadata_prop("vivado_stitch_vlnv")
+        loop_body_intf_names = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
+        ip_dirs = ["list"]
+        ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
+        ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
+        cmd.append(
+            "set_property ip_repo_paths "
+            "[concat [get_property ip_repo_paths [current_project]] %s] "
+            "[current_project]" % ip_dirs_str
+        )
+        cmd.append("update_ip_catalog -rebuild -scan_changes")
+        cmd.append("create_bd_cell -type ip -vlnv %s %s" % (loop_body_vlnv, "finn_design_mlo"))
+
         return cmd
 
     def get_rtl_file_list(self, abspath=False):

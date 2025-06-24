@@ -91,6 +91,7 @@ class CreateStitchedIP(Transformation):
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
+        self.is_mlo = False
         self.vitis = vitis
         self.signature = signature
         self.has_aximm = False
@@ -203,10 +204,11 @@ class CreateStitchedIP(Transformation):
                 self.connect_cmds.append(
                     "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
                 )
-                self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
+                self.intf_names["aximm"].append([(ext_if_name, aximm_intf_name[0][1])])
                 self.has_aximm = True
                 self.aximm_idx += 1
         else:
+            self.is_mlo = True
             for mm_intf_name in aximm_intf_name:
                 self.connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
@@ -226,11 +228,11 @@ class CreateStitchedIP(Transformation):
                 self.connect_cmds.append(
                     "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
                 )
-                # TODO should propagate this information from the node instead of 4G
+                # TODO should propagate this information from the node instead of 256M
                 self.connect_cmds.append(
                     "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
                 )
-                self.intf_names["aximm"] = [(ext_if_name, mm_intf_name[1])]
+                self.intf_names["aximm"].append([(ext_if_name, mm_intf_name[1])])
                 self.has_aximm = True
                 self.aximm_idx += 1
 
@@ -435,7 +437,10 @@ class CreateStitchedIP(Transformation):
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
         tcl.append("update_ip_catalog")
         # create block design and instantiate all layers
-        block_name = self.ip_name
+        if self.is_mlo:
+            block_name = self.ip_name + "_mlo"
+        else:
+            block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
@@ -685,5 +690,26 @@ close $ofile
                     Please check logs under the parent directory."""
                     % (wrapper_filename, wrapper_filename_alt)
                 )
+
+        # reset all class variables
+        self.is_mlo = False
+        self.has_aximm = False
+        self.aximm_idx = 0
+        self.has_m_axis = False
+        self.m_axis_idx = 0
+        self.has_s_axis = False
+        self.s_axis_idx = 0
+        self.clock_reset_are_external = False
+        self.clock2x_is_external = False
+        self.create_cmds = []
+        self.connect_cmds = []
+        self.intf_names = {
+            "clk": [],
+            "rst": [],
+            "s_axis": [],
+            "m_axis": [],
+            "aximm": [],
+            "axilite": [],
+        }
 
         return (model, False)
