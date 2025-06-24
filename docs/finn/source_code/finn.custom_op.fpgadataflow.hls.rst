@@ -143,14 +143,6 @@ finn.custom\_op.fpgadataflow.streamingeltwise\_hls
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingmaxpool\_hls
------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.thresholding\_hls
 -------------------------------------------------------
 

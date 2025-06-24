@@ -57,6 +57,8 @@ class HLSBackend(ABC):
             "res_hls": ("s", False, ""),
             # temporary node attribute to keep track of interface style of hls ops
             "cpp_interface": ("s", False, "packed", {"packed", "hls_vector"}),
+            # temporary node attribute to keep track of execution style of hls ops
+            "hls_style": ("s", False, "ifm_aware", {"ifm_aware", "freerunning"}),
         }
 
     def get_all_verilog_paths(self):
@@ -204,7 +206,7 @@ class HLSBackend(ABC):
         self.dataoutstrm()
         self.save_as_npy()
 
-        if self.get_nodeattr("cpp_interface") == "hls_vector":
+        if self.get_nodeattr("hls_style") == "freerunning":
             self.timeout_value()
             self.timeout_condition()
             self.timeout_read_stream()
@@ -447,13 +449,46 @@ compilation transformations?
         """Function to generate the commands for the stream declaration in c++,
         is member function of HLSBackend class but might need to be filled
         by node."""
+        cpp_interface = self.get_nodeattr("cpp_interface")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
-        )
+        if cpp_interface == "packed":
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
+            )
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
+            )
+        else:
+            dtype = self.get_input_datatype()
+            if dtype == DataType["BIPOLAR"]:
+                # use binary for bipolar storage
+                dtype = DataType["BINARY"]
+            elem_input_hls_type = dtype.get_hls_datatype_str()
+
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::vector<{},{}>> in0_V ("in0_V");'.format(
+                    elem_input_hls_type, self.get_folded_input_shape()[-1]
+                )
+            )
+
+            dtype = self.get_output_datatype()
+            if dtype == DataType["BIPOLAR"]:
+                # use binary for bipolar storage
+                dtype = DataType["BINARY"]
+            elem_output_hls_type = dtype.get_hls_datatype_str()
+
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<hls::vector<{},{}>> out0_V ("out0_V");'.format(
+                    elem_output_hls_type, self.get_folded_output_shape()[-1]
+                )
+            )
+
+            if self.get_nodeattr("hls_style") == "freerunning":
+                self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                    'hls::stream<hls::vector<{},{}>> strm ("strm");'.format(
+                        elem_output_hls_type, self.get_folded_output_shape()[-1]
+                    )
+                )
 
     @abstractmethod
     def docompute(self):
@@ -502,11 +537,12 @@ compilation transformations?
             else:
                 folded_shape = self.get_folded_output_shape(o)
                 self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                    'vectorstream2npy<%s, %s, %d>(strm, %s, "%s");'
+                    'vectorstream2npy<%s, %s, %d>(%s, %s, "%s");'
                     % (
                         elem_hls_type,
                         npy_type,
                         folded_shape[-1],
+                        "strm" if self.get_nodeattr("hls_style") == "freerunning" else "out0_V",
                         oshape_cpp_str,
                         npy_out,
                     )

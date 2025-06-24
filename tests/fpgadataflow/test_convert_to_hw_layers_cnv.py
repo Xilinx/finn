@@ -106,7 +106,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hw.InferConvInpGen())
-    model = model.transform(to_hw.InferStreamingMaxPool())
+    model = model.transform(to_hw.InferPool())
     for node in model.graph.node:
         if is_fpgadataflow_node(node):
             inst = getCustomOp(node)
@@ -131,9 +131,9 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     # check topology status
     finn_nodes = model.get_finn_nodes()
     if fused_activation:
-        assert len(finn_nodes) == 18
+        assert len(finn_nodes) == 20
     else:
-        assert len(finn_nodes) == 26
+        assert len(finn_nodes) == 28
         thr_nodes = model.get_nodes_by_op_type("Thresholding_hls")
         assert len(thr_nodes) == 8
     non_finn_nodes = model.get_non_finn_nodes()
@@ -144,7 +144,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     assert len(fc_nodes) == 9
     swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_hls")
     assert len(swg_nodes) == 6
-    mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_hls")
+    mp_nodes = model.get_nodes_by_op_type("Pool_hls")
     assert len(mp_nodes) == 2
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())

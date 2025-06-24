@@ -188,8 +188,9 @@ def fold_cnv_large(model):
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
-        simd = folding[i][1]
-        swg_inst.set_nodeattr("SIMD", simd)
+        if not swg_inst.get_nodeattr("depthwise"):
+            simd = folding[i][1]
+            swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     return model
 
@@ -219,8 +220,9 @@ def fold_cnv_small(model):
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
-        simd = folding[i][1]
-        swg_inst.set_nodeattr("SIMD", simd)
+        if not swg_inst.get_nodeattr("depthwise"):
+            simd = folding[i][1]
+            swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -570,8 +572,8 @@ class TestEnd2End:
         model = model.transform(to_hw.InferThresholdingLayer())
         # needed for convolutions
         if "fc" not in topology:
+            model = model.transform(to_hw.InferPool())
             model = model.transform(to_hw.InferConvInpGen())
-            model = model.transform(to_hw.InferStreamingMaxPool())
             model = model.transform(RemoveCNVtoFCFlatten())
         # get rid of Tranpose -> Tranpose identity seq
         model = model.transform(absorb.AbsorbConsecutiveTransposes())
@@ -600,9 +602,9 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding", 1),
-                ("ConvolutionInputGenerator", 6),
+                ("ConvolutionInputGenerator", 8),
                 ("MVAU", 9),
-                ("StreamingMaxPool", 2),
+                ("Pool", 2),
                 ("LabelSelect", 1),
             ],
         }
@@ -643,9 +645,9 @@ class TestEnd2End:
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_rtl", 1),
-                ("ConvolutionInputGenerator_rtl", 6),
+                ("ConvolutionInputGenerator_rtl", 8),
                 ("MVAU_hls", 9),
-                ("StreamingMaxPool_hls", 2),
+                ("Pool_hls", 2),
                 ("LabelSelect_hls", 1),
             ],
         }
