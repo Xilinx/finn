@@ -62,7 +62,6 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
 )
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
-from finn.custom_op.fpgadataflow.finn_loop import FINNLoop
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool
@@ -96,7 +95,6 @@ custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["DownSampler"] = DownSampler
 custom_op["DuplicateStreams"] = DuplicateStreams
-custom_op["FINNLoop"] = FINNLoop
 custom_op["FMPadding"] = FMPadding
 custom_op["FMPadding_Pixel"] = FMPadding_Pixel
 custom_op["GlobalAccPool"] = GlobalAccPool

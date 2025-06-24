@@ -31,6 +31,7 @@ import json
 import numpy as np
 import os
 import shutil
+import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
@@ -56,7 +57,8 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+
+# from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
@@ -87,7 +89,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -503,11 +505,11 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Tighten the weight and accumulator bit widths for each layer."""
     if cfg.minimize_bit_width:
-        model = model.transform(MinimizeWeightBitWidth())
-        model = model.transform(MinimizeAccumulatorWidth())
-        model = model.transform(RoundAndClipThresholds())
+        model = model.transform(MinimizeWeightBitWidth(), apply_to_subgraphs=True)
+        model = model.transform(MinimizeAccumulatorWidth(), apply_to_subgraphs=True)
+        model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
         # make sure the changed datatypes are propagated through the network
-        model = model.transform(InferDataTypes())
+        model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     return model
 
 
@@ -515,7 +517,9 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Generate Vitis HLS code to prepare HLSBackend nodes for IP generation.
     And fills RTL templates for RTLBackend nodes."""
 
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    model = model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True
+    )
     return model
 
 
@@ -523,13 +527,13 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run Vitis HLS synthesis on generated code for HLSBackend nodes,
     in order to generate IP blocks. For RTL nodes this step does not do anything."""
 
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-        json.dump(estimate_layer_resources_hls, f, indent=2)
+    model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
+    model = model.transform(ReplaceVerilogRelPaths(), apply_to_subgraphs=True)
+    # report_dir = cfg.output_dir + "/report"
+    # os.makedirs(report_dir, exist_ok=True)
+    # estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
+    # with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+    #    json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
         model = model.transform(PrepareRTLSim())
@@ -576,6 +580,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            model = model.transform(GiveUniqueNodeNames(), apply_to_subgraphs=True)
+            model = model.transform(GiveReadableTensorNames(), apply_to_subgraphs=True)
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
                 os.makedirs(report_dir, exist_ok=True)
@@ -589,8 +595,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
-                    cfg_n_inferences=cfg.fifosim_n_inferences,
-                )
+                ),
+                apply_to_subgraphs=True,
+                use_preorder_traversal=False,
             )
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
             # so no need to call RemoveShallowFIFOs here
@@ -631,13 +638,15 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # json file has been written. otherwise, since these transforms may add/remove
     # FIFOs, we get name mismatch problems when trying to reuse the final config.
     if cfg.split_large_fifos:
-        model = model.transform(SplitLargeFIFOs())
-    model = model.transform(RemoveShallowFIFOs())
+        model = model.transform(SplitLargeFIFOs(), apply_to_subgraphs=True)
+    model = model.transform(RemoveShallowFIFOs(), apply_to_subgraphs=True)
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP())
+    model = model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True
+    )
+    model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
 
 
@@ -646,20 +655,22 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        # stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
             CreateStitchedIP(
                 cfg._resolve_fpga_part(),
                 cfg.synth_clk_period_ns,
                 vitis=cfg.stitched_ip_gen_dcp,
                 signature=cfg.signature,
-            )
+            ),
+            apply_to_subgraphs=True,
+            use_preorder_traversal=False,
         )
         # TODO copy all ip sources into output dir? as zip?
-        shutil.copytree(
-            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
-        )
-        print("Vivado stitched IP written into " + stitched_ip_dir)
+        # shutil.copytree(
+        #    model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        # )
+        # print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -703,7 +714,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "rtlsim_trace",
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
-        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs)
+        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+        model = model.transform(AnnotateCycles())
+        perf = model.analysis(dataflow_performance)
+        latency = perf["critical_path_cycles"]
+        max_iters = latency * 1.1 + 20
+        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
         clk_ns = cfg.synth_clk_period_ns
@@ -738,15 +754,36 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
-def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Create a PYNQ Python driver that can be used to interface the generated
-    accelerator."""
+def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Create a driver that can be used to interface the generated accelerator.
+    Use DataflowBuildConfig to select PYNQ Python or C++ driver."""
 
+    driver_dir = os.path.join(cfg.output_dir, "driver")
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
-        driver_dir = cfg.output_dir + "/driver"
+        # generate PYNQ driver
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
+    elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
+        # generate C++ Driver
+        model = model.transform(
+            MakeCPPDriver(
+                cfg._resolve_driver_platform(),
+                version=cfg.cpp_driver_version,
+            )
+        )
+        shutil.copytree(
+            model.get_metadata_prop("cpp_driver_dir"),
+            driver_dir,
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
+        print("C++ driver written into " + driver_dir)
+    else:
+        warnings.warn(
+            "The step step_make_driver is in the build list but will not be executed"
+            + " since no driver is selected in generate_outputs in your build.py file!"
+        )
     return model
 
 
@@ -847,7 +884,12 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
         shutil.copytree(bitfile_dir, deploy_dir + "/bitfile", dirs_exist_ok=True)
-        shutil.copytree(driver_dir, deploy_dir + "/driver", dirs_exist_ok=True)
+        shutil.copytree(
+            driver_dir,
+            deploy_dir + "/driver",
+            dirs_exist_ok=True,
+            copy_function=shutil.copyfile,
+        )
     return model
 
 
@@ -868,7 +910,7 @@ build_dataflow_step_lookup = {
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
-    "step_make_pynq_driver": step_make_pynq_driver,
+    "step_make_driver": step_make_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,

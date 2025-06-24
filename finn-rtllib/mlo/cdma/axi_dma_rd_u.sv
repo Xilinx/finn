@@ -185,15 +185,20 @@ logic [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
 logic [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
 // Outstanding queue
-queue_stream #(.QTYPE(cdma_rd_cmd_t)) inst_outstanding_que (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .val_snk(ost_snk_valid),
-    .rdy_snk(ost_snk_ready),
-    .data_snk(ost_snk_data),
-    .val_src(ost_src_valid),
-    .rdy_src(ost_src_ready),
-    .data_src(ost_src_data)
+Q_srl #(
+    .depth(8),
+    .width($bits(cdma_rd_cmd_t))
+) inst_q_rd (
+    .clock(aclk),
+    .reset(!aresetn),
+    .count(),
+    .maxcount(),
+    .i_d(ost_snk_data),
+    .i_v(ost_snk_valid),
+    .i_r(ost_snk_ready),
+    .o_d(ost_src_data),
+    .o_v(ost_src_valid),
+    .o_r(ost_src_ready)
 );
 
 // NSL Requests

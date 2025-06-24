@@ -129,7 +129,7 @@ class SetFolding(Transformation):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type in ["MVAU_hls", "MVAU_rtl", "DynMVU_rtl"]:
+            if op_type in ["MVAU_hls", "MVAU_rtl"]:
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)

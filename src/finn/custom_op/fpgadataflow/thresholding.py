@@ -30,7 +30,10 @@ import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -127,6 +130,8 @@ class Thresholding(HWCustomOp):
         if str(idt).startswith("FLOAT") or self.get_nodeattr("weightDataType").startswith("FLOAT"):
             return DataType[self.get_nodeattr("weightDataType")]
         thresholds = model.get_initializer(self.onnx_node.input[1])
+        if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
+            return DataType[self.get_nodeattr("weightDataType")]
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         min_threshold = thresholds.min()
         max_threshold = thresholds.max()
@@ -272,3 +277,33 @@ class Thresholding(HWCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = []
+        intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
+        intf_names["m_axis"] = []
+        intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+        if mlo_max_iter:
+            stream_width = DataType.get_smallest_possible(mlo_max_iter).bitwidth()
+            stream_width_padded = roundup_to_integer_multiple(stream_width, 8)
+            intf_names["s_axis"].append(("in1_V", stream_width_padded))
+        else:
+            # try to access mem_mode attribute, doesn't exist for RTL Thresholding
+            try:
+                mem_mode = self.get_nodeattr("mem_mode")
+            except AttributeError:
+                mem_mode = 0
+
+            if mem_mode == "internal_decoupled":
+                # only expose axilite interface if attribute is set
+                runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+                if runtime_writable:
+                    intf_names["axilite"] = ["s_axilite"]
+        return intf_names

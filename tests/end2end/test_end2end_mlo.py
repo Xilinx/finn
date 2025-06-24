@@ -40,13 +40,13 @@ verif_steps = [
 ]
 
 steps = [
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
+    #    "step_convert_to_hw",
+    #    "step_create_dataflow_partition",
+    #    "step_specialize_layers",
+    #    "step_target_fps_parallelization",
+    #    "step_apply_folding_config",
     "step_minimize_bit_width",
-    "step_generate_estimate_reports",
+    #    "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",
@@ -69,6 +69,7 @@ def test_end2end_mlo():
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         #        verify_steps=verif_steps,
+        # stitched_ip_gen_dcp=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,

@@ -26,6 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import numpy as np
 import os
 import warnings
@@ -34,11 +39,6 @@ from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.util.basic import get_liveness_threshold_cycles, is_versal
-
-try:
-    import pyxsi_utils
-except ModuleNotFoundError:
-    pyxsi_utils = None
 
 
 class HWCustomOp(CustomOp):
@@ -152,13 +152,13 @@ class HWCustomOp(CustomOp):
         tracefile = self.get_nodeattr("rtlsim_trace")
         if tracefile == "default":
             tracefile = self.onnx_node.name + ".wdb"
-        sim = pyxsi_utils.load_sim_obj(sim_base, sim_rel, tracefile)
+        sim = finnxsi.load_sim_obj(sim_base, sim_rel, tracefile)
 
         return sim
 
     def close_rtlsim(self, sim):
         "Close and free up resources for rtlsim."
-        pyxsi_utils.close_rtlsim(sim)
+        finnxsi.close_rtlsim(sim)
 
     def node_res_estimation(self, fpgapart):
         """Returns summarized resource estimation of BRAMs and LUTs
@@ -216,24 +216,19 @@ class HWCustomOp(CustomOp):
         return {}
 
     def reset_rtlsim(self, sim):
-        """Sets reset input in pyxsi to zero, toggles the clock and set it
+        """Sets reset input in finnxsi to zero, toggles the clock and set it
         back to one"""
-        pyxsi_utils.reset_rtlsim(sim)
+        finnxsi.reset_rtlsim(sim)
 
-    def toggle_clk(self, sim):
-        """Toggles the clock input in pyxsi once."""
-        pyxsi_utils.toggle_clk(sim)
-
-    def rtlsim_multi_io(self, sim, io_dict, hook_postclk=None):
+    def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
-        total_cycle_count = pyxsi_utils.rtlsim_multi_io(
+        total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
-            sname="_V_",
+            sname="_V",
             liveness_threshold=get_liveness_threshold_cycles(),
-            hook_postclk=hook_postclk,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -390,6 +385,39 @@ class HWCustomOp(CustomOp):
         else:
             pass
 
+    def generate_hdl_dynload(self):
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/dynload/hdl/dynamic_load_wrapper_template.v"
+        )
+        mname = self.onnx_node.name
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        mh = self.get_nodeattr("MH")
+        mw = self.get_nodeattr("MW")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        code_gen_dict = {
+            "$MODULE_NAME$": [mname],
+            "$PE$": [str(pe)],
+            "$SIMD$": [str(simd)],
+            "$MH$": [str(mh)],
+            "$MW$": [str(mw)],
+            "$WEIGHT_WIDTH$": [str(self.get_input_datatype(1).bitwidth())],
+            "$N_REPS$": [str(self.get_nodeattr("numInputVectors")[-1])],
+        }
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, mname + "_dynamic_load_wrapper.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper)
+
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
@@ -411,14 +439,12 @@ class HWCustomOp(CustomOp):
             exp_cycles,
         )
         sim = self.get_rtlsim()
-        # signal name
-        sname = "_V_"
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
         else:
             io_dict = {
                 "inputs": {
-                    "in0": [0 for i in range(n_inps)],
+                    "in0": [i for i in range(n_inps)],
                 },
                 "outputs": {"out0": []},
             }
@@ -427,32 +453,15 @@ class HWCustomOp(CustomOp):
         # note that we restrict key names to filter out weight streams etc
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
         txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
-        # signal name
-        sname = "_V_"
-
-        def monitor_txns(sim_obj):
-            for inp in txns_in:
-                in_ready = pyxsi_utils._read_signal(sim_obj, inp + sname + "TREADY") == 1
-                in_valid = pyxsi_utils._read_signal(sim_obj, inp + sname + "TVALID") == 1
-                if in_ready and in_valid:
-                    txns_in[inp].append(1)
-                else:
-                    txns_in[inp].append(0)
-            for outp in txns_out:
-                if (
-                    pyxsi_utils._read_signal(sim_obj, outp + sname + "TREADY") == 1
-                    and pyxsi_utils._read_signal(sim_obj, outp + sname + "TVALID") == 1
-                ):
-                    txns_out[outp].append(1)
-                else:
-                    txns_out[outp].append(0)
-
+        # signal name, note no underscore at the end (new finnxsi behavior)
+        sname = "_V"
         self.reset_rtlsim(sim)
-        self.rtlsim_multi_io(
-            sim,
-            io_dict,
-            hook_postclk=monitor_txns,
-        )
+        # create stream tracers for all input and output streams
+        for k in txns_in.keys():
+            txns_in[k] = sim.trace_stream(k + sname)
+        for k in txns_out.keys():
+            txns_out[k] = sim.trace_stream(k + sname)
+        self.rtlsim_multi_io(sim, io_dict)
         total_cycle_count = self.get_nodeattr("cycles_rtlsim")
         assert (
             total_cycle_count <= period
@@ -461,6 +470,12 @@ class HWCustomOp(CustomOp):
             total_cycle_count
         )
         self.set_nodeattr("io_chrc_period", period)
+        # call str() on stream tracers to get their outputs, and convert
+        # to list of ints
+        for k in txns_in.keys():
+            txns_in[k] = [int(c) for c in str(txns_in[k])]
+        for k in txns_out.keys():
+            txns_out[k] = [int(c) for c in str(txns_out[k])]
 
         def accumulate_char_fxn(chrc):
             p = len(chrc)
@@ -478,6 +493,7 @@ class HWCustomOp(CustomOp):
         all_pad_out = []
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
+            pad_in = 0
             if len(txn_in) < period:
                 pad_in = period - len(txn_in)
                 txn_in += [0 for x in range(pad_in)]
@@ -487,6 +503,7 @@ class HWCustomOp(CustomOp):
 
         for out_idx, out_strm_nm in enumerate(txns_out.keys()):
             txn_out = txns_out[out_strm_nm]
+            pad_out = 0
             if len(txn_out) < period:
                 pad_out = period - len(txn_out)
                 txn_out += [0 for x in range(pad_out)]
