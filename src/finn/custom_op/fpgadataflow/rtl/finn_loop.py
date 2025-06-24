@@ -412,18 +412,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     "$DATA_WIDTH$": [str(data_width)],
                     "$TAP_REP$": [str(iteration)],
                 }
-            # apply code generation to template
-            with open(template_path, "r") as f:
-                template_wrapper = f.read()
-            for key in code_gen_dict:
-                # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
-                template_wrapper = template_wrapper.replace(key, code_gen_line)
-            with open(
-                os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
-                "w",
-            ) as f:
-                f.write(template_wrapper)
+                # apply code generation to template
+                with open(template_path, "r") as f:
+                    template_wrapper = f.read()
+                for key in code_gen_dict:
+                    # transform list into long string separated by '\n'
+                    code_gen_line = "\n".join(code_gen_dict[key])
+                    template_wrapper = template_wrapper.replace(key, code_gen_line)
+                with open(
+                    os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
+                    "w",
+                ) as f:
+                    f.write(template_wrapper)
 
     def get_verilog_top_module_intf_names(self):
         # from wrapper template
