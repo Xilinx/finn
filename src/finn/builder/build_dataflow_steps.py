@@ -427,7 +427,9 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 target_cycles_per_frame,
                 mvau_wwidth_max=cfg.mvau_wwidth_max,
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
-            )
+            ),
+            apply_to_subgraphs=True,
+            use_preorder_traversal=False
         )
         # extract the suggested configuration and save it as json
         hw_attrs = [
