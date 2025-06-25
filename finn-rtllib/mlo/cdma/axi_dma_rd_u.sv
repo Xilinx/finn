@@ -157,8 +157,7 @@ logic m_axi_arvalid_reg = 1'b0, m_axi_arvalid_next;
 logic m_axi_rready_reg = 1'b0, m_axi_rready_next;
 
 logic [AXI_DATA_WIDTH-1:0] save_axi_rdata_reg = {AXI_DATA_WIDTH{1'b0}};
-
-logic [AXI_DATA_WIDTH-1:0] shift_axi_rdata = {m_axi_rdata, save_axi_rdata_reg} >> ((AXI_STRB_WIDTH-offset_reg)*AXI_WORD_SIZE);
+uwire [AXI_DATA_WIDTH-1:0] shift_axi_rdata = {m_axi_rdata, save_axi_rdata_reg} >> ((AXI_STRB_WIDTH-offset_reg)*AXI_WORD_SIZE);
 
 // internal datapath
 logic  [AXIS_DATA_WIDTH-1:0] m_axis_read_data_tdata_int;
@@ -181,8 +180,8 @@ assign m_axi_arprot = 3'b010;
 assign m_axi_arvalid = m_axi_arvalid_reg;
 assign m_axi_rready = m_axi_rready_reg;
 
-logic [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
-logic [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
+uwire [AXI_ADDR_WIDTH-1:0] addr_plus_max_burst = addr_reg + AXI_MAX_BURST_SIZE;
+uwire [AXI_ADDR_WIDTH-1:0] addr_plus_count = addr_reg + op_word_count_reg;
 
 // Outstanding queue
 Q_srl #(
