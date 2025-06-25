@@ -279,7 +279,8 @@ class CreateStitchedIP(Transformation):
         # make output axis external
         for i in range(len(output_intf_names)):
             if idx is not None and idx != i:
-                continue
+                if node.op_type != "FINNLoop":
+                    continue
             output_intf_name = output_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
@@ -303,7 +304,8 @@ class CreateStitchedIP(Transformation):
         # make input axis external
         for i in range(len(input_intf_names)):
             if idx is not None and idx != i:
-                continue
+                if node.op_type != "FINNLoop":
+                    continue
             input_intf_name = input_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, input_intf_name)

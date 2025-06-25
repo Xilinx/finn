@@ -430,33 +430,24 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # from wrapper template
         addr_bits = 64
         data_bits = 256
-        cnt_bits = 16
 
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
 
         intf_names["s_axis"] = []
-        intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
-        # AXI4S slave interface in input activation from loop_body to loop_control
-        # intf_names["s_axis"].append(("s_axis_core_out", str(data_bits)))
         # AXI4S slave interface from outside loop to loop control externalize
         # to block diagram interface port and connect to fetch_start component
-        # intf_names["s_axis"].append(("axis_fs", str(data_bits)))
+        intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
         # AXI4S slave interface for idx_fs
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the fetch_start component
         intf_names["s_axis"].append(("idx_fs", str(data_bits)))
 
         intf_names["m_axis"] = []
-        intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
-        # AXI4S master interface to output activation from loop_control to loop body
-        # intf_names["m_axis"].append(("m_axis_core_in", str(data_bits)))
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
-        # intf_names["m_axis"].append(("axis_se", str(data_bits)))
-        # AXI4S master interface to output index from loop_control to stream tap
-        # intf_names["m_axis"].append(("m_axis_core_in_fw_idx", str(data_bits)))
+        intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
         # AXI4S master interface for idx_se
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the store_end component
@@ -608,6 +599,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_out.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/loop_control.sv",
             f"{self.get_nodeattr('code_gen_dir_ipgen')}/{self.onnx_node.name}_wrapper.v",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/fifo/hdl/Q_srl.v",
         ]
         for f in source_files:
             cmd += [f"add_files -norecurse {f}"]
@@ -640,11 +632,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "create_bd_intf_pin -mode Master "
                 "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
             )
+        cnt_bits = 16
         for intf in control_intfs:
             if intf == "n_layers":
                 cmd.append(
-                    "create_bd_pin -from 15 -to 0 -dir I -type data /%s/%s"
-                    % (self.onnx_node.name, intf)
+                    "create_bd_pin -from %d -to 0 -dir I -type data /%s/%s"
+                    % (cnt_bits - 1, self.onnx_node.name, intf)
                 )
             elif intf == "done_if":
                 cmd.append(
@@ -826,21 +819,25 @@ class FINNLoop(HWCustomOp, RTLBackend):
         connect_signals = loop_body_intf_names["s_axis"]
         for id, sig in enumerate(connect_signals[:-1]):
             cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%d] [get_bd_intf_pins %s/s_axis_%d]"
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_%d] [get_bd_intf_pins %s/s_axis_%d]"
                 % (bd_name, id + 1, finn_ip_name, id + 1)
             )
         # connect stream tap with loop wrapper
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/s_axis_0] [get_bd_intf_pins %s/m_axis_core_in_fw_idx]"
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/s_axis_0] [get_bd_intf_pins %s/m_axis_core_in_fw_idx]"
             % (bd_name, loop_shell_name)
         )
         # connect loop wrapper with finn ip
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_core_in] [get_bd_intf_pins %s/s_axis_0]"
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/m_axis_core_in] [get_bd_intf_pins %s/s_axis_0]"
             % (loop_shell_name, finn_ip_name)
         )
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out]"
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out]"
             % (finn_ip_name, loop_shell_name)
         )
 
