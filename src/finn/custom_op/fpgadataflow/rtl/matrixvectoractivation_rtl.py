@@ -163,6 +163,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        rtllib_fifo_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             rtllib_dir + "mvu_vvu_axi.sv",
@@ -170,6 +171,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             rtllib_dir + "mvu_4sx4u.sv",
             rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
             rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            rtllib_fifo_dir + "Q_srl.v",
         ]
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))

@@ -39,6 +39,8 @@ import finn.core.onnx_exec as oxe
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.create import adjacency_list
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 def collect_ip_dirs(model, ipstitch_path):
@@ -226,6 +228,21 @@ class FINNLoop(HWCustomOp, RTLBackend):
             iwidth = inst.get_instream_width(1)
         return iwidth
 
+    def get_exp_cycles(self):
+
+        loop_body = self.get_nodeattr("body")
+        check_if_cycles_annotated = False
+
+        for node in loop_body.graph.node:
+            cnode = getCustomOp(node)
+            if cnode.get_nodeattr("cycles_estimate") is not None:
+                check_if_cycles_annotated = True
+                break
+        if not check_if_cycles_annotated:
+            loop_body = loop_body.transform(AnnotateCycles())
+
+        return loop_body.analysis(dataflow_performance)['critical_path_cycles'] * self.get_nodeattr("iteration")
+
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
         # get last node in loop body and return
@@ -395,18 +412,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     "$DATA_WIDTH$": [str(data_width)],
                     "$TAP_REP$": [str(iteration)],
                 }
-            # apply code generation to template
-            with open(template_path, "r") as f:
-                template_wrapper = f.read()
-            for key in code_gen_dict:
-                # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
-                template_wrapper = template_wrapper.replace(key, code_gen_line)
-            with open(
-                os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
-                "w",
-            ) as f:
-                f.write(template_wrapper)
+                # apply code generation to template
+                with open(template_path, "r") as f:
+                    template_wrapper = f.read()
+                for key in code_gen_dict:
+                    # transform list into long string separated by '\n'
+                    code_gen_line = "\n".join(code_gen_dict[key])
+                    template_wrapper = template_wrapper.replace(key, code_gen_line)
+                with open(
+                    os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
+                    "w",
+                ) as f:
+                    f.write(template_wrapper)
 
     def get_verilog_top_module_intf_names(self):
         # from wrapper template

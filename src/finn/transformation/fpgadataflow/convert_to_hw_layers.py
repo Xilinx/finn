@@ -1979,7 +1979,7 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         assert len(inp.consumers()) == 1
         consumer = inp.consumers()[0]
         # Add supported ops to this list when they are supported by the MLO
-        mlo_supported_ops = ["MVAU_rtl"]
+        mlo_supported_ops = ["MVAU_rtl", "Thresholding_rtl"]
         if consumer.op_type not in mlo_supported_ops:
             inp.const_value = ir.Tensor(loop_node.inputs[ind + 3].const_value.numpy()[0])
             loop_node_input_indexes_to_remove.append(ind + 3)
@@ -2013,7 +2013,8 @@ def FinnLoopRewrite(op, M, cond, X, loop_out):
         iteration=iteration,
         inputDataType=idt,
         outputDataType=odt,
-        _domain="finn.custom_op.fpgadataflow",
+        _domain ="finn.custom_op.fpgadataflow.rtl",
+        backend="fpgadataflow",
     )
 
 
