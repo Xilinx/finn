@@ -189,7 +189,7 @@ def test_fpgadataflow_loop():
         owidth = inst.get_outstream_width(o)
         print(odt, oshape, ofshape, owidth)
     body = inst.get_nodeattr("body")
-    adj_list = adjacency_list(body, ["Thresholding_rtl", "MVAU_rtl"])
+    adj_list = adjacency_list(body, lambda node: node.op_optype in ["Thresholding_rtl", "MVAU_rtl"])
     print(adj_list)
     body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)

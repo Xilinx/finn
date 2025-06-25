@@ -1048,7 +1048,7 @@ class MVAU(HWCustomOp):
                         sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_u/", file))
                 for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_x/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_x/", file))            
+                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_x/", file))
 
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]

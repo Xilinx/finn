@@ -28,7 +28,7 @@
 /**
  * @brief   Unaligned CDMA top level
  *
- * The unaligned CDMA top level. Contains read and write DMA engines. 
+ * The unaligned CDMA top level. Contains read and write DMA engines.
  * Outstanding queues at the input. High resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size

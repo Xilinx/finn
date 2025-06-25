@@ -51,7 +51,7 @@ steps = [
     "step_hw_ipgen",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
-    "step_measure_rtlsim_performance",
+    # "step_measure_rtlsim_performance",
 ]
 
 

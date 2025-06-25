@@ -36,11 +36,11 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import get_by_name, is_finn_op, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.create import adjacency_list
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.util.create import adjacency_list
 
 
 def collect_ip_dirs(model, ipstitch_path):
@@ -229,7 +229,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
         return iwidth
 
     def get_exp_cycles(self):
-
         loop_body = self.get_nodeattr("body")
         check_if_cycles_annotated = False
 
@@ -241,7 +240,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         if not check_if_cycles_annotated:
             loop_body = loop_body.transform(AnnotateCycles())
 
-        return loop_body.analysis(dataflow_performance)['critical_path_cycles'] * self.get_nodeattr("iteration")
+        return loop_body.analysis(dataflow_performance)["critical_path_cycles"] * self.get_nodeattr(
+            "iteration"
+        )
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
@@ -429,48 +430,46 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # from wrapper template
         addr_bits = 64
         data_bits = 256
-        cnt_bits = 16
 
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
 
         intf_names["s_axis"] = []
-        # AXI4S slave interface in input activation from loop_body to loop_control
-        # intf_names["s_axis"].append(("s_axis_core_out", str(data_bits)))
         # AXI4S slave interface from outside loop to loop control externalize
         # to block diagram interface port and connect to fetch_start component
-        # intf_names["s_axis"].append(("axis_fs", str(data_bits)))
+        intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
         # AXI4S slave interface for idx_fs
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the fetch_start component
-        # intf_names["s_axis"].append(("idx_fs", str(data_bits)))
+        intf_names["s_axis"].append(("idx_fs", str(data_bits)))
 
         intf_names["m_axis"] = []
-        # AXI4S master interface to output activation from loop_control to loop body
-        # intf_names["m_axis"].append(("m_axis_core_in", str(data_bits)))
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
-        # intf_names["m_axis"].append(("axis_se", str(data_bits)))
-        # AXI4S master interface to output index from loop_control to stream tap
-        # intf_names["m_axis"].append(("m_axis_core_in_fw_idx", str(data_bits)))
+        intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
         # AXI4S master interface for idx_se
         # This interface should be externalized to an interface port on the block diagram
         # and connected to the store_end component
-        # intf_names["m_axis"].append(("idx_se", str(data_bits)))
+        intf_names["m_axis"].append(("idx_se", str(data_bits)))
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
         # TODO: rename because it might not be hbm?
-        # intf_names["aximm"].append(("m_axi_hbm", str(addr_bits)))
+        intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
         intf_names["axilite"] = []
 
         # using ap_none field to add control signals
         intf_names["ap_none"] = []
         # n_layers and done_if should be externalize to a block diagram port
         # and connected to the axil_iw_slv_mlo component
-        # intf_names["ap_none"].append(("n_layers", str(cnt_bits)))
-        # intf_names["ap_none"].append(("done_if", 2))
+        intf_names["ap_none"].append("n_layers")
+        intf_names["ap_none"].append("done_if")
+
+        loop_body = self.get_nodeattr("body")
+        loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
+        for intf in loop_body_intf["aximm"]:
+            intf_names["aximm"] += intf
 
         return intf_names
 
@@ -600,22 +599,80 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_out.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/loop_control.sv",
             f"{self.get_nodeattr('code_gen_dir_ipgen')}/{self.onnx_node.name}_wrapper.v",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/fifo/hdl/Q_srl.v",
         ]
         for f in source_files:
             cmd += [f"add_files -norecurse {f}"]
 
+        # create and instantiate FINNLoop node overarching block design
         cmd.append("create_bd_cell -type hier %s" % (self.onnx_node.name))
         clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
         rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
         # clock and reset
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (self.onnx_node.name, clk_name))
         cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (self.onnx_node.name, rst_name))
+        # interfaces
+        node_intf = self.get_verilog_top_module_intf_names()
+        m_axis_intfs = node_intf["m_axis"]
+        s_axis_intfs = node_intf["s_axis"]
+        control_intfs = node_intf["ap_none"]
+        mm_intfs = node_intf["aximm"]
+        for intf in m_axis_intfs:
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
+            )
+        for intf in s_axis_intfs:
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
+            )
+        for intf in mm_intfs:
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
+            )
+        cnt_bits = 16
+        for intf in control_intfs:
+            if intf == "n_layers":
+                cmd.append(
+                    "create_bd_pin -from %d -to 0 -dir I -type data /%s/%s"
+                    % (cnt_bits - 1, self.onnx_node.name, intf)
+                )
+            elif intf == "done_if":
+                cmd.append(
+                    "create_bd_pin -from 1 -to 0 -dir O -type data /%s/%s"
+                    % (self.onnx_node.name, intf)
+                )
 
-        loop_shell_name = f"{self.onnx_node.name}_loop_cont_wrapper"
+        # instantiate loop shell
+        loop_shell_name = f"{self.onnx_node.name}/{self.onnx_node.name}_loop_cont_wrapper"
         cmd.append(
             f"""create_bd_cell -type module -reference \
-            {self.onnx_node.name}_loop_cont_wrapper {self.onnx_node.name}/{loop_shell_name}"""
+            {self.onnx_node.name}_loop_cont_wrapper {loop_shell_name}"""
         )
+        # connect loop shell to clk and reset
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, rst_name, loop_shell_name, rst_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
+        )
+        # "externalize" some of the loop shell signals
+        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm", "idx_se", "idx_fs"]
+        ext_signals = ["n_layers", "done_if"]
+        for sig in ext_intf_signals:
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
+                % (self.onnx_node.name, sig, loop_shell_name, sig)
+            )
+        for sig in ext_signals:
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, sig, loop_shell_name, sig)
+            )
 
         # stream tap graph generation
         loop_body = self.get_nodeattr("body")
@@ -661,8 +718,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for f in sourcefiles:
             cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
 
-        mlo_optypes = ["MVAU_rtl", "MVAU_hls", "Thresholding_rtl"]
-        adj_list = adjacency_list(loop_body, mlo_optypes)
+        adj_list = adjacency_list(
+            loop_body,
+            lambda node: node.op_type == "Thresholding_rtl"
+            or (
+                node.op_type == "MVAU_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            ),
+        )
         # create map that maps each stream tap to its param node
         st_map = {}
         for id, inp in enumerate(loop_body.graph.input[1:]):
@@ -710,6 +773,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
                     "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, inst_name)
                 )
+
+        # connect stream tap graph to clk and reset
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, rst_name, bd_name, rst_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, clk_name, bd_name, clk_name)
+        )
+
         loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
         loop_body_vlnv = loop_body.get_metadata_prop("vivado_stitch_vlnv")
         loop_body_intf_names = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
@@ -722,7 +796,50 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "[current_project]" % ip_dirs_str
         )
         cmd.append("update_ip_catalog -rebuild -scan_changes")
-        cmd.append("create_bd_cell -type ip -vlnv %s %s" % (loop_body_vlnv, "finn_design_mlo"))
+        finn_ip_name = f"{self.onnx_node.name}/finn_design_mlo"
+        cmd.append("create_bd_cell -type ip -vlnv %s %s" % (loop_body_vlnv, finn_ip_name))
+        # connect finn ip to clk and reset
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, rst_name, finn_ip_name, rst_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
+        )
+        # "externalize" some of the loop shell signals
+        ext_signals = loop_body_intf_names["aximm"]
+        for sig in ext_signals:
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
+                % (self.onnx_node.name, sig[0][0], finn_ip_name, sig[0][0])
+            )
+        # connect components with each other
+        # stream tap with finn ip
+        connect_signals = loop_body_intf_names["s_axis"]
+        for id, sig in enumerate(connect_signals[:-1]):
+            cmd.append(
+                "connect_bd_intf_net "
+                "[get_bd_intf_pins %s/m_axis_%d] [get_bd_intf_pins %s/s_axis_%d]"
+                % (bd_name, id + 1, finn_ip_name, id + 1)
+            )
+        # connect stream tap with loop wrapper
+        cmd.append(
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/s_axis_0] [get_bd_intf_pins %s/m_axis_core_in_fw_idx]"
+            % (bd_name, loop_shell_name)
+        )
+        # connect loop wrapper with finn ip
+        cmd.append(
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/m_axis_core_in] [get_bd_intf_pins %s/s_axis_0]"
+            % (loop_shell_name, finn_ip_name)
+        )
+        cmd.append(
+            "connect_bd_intf_net "
+            "[get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out]"
+            % (finn_ip_name, loop_shell_name)
+        )
 
         return cmd
 

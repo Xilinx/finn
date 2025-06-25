@@ -179,8 +179,8 @@ def hls_mlp_maker(layer_spec):
     return model
 
 
-def adjacency_list(model, filter_op_types):
-    """Returns adjacency list of nodes from filter_op_types list."""
+def adjacency_list(model, filter_function):
+    """Returns adjacency list of nodes based on filter function."""
     graph = model.graph
 
     full_graph = defaultdict(list)
@@ -190,16 +190,34 @@ def adjacency_list(model, filter_op_types):
             producer = model.find_producer(input_tensor)
             if producer:
                 full_graph[producer.name].append(node.name)
-            elif input_tensor in [input.name for input in graph.input]:
+            elif (
+                hasattr(graph, "input")
+                and graph.input
+                and input_tensor in [input.name for input in graph.input]
+            ):
                 full_graph[input_tensor].append(node.name)
         for output_tensor in node.output:
             producer = model.find_producer(output_tensor)
-            if producer and output_tensor in [output.name for output in graph.output]:
+            if (
+                producer
+                and hasattr(graph, "output")
+                and graph.output
+                and output_tensor in [output.name for output in graph.output]
+            ):
                 full_graph[producer.name].append(output_tensor)
 
-    filter_nodes = [node.name for node in graph.node if (node.op_type in filter_op_types)]
-    graph_inputs = [input.name for input in graph.input]
-    graph_outputs = [output.name for output in graph.output]
+    # Apply filtering logic
+    if not callable(filter_function):
+        raise ValueError("filter_function must be callable")
+    filter_nodes = [node.name for node in graph.node if filter_function(node)]
+    graph_inputs = (
+        [input.name for input in graph.input] if hasattr(graph, "input") and graph.input else []
+    )
+    graph_outputs = (
+        [output.name for output in graph.output]
+        if hasattr(graph, "output") and graph.output
+        else []
+    )
 
     relevant_nodes = filter_nodes + graph_inputs + graph_outputs
     filtered_adjacency = defaultdict(list)
