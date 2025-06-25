@@ -760,6 +760,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         producer = "__INPUT0__"
         for id, inp in enumerate(loop_body.graph.input[1:]):
             node_name = adj_list[producer][0]
+            if node_name == "__OUTPUT0__":
+                break
             inst_name = st_map[node_name]
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
