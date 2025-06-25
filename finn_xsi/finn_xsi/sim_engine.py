@@ -414,7 +414,9 @@ class SimEngine:
             def __init__(self, top, mm_axi, base, img):
                 # Tie off Write Channels
                 for tie_off in ("awready", "wready", "bvalid"):
-                    top.get_bus_port(mm_axi, tie_off).set(0).write_back()
+                    port = top.get_bus_port(mm_axi, tie_off)
+                    if(port is not None):
+                        port.set(0).write_back()
 
                 # Collect Ports of Read Channels
                 for name in (
@@ -444,10 +446,11 @@ class SimEngine:
                         data = ''
                         for i in range(size):
                             data = self.img[addr] + data
+                            addr += 1
                         ret[self.rdata] = data
 
                         if length > 1:
-                            self.queue.insert(0, (addr + size, length - 1, size))
+                            self.queue.insert(0, (addr, length - 1, size))
                             ret[self.rlast] = "0"
                         else:
                             ret[self.rlast] = "1"
@@ -467,12 +470,12 @@ class SimEngine:
 
                     length = 1 + self.arlen.read().as_unsigned()
                     size   = 2 ** self.arsize.read().as_unsigned()
-                    assert addr + length*size <= length*size, "Read extends beyond range."
+                    assert addr + length*size < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
 
                 return  ret
 
-        ret = AxiLiteReader(self, mm_axi, base, img)
+        ret = AximmRoImage(self, mm_axi, base, img)
         self.enlist(ret)
         return ret
