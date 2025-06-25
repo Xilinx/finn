@@ -33,7 +33,12 @@ from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.util.basic import get_by_name, is_finn_op, qonnx_make_model
+from qonnx.util.basic import (
+    get_by_name,
+    is_finn_op,
+    qonnx_make_model,
+    roundup_to_integer_multiple,
+)
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
@@ -404,6 +409,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         graph_inputs = [x.name for x in loop_body.graph.input]
         # TODO check if this needs to be padded
         data_width = DataType.get_smallest_possible(iteration).bitwidth()
+        # pad to nearest multiple of 8
+        data_width = roundup_to_integer_multiple(data_width, 8)
         for node in loop_body.graph.node:
             node_inst = getCustomOp(node)
             if node_inst.get_nodeattr("mlo_max_iter"):
@@ -589,10 +596,28 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_intf.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_top.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_rd_a.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_rd_u.sv",
+            # f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_wr_a.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/krnl_counter.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_rd.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_rd.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_rd.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_adapter.v",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_dwc.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_fifo.v",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_fifo_adapter.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_array_rtl.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_array_tmplt.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_rtl.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_tmplt.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/ram_p_c.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_dma_wr_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/intermediate_frames.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_in.sv",
