@@ -186,7 +186,43 @@ class CreateStitchedIP(Transformation):
             self.intf_names["axilite"].append(ext_if_name)
 
         if not node_inst.get_nodeattr("mlo_max_iter"):
-            if len(aximm_intf_name) != 0:
+            if node.op_type == "FINNLoop":
+                for mm_intf_name in aximm_intf_name:
+                    self.connect_cmds.append(
+                        "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                        % (inst_name, mm_intf_name[0])
+                    )
+                    self.connect_cmds.append(
+                        "set_property name %s [get_bd_intf_ports %s_0]"
+                        % (mm_intf_name[0], mm_intf_name[0])
+                    )
+                    self.connect_cmds.append("assign_bd_address")
+
+                    if mm_intf_name[0] == "m_axi_hbm":
+                        seg_name = "%s/%s_loop_cont_wrapper/%s/SEG_%s_Reg" % (
+                            inst_name,
+                            inst_name,
+                            mm_intf_name[0],
+                            mm_intf_name[0],
+                        )
+                    else:
+                        seg_name = "%s/finn_design_mlo/%s/SEG_%s_Reg" % (
+                            inst_name,
+                            mm_intf_name[0],
+                            mm_intf_name[0],
+                        )
+                    self.connect_cmds.append(
+                        "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                    )
+                    # TODO should propagate this information from the node instead of 256M
+                    self.connect_cmds.append(
+                        "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
+                    )
+                    self.intf_names["aximm"].append([(mm_intf_name[0], mm_intf_name[1])])
+                    self.has_aximm = True
+                    self.aximm_idx += 1
+
+            elif len(aximm_intf_name) != 0:
                 self.connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                     % (inst_name, aximm_intf_name[0][0])
