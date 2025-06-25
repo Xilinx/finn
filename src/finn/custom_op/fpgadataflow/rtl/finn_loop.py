@@ -39,6 +39,8 @@ import finn.core.onnx_exec as oxe
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.create import adjacency_list
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 def collect_ip_dirs(model, ipstitch_path):
@@ -225,6 +227,21 @@ class FINNLoop(HWCustomOp, RTLBackend):
             inst = getCustomOp(param_node)
             iwidth = inst.get_instream_width(1)
         return iwidth
+
+    def get_exp_cycles(self):
+
+        loop_body = self.get_nodeattr("body")
+        check_if_cycles_annotated = False
+
+        for node in loop_body.graph.node:
+            cnode = getCustomOp(node)
+            if cnode.get_nodeattr("cycles_estimate") is not None:
+                check_if_cycles_annotated = True
+                break
+        if not check_if_cycles_annotated:
+            loop_body = loop_body.transform(AnnotateCycles())
+
+        return loop_body.analysis(dataflow_performance)['critical_path_cycles'] * self.get_nodeattr("iteration")
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
