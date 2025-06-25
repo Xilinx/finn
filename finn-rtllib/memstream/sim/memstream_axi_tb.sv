@@ -31,8 +31,8 @@
  */
 
 module memstream_axi_tb;
-	localparam int unsigned  DEPTH = 1024;
-	localparam int unsigned  WIDTH = 32;
+	localparam int unsigned  DEPTH = 912;
+	localparam int unsigned  WIDTH =  73;
 	localparam bit  PUMPED_MEMORY = 1;
 
 	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2;
@@ -104,6 +104,8 @@ module memstream_axi_tb;
 	end
 
 	initial begin
+		localparam int unsigned  FOLD = 1 + (WIDTH-1)/32;
+
 		awvalid = 0;
 		awaddr = 'x;
 		wvalid = 0;
@@ -119,16 +121,22 @@ module memstream_axi_tb;
 			begin
 				awvalid <= 1;
 				for(int unsigned  i = 0; i < DEPTH; i++) begin
-					awaddr <= { i, 2'b00 };
-					@(posedge clk iff awready);
+					automatic type(awaddr)  addr = i << $clog2(FOLD);
+					for(int unsigned  j = 0; j < FOLD; j++) begin
+						awaddr <= { addr++, 2'b00 };
+						@(posedge clk iff awready);
+					end
 				end
 				awvalid <= 0;
 			end
 			begin
 				wvalid <= 1;
 				for(int unsigned  i = 0; i < DEPTH; i++) begin
-					wdata <= i;
-					@(posedge clk iff wready);
+					automatic type(wdata)  data = i << $clog2(FOLD);
+					for(int unsigned  j = 0; j < FOLD; j++) begin
+						wdata <= data++;
+						@(posedge clk iff wready);
+					end
 				end
 				wvalid <= 0;
 			end
@@ -136,7 +144,7 @@ module memstream_axi_tb;
 
 		// Read Last Entry for Sync
 		arvalid <= 1;
-		araddr <= { DEPTH-1, 2'b00 };
+		araddr <= { (DEPTH-1) << $clog2(FOLD), 2'b00 };
 		@(posedge clk iff arready);
 		arvalid <= 0;
 		araddr <= 'x;
@@ -144,7 +152,7 @@ module memstream_axi_tb;
 		rready <= 1;
 		@(posedge clk iff rvalid);
 		rready <= 0;
-		assert(!rresp && (rdata == DEPTH-1)) else begin
+		assert(!rresp && (rdata == (DEPTH-1) << $clog2(FOLD))) else begin
 			$error("Read back error.");
 			$stop;
 		end
@@ -157,9 +165,13 @@ module memstream_axi_tb;
 		// One Round of Unimpeded Stream Read
 		ordy <= 1;
 		for(int unsigned  i = 0; i < DEPTH; i++) begin
+			automatic int unsigned  base = i << $clog2(FOLD);
+			automatic type(odat)  exp;
+			for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = base+j;
+
 			@(posedge clk iff ovld);
-			assert(odat == i) else begin
-				$error("Unexpected output: %0d instead of %0d", odat, i);
+			assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
+				$error("Unexpected output: %0x instead of %0x [%0b]", odat, exp, odat == exp);
 				$stop;
 			end
 		end
@@ -167,12 +179,17 @@ module memstream_axi_tb;
 
 		// Another Round with Intermittent Backpressure
 		for(int unsigned  i = 0; i < DEPTH; i++) begin
+			automatic int unsigned  base = i << $clog2(FOLD);
+			automatic type(odat)  exp;
+			for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = base+j;
+
 			while($urandom()%13 == 0) @(posedge clk);
 			ordy <= 1;
 			@(posedge clk iff ovld);
 			ordy <= 0;
-			assert(odat == i) else begin
-				$error("Unexpected output: %0d instead of %0d", odat, i);
+
+			assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
+				$error("Unexpected output: %0x instead of %0x", odat, exp);
 				$stop;
 			end
 		end
@@ -183,12 +200,16 @@ module memstream_axi_tb;
 
 			begin
 				for(int unsigned  i = 0; i < DEPTH; i++) begin
+					automatic logic [WIDTH-1:0]  exp;
+					for(int unsigned  j = 0; j < FOLD; j++)  exp[32*j+:32] = (i << $clog2(FOLD)) + j;
+
 					while($urandom()%13 == 0) @(posedge clk);
 					ordy <= 1;
 					@(posedge clk iff ovld);
 					ordy <= 0;
-					assert(odat == i) else begin
-						$error("Unexpected output: %0d instead of %0d", odat, i);
+
+					assert(odat[WIDTH-1:0] == exp[WIDTH-1:0]) else begin
+						$error("Unexpected output: %0x instead of %0x", odat, exp);
 						$stop;
 					end
 				end
@@ -198,19 +219,27 @@ module memstream_axi_tb;
 				while(!done) begin
 					automatic int  av = $urandom() % DEPTH;
 					repeat($urandom()%19) @(posedge clk);
-					arvalid <= 1;
-					araddr <= { av, 2'b00 };
-					@(posedge clk iff arready);
-					arvalid <= 0;
-					araddr <= 'x;
 
-					rready <= 1;
-					@(posedge clk iff rvalid);
-					rready <= 0;
-					assert(!rresp && (rdata == av)) else begin
-						$error("Read back error.");
-						$stop;
+					for(int unsigned  j = 0; j < FOLD; j++) begin
+						automatic int unsigned  pt = (av<<$clog2(FOLD)) + j;
+
+						araddr <= { pt, 2'b00 };
+						arvalid <= 1;
+						@(posedge clk iff arready);
+						arvalid <= 0;
+						araddr <= 'x;
+
+						rready <= 1;
+						@(posedge clk iff rvalid);
+						rready <= 0;
+
+						if(j == FOLD-1)  pt = pt[0+:WIDTH-(FOLD-1)*32];
+						assert(!rresp && (rdata == pt)) else begin
+							$error("Read back error: %0x instead of %0x", rdata, pt);
+							$stop;
+						end
 					end
+
 				end
 			end
 		join
