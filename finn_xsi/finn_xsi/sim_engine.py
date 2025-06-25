@@ -9,8 +9,8 @@
 # @author	Yaman Umuroglu <yaman.umuroglu@amd.com>
 #############################################################################
 
-import xsi
 import numpy as np
+import xsi
 
 
 class SimEngine:
@@ -415,13 +415,22 @@ class SimEngine:
                 # Tie off Write Channels
                 for tie_off in ("awready", "wready", "bvalid"):
                     port = top.get_bus_port(mm_axi, tie_off)
-                    if(port is not None):
+                    if port is not None:
                         port.set(0).write_back()
 
                 # Collect Ports of Read Channels
                 for name in (
-                    "arready", "arvalid", "araddr", "arlen", "arburst", "arsize",
-                    "rready", "rvalid", "rdata", "rresp", "rlast"
+                    "arready",
+                    "arvalid",
+                    "araddr",
+                    "arlen",
+                    "arburst",
+                    "arsize",
+                    "rready",
+                    "rvalid",
+                    "rdata",
+                    "rresp",
+                    "rlast",
                 ):
                     self.__dict__[name] = top.get_bus_port(mm_axi, name)
                 self.arready.set(1).write_back()
@@ -430,7 +439,7 @@ class SimEngine:
 
                 # Hold on to Image
                 self.base = base
-                self.img  = [f"{_:02x}" for _ in np.array(img).astype(np.uint8)]
+                self.img = [f"{_:02x}" for _ in np.array(img).astype(np.uint8)]
                 self.queue = []
 
             def __bool__(self):
@@ -443,7 +452,7 @@ class SimEngine:
                     if len(self.queue) > 0:
                         # Work on Head of Queue
                         addr, length, size = self.queue.pop(0)
-                        data = ''
+                        data = ""
                         for i in range(size):
                             data = self.img[addr] + data
                             addr += 1
@@ -469,12 +478,12 @@ class SimEngine:
                     addr -= self.base
 
                     length = 1 + self.arlen.read().as_unsigned()
-                    size   = 2 ** self.arsize.read().as_unsigned()
-                    assert addr + length*size < len(self.img), "Read extends beyond range."
+                    size = 2 ** self.arsize.read().as_unsigned()
+                    assert addr + length * size < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
 
-                return  ret
+                return ret
 
         ret = AximmRoImage(self, mm_axi, base, img)
         self.enlist(ret)
