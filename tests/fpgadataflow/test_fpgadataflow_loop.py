@@ -8,6 +8,8 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.create import adjacency_list
 
@@ -60,6 +62,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         PE=1,
         inputDataType=dtype.name,
         numInputVectors=[1, 3, 3],
+        name="DuplicateStreams_hls0",
     )
 
     matmul_node0 = helper.make_node(
@@ -280,9 +283,6 @@ def test_fpgadataflow_loop():
     model = make_loop_modelwrapper(16, 16, 3)
     model = model.transform(InferShapes())
     model.save("finn_loop.onnx")
-    import pdb
-
-    pdb.set_trace()  # noqa: E702
     inst = getCustomOp(model.graph.node[0])
     for i in range(len(model.graph.node[0].input)):
         idt = inst.get_input_datatype(i)
@@ -299,6 +299,8 @@ def test_fpgadataflow_loop():
     body = inst.get_nodeattr("body")
     adj_list = adjacency_list(body, lambda node: node.op_type in ["Thresholding_rtl", "MVAU_rtl"])
     print(adj_list)
+    body = body.transform(PrepareCppSim())
+    body = body.transform(CompileCppSim())
     body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)
     x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, 16])
