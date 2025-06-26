@@ -62,6 +62,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         PE=1,
         inputDataType=dtype.name,
         numInputVectors=[1, 3, 3],
+        outFIFODepths=[2, 2],
         name="DuplicateStreams_hls0",
     )
 
