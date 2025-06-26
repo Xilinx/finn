@@ -589,6 +589,19 @@ class FINNLoop(HWCustomOp, RTLBackend):
              CONFIG.c_s2mm_burst_size {64} \
              CONFIG.c_s_axis_s2mm_tdata_width {256} \
             ] [get_ips cdma_datamover_wr]",
+            """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
+               -module_name cdma_datamover""", \
+               "set_property -dict [list \
+               CONFIG.c_include_mm2s_dre {true} \
+               CONFIG.c_include_s2mm_dre {true} \
+               CONFIG.c_addr_width {64} \
+               CONFIG.c_m_axi_mm2s_data_width {256} \
+               CONFIG.c_m_axis_mm2s_tdata_width {256} \
+               CONFIG.c_mm2s_burst_size {64} \
+               CONFIG.c_m_axi_s2mm_data_width {256} \
+               CONFIG.c_s2mm_burst_size {64} \
+               CONFIG.c_s_axis_s2mm_tdata_width {256} \
+               ] [get_ips cdma_datamover]",
         ]
 
         source_files = [
@@ -596,16 +609,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_intf.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_top.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_rd_a.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_rd_u.sv",
-            # f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/axi_dma_wr_a.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/krnl_counter.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_rd.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_wr.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_rd_a.sv", 
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_wr_a.sv", 
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_wr.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_rd.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/axi_dma_rd_u.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/axi_dma_wr_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_rd.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_x/cdma_x_wr.sv",
@@ -618,7 +632,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_rtl.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_tmplt.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/ram_p_c.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_dma_wr_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/intermediate_frames.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_in.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_out.sv",
@@ -760,6 +773,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         producer = "__INPUT0__"
         for id, inp in enumerate(loop_body.graph.input[1:]):
             node_name = adj_list[producer][0]
+            if node_name == "__OUTPUT0__":
+                break
             inst_name = st_map[node_name]
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
