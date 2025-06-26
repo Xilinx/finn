@@ -48,7 +48,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
             elif src_line.endswith(".vhd"):
                 # note that Verilog header incls are not added for VHDL
                 f.write(f"vhdl2008 work {src_line}\n")
-            elif src_line.endswith(".sv"):
+            elif src_line.endswith(".sv") or src_line.endswith(".svh"):
                 f.write(f"sv work {verilog_header_incl_str} {src_line}\n")
             elif src_line.endswith(".vh"):
                 # skip adding Verilog headers directly (see verilog_header_incl_str)
