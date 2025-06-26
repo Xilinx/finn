@@ -590,8 +590,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
              CONFIG.c_s_axis_s2mm_tdata_width {256} \
             ] [get_ips cdma_datamover_wr]",
             """create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 \
-               -module_name cdma_datamover""", \
-               "set_property -dict [list \
+               -module_name cdma_datamover""",
+            "set_property -dict [list \
                CONFIG.c_include_mm2s_dre {true} \
                CONFIG.c_include_s2mm_dre {true} \
                CONFIG.c_addr_width {64} \
@@ -613,8 +613,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_rd.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a_wr.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_rd_a.sv", 
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_wr_a.sv", 
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_rd_a.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/axi_dma_wr_a.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_wr.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_u/cdma_u_rd.sv",
@@ -770,49 +770,176 @@ class FINNLoop(HWCustomOp, RTLBackend):
             consumer = loop_body.find_consumer(inp.name)
             st_map[consumer.name] = "IN_%d_stream_tap_wrapper" % (id + 1)
 
-        producer = "__INPUT0__"
-        for id, inp in enumerate(loop_body.graph.input[1:]):
-            node_name = adj_list[producer][0]
-            if node_name == "__OUTPUT0__":
-                break
-            inst_name = st_map[node_name]
+        # instantiate all stream taps and connect their clk and rst
+        for id, st_name in enumerate(st_map.values()):
             cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s"
-                % (st_map[node_name], bd_name, inst_name)
+                "create_bd_cell -type hier -reference %s /%s/%s" % (st_name, bd_name, st_name)
             )
             # connect
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
-                % (bd_name, clk_name, bd_name, inst_name)
+                % (bd_name, clk_name, bd_name, st_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
-                % (bd_name, rst_name, bd_name, inst_name)
+                % (bd_name, rst_name, bd_name, st_name)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_%s] "
-                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, inst_name)
+                "[get_bd_intf_pins %s/%s/m_axis_1]" % (bd_name, id + 1, bd_name, st_name)
             )
 
-            if "INPUT" not in producer:
+        # prune adj_list to remove join duplicates
+        pruned_adj_list = adj_list.copy()
+
+        for key in adj_list:
+            if key.startswith("__INPUT") and "INPUT0" not in key:
+                del pruned_adj_list[key]
+
+        pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}  # exchange keys, values
+        pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
+
+        # create stg
+        for src, dsts in pruned_adj_list.items():
+            if all(x.startswith("__OUTPUT") for x in dsts):
+                continue
+            if "__INPUT0__" in src:
+                src_inst_name = bd_name
+                src_intf_name = "s_axis_0"
+            else:
+                src_inst_name = bd_name + "/" + st_map[src]
                 src_intf_name = "m_axis_0"
-                dst_intf_name = "s_axis_0"
+
+            dst_intf_name = "s_axis_0"
+            if len(dsts) == 1:
+                dst_inst_name = st_map[dsts[0]]
                 cmd.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/%s/%s] "
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                     "[get_bd_intf_pins %s/%s/%s]"
-                    % (bd_name, st_map[producer], src_intf_name, bd_name, inst_name, dst_intf_name)
+                    % (
+                        src_inst_name,
+                        src_intf_name,
+                        bd_name,
+                        dst_inst_name,
+                        dst_intf_name,
+                    )
                 )
-            producer = node_name
-            if id == 0:
-                cmd.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/s_axis_0] "
-                    "[get_bd_intf_pins %s/%s/s_axis_0]" % (bd_name, bd_name, inst_name)
-                )
-            elif id == len(loop_body.graph.input[1:]) - 1:
-                cmd.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
-                    "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, inst_name)
-                )
+            # if node is a fork connect data signals directly
+            # and insert AND logic for rdy and vld signals
+            elif len(dsts) > 1:
+                if "__INPUT0__" in src:
+                    cmd.append(
+                        "create_bd_cell -type ip "
+                        "-vlnv xilinx.com:ip:axis_broadcaster:1.1 %s/axi_broadcaster_0"
+                        % (src_inst_name)
+                    )
+                    cmd.append(
+                        "set_property CONFIG.NUM_MI {%d} [get_bd_cells %s/axi_broadcaster_0]"
+                        % (len(dsts), src_inst_name)
+                    )
+                    # connect component to clk, rst and input
+                    cmd.append(
+                        "connect_bd_net "
+                        "[get_bd_pins %s/axi_broadcaster_0/aresetn] [get_bd_pins %s/%s]"
+                        % (src_inst_name, bd_name, rst_name)
+                    )
+                    cmd.append(
+                        "connect_bd_net "
+                        "[get_bd_pins %s/axi_broadcaster_0/aclk] [get_bd_pins %s/%s]"
+                        % (src_inst_name, bd_name, clk_name)
+                    )
+                    cmd.append(
+                        "connect_bd_intf_net "
+                        "[get_bd_intf_pins %s/s_axis_0] "
+                        "[get_bd_intf_pins %s/axi_broadcaster_0/S_AXIS]"
+                        % (src_inst_name, src_inst_name)
+                    )
+                    for id, dst in enumerate(dsts):
+                        dst_inst_name = st_map[dst]
+                        cmd.append(
+                            "connect_bd_intf_net "
+                            "[get_bd_intf_pins %s/axi_broadcaster_0/M0%s_AXIS] "
+                            "[get_bd_intf_pins %s/%s/%s]"
+                            % (src_inst_name, id, src_inst_name, dst_inst_name, dst_intf_name)
+                        )
+                else:
+                    for id, dst in enumerate(dsts):
+                        dst_inst_name = st_map[dst]
+                        cmd.append(
+                            "connect_bd_net "
+                            "[get_bd_pins %s/%s_TDATA] [get_bd_pins %s/%s/%s_TDATA]"
+                            % (
+                                src_inst_name,
+                                src_intf_name,
+                                bd_name,
+                                dst_inst_name,
+                                dst_intf_name,
+                            )
+                        )
+                        cmd.append(
+                            "create_bd_cell -type ip "
+                            "-vlnv xilinx.com:inline_hdl:ilvector_logic:1.0 %s_ilvector_logic_%d"
+                            % (src_inst_name, id)
+                        )
+                        cmd.append(
+                            "set_property CONFIG.C_SIZE {1} [get_bd_cells %s_ilvector_logic_%d]"
+                            % (src_inst_name, id)
+                        )
+                        if id == 0:
+                            cmd.append(
+                                "connect_bd_net "
+                                "[get_bd_pins %s/%s_TVALID] [get_bd_pins %s_ilvector_logic_%d/Op1]"
+                                % (
+                                    src_inst_name,
+                                    src_intf_name,
+                                    src_inst_name,
+                                    id,
+                                )
+                            )
+                        elif id < len(dsts):
+                            cmd.append(
+                                "connect_bd_net "
+                                "[get_bd_pins %s_ilvector_logic_%d/Res] "
+                                "[get_bd_pins %s_ilvector_logic_%d/Op1]"
+                                % (src_inst_name, id - 1, src_inst_name, id)
+                            )
+
+                        cmd.append(
+                            "connect_bd_net "
+                            "[get_bd_pins %s/%s/%s_TREADY] [get_bd_pins %s_ilvector_logic_%d/Op2]"
+                            % (bd_name, dst_inst_name, dst_intf_name, src_inst_name, id)
+                        )
+
+                    cmd.append(
+                        "connect_bd_net "
+                        "[get_bd_pins %s_ilvector_logic_%d/Res] [get_bd_pins %s/%s_TREADY]"
+                        % (
+                            src_inst_name,
+                            len(dsts) - 1,
+                            src_inst_name,
+                            src_intf_name,
+                        )
+                    )
+                    for dst in dsts:
+                        dst_inst_name = st_map[dst]
+                        dst_intf_name = "s_axis_0"
+                        cmd.append(
+                            "connect_bd_net "
+                            "[get_bd_pins %s_ilvector_logic_%d/Res] [get_bd_pins %s/%s/%s_TVALID]"
+                            % (
+                                src_inst_name,
+                                len(dsts) - 1,
+                                bd_name,
+                                dst_inst_name,
+                                dst_intf_name,
+                            )
+                        )
+        # connect output of stream tap graph
+        last_nodes = [key for key, value in adj_list.items() if "__OUTPUT0__" in value]
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
+            "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, st_map[last_nodes[0]])
+        )
 
         # connect stream tap graph to clk and reset
         cmd.append(
