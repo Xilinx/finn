@@ -22,6 +22,8 @@ def generate_random_threshold_values(data_type, num_input_channels, num_steps):
 
 def make_loop_modelwrapper(mw, mh, iter_count):
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 3, 3, mw])
+    ifm_1 = helper.make_tensor_value_info("ifm_1", TensorProto.FLOAT, [1, 3, 3, mw])
+    ifm_2 = helper.make_tensor_value_info("ifm_2", TensorProto.FLOAT, [1, 3, 3, mw])
     mm0_out = helper.make_tensor_value_info("mm0_out", TensorProto.FLOAT, [1, 3, 3, mh])
     mt0_out = helper.make_tensor_value_info("mt0_out", TensorProto.FLOAT, [1, 3, 3, mh])
     mm1_out = helper.make_tensor_value_info("mm1_out", TensorProto.FLOAT, [1, 3, 3, mh])
@@ -46,9 +48,23 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     thresh0 = helper.make_tensor_value_info("thresh0", TensorProto.FLOAT, T0.shape)
     thresh1 = helper.make_tensor_value_info("thresh1", TensorProto.FLOAT, T1.shape)
     thresh2 = helper.make_tensor_value_info("thresh2", TensorProto.FLOAT, T2.shape)
+
+    dupstrm_node = helper.make_node(
+        "DuplicateStreams_hls",
+        ["ifm"],
+        ["ifm_1", "ifm_2"],
+        domain="finn.custom_op.fpgadataflow.hls",
+        backend="fpgadataflow",
+        NumChannels=mh,
+        NumOutputStreams=2,
+        PE=1,
+        inputDataType=dtype.name,
+        numInputVectors=[1, 3, 3],
+    )
+
     matmul_node0 = helper.make_node(
         "MVAU_rtl",
-        ["ifm", "weights0"],
+        ["ifm_1", "weights0"],
         ["mm0_out"],
         domain="finn.custom_op.fpgadataflow.rtl",
         backend="fpgadataflow",
@@ -126,7 +142,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     )
     matmul_node2 = helper.make_node(
         "MVAU_rtl",
-        ["ifm", "weights2"],
+        ["ifm_2", "weights2"],
         ["mm2_out"],
         domain="finn.custom_op.fpgadataflow.rtl",
         backend="fpgadataflow",
@@ -152,7 +168,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         ["mt2_out"],
         domain="finn.custom_op.fpgadataflow.rtl",
         backend="fpgadataflow",
-        NumChannels=mh,
+        NumChannels=3,
         PE=1,
         numSteps=T1.shape[1],
         inputDataType="INT32",
@@ -186,15 +202,23 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         inFIFODepths=[2, 2],
         name="MVAU_rtl3",
     )
-   
 
-    nodes = [matmul_node0, mt_node0, matmul_node1, mt_node1, matmul_node2, mt_node2, matmul_node3]
+    nodes = [
+        dupstrm_node,
+        matmul_node0,
+        mt_node0,
+        matmul_node1,
+        mt_node1,
+        matmul_node2,
+        mt_node2,
+        matmul_node3,
+    ]
     loop_body = helper.make_graph(
         nodes=nodes,
         name="matmul_graph",
         inputs=[ifm, weights0, thresh0, weights1, thresh1, weights2, thresh2],
         outputs=[ofm],
-        value_info=[mm0_out, mt0_out, mm1_out, mt1_out, mm2_out, mt2_out, mm3_out],
+        value_info=[ifm_1, ifm_2, mm0_out, mt0_out, mm1_out, mt1_out, mm2_out, mt2_out, mm3_out],
     )
     loop_body_model = qonnx_make_model(loop_body, producer_name="loop-body-model")
     loop_body_model = ModelWrapper(loop_body_model)
@@ -256,7 +280,9 @@ def test_fpgadataflow_loop():
     model = make_loop_modelwrapper(16, 16, 3)
     model = model.transform(InferShapes())
     model.save("finn_loop.onnx")
-    import pdb; pdb.set_trace()  # noqa: E702
+    import pdb
+
+    pdb.set_trace()  # noqa: E702
     inst = getCustomOp(model.graph.node[0])
     for i in range(len(model.graph.node[0].input)):
         idt = inst.get_input_datatype(i)
