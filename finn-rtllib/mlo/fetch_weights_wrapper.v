@@ -61,6 +61,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     output wire                                out_done,
 
     // AXI
+    (* X_INTERFACE_INFO = "xilinx.com:interface:aximm:1.0 axi_mm" *)
     output wire[ADDR_BITS-1:0]                 axi_mm_araddr,
     output wire[1:0]		                    axi_mm_arburst,
     output wire[3:0]		                    axi_mm_arcache,
