@@ -69,7 +69,7 @@ def test_end2end_mlo():
         rtlsim_batch_size=100,
         standalone_thresholds=True,
         #        verify_steps=verif_steps,
-        # stitched_ip_gen_dcp=True,
+        stitched_ip_gen_dcp=True,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
