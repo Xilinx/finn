@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import copy
 import math
 import numpy as np
 import os
@@ -414,11 +415,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for node in loop_body.graph.node:
             node_inst = getCustomOp(node)
             if node_inst.get_nodeattr("mlo_max_iter"):
+                # calculate TAP_REP
+                # for Thresholds this value is fm size / pe
+                # for all other param nodes it is 1
+                tap_rep = 1
+                if node.op_type == "Thresholding_rtl":
+                    tap_rep = np.prod(node_inst.get_folded_input_shape(0)[:-1])
                 stname = "IN_%s" % graph_inputs.index(node.input[1])
                 code_gen_dict = {
                     "$MODULE_NAME$": [stname],
                     "$DATA_WIDTH$": [str(data_width)],
-                    "$TAP_REP$": [str(iteration)],
+                    "$TAP_REP$": [str(tap_rep)],
                 }
                 # apply code generation to template
                 with open(template_path, "r") as f:
@@ -764,6 +771,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
             ),
         )
+
         # create map that maps each stream tap to its param node
         st_map = {}
         for id, inp in enumerate(loop_body.graph.input[1:]):
@@ -790,11 +798,13 @@ class FINNLoop(HWCustomOp, RTLBackend):
             )
 
         # prune adj_list to remove join duplicates
-        pruned_adj_list = adj_list.copy()
+        pruned_adj_list = copy.deepcopy(adj_list)
 
         for key in adj_list:
             if key.startswith("__INPUT") and "INPUT0" not in key:
                 del pruned_adj_list[key]
+            if "__OUTPUT0__" in adj_list[key] and len(adj_list[key]) > 1:
+                pruned_adj_list[key].remove("__OUTPUT0__")
 
         pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}  # exchange keys, values
         pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
@@ -878,17 +888,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         )
                         cmd.append(
                             "create_bd_cell -type ip "
-                            "-vlnv xilinx.com:inline_hdl:ilvector_logic:1.0 %s_ilvector_logic_%d"
+                            "-vlnv xilinx.com:ip:util_vector_logic:2.0 %s_util_vector_logic_%d"
                             % (src_inst_name, id)
                         )
                         cmd.append(
-                            "set_property CONFIG.C_SIZE {1} [get_bd_cells %s_ilvector_logic_%d]"
+                            "set_property CONFIG.C_SIZE {1} [get_bd_cells %s_util_vector_logic_%d]"
                             % (src_inst_name, id)
                         )
                         if id == 0:
                             cmd.append(
                                 "connect_bd_net "
-                                "[get_bd_pins %s/%s_TVALID] [get_bd_pins %s_ilvector_logic_%d/Op1]"
+                                "[get_bd_pins %s/%s_TVALID] "
+                                "[get_bd_pins %s_util_vector_logic_%d/Op1]"
                                 % (
                                     src_inst_name,
                                     src_intf_name,
@@ -899,20 +910,21 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         elif id < len(dsts):
                             cmd.append(
                                 "connect_bd_net "
-                                "[get_bd_pins %s_ilvector_logic_%d/Res] "
-                                "[get_bd_pins %s_ilvector_logic_%d/Op1]"
+                                "[get_bd_pins %s_util_vector_logic_%d/Res] "
+                                "[get_bd_pins %s_util_vector_logic_%d/Op1]"
                                 % (src_inst_name, id - 1, src_inst_name, id)
                             )
 
                         cmd.append(
                             "connect_bd_net "
-                            "[get_bd_pins %s/%s/%s_TREADY] [get_bd_pins %s_ilvector_logic_%d/Op2]"
+                            "[get_bd_pins %s/%s/%s_TREADY] "
+                            "[get_bd_pins %s_util_vector_logic_%d/Op2]"
                             % (bd_name, dst_inst_name, dst_intf_name, src_inst_name, id)
                         )
 
                     cmd.append(
                         "connect_bd_net "
-                        "[get_bd_pins %s_ilvector_logic_%d/Res] [get_bd_pins %s/%s_TREADY]"
+                        "[get_bd_pins %s_util_vector_logic_%d/Res] [get_bd_pins %s/%s_TREADY]"
                         % (
                             src_inst_name,
                             len(dsts) - 1,
@@ -925,7 +937,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         dst_intf_name = "s_axis_0"
                         cmd.append(
                             "connect_bd_net "
-                            "[get_bd_pins %s_ilvector_logic_%d/Res] [get_bd_pins %s/%s/%s_TVALID]"
+                            "[get_bd_pins %s_util_vector_logic_%d/Res] "
+                            "[get_bd_pins %s/%s/%s_TVALID]"
                             % (
                                 src_inst_name,
                                 len(dsts) - 1,
@@ -935,7 +948,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             )
                         )
         # connect output of stream tap graph
-        last_nodes = [key for key, value in adj_list.items() if "__OUTPUT0__" in value]
+        last_nodes = [
+            key
+            for key, value in adj_list.items()
+            if all(x.startswith("__OUTPUT0__") for x in value)
+        ]
         cmd.append(
             "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
             "[get_bd_intf_pins %s/%s/m_axis_0]" % (bd_name, bd_name, st_map[last_nodes[0]])
