@@ -40,6 +40,7 @@ module cdma_x #(
     parameter integer                   BURST_LEN = 64,
     parameter integer                   DATA_BITS = 256,
     parameter integer                   ADDR_BITS = 64,
+    parameter integer			LEN_BITS=32, // ADDED by STF to get xelab compliation through
     parameter integer                   ID_BITS = 2
 ) (
     input  wire                         aclk,
