@@ -294,6 +294,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict = {}
         code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
         code_gen_dict["$N_MAX_LAYERS$"] = (str(self.get_nodeattr("iteration")),)
+        code_gen_dict["$N_LAYERS$"] = [str(self.get_nodeattr("iteration"))]
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_output_datatype(0).bitwidth())]
 
@@ -475,9 +476,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         # using ap_none field to add control signals
         intf_names["ap_none"] = []
-        # n_layers and done_if should be externalize to a block diagram port
+        # done_if should be externalize to a block diagram port
         # and connected to the axil_iw_slv_mlo component
-        intf_names["ap_none"].append("n_layers")
         intf_names["ap_none"].append("done_if")
 
         loop_body = self.get_nodeattr("body")
@@ -677,14 +677,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 "create_bd_intf_pin -mode Master "
                 "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (self.onnx_node.name, intf[0])
             )
-        cnt_bits = 16
         for intf in control_intfs:
-            if intf == "n_layers":
-                cmd.append(
-                    "create_bd_pin -from %d -to 0 -dir I -type data /%s/%s"
-                    % (cnt_bits - 1, self.onnx_node.name, intf)
-                )
-            elif intf == "done_if":
+            if intf == "done_if":
                 cmd.append(
                     "create_bd_pin -from 1 -to 0 -dir O -type data /%s/%s"
                     % (self.onnx_node.name, intf)
@@ -707,7 +701,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         )
         # "externalize" some of the loop shell signals
         ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm", "idx_se", "idx_fs"]
-        ext_signals = ["n_layers", "done_if"]
+        ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
