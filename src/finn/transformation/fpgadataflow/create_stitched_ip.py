@@ -312,20 +312,13 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, input_intf_name)
             )
-            if node.op_type.startswith("MVAU"):
-                s_axis_name = inst_name + "_" + input_intf_name
-                self.connect_cmds.append(
-                    "set_property name %s [get_bd_intf_ports %s_0]" % (s_axis_name, input_intf_name)
-                )
-                self.intf_names["s_axis"].append((s_axis_name, input_intf_names[i][1]))
-            else:
-                self.connect_cmds.append(
-                    "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
-                    % (self.s_axis_idx, input_intf_name)
-                )
-                self.intf_names["s_axis"].append(
-                    ("s_axis_%d" % self.s_axis_idx, input_intf_names[i][1])
-                )
+            self.connect_cmds.append(
+                "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
+                % (self.s_axis_idx, input_intf_name)
+            )
+            self.intf_names["s_axis"].append(
+                ("s_axis_%d" % self.s_axis_idx, input_intf_names[i][1])
+            )
             self.has_s_axis = True
             self.s_axis_idx += 1
 
