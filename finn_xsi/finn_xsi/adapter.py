@@ -39,7 +39,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
             f.write(f"verilog work {glbl}\n")
 
         # extract (unique, by using a set) verilog headers for inclusion
-        verilog_headers = {os.path.dirname(x) for x in source_list if x.endswith(".vh")}
+        verilog_headers = {os.path.dirname(x) for x in source_list if x.endswith(".vh") or x.endswith(".svh")}
         verilog_header_incl_str = " ".join(["--include " + x for x in verilog_headers])
 
         for src_line in source_list:
@@ -50,11 +50,12 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
                 f.write(f"vhdl2008 work {src_line}\n")
             elif src_line.endswith(".sv"):
                 f.write(f"sv work {verilog_header_incl_str} {src_line}\n")
-            elif src_line.endswith(".vh"):
+            elif src_line.endswith(".vh") or src_line.endswith(".svh"):
                 # skip adding Verilog headers directly (see verilog_header_incl_str)
                 continue
             else:
                 raise Exception(f"Unknown extension for .prj file sources: {src_line}")
+
 
     # now call xelab to generate the .so for the design to be simulated
     # list of libs for xelab retrieved from Vitis HLS cosim cmdline

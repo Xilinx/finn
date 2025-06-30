@@ -400,6 +400,29 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                         outfile.write(line)
                                 os.remove(iter_file)
 
+
+                # Replace the path for the dat files in the ipgen files
+                # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
+                param_customop = getCustomOp(param_node)
+                ipgen_path = param_customop.get_nodeattr("ipgen_path")
+                if ipgen_path is not None and os.path.isdir(ipgen_path):
+                    for dname, dirs, files in os.walk(ipgen_path):
+                        for fname in files:
+                            if fname.endswith(".v"):
+                                fpath = os.path.join(dname, fname)
+                                with open(fpath, "r") as f:
+                                    s = f.read()
+                                old = '$readmemh(".'
+                                new = '$readmemh("%s' % path 
+                                s = s.replace(old, new)
+                                old = '"./'
+                                new = '"%s/' % path 
+                                s = s.replace(old, new)
+                                with open(fpath, "w") as f:
+                                    f.write(s)
+                
+                #import pdb; pdb.set_trace()
+
     def generate_hdl_stream_tap(self):
         """Helper function to generate verilog code for stream tap components."""
         template_path = (
