@@ -803,6 +803,37 @@ class FINNLoop(HWCustomOp, RTLBackend):
         pruned_adj_list = {tuple(v): k for k, v in pruned_adj_list.items()}  # exchange keys, values
         pruned_adj_list = {v: list(k) for k, v in pruned_adj_list.items()}
 
+        # look for double edges,
+        # e.g. input connected to node_x and intermediate node connected to node_x
+
+        pruned_adj_list_copy = copy.deepcopy(pruned_adj_list)
+
+        for key0, value0 in pruned_adj_list_copy.items():
+            for key1, value1 in pruned_adj_list_copy.items():
+                for val in value1:
+                    if val in value0 and key0 != key1:
+                        # check which src is in the topological order last
+                        # key0
+                        node0 = loop_body.get_node_from_name(key0)
+                        id0 = (
+                            loop_body.get_node_index(node0)
+                            if loop_body.get_node_index(node0) is not None
+                            else -1
+                        )
+                        # key1
+                        node1 = loop_body.get_node_from_name(key1)
+                        id1 = (
+                            loop_body.get_node_index(node1)
+                            if loop_body.get_node_index(node1) is not None
+                            else -1
+                        )
+                        # if node0 is earlier in the graph remove val from list
+                        if id0 < id1:
+                            pruned_adj_list[key0].remove(val)
+
+        # filter pruned_adj_list in case some of the values are now empty lists
+        pruned_adj_list = {key: value for key, value in pruned_adj_list.items() if value != []}
+
         # create stg
         for src, dsts in pruned_adj_list.items():
             if all(x.startswith("__OUTPUT") for x in dsts):
