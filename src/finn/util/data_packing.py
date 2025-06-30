@@ -28,18 +28,57 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import binascii
+
+# Import the faster packing functions. This is executed when loading the module
+# so that the faster version is always available when this is imported
+import ctypes as ct
 import numpy as np
 import os
 import sys
+import threading
 from bitstring import BitArray
+from math import ceil
+from numpy.ctypeslib import ndpointer
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Dict
 
+# Setup
+fastpack_source = os.path.abspath(os.path.join(os.path.dirname(__file__), "fast_pack.c"))
+fastpack_lib = os.path.abspath(os.path.join(os.path.dirname(__file__), "fastpack.so"))
+__fastpack_so = None
+__fastpack_load_lock = threading.Lock()
+assert os.path.isfile(fastpack_source), "Could not find fast_pack.c in the utils/ dir of FINN"
 
-def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
+
+# Singleton setup to safely load this module in multithreading contexts
+def get_fastpack():
+    global __fastpack_load_lock, __fastpack_so
+    with __fastpack_load_lock:
+        if __fastpack_so is None:
+            # Compile
+            if os.path.isfile(fastpack_lib):
+                os.system(f"rm {fastpack_lib}")
+            os.system(f"gcc -shared -O3 -fpic {fastpack_source} -o {fastpack_lib}")
+            assert os.path.isfile(fastpack_lib), "Could not find fastpack.so. Did compilation fail?"
+
+            # Load
+            fastpack = ct.CDLL(fastpack_lib)
+            fastpack_floatarray = ndpointer(ct.c_float, flags="C_CONTIGUOUS")
+            fastpack.array_to_hexstring_binary.argtypes = (
+                fastpack_floatarray,
+                ct.c_uint,
+                ct.c_uint,
+                ct.c_char_p,
+            )
+            fastpack.array_to_hexstring_binary.restype = ct.c_bool
+            __fastpack_so = fastpack
+    return __fastpack_so
+
+
+def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False, use_fastpack=True):
     """
     Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
     string.
@@ -49,6 +88,8 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     fixed width. The minimum value for pad_to_nbits is 4, since a single hex
     digit is four bits. reverse can be used to reverse the array prior to
     packing.
+    When use_fastpack is set to true, if available the function is outsourced
+    to a faster C implementation for some cases.
 
     Examples:
 
@@ -75,6 +116,17 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     # reverse prior to packing, if desired
     if reverse:
         array = np.flip(array, -1)
+
+    # Check if the fast way can be taken
+    # TODO: Expand this to cover more cases
+    if use_fastpack and dtype == DataType["BINARY"]:
+        output_string = ct.create_string_buffer(ceil(pad_to_nbits / 4) + 4)
+        success = get_fastpack().array_to_hexstring_binary(
+            np.asarray(array, order="C"), array.size, pad_to_nbits, output_string
+        )
+        assert success, f"Could not convert array {array} with datatype {dtype} to hexstring!"
+        return prefix + output_string.value.decode("utf-8")
+
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()
     # special handling for fixed point: rescale, then pack as integers
@@ -128,10 +180,11 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 
 def pack_innermost_dim_as_hex_string(
-    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x"
+    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x", use_fastpack=True
 ):
     """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring.
+    strings using array2hexstring. If use_fastpack is enabled this tries to speed
+    up the conversion
 
     Examples:
 
@@ -153,7 +206,9 @@ def pack_innermost_dim_as_hex_string(
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix)
+        return array2hexstring(
+            x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix, use_fastpack=use_fastpack
+        )
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
