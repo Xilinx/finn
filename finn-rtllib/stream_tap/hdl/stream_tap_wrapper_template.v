@@ -36,7 +36,7 @@ module $MODULE_NAME$_stream_tap_wrapper #(
 	parameter  TAP_REP = $TAP_REP$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0:m_axis_1 ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0:m_axis_1, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)

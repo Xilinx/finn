@@ -56,7 +56,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  O_BITS = $O_BITS$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:in1_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
