@@ -120,6 +120,7 @@ default_build_dataflow_steps = [
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",
+    "step_synth_ip",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
@@ -197,6 +198,50 @@ class DataflowBuildConfig:
     #: useful for decreasing the latency (even though throughput won't increase).
     folding_two_pass_relaxation: Optional[bool] = True
 
+    #: (Optional) Control the maximum width of the per-PE MVAU stream while
+    #: exploring the parallelization attributes to reach target_fps
+    #: Only relevant if target_fps is specified.
+    #: Set this to a large value (e.g. 10000) if targeting full unfolding or
+    #: very high performance.
+    mvau_wwidth_max: Optional[int] = 1024
+
+    # (Optional) which SetFolding optimizer to use (naive, optimized)
+    folding_style: Optional[str] = "naive"
+
+    # (Optional) How much padding to allow for enabling more fine-grain folding
+    # parameters (generally, more than 6 is unnecessary)
+    # Enabling this flag requires the generalized datawidthconverter in your finn branch
+    folding_maximum_padding: Optional[int] = 0
+
+    # (Optional) Whether to allow padding IO nodes during folding
+    # If set to True, the model IO npy arrays would also need to be
+    # padded by the user on host side! 
+    folding_pad_io_nodes: Optional[bool] = False
+
+    # (Optional) Heuristic to consider dwc LUT cost when performing folding
+    # this will make the folding optimizer avoid mismatching stream widths
+    enable_folding_dwc_heuristic: Optional[bool] = True
+
+    # (Optional) Heuristic to consider FIFO sizing cost when performing folding
+    # this heuristic might help with not over-sizing fifos
+    # Highly recommended to NOT enable this flag unless analytic fifo sizing is
+    # also being used and so RTLSIM is never called for folding
+    enable_folding_fifo_heuristic: Optional[bool] = False
+
+    # (Optional) How much effort to put into automatic folding
+    # minimizer function. Typical ranges are between 50 and 500
+    folding_effort: Optional[int] = 50
+
+    # (Optional) How many times to attempt to optimize throughput
+    # (binary search steps)
+    #  1: only attempts the target throughput
+    # >1: attempt to increase the throughput to the maximum possible
+    # for a given device. Increasing the value by one doubles the 
+    # precision towards reaching maximal throughput possible
+    # 2 attempts: at worst half of the maximum throughput
+    # 6 attempts: at worst 93.75% of maximum throughput
+    folding_max_attempts: Optional[int] = 1
+
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.
@@ -227,12 +272,11 @@ class DataflowBuildConfig:
     #: to the design: e.g. Customer signature, application signature, version
     signature: Optional[List[int]] = None
 
-    #: (Optional) Control the maximum width of the per-PE MVAU stream while
-    #: exploring the parallelization attributes to reach target_fps
-    #: Only relevant if target_fps is specified.
-    #: Set this to a large value (e.g. 10000) if targeting full unfolding or
-    #: very high performance.
-    mvau_wwidth_max: Optional[int] = 36
+
+    # (Optional) Flag for generating a hw config json in set_fifo_sizes
+    # this should be turned off during setFolding optimization's call
+    # to the set_fifo_sizes step
+    extract_hw_config: Optional[bool] = True
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HW layers,

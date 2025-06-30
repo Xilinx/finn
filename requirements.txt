@@ -19,3 +19,4 @@ sigtools==4.0.1
 toposort==1.7.0
 vcdvcd==1.0.5
 wget==3.2
+wrapdisc==2.5.0

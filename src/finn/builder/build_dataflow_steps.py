@@ -408,6 +408,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
     parallelization attributes. The auto-generated config will be saved under
@@ -421,6 +422,15 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 target_cycles_per_frame,
                 mvau_wwidth_max=cfg.mvau_wwidth_max,
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
+                style=cfg.folding_style,
+                folding_maximum_padding=cfg.folding_maximum_padding,
+                enable_folding_dwc_heuristic=cfg.enable_folding_dwc_heuristic,
+                enable_folding_fifo_heuristic=cfg.enable_folding_fifo_heuristic,
+                folding_effort=cfg.folding_effort,
+                folding_max_attempts=cfg.folding_max_attempts,
+                folding_pad_io_nodes=cfg.folding_pad_io_nodes,
+                platform=cfg.board,
+                auto_fifo_strategy=cfg.auto_fifo_strategy,
             )
         )
         # extract the suggested configuration and save it as json
