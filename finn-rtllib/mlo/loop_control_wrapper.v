@@ -73,7 +73,6 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  out0_V_tready,
 
     // control signals
-    input  wire [CNT_BITS-1:0] n_layers,
     output wire [1:0]         done_if,
 
     // AXI4S slave interface for idx_fs
@@ -160,7 +159,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .axis_se_tready(out0_V_tready),
 
        // control signals
-       .n_layers(n_layers),
+       .n_layers($N_LAYERS$),
        .done_if(done_if),
 
        // AXI4S slave interface for idx_fs
