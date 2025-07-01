@@ -681,7 +681,7 @@ def mlo_prehook_func_factory(model:ModelWrapper):
     def mlo_rtlsim_prehook(sim):
         sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
         for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf['value'])
+            sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf['value'].flatten())
 
     return mlo_rtlsim_prehook
 
