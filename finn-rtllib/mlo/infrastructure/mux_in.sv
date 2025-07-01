@@ -53,7 +53,6 @@ module mux_in #(
     input  wire                         aclk,
     input  wire                         aresetn,
 
-    /*AXI4S.slave                         s_idx_fs,*/
     AXI4S.slave                         s_idx_if,
     AXI4S.master                        m_idx_fw,
     AXI4S.master                        m_idx_out,
