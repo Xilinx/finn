@@ -421,8 +421,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 with open(fpath, "w") as f:
                                     f.write(s)
                 
-                #import pdb; pdb.set_trace()
-
     def generate_hdl_stream_tap(self):
         """Helper function to generate verilog code for stream tap components."""
         template_path = (
