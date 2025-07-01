@@ -287,7 +287,9 @@ class InsertAndSetFIFODepths(Transformation):
 
     def apply(self, model):
         if "FINNLoop" in [x.op_type for x in model.graph.node]:
+            reset_implementation(model.get_node_by_op_type("FINNLoop"))
             return (model, False)
+
         # these optypes may potentially be param nodes in an mlo
         # we'll temporarily change them to use external mode for FIFO sizing
         mlo_optypes = ["MVAU_hls", "MVAU_rtl", "Thresholding_rtl"]

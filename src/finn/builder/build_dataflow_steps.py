@@ -639,7 +639,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
     )
     model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
@@ -663,8 +663,6 @@ def mlo_prehook_func_factory(model:ModelWrapper):
             finnloop_op = getCustomOp(node);
     assert(finnloop_op != None)
 
-    #import pdb; pdb.set_trace()
-
     # Get a list of the input names that contain the term Weight
     interfaces = ["weights0", "weights1"]
     #for i in finnloop_op.inputs:
@@ -675,7 +673,6 @@ def mlo_prehook_func_factory(model:ModelWrapper):
         sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
         for i, name in enumerate(interfaces):
             sim.aximm_ro_image(f"m_axi_gemm{i}", 0, [_ for _ in range(2**16)])
-        import pdb; pdb.set_trace()
 
     return mlo_rtlsim_prehook
 
