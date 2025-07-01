@@ -413,14 +413,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 with open(fpath, "r") as f:
                                     s = f.read()
                                 old = '$readmemh(".'
-                                new = '$readmemh("%s' % path 
+                                new = '$readmemh("%s' % path
                                 s = s.replace(old, new)
                                 old = '"./'
-                                new = '"%s/' % path 
+                                new = '"%s/' % path
                                 s = s.replace(old, new)
                                 with open(fpath, "w") as f:
                                     f.write(s)
-                
+
     def generate_hdl_stream_tap(self):
         """Helper function to generate verilog code for stream tap components."""
         template_path = (
@@ -475,19 +475,13 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # AXI4S slave interface from outside loop to loop control externalize
         # to block diagram interface port and connect to fetch_start component
         intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
-        # AXI4S slave interface for idx_fs
-        # This interface should be externalized to an interface port on the block diagram
-        # and connected to the fetch_start component
-        intf_names["s_axis"].append(("idx_fs", str(data_bits)))
+
 
         intf_names["m_axis"] = []
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
         intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
-        # AXI4S master interface for idx_se
-        # This interface should be externalized to an interface port on the block diagram
-        # and connected to the store_end component
-        intf_names["m_axis"].append(("idx_se", str(data_bits)))
+
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
@@ -661,6 +655,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/axis_reg_tmplt.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/common/ram_p_c.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/intermediate_frames.sv",
+            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/create_index0_stream_from_input.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_in.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/mux_out.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/loop_control.sv",
@@ -721,7 +716,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
         )
         # "externalize" some of the loop shell signals
-        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm", "idx_se", "idx_fs"]
+        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm"]
         ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
@@ -753,6 +748,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "create_bd_intf_pin -mode Master "
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
         )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out_fw_idx]"
+            % (bd_name, loop_shell_name)
+        )
+
         cmd.append(
             "create_bd_intf_pin -mode Slave "
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/s_axis_0" % bd_name

@@ -182,7 +182,7 @@ always_comb begin : NSL
 
     case (state_C)
         ST_IDLE:
-            state_N = seq_out.tvalid ? (seq_out.tdata[CNT_BITS+LEN_BITS+:1] ? ST_MUX_IF : ST_MUX_FS) : ST_IDLE;
+            state_N = seq_out.tvalid ? (seq_out.tdata[CNT_BITS+:1] ? ST_MUX_IF : ST_MUX_FS) : ST_IDLE;
 
         ST_MUX_FS:
             state_N = (mux_done) ? ST_IDLE : ST_MUX_FS;
@@ -216,7 +216,7 @@ always_comb begin : DP
                 cnt_frames_N = 0;
                 cnt_N = 0;
                 n_frames_N = seq_out.tdata[0+:CNT_BITS];
-                len_N = seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;
+                len_N = 32'd16; /*seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;*/
             end
         end
 

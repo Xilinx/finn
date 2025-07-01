@@ -9,8 +9,12 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter M_AXI_HBM_BASE_ADDR = 0, // m_axi_hbm base address
     parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0
 ) (
-    input  wire           ap_clk,
-    input  wire           ap_rst_n,
+    //- Global Control ------------------
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:s_axis_core_out_fw_idx, ASSOCIATED_RESET = ap_rst_n" *)
+    (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
+    input   ap_clk,
+    (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
+    input   ap_rst_n,
 
     // AXI4 master interface for m_axi_hbm
     output [ADDR_BITS-1:0] m_axi_hbm_araddr,
