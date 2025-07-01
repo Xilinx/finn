@@ -115,16 +115,8 @@
 
         // control signals
         input  wire [CNT_BITS-1:0] n_layers,
-        output wire [1:0]         done_if,
+        output wire [1:0]          done_if
 
-        // AXI4S slave interface for idx_fs
-        input  [DATA_BITS-1:0] idx_fs_tdata,
-        input                  idx_fs_tvalid,
-        output                 idx_fs_tready,
-        // AXI4S master interface for idx_se
-        output [DATA_BITS-1:0] idx_se_tdata,
-        output                 idx_se_tvalid,
-        input                  idx_se_tready
     );
 
 
@@ -134,8 +126,6 @@
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_in_fw_idx ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_fs_if ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_se_if ();
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_fs_if ();
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_se_if ();
 
     `AXI_ASSIGN_I2S(m_axi_hbm_if, m_axi_hbm)
     `AXIS_ASSIGN_I2S(core_in, m_axis_core_in)
@@ -145,8 +135,6 @@
 
     `AXIS_ASSIGN_I2S(axis_fs_if, axis_fs)
     `AXIS_ASSIGN_S2I(axis_se, axis_se_if)
-    `AXIS_ASSIGN_I2S(idx_fs_if, idx_fs)
-    `AXIS_ASSIGN_S2I(idx_se, idx_se_if)
 
   //  ================-----------------------------------------------------------------
   //  Intermediate frames
@@ -198,7 +186,6 @@
    ) inst_mux_in (
        .aclk(aclk),
        .aresetn(aresetn),
-       .s_idx_fs(idx_fs_if),
        .s_idx_if(idx_if_out),
        .m_idx_fw(core_in_fw_idx),
        .m_idx_out(idx_out),
@@ -226,7 +213,6 @@
        .n_layers(n_layers),
 
        .s_idx(idx_out),
-       .m_idx_se(idx_se_if),
        .m_idx_if(idx_if_in),
 
        .s_axis(core_out),

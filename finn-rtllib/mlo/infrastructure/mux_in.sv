@@ -53,7 +53,7 @@ module mux_in #(
     input  wire                         aclk,
     input  wire                         aresetn,
 
-    AXI4S.slave                         s_idx_fs,
+    /*AXI4S.slave                         s_idx_fs,*/
     AXI4S.slave                         s_idx_if,
     AXI4S.master                        m_idx_fw,
     AXI4S.master                        m_idx_out,
@@ -88,7 +88,7 @@ AXI4S #(.AXI4S_DATA_BITS(CNT_BITS+LEN_BITS+1)) seq_out ();
 queue #(.QDEPTH(QDEPTH), .QWIDTH(CNT_BITS+LEN_BITS+1)) inst_queue_seq (.aclk(aclk), .aresetn(aresetn), .s_axis(seq), .m_axis(seq_out));
 
 always_comb begin
-    s_idx_fs.tready = 1'b0;
+    // s_idx_fs.tready = 1'b0;
     s_idx_if.tready = 1'b0;
 
     m_idx_fw_valid = '0;
@@ -100,16 +100,16 @@ always_comb begin
     seq.tdata = '0;
 
     if(fw_rdy && m_idx_out.tready && seq.tready) begin
-        if(s_idx_fs.tvalid) begin
-            s_idx_fs.tready = 1'b1;
+        if(/*s_idx_fs.tvalid*/) begin
+            /*s_idx_fs.tready = 1'b1;*/
             m_idx_fw_valid = '1;
             m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
 
-            m_idx_fw_data = s_idx_fs.tdata[0+:2*CNT_BITS];
-            m_idx_out.tdata = s_idx_fs.tdata;
-            seq.tdata = {1'b0, s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
+            m_idx_fw_data = /*s_idx_fs.tdata[0+:2*CNT_BITS]*/;
+            m_idx_out.tdata = /* s_idx_fs.tdata */;
+            seq.tdata = {1'b0, /*s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]*/};
         end
         else if(s_idx_if.tvalid) begin
             s_idx_if.tready = 1'b1;
