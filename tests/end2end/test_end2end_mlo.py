@@ -42,7 +42,7 @@ verif_steps = [
 
 
 def custom_give_unique_names(model, cfg):
-    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueNodeNames(), apply_to_subgraphs=True)
     return model
 
 steps = [
@@ -58,7 +58,7 @@ steps = [
     "step_hw_ipgen",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
-    # "step_measure_rtlsim_performance",
+    #"step_measure_rtlsim_performance",
 ]
 
 
