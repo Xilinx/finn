@@ -59,6 +59,11 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     output                 m_axis_core_in_fw_idx_tvalid,
     input                  m_axis_core_in_fw_idx_tready,
 
+    // AXI4S slave interface for core_out_fw_idx
+    input  [DATA_BITS-1:0] s_axis_core_out_fw_idx_tdata,
+    input                  s_axis_core_out_fw_idx_tvalid,
+    output                 s_axis_core_out_fw_idx_tready,
+
     // AXI4S slave interface for core_out
     input  [DATA_BITS-1:0] s_axis_core_out_tdata,
     input                  s_axis_core_out_tvalid,
@@ -141,6 +146,11 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .m_axis_core_in_fw_idx_tdata(m_axis_core_in_fw_idx_tdata),
        .m_axis_core_in_fw_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
        .m_axis_core_in_fw_idx_tready(m_axis_core_in_fw_idx_tready),
+
+        // AXI4S slave interface for core_out_fw_idx
+        .s_axis_core_out_fw_idx_tdata(s_axis_core_out_fw_idx_tdata),
+        .s_axis_core_out_fw_idx_tvalid(s_axis_core_out_fw_idx_tvalid),
+        .s_axis_core_out_fw_idx_tready(s_axis_core_out_fw_idx_tready),
 
        .axis_fs_tdata(in0_V_tdata),
        .axis_fs_tvalid(in0_V_tvalid),

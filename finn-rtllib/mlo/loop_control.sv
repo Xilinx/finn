@@ -105,6 +105,11 @@
         output                 m_axis_core_in_fw_idx_tvalid,
         input                  m_axis_core_in_fw_idx_tready,
 
+        // AXI4S slave interface for core_out_fw_idx
+        input  [DATA_BITS-1:0] s_axis_core_out_fw_idx_tdata,
+        input                  s_axis_core_out_fw_idx_tvalid,
+        output                 s_axis_core_out_fw_idx_tready,
+
         // activation signals
         input  [DATA_BITS-1:0] axis_fs_tdata,
         input                  axis_fs_tvalid,
@@ -124,6 +129,7 @@
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_in ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_out ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_in_fw_idx ();
+    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_out_fw_idx ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_fs_if ();
     AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_se_if ();
 
@@ -132,6 +138,7 @@
     `AXIS_ASSIGN_S2I(s_axis_core_out,  core_out)
 
     `AXIS_ASSIGN_I2S(core_in_fw_idx, m_axis_core_in_fw_idx)
+    `AXIS_ASSIGN_S2I(s_axis_core_out_fw_idx, core_out_fw_idx)
 
     `AXIS_ASSIGN_I2S(axis_fs_if, axis_fs)
     `AXIS_ASSIGN_S2I(axis_se, axis_se_if)
@@ -174,8 +181,6 @@
    // Mux in
    // ================-----------------------------------------------------------------
 
-   AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_out ();
-
    mux_in #(
        .ADDR_BITS(ADDR_BITS),
        .DATA_BITS(DATA_BITS),
@@ -188,7 +193,6 @@
        .aresetn(aresetn),
        .s_idx_if(idx_if_out),
        .m_idx_fw(core_in_fw_idx),
-       .m_idx_out(idx_out),
 
        .s_axis_fs(axis_fs_if),
        .s_axis_if(axis_if_out),
@@ -212,7 +216,7 @@
 
        .n_layers(n_layers),
 
-       .s_idx(idx_out),
+       .s_idx(core_out_fw_idx),
        .m_idx_if(idx_if_in),
 
        .s_axis(core_out),
