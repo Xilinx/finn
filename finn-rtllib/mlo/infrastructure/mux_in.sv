@@ -55,7 +55,6 @@ module mux_in #(
 
     AXI4S.slave                         s_idx_if,
     AXI4S.master                        m_idx_fw,
-    AXI4S.master                        m_idx_out,
 
     AXI4S.slave                         s_axis_fs,
     AXI4S.slave                         s_axis_if,
@@ -66,7 +65,6 @@ module mux_in #(
 // IO
 //
 
-logic fw_rdy;
 logic m_idx_fw_ready;
 logic m_idx_fw_valid;
 logic [2*CNT_BITS-1:0] m_idx_fw_data;
@@ -75,7 +73,6 @@ assign m_idx_fw_ready = m_idx_fw.tready;
 assign m_idx_fw.tvalid = m_idx_fw_valid;
 assign m_idx_fw.tdata = m_idx_fw_data;
 
-assign fw_rdy = &m_idx_fw_ready;
 
 //
 // Ctrl
@@ -91,33 +88,33 @@ always_comb begin
     s_idx_if.tready = 1'b0;
 
     m_idx_fw_valid = '0;
-    m_idx_out.tvalid = 1'b0;
+    //m_idx_out.tvalid = 1'b0;
     seq.tvalid = 1'b0;
 
     m_idx_fw_data = '0;
-    m_idx_out.tdata = '0;
+    //m_idx_out.tdata = '0;
     seq.tdata = '0;
 
-    if(fw_rdy && m_idx_out.tready && seq.tready) begin
+    if(m_idx_fw_ready && /*m_idx_out.tready &&*/ seq.tready) begin
         if(/*s_idx_fs.tvalid*/) begin
             /*s_idx_fs.tready = 1'b1;*/
             m_idx_fw_valid = '1;
-            m_idx_out.tvalid = 1'b1;
+            //m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
 
             m_idx_fw_data = /*s_idx_fs.tdata[0+:2*CNT_BITS]*/;
-            m_idx_out.tdata = /* s_idx_fs.tdata */;
+            //m_idx_out.tdata = /* s_idx_fs.tdata */;
             seq.tdata = {1'b0, /*s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]*/};
         end
         else if(s_idx_if.tvalid) begin
             s_idx_if.tready = 1'b1;
             m_idx_fw_valid = '1;
-            m_idx_out.tvalid = 1'b1;
+            //m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
             m_idx_fw_data = s_idx_if.tdata[0+:2*CNT_BITS];
-            m_idx_out.tdata = s_idx_if.tdata;
+            //m_idx_out.tdata = s_idx_if.tdata;
             seq.tdata = {1'b1, s_idx_if.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
         end
     end
