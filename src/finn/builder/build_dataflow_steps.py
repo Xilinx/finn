@@ -672,7 +672,7 @@ def mlo_prehook_func_factory(model:ModelWrapper):
     def mlo_rtlsim_prehook(sim):
         sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
         for i, name in enumerate(interfaces):
-            sim.aximm_ro_image(f"m_axi_gemm{i}", 0, [_ for _ in range(2**16)])
+            sim.aximm_ro_image(f"m_axi_gmem{i}", 0, [_ for _ in range(2**16)])
 
     return mlo_rtlsim_prehook
 
