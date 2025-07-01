@@ -31,13 +31,19 @@ import pytest
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from qonnx.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import make_build_dir
 
 verif_steps = [
-    "folded_hls_cppsim",
-    "node_by_node_rtlsim",
+    #"folded_hls_cppsim",
+   # "node_by_node_rtlsim",
     "stitched_ip_rtlsim",
 ]
+
+
+def custom_give_unique_names(model, cfg):
+    model = model.transform(GiveUniqueNodeNames())
+    return model
 
 steps = [
     #    "step_convert_to_hw",
@@ -46,6 +52,7 @@ steps = [
     #    "step_target_fps_parallelization",
     #    "step_apply_folding_config",
     "step_minimize_bit_width",
+    custom_give_unique_names,
     #    "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
@@ -53,6 +60,7 @@ steps = [
     "step_create_stitched_ip",
     # "step_measure_rtlsim_performance",
 ]
+
 
 
 @pytest.mark.slow
@@ -68,12 +76,12 @@ def test_end2end_mlo():
         board="V80",
         rtlsim_batch_size=100,
         standalone_thresholds=True,
-        #        verify_steps=verif_steps,
-        stitched_ip_gen_dcp=True,
+        verify_steps=verif_steps,
+        #stitched_ip_gen_dcp=True,
         generate_outputs=[
-            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            #build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
-            build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+            #build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
     )
     build.build_dataflow_cfg("finn_loop.onnx", cfg)

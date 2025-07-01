@@ -38,10 +38,17 @@
  */
 module cdma_u #(
     parameter integer                   BURST_LEN = 64,
-    parameter integer                   DATA_BITS = HBM_DATA_BITS,
-    parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
-    parameter integer                   LEN_BITS = HBM_LEN_BITS,
-    parameter integer                   ID_BITS = HBM_ID_BITS,
+    // Temp set these values (HBM_DATA_BITS, etc.. could not be found)
+    //parameter integer                   DATA_BITS = HBM_DATA_BITS,
+    //parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
+    //parameter integer                   LEN_BITS = HBM_LEN_BITS,
+    //parameter integer                   ID_BITS = HBM_ID_BITS,
+    
+    parameter integer                   DATA_BITS = 256,
+    parameter integer                   ADDR_BITS = 64,
+    parameter integer                   LEN_BITS = 32,
+    parameter integer                   ID_BITS = 2,
+
     parameter integer                   DCPL_DEPTH = 4
 ) (
     input  wire                         aclk,

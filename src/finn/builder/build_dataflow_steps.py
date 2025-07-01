@@ -513,7 +513,7 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
 
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
     )
     return model
 
@@ -644,6 +644,44 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
 
+def is_mlo(model:ModelWrapper)->bool:
+    """ Returns True if the model is an MLO model, false otherwise """
+    for node in model.graph.node:
+        if node.op_type == "FINNLoop":
+            return True
+    return False
+
+def mlo_prehook_func_factory(model:ModelWrapper):
+    """ Factory that will construct a prehook function to 
+    setup the axi memory mapped interfaces for MLO validation.
+    """
+
+    # Get the FINNLoop
+    finnloop_op = None
+    for node in model.graph.node:
+        if node.op_type == "FINNLoop":
+            finnloop_op = getCustomOp(node);
+    assert(finnloop_op != None)
+
+    #import pdb; pdb.set_trace()
+
+    # Get a list of the input names that contain the term Weight
+    interfaces = ["weights0", "weights1"]
+    #for i in finnloop_op.inputs:
+    #    if i.startswith("weights"):
+    #        interfaces.append(i)
+
+    def mlo_rtlsim_prehook(sim):
+        sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
+        for i, name in enumerate(interfaces):
+            sim.aximm_ro_image(f"m_axi_gemm{i}", 0, [_ for _ in range(2**16)])
+        import pdb; pdb.set_trace()
+
+    return mlo_rtlsim_prehook
+
+def verify_mlo(model:ModelWrapper, cfg: DataflowBuildConfig, step:str):
+    mlo_prehook = mlo_prehook_func_factory(model)
+    verify_step(model, cfg, "stitched_ip_rtlsim", need_parent=False, rtlsim_pre_hook=mlo_prehook)
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
@@ -683,7 +721,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             os.makedirs(verify_out_dir, exist_ok=True)
             abspath = os.path.abspath(verify_out_dir)
             verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
-        verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+        if is_mlo(model):
+            verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+        else:
+            verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
