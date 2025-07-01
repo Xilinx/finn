@@ -56,7 +56,6 @@ module mux_out #(
     input  logic [CNT_BITS-1:0]         n_layers,
 
     AXI4S.slave                         s_idx,
-    AXI4S.master                        m_idx_se,
     AXI4S.master                        m_idx_if,
 
     AXI4S.slave                         s_axis,
@@ -80,19 +79,19 @@ queue #(.QDEPTH(QDEPTH), .QWIDTH(CNT_BITS+LEN_BITS+1)) inst_queue_seq (.aclk(acl
 always_comb begin
     q_idx_out.tready = 1'b0;
 
-    m_idx_se.tvalid = 1'b0;
+    //m_idx_se.tvalid = 1'b0;
     m_idx_if.tvalid = 1'b0;
     seq.tvalid = 1'b0;
 
-    m_idx_se.tdata = q_idx_out.tdata;
+    //m_idx_se.tdata = q_idx_out.tdata;
     m_idx_if.tdata = q_idx_out.tdata;
     seq.tdata = '0;
 
     if(q_idx_out.tvalid) begin
         if(q_idx_out.tdata[0+:CNT_BITS] == n_layers - 1) begin
-            if(m_idx_se.tready && seq.tready) begin
+            if(/*m_idx_se.tready*/ && seq.tready) begin
                 q_idx_out.tready = 1'b1;
-                m_idx_se.tvalid = 1'b1;
+                //m_idx_se.tvalid = 1'b1;
                 seq.tvalid = 1'b1;
 
                 seq.tdata = {1'b0, q_idx_out.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};

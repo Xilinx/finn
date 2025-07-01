@@ -77,16 +77,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  out0_V_tready,
 
     // control signals
-    output wire [1:0]         done_if,
-
-    // AXI4S slave interface for idx_fs
-    input  [DATA_BITS-1:0] idx_fs_tdata,
-    input                  idx_fs_tvalid,
-    output                 idx_fs_tready,
-    // AXI4S master interface for idx_se
-    output [DATA_BITS-1:0] idx_se_tdata,
-    output                 idx_se_tvalid,
-    input                  idx_se_tready
+    output wire [1:0]         done_if
 );
 
     loop_control #(
@@ -164,17 +155,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
 
        // control signals
        .n_layers($N_LAYERS$),
-       .done_if(done_if),
-
-       // AXI4S slave interface for idx_fs
-      .idx_fs_tdata(idx_fs_tdata),
-      .idx_fs_tvalid(idx_fs_tvalid),
-      .idx_fs_tready(idx_fs_tready),
-
-      // AXI4S master interface for idx_se
-      .idx_se_tdata(idx_se_tdata),
-      .idx_se_tvalid(idx_se_tvalid),
-      .idx_se_tready(idx_se_tready)
+       .done_if(done_if)
 
     );
 
