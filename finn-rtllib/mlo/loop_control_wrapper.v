@@ -10,7 +10,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0
 ) (
     //- Global Control ------------------
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:idx_fs:idx_se, ASSOCIATED_RESET = ap_rst_n" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:s_axis_core_out_fw_idx, ASSOCIATED_RESET = ap_rst_n" *)
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
     input   ap_clk,
     (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
