@@ -123,6 +123,7 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 
 
@@ -520,7 +521,9 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
 
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
+        apply_to_subgraphs=True,
+        use_preorder_traversal=False,
     )
     return model
 
@@ -646,62 +649,25 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
+        apply_to_subgraphs=True,
+        use_preorder_traversal=False,
     )
     model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
 
-def is_mlo(model:ModelWrapper)->bool:
-    """ Returns True if the model is an MLO model, false otherwise """
-    for node in model.graph.node:
-        if node.op_type == "FINNLoop":
-            return True
-    return False
 
-def mlo_prehook_func_factory(model:ModelWrapper):
-    """ Factory that will construct a prehook function to 
-    setup the axi memory mapped interfaces for MLO validation.
-    """
-
-    # Get the FINNLoop
-    finnloop_op = None
-    for node in model.graph.node:
-        if node.op_type == "FINNLoop":
-            finnloop_op = getCustomOp(node);
-    assert(finnloop_op != None)
-
-    finnloop_body = finnloop_op.get_nodeattr("body")
-
-    mvau_hbm_weights = {} 
-    extern_idx = 0
-    for idx, lb_inp in enumerate(finnloop_body.graph.input):
-        downstream = finnloop_body.find_consumer(lb_inp.name)
-        if downstream.op_type.startswith("MVAU"):
-            mvau_hbm_weights[idx] = {}
-            mvau_hbm_weights[idx]['name'] = lb_inp.name
-            param_name = finnloop_op.onnx_node.input[idx]
-            param_val = model.get_initializer(param_name)
-            mvau_hbm_weights[idx]['value'] = param_val
-            mvau_hbm_weights[idx]['extern_idx'] = extern_idx
-            extern_idx = extern_idx + 1
-        
-    def mlo_rtlsim_prehook(sim):
-        sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
-        for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf['value'].flatten())
-
-    return mlo_rtlsim_prehook
-
-def verify_mlo(model:ModelWrapper, cfg: DataflowBuildConfig, step:str):
+def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
     mlo_prehook = mlo_prehook_func_factory(model)
     verify_step(model, cfg, "stitched_ip_rtlsim", need_parent=False, rtlsim_pre_hook=mlo_prehook)
+
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        # stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
             CreateStitchedIP(
                 cfg._resolve_fpga_part(),
@@ -713,10 +679,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             use_preorder_traversal=False,
         )
         # TODO copy all ip sources into output dir? as zip?
-        # shutil.copytree(
-        #    model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
-        # )
-        # print("Vivado stitched IP written into " + stitched_ip_dir)
+        shutil.copytree(
+            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        )
+        print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
