@@ -25,8 +25,6 @@
   * EVEN IF ADVISED OF THE POSSIBILITY OF    SUCH DAMAGE.
   */
 
-`include "axi_macros.svh"
-
 module axis_reg_array_tmplt #(
     parameter integer                   N_STAGES = 4,
     parameter integer                   DATA_BITS = 32
@@ -46,7 +44,10 @@ module axis_reg_array_tmplt #(
 // -----------------------------------------------------------------------------------------------------------------------
 // Register slices
 // -----------------------------------------------------------------------------------------------------------------------
-AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_s [N_STAGES+1] ();
+
+logic [DATA_BITS-1:0] axis_s_tdata[N_STAGES+1];
+logic                 axis_s_tvalid[N_STAGES+1];
+logic                 axis_s_tready[N_STAGES+1];
 
 assign axis_s[0].tdata      = s_axis_tdata;
 assign axis_s[0].tvalid     = s_axis_tvalid;
@@ -60,13 +61,13 @@ for(genvar i = 0; i < N_STAGES; i++) begin
     axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk),
                                                       .aresetn(aresetn),
 
-                                                      .s_axis_tvalid(axis_s[i].tvalid),
-                                                      .s_axis_tready(axis_s[i].tready),
-                                                      .s_axis_tdata(axis_s[i].tdata),
+                                                      .s_axis_tvalid(axis_s_tvalid[i]),
+                                                      .s_axis_tready(axis_s_tready[i]),
+                                                      .s_axis_tdata(axis_s_tdata[i]),
 
-                                                      .m_axis_tvalid(axis_s[i+1].tvalid),
-                                                      .m_axis_tready(axis_s[i+1].tready),
-                                                      .m_axis_tdata(axis_s[i+1].tdata));
+                                                      .m_axis_tvalid(axis_s_tvalid[i+1]),
+                                                      .m_axis_tready(axis_s_tready[i+1]),
+                                                      .m_axis_tdata(axis_s_tdata[i+1]));
 end
 
 endmodule
