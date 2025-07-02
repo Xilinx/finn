@@ -71,7 +71,7 @@ def mlo_prehook_func_factory(model:ModelWrapper)->Callable[[SimEngine], None]:
             extern_idx = extern_idx + 1
 
     def mlo_rtlsim_prehook(sim):
-        sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
+        sim.aximm_queue(f"m_axi_hbm")
         for name, intf in mvau_hbm_weights.items():
             sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf['value'].flatten())
 
