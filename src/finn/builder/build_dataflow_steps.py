@@ -124,7 +124,7 @@ from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
 from finn.util.test import execute_parent
-
+from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
 
 def verify_step(
     model: ModelWrapper,
@@ -643,47 +643,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
     model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
-
-def is_mlo(model:ModelWrapper)->bool:
-    """ Returns True if the model is an MLO model, false otherwise """
-    for node in model.graph.node:
-        if node.op_type == "FINNLoop":
-            return True
-    return False
-
-def mlo_prehook_func_factory(model:ModelWrapper):
-    """ Factory that will construct a prehook function to 
-    setup the axi memory mapped interfaces for MLO validation.
-    """
-
-    # Get the FINNLoop
-    finnloop_op = None
-    for node in model.graph.node:
-        if node.op_type == "FINNLoop":
-            finnloop_op = getCustomOp(node);
-    assert(finnloop_op != None)
-
-    finnloop_body = finnloop_op.get_nodeattr("body")
-
-    mvau_hbm_weights = {} 
-    extern_idx = 0
-    for idx, lb_inp in enumerate(finnloop_body.graph.input):
-        downstream = finnloop_body.find_consumer(lb_inp.name)
-        if downstream.op_type.startswith("MVAU"):
-            mvau_hbm_weights[idx] = {}
-            mvau_hbm_weights[idx]['name'] = lb_inp.name
-            param_name = finnloop_op.onnx_node.input[idx]
-            param_val = model.get_initializer(param_name)
-            mvau_hbm_weights[idx]['value'] = param_val
-            mvau_hbm_weights[idx]['extern_idx'] = extern_idx
-            extern_idx = extern_idx + 1
-        
-    def mlo_rtlsim_prehook(sim):
-        sim.aximm_ro_image(f"m_axi_hbm", 0, [_ for _ in range(2**16)])
-        for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf['value'].flatten())
-
-    return mlo_rtlsim_prehook
 
 def verify_mlo(model:ModelWrapper, cfg: DataflowBuildConfig, step:str):
     mlo_prehook = mlo_prehook_func_factory(model)
