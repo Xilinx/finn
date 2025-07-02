@@ -53,10 +53,8 @@ module mux_in #(
     input  wire                         aclk,
     input  wire                         aresetn,
 
-    AXI4S.slave                         s_idx_fs,
     AXI4S.slave                         s_idx_if,
     AXI4S.master                        m_idx_fw,
-    AXI4S.master                        m_idx_out,
 
     AXI4S.slave                         s_axis_fs,
     AXI4S.slave                         s_axis_if,
@@ -67,59 +65,68 @@ module mux_in #(
 // IO
 //
 
-logic fw_rdy;
-logic m_idx_fw_ready;
 logic m_idx_fw_valid;
-logic [2*CNT_BITS-1:0] m_idx_fw_data;
+logic [CNT_BITS-1:0] m_idx_fw_data;
 
-assign m_idx_fw_ready = m_idx_fw.tready;
 assign m_idx_fw.tvalid = m_idx_fw_valid;
 assign m_idx_fw.tdata = m_idx_fw_data;
 
-assign fw_rdy = &m_idx_fw_ready;
 
 //
 // Ctrl
 //
 
-AXI4S #(.AXI4S_DATA_BITS(CNT_BITS+LEN_BITS+1)) seq ();
-AXI4S #(.AXI4S_DATA_BITS(CNT_BITS+LEN_BITS+1)) seq_out ();
+AXI4S #(.AXI4S_DATA_BITS(CNT_BITS)) m_axis_idx_fs ();
+logic mux_done, fs_done;
 
-queue #(.QDEPTH(QDEPTH), .QWIDTH(CNT_BITS+LEN_BITS+1)) inst_queue_seq (.aclk(aclk), .aresetn(aresetn), .s_axis(seq), .m_axis(seq_out));
+
+assign mux_done = ((cnt_frames_C == n_frames_C - 1) && (cnt_C == len_C - 1) && (m_axis_int.tvalid & m_axis_int.tready));
+assign fs_done  = (state_C == ST_MUX_FS) && mux_done;
+
+create_index0_stream_from_input #(
+    .CNT_BITS(CNT_BITS)
+)
+   create_index0_stream_from_input_inst (
+    .aclk(aclk),
+    .aresetn(aresetn),
+
+    .s_axis_fs(s_axis_fs),
+    .s_axis_fs_done(fs_done),
+    .m_idx_fs(m_axis_idx_fs)
+);
+
+
+AXI4S #(.AXI4S_DATA_BITS(CNT_BITS + 1)) seq ();
+AXI4S #(.AXI4S_DATA_BITS(CNT_BITS + 1)) seq_out ();
+
+queue #(.QDEPTH(QDEPTH), .QWIDTH(CNT_BITS + 1)) inst_queue_seq (.aclk(aclk), .aresetn(aresetn), .s_axis(seq), .m_axis(seq_out));
 
 always_comb begin
-    s_idx_fs.tready = 1'b0;
+    m_axis_idx_fs.tready = 1'b0;
     s_idx_if.tready = 1'b0;
 
     m_idx_fw_valid = '0;
-    m_idx_out.tvalid = 1'b0;
     seq.tvalid = 1'b0;
 
     m_idx_fw_data = '0;
-    m_idx_out.tdata = '0;
     seq.tdata = '0;
 
-    if(fw_rdy && m_idx_out.tready && seq.tready) begin
-        if(s_idx_fs.tvalid) begin
-            s_idx_fs.tready = 1'b1;
+    if(m_idx_fw.tready && seq.tready) begin
+        if(m_axis_idx_fs.tvalid) begin
+            m_axis_idx_fs.tready = 1'b1;
             m_idx_fw_valid = '1;
-            m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
-
-            m_idx_fw_data = s_idx_fs.tdata[0+:2*CNT_BITS];
-            m_idx_out.tdata = s_idx_fs.tdata;
-            seq.tdata = {1'b0, s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
+            m_idx_fw_data = m_axis_idx_fs.tdata;
+            seq.tdata = {1'b0, m_axis_idx_fs.tdata};
         end
         else if(s_idx_if.tvalid) begin
             s_idx_if.tready = 1'b1;
             m_idx_fw_valid = '1;
-            m_idx_out.tvalid = 1'b1;
             seq.tvalid = 1'b1;
 
-            m_idx_fw_data = s_idx_if.tdata[0+:2*CNT_BITS];
-            m_idx_out.tdata = s_idx_if.tdata;
-            seq.tdata = {1'b1, s_idx_if.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
+            m_idx_fw_data = s_idx_if.tdata;
+            seq.tdata = {1'b1, s_idx_if.tdata};
         end
     end
 end
@@ -175,13 +182,13 @@ always_comb begin : NSL
 
     case (state_C)
         ST_IDLE:
-            state_N = seq_out.tvalid ? (seq_out.tdata[CNT_BITS+LEN_BITS+:1] ? ST_MUX_IF : ST_MUX_FS) : ST_IDLE;
+            state_N = seq_out.tvalid ? (seq_out.tdata[CNT_BITS+:1] ? ST_MUX_IF : ST_MUX_FS) : ST_IDLE;
 
         ST_MUX_FS:
-            state_N = ((cnt_frames_C == n_frames_C - 1) && (cnt_C == len_C - 1) && (m_axis_int.tvalid & m_axis_int.tready)) ? ST_IDLE : ST_MUX_FS;
+            state_N = (mux_done) ? ST_IDLE : ST_MUX_FS;
 
         ST_MUX_IF:
-            state_N = ((cnt_frames_C == n_frames_C - 1) && (cnt_C == len_C - 1) && (m_axis_int.tvalid & m_axis_int.tready)) ? ST_IDLE : ST_MUX_IF;
+            state_N = (mux_done) ? ST_IDLE : ST_MUX_IF;
 
     endcase
 end
@@ -209,7 +216,7 @@ always_comb begin : DP
                 cnt_frames_N = 0;
                 cnt_N = 0;
                 n_frames_N = seq_out.tdata[0+:CNT_BITS];
-                len_N = seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;
+                len_N = 32'd16; /*seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;*/
             end
         end
 
