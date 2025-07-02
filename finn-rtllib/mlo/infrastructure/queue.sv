@@ -55,8 +55,8 @@ Q_srl #(
 ) inst_q (
     .clock(aclk),
     .reset(!aresetn),
-    .count(count),
-    .maxcount(maxcount),
+    .count(c),
+    .maxcount(m),
     .i_d(s_axis.tdata),
     .i_v(s_axis.tvalid),
     .i_r(s_axis.tready),
