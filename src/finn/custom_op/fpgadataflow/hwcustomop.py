@@ -368,7 +368,7 @@ class HWCustomOp(CustomOp):
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$LAYER_OFFS$": [str(layer_offs)],
-                "$N_MAX_LAYERS$": [str(n_max_layers)],
+                "$N_LAYERS$": [str(n_max_layers)],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
