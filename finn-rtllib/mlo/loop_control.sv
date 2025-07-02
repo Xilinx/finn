@@ -176,7 +176,7 @@
         .IDX_BITS(IDX_BITS),
         .FM_SIZE(FM_SIZE),
         .OLEN_BITS(OLEN_BITS)
-    ) inst_mux_in (
+    ) inst_mux_out (
         .aclk(aclk),
         .aresetn(aresetn),
 

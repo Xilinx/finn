@@ -50,7 +50,6 @@ module fetch_weights #(
     parameter int unsigned              LEN_BITS = 32,
     parameter int unsigned              IDX_BITS = 16,
 
-    parameter logic[ADDR_BITS-1:0]      LAYER_OFFS,
     parameter int unsigned              N_LAYERS,
 
     parameter int unsigned              QDEPTH = 8,
@@ -59,8 +58,9 @@ module fetch_weights #(
     parameter int unsigned              DBG = 0,
 
     // Safely deducible parameters
-    parameter   DS_BITS_BA = (PE+7)/8 * 8,
-	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+    parameter                          DS_BITS_BA = (PE+7)/8 * 8,
+	parameter                          WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + 8) & ~7 // 8-byte aligned
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,

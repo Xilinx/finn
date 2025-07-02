@@ -175,7 +175,7 @@ assign m_idx_tdata = idx_C;
 
 // Regs
 typedef enum logic[1:0] {ST_DATA_IDLE, ST_DATA_MUX_SE, ST_DATA_MUX_IF} state_data_t;
-state_t state_data_C = ST_DATA_IDLE, state_data_N;
+state_data_t state_data_C = ST_DATA_IDLE, state_data_N;
 
 logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
 

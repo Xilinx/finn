@@ -49,13 +49,13 @@ logic [DATA_BITS-1:0] axis_s_tdata[N_STAGES+1];
 logic                 axis_s_tvalid[N_STAGES+1];
 logic                 axis_s_tready[N_STAGES+1];
 
-assign axis_s[0].tdata      = s_axis_tdata;
-assign axis_s[0].tvalid     = s_axis_tvalid;
-assign s_axis_tready        = axis_s[0].tready;
+assign axis_s_tdata[0]      = s_axis_tdata;
+assign axis_s_tvalid[0]     = s_axis_tvalid;
+assign s_axis_tready        = axis_s_tready[0];
 
-assign m_axis_tdata  = axis_s[N_STAGES].tdata;
-assign m_axis_tvalid = axis_s[N_STAGES].tvalid;
-assign axis_s[N_STAGES].tready = m_axis_tready;
+assign m_axis_tdata  = axis_s_tdata[N_STAGES];
+assign m_axis_tvalid = axis_s_tvalid[N_STAGES];
+assign axis_s_tready[N_STAGES] = m_axis_tready;
 
 for(genvar i = 0; i < N_STAGES; i++) begin
     axis_reg_tmplt #(.DATA_BITS(DATA_BITS)) inst_reg (.aclk(aclk),
