@@ -37,8 +37,6 @@
     //
     // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
-    `include "axi_macros.svh"
-
     module loop_control #(
         // COMPILER SET, this is the size of the global in, global out frames
         parameter int unsigned FM_SIZE, 
