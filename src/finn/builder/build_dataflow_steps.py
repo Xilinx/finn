@@ -123,8 +123,9 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
-from finn.util.test import execute_parent
 from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
+from finn.util.test import execute_parent
+
 
 def verify_step(
     model: ModelWrapper,
@@ -513,7 +514,9 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
 
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
+        apply_to_subgraphs=True,
+        use_preorder_traversal=False,
     )
     return model
 
@@ -639,21 +642,25 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
     model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()), apply_to_subgraphs=True, use_preorder_traversal=False
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
+        apply_to_subgraphs=True,
+        use_preorder_traversal=False,
     )
     model = model.transform(HLSSynthIP(), apply_to_subgraphs=True)
     return model
 
-def verify_mlo(model:ModelWrapper, cfg: DataflowBuildConfig, step:str):
+
+def verify_mlo(model: ModelWrapper, cfg: DataflowBuildConfig, step: str):
     mlo_prehook = mlo_prehook_func_factory(model)
     verify_step(model, cfg, "stitched_ip_rtlsim", need_parent=False, rtlsim_pre_hook=mlo_prehook)
+
 
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        # stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
             CreateStitchedIP(
                 cfg._resolve_fpga_part(),
@@ -665,10 +672,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             use_preorder_traversal=False,
         )
         # TODO copy all ip sources into output dir? as zip?
-        # shutil.copytree(
-        #    model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
-        # )
-        # print("Vivado stitched IP written into " + stitched_ip_dir)
+        shutil.copytree(
+            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        )
+        print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
