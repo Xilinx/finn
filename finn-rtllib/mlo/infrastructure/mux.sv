@@ -49,22 +49,27 @@ module mux #(
     input  logic                        aclk,
     input  logic                        aresetn,
 
+    // Index Coming From Intermediate Frame Buffer
     input  logic                        s_idx_tvalid,
     output logic                        s_idx_tready,
     input  logic [IDX_BITS-1:0]         s_idx_tdata,
 
+    // Index To StreamTap
     output logic                        m_idx_tvalid,
     input  logic                        m_idx_tready,
     output logic [IDX_BITS-1:0]         m_idx_tdata,
 
+    // Input Activation Data
     input  logic                        s_axis_fs_tvalid,
     output logic                        s_axis_fs_tready,
     input  logic [ILEN_BITS-1:0]        s_axis_fs_tdata,
 
+    // Activation Data From Intermediate Frame Buffer
     input  logic                        s_axis_if_tvalid,
     output logic                        s_axis_if_tready,
     input  logic [ILEN_BITS-1:0]        s_axis_if_tdata,
 
+    // Output Activation Data to Data Path
     output logic                        m_axis_tvalid,
     input  logic                        m_axis_tready,
     output logic [ILEN_BITS-1:0]        m_axis_tdata
@@ -284,6 +289,7 @@ always_comb begin : DP
     m_axis_int_tvalid = 1'b0;
     m_axis_int_tdata = '0;
 
+    axis_fs_tready = 1'b0;
     s_axis_if_tready = 1'b0;
 
     // RD
@@ -294,8 +300,9 @@ always_comb begin : DP
         end
 
         ST_DATA_MUX_FS: begin
-            m_axis_int_tvalid = s_axis_fs_tvalid;
-            m_axis_int_tdata = s_axis_fs_tdata;
+            m_axis_int_tvalid = axis_fs_tvalid;
+            //axis_fs_tready = m_axis_int_tready;
+            m_axis_int_tdata = axis_fs_tdata;
 
             if(m_axis_int_tvalid & m_axis_int_tready) begin
                 cnt_data_N = cnt_data_C + 1;
