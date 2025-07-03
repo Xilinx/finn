@@ -128,10 +128,11 @@ always_comb begin: DP
     val_seq_N = val_seq_C;
     idx_N = idx_C;
     seq_N = seq_C;
-
+    s_idx_tready = 1'b0;
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
             if(s_idx_tvalid) begin
+                s_idx_tready = 1'b1;
                 if(s_idx_tdata == N_LAYERS-1) begin
                     val_seq_N = 1'b1;
                     seq_N = 1'b0;
