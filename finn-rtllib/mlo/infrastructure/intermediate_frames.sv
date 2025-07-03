@@ -38,8 +38,6 @@
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
 module intermediate_frames #(
-    parameter logic[ADDR_BITS-1:0]      FM_SIZE,
-
     parameter int unsigned              ILEN_BITS,
     parameter int unsigned              OLEN_BITS,
 
@@ -47,6 +45,8 @@ module intermediate_frames #(
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
     parameter int unsigned              IDX_BITS = 16,
+
+    parameter logic[LEN_BITS-1:0]       FM_SIZE,
 
     parameter int unsigned              N_OUTSTANDING_DMAS = 128,
 
