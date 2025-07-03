@@ -53,8 +53,8 @@ module axis_dwc #(
 
     output logic                        m_axis_tvalid,
     input  logic                        m_axis_tready,
-    output logic [S_DATA_BITS-1:0]      m_axis_tdata,
-    output logic [S_DATA_BITS/8-1:0]    m_axis_tkeep,
+    output logic [M_DATA_BITS-1:0]      m_axis_tdata,
+    output logic [M_DATA_BITS/8-1:0]    m_axis_tkeep,
     output logic                        m_axis_tlast
 );
 
@@ -75,6 +75,7 @@ axis_fifo_adapter #(
     .s_axis_tdest   ('0),
     .s_axis_tuser   ('0),
 
+    .pause_req('0),
 
     .m_axis_tdata   (m_axis_tdata),
     .m_axis_tkeep   (m_axis_tkeep),
