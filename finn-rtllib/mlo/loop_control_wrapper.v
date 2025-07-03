@@ -56,7 +56,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  m_axi_hbm_bvalid,
 
     // AXI4S master interface for core_in
-    output [DATA_BITS-1:0] m_axis_core_in_tdata,
+    output [ILEN_BITS-1:0] m_axis_core_in_tdata,
     output                 m_axis_core_in_tvalid,
     input                  m_axis_core_in_tready,
 
@@ -66,7 +66,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  m_axis_core_in_fw_idx_tready,
 
     // AXI4S slave interface for core_out
-    input  [DATA_BITS-1:0] s_axis_core_out_tdata,
+    input  [OLEN_BITS-1:0] s_axis_core_out_tdata,
     input                  s_axis_core_out_tvalid,
     output                 s_axis_core_out_tready,
 
@@ -76,11 +76,11 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     output                 s_axis_core_out_fw_idx_tready,
 
     // Activation signals
-    input  [DATA_BITS-1:0] in0_V_tdata,
+    input  [ILEN_BITS-1:0] in0_V_tdata,
     input                  in0_V_tvalid,
     output                 in0_V_tready,
 
-    output [DATA_BITS-1:0] out0_V_tdata,
+    output [OLEN_BITS-1:0] out0_V_tdata,
     output                 out0_V_tvalid,
     input                  out0_V_tready,
 
