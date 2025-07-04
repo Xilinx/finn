@@ -38,8 +38,6 @@
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
 module intermediate_frames #(
-    parameter logic[ADDR_BITS-1:0]      FM_SIZE,
-
     parameter int unsigned              ILEN_BITS,
     parameter int unsigned              OLEN_BITS,
 
@@ -47,6 +45,8 @@ module intermediate_frames #(
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
     parameter int unsigned              IDX_BITS = 16,
+
+    parameter logic[LEN_BITS-1:0]       FM_SIZE,
 
     parameter int unsigned              N_OUTSTANDING_DMAS = 128,
 
@@ -107,7 +107,7 @@ module intermediate_frames #(
     input  logic [OLEN_BITS-1:0]        s_axis_tdata,
     input  logic                        s_axis_tvalid,
     output logic                        s_axis_tready,
-    
+
     output logic [ILEN_BITS-1:0]        m_axis_tdata,
     output logic                        m_axis_tvalid,
     input  logic                        m_axis_tready
@@ -177,7 +177,7 @@ always_ff @(posedge aclk) begin: REG_WR
     end else begin
         state_wr_C <= state_wr_N;
         wr_ptr_C <= wr_ptr_N;
-    end 
+    end
 end
 
 always_comb begin: NSL_WR
@@ -200,7 +200,7 @@ always_comb begin: DP_WR
     m_idx_tvalid = 1'b0;
     m_idx_tdata = idx_in_tdata + 1;
 
-    s0_dma_in_tvalid = 1'b1;
+    s0_dma_in_tvalid = 1'b0;
     s0_dma_in_tdata = l_offsets[wr_ptr_C];
     wr_sent = 1'b0;
 
@@ -213,8 +213,8 @@ always_comb begin: DP_WR
                     idx_in_tready = 1'b1;
                 end
             end
-        end 
-        
+        end
+
         ST_WR_SEND: begin
             if(wr_rdy) begin
                 s0_dma_in_tvalid = 1'b1;
@@ -275,7 +275,7 @@ always_ff @(posedge aclk) begin: REG_RD
     end else begin
         state_rd_C <= state_rd_N;
         rd_ptr_C <= rd_ptr_N;
-    end 
+    end
 end
 
 always_comb begin: NSL_RD
@@ -295,7 +295,7 @@ always_comb begin: DP_RD
     rd_ptr_N = rd_ptr_C;
 
     rd_start = 1'b0;
-    s1_dma_in_tvalid = 1'b1;
+    s1_dma_in_tvalid = 1'b0;
     s1_dma_in_tdata = l_offsets[rd_ptr_C];
 
     case (state_rd_C)
@@ -303,7 +303,7 @@ always_comb begin: DP_RD
             if(done_wr_out) begin
                 rd_start = 1'b1;
             end
-        end 
+        end
 
         ST_RD_SEND: begin
             s1_dma_in_tvalid = 1'b1;
