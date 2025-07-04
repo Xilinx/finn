@@ -99,12 +99,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // Index
     input  wire                                in_idx0_V_tvalid,
     output wire                                in_idx0_V_tready,
-    input  wire[IDX_BITS-1:0]                in_idx0_V_tdata,
+    input  wire[IDX_BITS-1:0]                  in_idx0_V_tdata,
 
     // Stream
-    output wire                                out0_V_TVALID,
-    input  wire                                out0_V_TREADY,
-    output wire[WS_BITS_BA-1:0]    out0_V_TDATA
+    output wire                                out0_V_tvalid,
+    input  wire                                out0_V_tready,
+    output wire[WS_BITS_BA-1:0]                out0_V_tdata
 );
 
 
@@ -153,13 +153,13 @@ fetch_weights #(
     .m_axi_ddr_bready   (axi_mm_bready),
     .m_axi_ddr_bvalid   (axi_mm_bvalid),
 
-    .s_idx_tvalid       (in_idx0_V_TVALID),
-    .s_idx_tready       (in_idx0_V_TREADY),
-    .s_idx_tdata        (in_idx0_V_TDATA),
+    .s_idx_tvalid       (in_idx0_V_tvalid),
+    .s_idx_tready       (in_idx0_V_tready),
+    .s_idx_tdata        (in_idx0_V_tdata),
 
-    .m_axis_tvalid      (out0_V_TVALID),
-    .m_axis_tready      (out0_V_TREADY),
-    .m_axis_tdata       (out0_V_TDATA)
+    .m_axis_tvalid      (out0_V_tvalid),
+    .m_axis_tready      (out0_V_tready),
+    .m_axis_tdata       (out0_V_tdata)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

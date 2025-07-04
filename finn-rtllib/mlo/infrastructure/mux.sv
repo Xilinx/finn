@@ -46,28 +46,33 @@ module mux #(
     parameter int unsigned              QDEPTH = 32,
     parameter int unsigned              N_DCPL_STGS = 1
 ) (
-    input  wire                         aclk,
-    input  wire                         aresetn,
+    input  logic                        aclk,
+    input  logic                        aresetn,
 
-    input  wire                         s_idx_tvalid,
-    output wire                         s_idx_tready,
-    input  wire [IDX_BITS-1:0]          s_idx_tdata,
+    // Index Coming From Intermediate Frame Buffer
+    input  logic                        s_idx_tvalid,
+    output logic                        s_idx_tready,
+    input  logic [IDX_BITS-1:0]         s_idx_tdata,
 
-    output wire                         m_idx_tvalid,
-    input  wire                         m_idx_tready,
-    output wire [IDX_BITS-1:0]          m_idx_tdata,
+    // Index To StreamTap
+    output logic                        m_idx_tvalid,
+    input  logic                        m_idx_tready,
+    output logic [IDX_BITS-1:0]         m_idx_tdata,
 
-    input  wire                         s_axis_fs_tvalid,
-    output wire                         s_axis_fs_tready,
-    input  wire [ILEN_BITS-1:0]         s_axis_fs_tdata,
+    // Input Activation Data
+    input  logic                        s_axis_fs_tvalid,
+    output logic                        s_axis_fs_tready,
+    input  logic [ILEN_BITS-1:0]        s_axis_fs_tdata,
 
-    input  wire                         s_axis_if_tvalid,
-    output wire                         s_axis_if_tready,
-    input  wire [ILEN_BITS-1:0]         s_axis_if_tdata,
+    // Activation Data From Intermediate Frame Buffer
+    input  logic                        s_axis_if_tvalid,
+    output logic                        s_axis_if_tready,
+    input  logic [ILEN_BITS-1:0]        s_axis_if_tdata,
 
-    output wire                         m_axis_tvalid,
-    input  wire                         m_axis_tready,
-    output wire [ILEN_BITS-1:0]         m_axis_tdata
+    // Output Activation Data to Data Path
+    output logic                        m_axis_tvalid,
+    input  logic                        m_axis_tready,
+    output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
 localparam integer FM_BEATS = FM_SIZE / (ILEN_BITS/8);
@@ -75,7 +80,7 @@ localparam integer FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //
 // Generate idx from data
-// 
+//
 
 typedef enum logic[0:0] {ST_GEN_IDLE, ST_GEN_DATA} state_gen_t;
 state_gen_t state_gen_C = ST_GEN_IDLE, state_gen_N;
@@ -94,28 +99,31 @@ always_ff @(posedge aclk) begin: REG_GEN
     end else begin
         state_gen_C <= state_gen_N;
         cnt_gen_C <= cnt_gen_N;
-    end 
+    end
 end
 
 always_comb begin: NSL_GEN
     state_gen_N = state_gen_C;
 
     case (state_gen_C)
-        ST_GEN_IDLE: 
+        ST_GEN_IDLE:
             state_gen_N = (s_axis_fs_tvalid && idx_fs_tready) ? ST_GEN_DATA : ST_GEN_IDLE;
 
         ST_GEN_DATA:
             state_gen_N = (axis_fs_tvalid && axis_fs_tready && (cnt_gen_C == FM_BEATS-1)) ? ST_GEN_IDLE : ST_GEN_DATA;
-        
+
     endcase
 end
+
+assign s_axis_fs_tready = axis_fs_tready;
+assign axis_fs_tready = m_axis_int_tready;
 
 always_comb begin: DP_GEN
     cnt_gen_N = cnt_gen_C;
 
     axis_fs_tvalid = 1'b0;
     axis_fs_tdata = s_axis_fs_tdata;
-    s_axis_fs_tready = 1'b0;
+    //s_axis_fs_tready = 1'b0;
 
     idx_fs_tvalid = 1'b0;
 
@@ -129,7 +137,7 @@ always_comb begin: DP_GEN
 
         ST_GEN_DATA: begin
             axis_fs_tvalid = s_axis_fs_tvalid;
-            s_axis_fs_tready = axis_fs_tready;
+            //s_axis_fs_tready = axis_fs_tready;
 
             if(s_axis_fs_tvalid && s_axis_fs_tready) begin
                 cnt_gen_N = cnt_gen_C + 1;
@@ -141,7 +149,7 @@ end
 
 //
 // Mux control
-// 
+//
 
 typedef enum logic[0:0] {ST_CTRL_IDLE, ST_CTRL_SEND} state_ctrl_t;
 state_ctrl_t state_ctrl_C = ST_CTRL_IDLE, state_ctrl_N;
@@ -170,7 +178,7 @@ always_ff @(posedge aclk) begin: REG_CTRL
         val_seq_C <= val_seq_N;
         idx_C <= idx_N;
         seq_C <= seq_N;
-    end 
+    end
 end
 
 always_comb begin: NSL_CTRL
@@ -193,7 +201,7 @@ always_comb begin: DP_CTRL
 
     idx_fs_tready = 1'b0;
     s_idx_tready = 1'b0;
-    
+
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
             if(idx_fs_tvalid) begin
@@ -211,7 +219,7 @@ always_comb begin: DP_CTRL
                 val_idx_N = 1'b1;
                 val_seq_N = 1'b1;
 
-                idx_N = s_idx_if.tdata;
+                idx_N = s_idx_tdata;
                 seq_N = 1'b1;
             end
         end
@@ -283,21 +291,21 @@ always_comb begin : DP
 
     m_axis_int_tvalid = 1'b0;
     m_axis_int_tdata = '0;
-    
-    s_axis_fs_tready = 1'b0;
+
+    //axis_fs_tready = 1'b0;
     s_axis_if_tready = 1'b0;
 
     // RD
-    case (state_C)
+    case (state_data_C)
         ST_DATA_IDLE: begin
             seq_out_tready = 1'b1;
             cnt_data_N = 0;
         end
 
         ST_DATA_MUX_FS: begin
-            m_axis_int_tvalid = s_axis_fs_tvalid;
-            s_axis_fs_tready = m_axis_int_tready;
-            m_axis_int_tdata = s_axis_fs_tdata;
+            m_axis_int_tvalid = axis_fs_tvalid;
+            //axis_fs_tready = m_axis_int_tready;
+            m_axis_int_tdata = axis_fs_tdata;
 
             if(m_axis_int_tvalid & m_axis_int_tready) begin
                 cnt_data_N = cnt_data_C + 1;

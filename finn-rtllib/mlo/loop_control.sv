@@ -37,13 +37,11 @@
     //
     // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
-    `include "axi_macros.svh"
-
     module loop_control #(
         // COMPILER SET, this is the size of the global in, global out frames
-        parameter int unsigned FM_SIZE, 
+        parameter int unsigned FM_SIZE,
         // COMPILER SET, number of layers
-        parameter int unsigned N_LAYERS,    
+        parameter int unsigned N_LAYERS,
         // COMPILER SET? Input and output core bus widths
         parameter int unsigned ILEN_BITS,
         parameter int unsigned OLEN_BITS,
@@ -178,7 +176,7 @@
         .IDX_BITS(IDX_BITS),
         .FM_SIZE(FM_SIZE),
         .OLEN_BITS(OLEN_BITS)
-    ) inst_mux_in (
+    ) inst_mux_out (
         .aclk(aclk),
         .aresetn(aresetn),
 

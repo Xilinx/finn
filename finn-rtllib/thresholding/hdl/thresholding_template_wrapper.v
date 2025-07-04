@@ -40,7 +40,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
 	parameter  SIGNED = $SIGNED$,	// signed inputs
-	parameter  FPARG  = 0,			// floating-point inputs: [sign] | exponent | mantissa
+	parameter  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	parameter  SETS = $SETS$,  // Number of independent threshold sets
@@ -80,7 +80,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Reading
 	input   s_axilite_ARVALID,
 	output  s_axilite_ARREADY,
-	input [$clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
+	input [$clog2(SETS) + $clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
 
 	output         s_axilite_RVALID,
 	input          s_axilite_RREADY,

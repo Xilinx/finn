@@ -109,6 +109,7 @@ class SimEngine:
 
             # Execute Cycle
             self.ticks += 1
+            print(f"Cycle {self.ticks}")
             strong = False
             for task in self.tasks:
                 # Tasks read signals and derive updates to schedule for after the clock cycle
@@ -493,15 +494,36 @@ class SimEngine:
     def aximm_queue(self, mm_axi):
         "Pick up all write requests to carry them over to complete"
         " a later read request with the same address and size."
+
         class AximmQueue:
             def __init__(self, top, mm_axi):
                 # Collect Ports of Read Channels
                 for name in (
-                    "awready", "awvalid", "awaddr", "awlen", "awburst", "awsize",
-                    "wready", "wvalid", "wdata", "wlast",
-                    "bready", "bvalid", "bdata", "bresp",
-                    "arready", "arvalid", "araddr", "arlen", "arburst", "arsize",
-                    "rready", "rvalid", "rdata", "rresp", "rlast",
+                    "awready",
+                    "awvalid",
+                    "awaddr",
+                    "awlen",
+                    "awburst",
+                    "awsize",
+                    "wready",
+                    "wvalid",
+                    "wdata",
+                    "wlast",
+                    "bready",
+                    "bvalid",
+                    "bdata",
+                    "bresp",
+                    "arready",
+                    "arvalid",
+                    "araddr",
+                    "arlen",
+                    "arburst",
+                    "arsize",
+                    "rready",
+                    "rvalid",
+                    "rdata",
+                    "rresp",
+                    "rlast",
                 ):
                     self.__dict__[name] = top.get_bus_port(mm_axi, name)
                 self.awready.set(1).write_back()
@@ -534,6 +556,8 @@ class SimEngine:
                         else:
                             self.wa_queue.insert(0, (addr, length, size))
                             break
+                    if len(self.wd_queue) == 0:
+                        break
 
                 # Push out Read Replies
                 if self.rready.read().as_bool() or not self.rvalid.as_bool():
@@ -545,7 +569,7 @@ class SimEngine:
                         assert size == size0, "Write and read size mismatch."
                         ret[self.rdata] = data
                         if length > 1:
-                            self.ra_queue.insert(0, (addr+size, length-1, size))
+                            self.ra_queue.insert(0, (addr + size, length - 1, size))
                             ret[self.rlast] = "0"
                         else:
                             ret[self.rlast] = "1"
@@ -576,6 +600,6 @@ class SimEngine:
                     size = 2 ** self.arsize.read().as_unsigned()
                     self.ra_queue.append((addr, length, size))
 
-                return  ret
+                return ret
 
         self.enlist(AximmQueue(self, mm_axi))

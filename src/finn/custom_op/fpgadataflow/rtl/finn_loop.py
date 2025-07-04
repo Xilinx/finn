@@ -300,6 +300,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         input_elements = np.prod(self.get_normal_input_shape(0))
         input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
+        output_elements = np.prod(self.get_normal_output_shape(0))
+        output_bytes = (output_elements * self.get_output_datatype(0).bitwidth() + 8 - 1) // 8
+        code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
+        code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
+
         # round up to next power of 2
         input_bytes_rounded_to_power_of_2 = 2 ** (math.ceil(math.log2(input_bytes)))
         code_gen_dict["$LAYER_OFFS_INT$"] = [
@@ -400,7 +405,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                         outfile.write(line)
                                 os.remove(iter_file)
 
-
                 # Replace the path for the dat files in the ipgen files
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
                 param_customop = getCustomOp(param_node)
@@ -465,7 +469,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
     def get_verilog_top_module_intf_names(self):
         # from wrapper template
         addr_bits = 64
-        data_bits = 256
 
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
@@ -476,12 +479,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # to block diagram interface port and connect to fetch_start component
         intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
 
-
         intf_names["m_axis"] = []
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
         intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
-
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
@@ -627,9 +628,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ]
 
         source_files = [
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_macros.svh",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_intf.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_top.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/krnl_counter.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a.sv",
@@ -748,8 +746,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
         )
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out_fw_idx]"
-            % (bd_name, loop_shell_name)
+            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0]"
+            "[get_bd_intf_pins %s/s_axis_core_out_fw_idx]" % (bd_name, loop_shell_name)
         )
 
         cmd.append(

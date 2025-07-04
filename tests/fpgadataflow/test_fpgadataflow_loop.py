@@ -1,5 +1,6 @@
-import numpy as np
 import pytest
+
+import numpy as np
 import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -11,19 +12,20 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.util.create import adjacency_list
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import part_map
+from finn.util.create import adjacency_list
 
 test_board = "V80"
 test_fpga_part = part_map[test_board]
 
-#ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
-ip_stitch_model_dir = "./tmpbuild" 
+# ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
+ip_stitch_model_dir = "./tmpbuild"
+
 
 def generate_random_threshold_values(data_type, num_input_channels, num_steps):
     return np.random.randint(
@@ -31,6 +33,7 @@ def generate_random_threshold_values(data_type, num_input_channels, num_steps):
         data_type.max() + 1,
         (num_input_channels, num_steps),
     ).astype(np.float32)
+
 
 def make_loop_modelwrapper(mw, mh, iter_count):
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 3, 3, mw])
@@ -501,12 +504,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         name="Thresholding_rtl1",
     )
 
-    nodes = [
-        matmul_node0,
-        mt_node0,
-        matmul_node1,
-        mt_node1
-    ]
+    nodes = [matmul_node0, mt_node0, matmul_node1, mt_node1]
     loop_body = helper.make_graph(
         nodes=nodes,
         name="matmul_graph",
@@ -561,6 +559,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
 
     return model
 
+
 def test_fpgadataflow_loop():
     model = make_loop_modelwrapper(16, 16, 3)
     model = model.transform(InferShapes())
@@ -595,8 +594,8 @@ def test_fpgadataflow_loop():
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_loop_stitchedip():
-    """ Attemptes to make a stitchedIP of the loop body """
-    model = make_loop_modelwrapper_nofork(16,16,3)
+    """Attemptes to make a stitchedIP of the loop body"""
+    model = make_loop_modelwrapper_nofork(16, 16, 3)
     model = model.transform(InferShapes())
     model.save("finn_loop_sip.onnx")
     inst = getCustomOp(model.graph.node[0])
