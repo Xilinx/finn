@@ -55,8 +55,8 @@ def _determine_impl_style(node, fpgapart, model):
             return _dwc_determine_impl_style(node)
         if rtl_variant:
             if optype == "MVAU":
-                idt = node_inst.get_input_datatype()
-                wdt = node_inst.get_weight_datatype()
+                idt = node_inst.get_input_datatype(0)
+                wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
                 weight_width_fit = wdt.bitwidth() >= 4
                 if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node, fpgapart, model):
@@ -64,8 +64,8 @@ def _determine_impl_style(node, fpgapart, model):
                 else:
                     return "hls"
             elif optype == "VVAU":
-                idt = node_inst.get_input_datatype()
-                wdt = node_inst.get_weight_datatype()
+                idt = node_inst.get_input_datatype(0)
+                wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
                 weight_width_fit = wdt.bitwidth() >= 4
                 if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
@@ -245,7 +245,7 @@ def _mvu_rtl_possible(n, fpgapart, model):
         return False
 
     # check if weights are signed, if not return False
-    wdt = node_inst.get_weight_datatype()
+    wdt = node_inst.get_input_datatype(1)
     if not wdt.signed():
         return False
 
@@ -253,7 +253,13 @@ def _mvu_rtl_possible(n, fpgapart, model):
     dsp_block = get_dsp_block(fpgapart)
     # check if weights are narrow
     weights = model.get_initializer(n.input[1])
-    narrow_weights = False if np.min(weights) == wdt.min() else True
+    # if dynamic input, set minimum of weights to wdt.min()
+    # otherwise set it to the minimum value in the weight matrix
+    if weights is None:
+        weights_min = wdt.min()
+    else:
+        weights_min = np.min(weights)
+    narrow_weights = False if weights_min == wdt.min() else True
     # if non narrow weights and only DSP48E1 available return False
     if not narrow_weights and dsp_block == "DSP48E1":
         return False
@@ -278,8 +284,8 @@ def _vvu_rtl_possible(n, fpgapart):
     if not is_versal(fpgapart):
         return False
 
-    idt = node_inst.get_input_datatype()
-    wdt = node_inst.get_weight_datatype()
+    idt = node_inst.get_input_datatype(0)
+    wdt = node_inst.get_input_datatype(1)
     in_width_in_range = (idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.min() < 0)
     weight_width_in_range = wdt.bitwidth() <= 8
     signed_weights = wdt.min() < 0

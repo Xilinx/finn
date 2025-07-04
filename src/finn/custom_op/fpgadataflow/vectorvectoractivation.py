@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import onnx.numpy_helper as np_helper
+import os
 import textwrap
 import warnings
 from qonnx.core.datatype import DataType
@@ -163,20 +164,13 @@ class VVAU(HWCustomOp):
 
         context[node.output[0]] = result
 
-    def verify_node(self):
-        pass
-
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
+        if idt != self.get_input_datatype(0):
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
+                str(self.get_input_datatype(0)),
                 str(idt),
             )
             warnings.warn(warn_str)
@@ -196,10 +190,6 @@ class VVAU(HWCustomOp):
         else:
             raise Exception("Undefined input ind for this layer type")
 
-    def get_weight_datatype(self):
-        """Returns FINN DataType of weights."""
-        return DataType[self.get_nodeattr("weightDataType")]
-
     def get_accumulator_datatype(self):
         """Returns FINN DataType of accumulator"""
         return DataType[self.get_nodeattr("accDataType")]
@@ -209,36 +199,40 @@ class VVAU(HWCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype(ind).bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        pe = self.get_nodeattr("PE")
-        in_width = i_bits * simd * pe
-        return in_width
-
-    def get_weightstream_width(self):
-        """Returns weight stream width. Used only in internal_decoupled mode."""
-        if (
-            self.get_nodeattr("mem_mode") == "internal_decoupled"
-            or self.get_nodeattr("mem_mode") == "external"
-        ):
+        if ind == 0:
+            i_bits = self.get_input_datatype(ind).bitwidth()
             simd = self.get_nodeattr("SIMD")
             pe = self.get_nodeattr("PE")
-            wp = self.get_weight_datatype().bitwidth()
-            w_width = simd * pe * wp
-            return w_width
+            width = i_bits * simd * pe
+        elif ind == 1:
+            if (
+                self.get_nodeattr("mem_mode") == "internal_decoupled"
+                or self.get_nodeattr("mem_mode") == "external"
+            ):
+                simd = self.get_nodeattr("SIMD")
+                pe = self.get_nodeattr("PE")
+                wp = self.get_input_datatype(1).bitwidth()
+                width = simd * pe * wp
+            else:
+                width = 0
+        elif ind == 2:
+            # check if integrated thresholding and return 0
+            # because threshold values are always embedded
+            # or raise expection if there shouldn't be
+            # a third input to the node
+            act = not self.get_nodeattr("noActivation")
+            if act:
+                width = 0
+            else:
+                raise Exception("Index out of range")
         else:
-            return 0
+            raise Exception("Undefined input ind for this layer type")
+        return width
 
     def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
-
-    def get_weightstream_width_padded(self):
-        """Returns weight stream width padded to a multiple of 8. This is required
-        by the AXI Stream spec. Used in internal_decoupled mode."""
-        weight_width = self.get_weightstream_width()
-        return roundup_to_integer_multiple(weight_width, 8)
 
     def get_folded_input_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("Kernel")
@@ -309,7 +303,7 @@ class VVAU(HWCustomOp):
     def uram_estimation(self):
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         omega = self.calc_wmem()
         mem_width = Q * W * P
@@ -330,7 +324,7 @@ class VVAU(HWCustomOp):
         # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         omega = self.calc_wmem()
         mem_width = Q * W * P
@@ -362,7 +356,7 @@ class VVAU(HWCustomOp):
 
     def bram_efficiency_estimation(self):
         P = self.get_nodeattr("PE")
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         omega = self.calc_wmem()
         bram16_est = self.bram_estimation()
@@ -375,7 +369,7 @@ class VVAU(HWCustomOp):
     def uram_efficiency_estimation(self):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)"""
-        wdt = self.get_weight_datatype()
+        wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         D_in = int(np.prod(self.get_nodeattr("Kernel")))
         D_out = self.get_nodeattr("Channels")
@@ -415,19 +409,19 @@ class VVAU(HWCustomOp):
             thresholds = model.get_initializer(self.onnx_node.input[2])
         else:
             thresholds = None
-        idt = self.get_input_datatype()
+        idt = self.get_input_datatype(0)
 
         (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
         # if runtime-writeable weights, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
         if self.get_nodeattr("runtime_writeable_weights"):
-            wdt = self.get_weight_datatype()
+            wdt = self.get_input_datatype(1)
             lower_worst = wdt.min() * np.ones_like(weights)
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
             upper_worst = wdt.max() * np.ones_like(weights)
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
-            acc_max = max(max(upper_range), max(upper_range))
+            acc_max = max(max(lower_range), max(upper_range))
 
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
@@ -516,11 +510,11 @@ class VVAU(HWCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
+        inp_is_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"]
+        wt_is_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"]
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
+        inp_is_binary = self.get_input_datatype(0) == DataType["BINARY"]
+        wt_is_binary = self.get_input_datatype(1) == DataType["BINARY"]
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
@@ -564,7 +558,7 @@ class VVAU(HWCustomOp):
         ), """Weights matrix doesn't
         have expected shape (channels, 1, kernel_size, kernel_size)"""
         ret = orig_weight_matrix
-        if self.get_weight_datatype() == DataType["BIPOLAR"]:
+        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
             # convert bipolar to binary
             ret = (ret + 1) / 2
         ret = ret.reshape(ch, k_h * k_w)
@@ -588,10 +582,10 @@ class VVAU(HWCustomOp):
         """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
-        export_wdt = self.get_weight_datatype()
+        export_wdt = self.get_input_datatype(1)
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
-        if self.get_weight_datatype() == DataType["BIPOLAR"]:
+        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
             export_wdt = DataType["BINARY"]
         if weight_file_mode == "hls_header":
             weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
@@ -648,7 +642,7 @@ class VVAU(HWCustomOp):
                     np.save(weight_file_name, weight_tensor_simd_flipped)
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
-                weight_width = self.get_weightstream_width()
+                weight_width = self.get_instream_width(1)
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
                 if self.onnx_node.op_type == "VVAU_rtl":
@@ -668,7 +662,7 @@ class VVAU(HWCustomOp):
             elif weight_file_mode == "decoupled_runtime":
                 # memstream axi-lite interface will map each mem line to
                 # one or multiple 32-bit words
-                weight_width = self.get_weightstream_width()
+                weight_width = self.get_instream_width(1)
                 words_per_memwidth = 2 ** math.ceil(math.log2(weight_width / 32))
                 if words_per_memwidth < 1:
                     words_per_memwidth = 1
@@ -722,11 +716,11 @@ class VVAU(HWCustomOp):
             if thresholds is not None:
                 threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-                wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
+                inp_is_bipolar = self.get_input_datatype(0) == DataType["BIPOLAR"]
+                wt_is_bipolar = self.get_input_datatype(1) == DataType["BIPOLAR"]
                 # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-                inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-                wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
+                inp_is_binary = self.get_input_datatype(0) == DataType["BINARY"]
+                wt_is_binary = self.get_input_datatype(1) == DataType["BINARY"]
                 bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
                 inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
@@ -769,8 +763,8 @@ class VVAU(HWCustomOp):
         k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
         dim_h, dim_w = self.get_nodeattr("Dim")
-        weight_bits = self.get_weight_datatype().bitwidth()
-        inp_bits = self.get_input_datatype().bitwidth()
+        weight_bits = self.get_input_datatype(1).bitwidth()
+        inp_bits = self.get_input_datatype(0).bitwidth()
         num_repetitions = int(dim_h * dim_w)
         mac_count = k_h * k_w * fm * num_repetitions
         # cannonicalize op type: highest bitwidth operand first s.t.
@@ -795,40 +789,35 @@ class VVAU(HWCustomOp):
             "inputs": {
                 "in0": [0 for i in range(n_inps)],
             },
-            "outputs": {"out": []},
+            "outputs": {"out0": []},
         }
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode in ["internal_decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
+            io_dict["inputs"]["in1"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
         if mem_mode == "external":
-            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
+            intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
         if mem_mode == "internal_decoupled":
             # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writeable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
     def code_generation_ipi(self):
-        cmd = []
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled":
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if self.get_nodeattr("ram_style") == "ultra":
-                assert (
-                    runtime_writable == 1
-                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
             node_name = self.onnx_node.name
-            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -848,32 +837,32 @@ class VVAU(HWCustomOp):
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
 
-            # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            # Instantiate a streamer and connect it to the IP
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
+            ms_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+            file_suffix = "_memstream_wrapper.v"
+            # automatically find memstream verilog component in code generation directory
+            for fname in os.listdir(code_gen_dir):
+                if fname.endswith(file_suffix):
+                    strm_tmpl = fname
+            strm_tmpl_name = strm_tmpl[:-2]
+            sourcefiles = [
+                os.path.join(code_gen_dir, strm_tmpl),
+                axi_dir + "axilite.sv",
+                ms_rtllib_dir + "memstream_axi.sv",
+                ms_rtllib_dir + "memstream.sv",
+            ]
+            for f in sourcefiles:
+                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
-            )
-            cmd.append(
-                "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
-                "CONFIG.RAM_STYLE {%s} "
-                "] [get_bd_cells /%s/%s]"
-                % (
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
-                    self.get_nodeattr("ram_style"),
-                    node_name,
-                    strm_inst,
-                )
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (strm_tmpl_name, node_name, strm_inst)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_%s]"
-                % (node_name, strm_inst, node_name, node_name, sname)
+                "[get_bd_intf_pins %s/%s/in1_V]" % (node_name, strm_inst, node_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
@@ -881,6 +870,12 @@ class VVAU(HWCustomOp):
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            # 2x clock is not used for decoupled VVAU weights
+            # simply connect input to the 1x clock for now
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
             cmd.append(
@@ -901,7 +896,7 @@ class VVAU(HWCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
-            if runtime_writable:
+            if runtime_writeable:
                 # expose axi lite interface for writeable weights
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(

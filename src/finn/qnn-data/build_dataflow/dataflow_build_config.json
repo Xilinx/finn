@@ -8,7 +8,7 @@
   "folding_config_file": "folding_config.json",
   "shell_flow_type": "vivado_zynq",
   "verify_save_rtlsim_waveforms": true,
-  "force_python_rtlsim": true,
+  "fifosim_save_waveform": true,
   "verify_steps": [
     "initial_python",
     "streamlined_python",

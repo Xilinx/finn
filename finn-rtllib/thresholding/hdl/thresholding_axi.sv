@@ -39,9 +39,9 @@
  *****************************************************************************/
 
 module thresholding_axi #(
-	int unsigned  N,	// output precision
 	int unsigned  WI,	// input precision
 	int unsigned  WT,	// threshold precision
+	int unsigned  N,	// number of thresholds
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
@@ -49,9 +49,10 @@ module thresholding_axi #(
 	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
+	int unsigned  SETS = 1,  // Number of independent threshold sets
+
 	// Initial Thresholds
 	parameter  THRESHOLDS_PATH = "",
-
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
 
 	// Force Use of On-Chip Memory Blocks
@@ -60,10 +61,11 @@ module thresholding_axi #(
 	bit  DEEP_PIPELINE = 0,
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
-	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
+	localparam int unsigned  ADDR_BITS = $clog2(SETS) + $clog2(CF) + $clog2(PE) + $clog2(N) + 2,
+	localparam int unsigned  S_BITS = SETS > 2? $clog2(SETS) : 1,
 	localparam int unsigned  O_BITS = BIAS >= 0?
-		/* unsigned */ $clog2(2**N+BIAS) :
-		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
+		/* unsigned */ $clog2(N+BIAS+1) :
+		/* signed */ 1+$clog2(-BIAS >= N+BIAS+1? -BIAS : N+BIAS+1)
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -94,6 +96,12 @@ module thresholding_axi #(
 	output	logic [31:0]  s_axilite_RDATA,
 	output	logic [ 1:0]  s_axilite_RRESP,
 
+	//- AXI Stream - Set Selection ------
+	// (ignored for SETS < 2)
+	output	logic  s_axis_set_tready,
+	input	logic  s_axis_set_tvalid,
+	input	logic [((S_BITS+7)/8)*8-1:0]  s_axis_set_tdata,
+
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
 	input	logic  s_axis_tvalid,
@@ -116,7 +124,7 @@ module thresholding_axi #(
 
 	if(USE_AXILITE) begin
 		uwire [ADDR_BITS-1:0]  cfg_a0;
-		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(WT)) axi (
+		axilite #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(WT)) axi (
 			.aclk(ap_clk), .aresetn(ap_rst_n),
 
 			.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
@@ -133,7 +141,6 @@ module thresholding_axi #(
 		always_ff @(posedge ap_clk) begin
 			assert(!ap_rst_n || !cfg_en || (cfg_a0[ADDR_BITS-2+:2] === 3'h0)) else begin
 				$error("%m: Spurious high address bits.");
-				$stop;
 			end
 		end
 	end
@@ -142,6 +149,26 @@ module thresholding_axi #(
 		assign	cfg_we = 'x;
 		assign	cfg_a  = 'x;
 		assign	cfg_d  = 'x;
+	end
+
+	//-----------------------------------------------------------------------
+	// Join set selection and data streams
+	uwire  irdy;
+	uwire  ivld;
+	uwire [S_BITS-1:0]  iset;
+	if(SETS < 2) begin
+		assign	ivld = s_axis_tvalid;
+		assign	iset = 'x;
+
+		assign  s_axis_tready     = irdy;
+		assign  s_axis_set_tready = 'x;
+	end
+	else begin
+		assign	ivld = s_axis_tvalid && s_axis_set_tvalid;
+		assign	iset = s_axis_set_tdata[S_BITS-1:0];
+
+		assign  s_axis_tready     = irdy && s_axis_set_tvalid;
+		assign  s_axis_set_tready = irdy && s_axis_tvalid;
 	end
 
 	//-----------------------------------------------------------------------
@@ -179,7 +206,7 @@ module thresholding_axi #(
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
 	thresholding #(
-		.N(N), .K(WT), .C(C), .PE(PE),
+		.K(WT), .N(N), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
@@ -190,8 +217,11 @@ module thresholding_axi #(
 		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
 		.cfg_rack, .cfg_q,
 
-		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat,
-		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata)
+		.irdy, .ivld, .iset, .idat,
+		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata[PE*O_BITS-1:0])
 	);
+	if($bits(m_axis_tdata) > PE*O_BITS) begin : genPadOut
+		assign	m_axis_tdata[$left(m_axis_tdata):PE*O_BITS] = '0;
+	end : genPadOut
 
 endmodule : thresholding_axi

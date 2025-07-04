@@ -81,7 +81,7 @@ as it goes through numerous steps:
   Running step: step_measure_rtlsim_performance [15/19]
   Running step: step_out_of_context_synthesis [16/19]
   Running step: step_synthesize_bitfile [17/19]
-  Running step: step_make_pynq_driver [18/19]
+  Running step: step_make_driver [18/19]
   Running step: step_deployment_package [19/19]
 
 
@@ -124,7 +124,7 @@ build configuration), and are detailed below.
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
 
-* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using PyVerilator
+* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using XSI
 
   * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation
 

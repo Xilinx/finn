@@ -27,11 +27,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import math
 import numpy as np
 import warnings
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -42,6 +40,7 @@ from qonnx.transformation.general import (
 )
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -50,7 +49,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
-from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
 
 def reset_implementation(node):
@@ -196,6 +194,33 @@ class CapConvolutionFIFODepths(Transformation):
         return (model, False)
 
 
+def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
+    """Create a XSI model of stitched IP and use a simple C++
+    driver to drive the input stream. Useful for FIFO sizing, latency
+    and throughput measurement. If max_iters is None, use the default
+    liveness threshold instead. throttle_cycles can be used for throttling
+    the input stream every time a frame is finished."""
+
+    iname = model.graph.input[0].name
+    first_node = model.find_consumer(iname)
+    oname = model.graph.output[0].name
+    last_node = model.find_producer(oname)
+    assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
+    # define execution context for dummy data mode:
+    # only number of transactions, no real data
+    ctx = {k.name: n_inferences for k in model.graph.input}
+    # run XSI sim
+    ret_dict = rtlsim_exec_cppxsi(
+        model,
+        ctx,
+        dummy_data_mode=True,
+        timeout_cycles=max_iters,
+        throttle_cycles=throttle_cycles,
+    )
+
+    return ret_dict
+
+
 class InsertAndSetFIFODepths(Transformation):
     """Insert appropriate-depth StreamingFIFOs through RTLSim that preserve
     throughput in the created accelerator.
@@ -211,6 +236,8 @@ class InsertAndSetFIFODepths(Transformation):
         smaller where appropriate
     :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
         for large FIFOs implemented by Vivado afterwards
+    :parameter fifosim_input_throttle: use input throttling based on dataflow analysis
+        while doing simulation-based FIFO sizing
 
     Assumed input graph properties:
 
@@ -245,7 +272,7 @@ class InsertAndSetFIFODepths(Transformation):
         max_depth=None,
         swg_exception=False,
         vivado_ram_style="auto",
-        force_python_sim=False,
+        fifosim_input_throttle=True,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -254,7 +281,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.max_depth = max_depth
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
-        self.force_python_sim = force_python_sim
+        self.fifosim_input_throttle = fifosim_input_throttle
 
     def apply(self, model):
         # these optypes may potentially use external weights
@@ -280,9 +307,13 @@ class InsertAndSetFIFODepths(Transformation):
                 # set each FIFO to its tensor size
                 # (except stream width hence the :-1)
                 for i in range(len(ifd)):
-                    ifd[i] = np.prod(node.get_folded_input_shape(i)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    tensor_size = np.prod(node.get_folded_input_shape(i)[:-1])
+                    ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
-                    ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
+                    # safe guard that for very small tensors depth is not set to 1
+                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
             if node.onnx_node.op_type in extw_optypes:
@@ -325,73 +356,33 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
-        if self.force_python_sim:
-            # do rtlsim in Python for FIFO sizing
-            # calculate input frequency (number of cycles for each input word)
-            first_node = getCustomOp(model.graph.node[0])
-            ncycles_per_input = max(
-                1,
-                int(
-                    math.ceil(
-                        perf["max_cycles"]
-                        / (
-                            np.prod(first_node.get_folded_input_shape())
-                            / first_node.get_folded_input_shape()[-1]
-                        )
-                    )
-                ),
-            )
-
-            # set sufficiently large threshold for 1 image to  fully execute and exit
-            ncycles = int(latency + max_cycles)
-
-            # prepare pyverilator model
-            sim = pyverilate_stitched_ip(model)
-
-            reset_rtlsim(sim)
-            toggle_clk(sim)
-
-            # set all input valids to 0 and output readies to 1
-            # set input data to some constant
-            set_signal(sim, "tvalid", 0)
-            set_signal(sim, "tready", 1)
-            set_signal(sim, "tdata", 0)
-
-            output_detected = False
-            while ncycles > 0:
-                toggle_clk(sim)
-                # set/unset valids
-                if ncycles % ncycles_per_input == 0:
-                    set_signal(sim, "tvalid", 1)
-                else:
-                    set_signal(sim, "tvalid", 0)
-
-                # since latency estimation is very pessimistic, detect first output
-                # and fast-forward the sim
-                if get_signal(sim, "tvalid") != 0 and not output_detected:
-                    ncycles = max_cycles
-                    output_detected = True
-                else:
-                    ncycles = ncycles - 1
-
-            if not output_detected:
-                warnings.warn("No output detected, calculated FIFO depths may not be correct")
+        # do rtlsim in C++ for FIFO sizing
+        # determine # inputs for FIFO sizing according to topology type
+        swg_nodes = [
+            x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
+        ]
+        if len(swg_nodes) == 0:
+            # MLP, no layer overlap
+            # assuming half the nodes are now FIFOs, use half the # of
+            # nodes as # inputs to drive the simulation
+            n_inferences = int(len(model.graph.node) / 2)
         else:
-            # do rtlsim in C++ for FIFO sizing
-            # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [
-                x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
-            ]
-            if len(swg_nodes) == 0:
-                # MLP, no layer overlap
-                # assuming half the nodes are now FIFOs, use half the # of
-                # nodes as # inputs to drive the imulation
-                n_inputs = int(len(model.graph.node) / 2)
-            else:
-                # convnet, two inputs are typically enough to fill entire
-                # layer pipeline due to overlaps
-                n_inputs = 2
-            sim = verilator_fifosim(model, n_inputs)
+            # convnet, two inputs are typically enough to fill entire
+            # layer pipeline due to overlaps
+            n_inferences = 2
+
+        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
+        max_iters = latency * 1.1 + 20
+
+        # set up rate limit for input throttling
+        if self.fifosim_input_throttle:
+            first_node = getCustomOp(model.graph.node[0])
+            inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
+            throttle_cycles = max(0, max_cycles - inp_fold)
+        else:
+            throttle_cycles = 0
+
+        sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
@@ -446,6 +437,15 @@ class InsertAndSetFIFODepths(Transformation):
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+        # clean up references to stitched IP and rtlsim objects
+        # (the stitched IP needs to be re-done after FIFO sizing)
+        model.set_metadata_prop("rtlsim_trace", "")
+        model.set_metadata_prop("rtlsim_so", "")
+        model.set_metadata_prop("vivado_stitch_proj", "")
+        model.set_metadata_prop("wrapper_filename", "")
+        model.set_metadata_prop("vivado_stitch_vlnv", "")
+        model.set_metadata_prop("vivado_stitch_ifnames", "")
 
         # reflect final values in attributes
         for node in model.graph.node:
@@ -539,7 +539,7 @@ def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
     ret_final = []
     for cand_depth in ret_pass2:
         if cand_depth <= max_qsrl_depth:
-            ret_final.append((cand_depth, "rtl"))
+            ret_final.append((max(2, cand_depth), "rtl"))
         else:
             ret_final.append((cand_depth, "vivado"))
 

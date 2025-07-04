@@ -28,18 +28,11 @@
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import get_dsp_block, is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -55,13 +48,17 @@ class MVAU_rtl(MVAU, RTLBackend):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {}
+        my_attrs = {
+            # Double-pumped DSPs enabled
+            "pumpedCompute": ("i", False, 0, {0, 1}),
+        }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
@@ -70,59 +67,74 @@ class MVAU_rtl(MVAU, RTLBackend):
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             # create a npy file fore each input of the node (in_ind is input index)
-            in_ind = 0
-            for inputs in node.input:
+            for in_ind, inputs in enumerate(node.input):
                 # it is assumed that the first input of the node is the data input
                 # the second input are the weights
+                assert (
+                    str(context[inputs].dtype) == "float32"
+                ), """Input datatype is
+                not float32 as expected."""
+
                 if in_ind == 0:
                     assert (
                         str(context[inputs].dtype) == "float32"
                     ), """Input datatype is
                     not float32 as expected."""
-                    expected_inp_shape = self.get_folded_input_shape()
+                    expected_inp_shape = self.get_folded_input_shape(in_ind)
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype()
+                    export_idt = self.get_input_datatype(in_ind)
                     # make copy before saving the array
                     reshaped_input = reshaped_input.copy()
                     np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                        os.path.join(code_gen_dir, "input_0.npy"),
                         reshaped_input,
                     )
-                elif in_ind > 1:
-                    raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
-                in_ind += 1
 
-                sim = self.get_rtlsim()
-                nbits = self.get_instream_width()
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-                reset_rtlsim(sim)
-                toggle_clk(sim)
-                if mem_mode in ["external", "internal_decoupled"]:
-                    wnbits = self.get_weightstream_width()
-                    export_wdt = self.get_weight_datatype()
-                    wei = npy_to_rtlsim_input(
-                        "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                    )
-                    num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                    io_dict = {
-                        "inputs": {"in0": inp, "weights": wei * num_w_reps},
-                        "outputs": {"out": []},
-                    }
-                    self.rtlsim_multi_io(sim, io_dict)
-                    output = io_dict["outputs"]["out"]
-                else:
-                    output = self.rtlsim(sim, inp)
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
+                if in_ind == 1:
+                    if dynamic_input:
+                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                        self.make_weight_file(
+                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                        )
+
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+            super().reset_rtlsim(sim)
+
+            if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
+                wnbits = self.get_instream_width(1)
+                if dynamic_input:
+                    wnbits = wnbits * self.get_nodeattr("SIMD")
+                export_wdt = self.get_input_datatype(1)
+
+                wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+
+                io_dict = {
+                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "outputs": {"out0": []},
+                }
+            else:
+                io_dict = {
+                    "inputs": {"in0": inp},
+                    "outputs": {"out0": []},
+                }
+            self.rtlsim_multi_io(sim, io_dict)
+            super().close_rtlsim(sim)
+            output = io_dict["outputs"]["out0"]
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -147,6 +159,7 @@ class MVAU_rtl(MVAU, RTLBackend):
 
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
+        node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
         sourcefiles = [
@@ -165,32 +178,68 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
-                    self.onnx_node.name,
+                    node_name,
+                    node_name,
                 )
             )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute") or self.get_nodeattr("pumpedMemory"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                    % (node_name, clk2x_name, node_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+                    % (node_name, clk_name, node_name, node_name)
+                )
+        # external
         else:
             cmd.append(
                 "create_bd_cell -type hier -reference %s %s"
                 % (
                     self.get_nodeattr("gen_top_module"),
-                    self.onnx_node.name,
+                    node_name,
                 )
             )
+            # if using 2x pumped compute, connect the MVU's 2x clk input
+            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            if self.get_nodeattr("pumpedCompute"):
+                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                    % (node_name, clk2x_name, node_name, clk2x_name)
+                )
+            else:
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
+                    % (node_name, clk_name, node_name)
+                )
 
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
         # ~0.741 ns seems the worst-case delay through first DSP
         # ~0.605 ns seems to be (on average) delay for all subsequent DSPs
         # clk >= (critical_path_dsps - 1) * 0.605 + 0.741
+        if self.get_nodeattr("pumpedCompute"):
+            ref_clk = clk / 2
+            simd_factor = 6
+        else:
+            ref_clk = clk
+            simd_factor = 3
+
         assert (
-            clk > 0.741
+            ref_clk > 0.741
         ), """Infeasible clk target of {} ns has been set,
         consider lowering the targeted clock frequency!""".format(
-            clk
+            ref_clk
         )
-        critical_path_dsps = np.floor((clk - 0.741) / 0.605 + 1)
-        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / 3)
+        critical_path_dsps = np.floor((ref_clk - 0.741) / 0.605 + 1)
+        max_chain_len = np.ceil(self.get_nodeattr("SIMD") / simd_factor)
         dsp_chain_len = critical_path_dsps if critical_path_dsps < max_chain_len else max_chain_len
         return dsp_chain_len
 
@@ -229,8 +278,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # determine if weights are narrow range and add parameter to code gen dict
         weights = model.get_initializer(self.onnx_node.input[1])
-        wdt = self.get_weight_datatype()
-        narrow_weights = 0 if np.min(weights) == wdt.min() else 1
+        wdt = self.get_input_datatype(1)
+        narrow_weights = (
+            0 if np.min(weights) == wdt.min() or self.get_nodeattr("dynamic_input") else 1
+        )
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
@@ -256,6 +307,20 @@ class MVAU_rtl(MVAU, RTLBackend):
         ) as f:
             f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
+        dynamic_input = self.get_nodeattr("dynamic_input")
+        mem_mode = self.get_nodeattr("mem_mode")
+
+        if dynamic_input:
+            self.generate_hdl_dynload()
+        elif mem_mode == "internal_decoupled":
+            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
+                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                assert (
+                    runtime_writeable == 1
+                ), """Layer with URAM weights must have runtime_writeable_weights=1
+                    if Ultrascale device is targeted."""
+            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
+
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -264,14 +329,22 @@ class MVAU_rtl(MVAU, RTLBackend):
     def prepare_codegen_default(self, fpgapart, clk):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
 
+        # check if settings are valid
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        simd = self.get_nodeattr("SIMD")
+        if pumped_compute and simd == 1:
+            raise Exception(
+                "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
+            )
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(dsp_block)]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
         code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
         code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
-        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
         code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
@@ -282,28 +355,24 @@ class MVAU_rtl(MVAU, RTLBackend):
 
         return template_path, code_gen_dict
 
-    def prepare_rtlsim(self):
-        """Creates a Verilator emulation library for the RTL code generated
-        for this node, sets the rtlsim_so attribute to its path and returns
-        a PyVerilator wrapper around it."""
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+        verilog_files = [
+            code_gen_dir + self.get_nodeattr("gen_top_module") + "_wrapper_sim.v",
+            rtllib_dir + "mvu_vvu_axi.sv",
+            rtllib_dir + "replay_buffer.sv",
+            rtllib_dir + "mvu_4sx4u.sv",
+            rtllib_dir + "mvu_vvu_8sx9_dsp58.sv",
+            rtllib_dir + "mvu_8sx8u_dsp48.sv",
+        ]
+        return verilog_files
 
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
-
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # Path to (System-)Verilog files used by top-module & path to top-module
-        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
-
-        # build the Verilator emu library
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_verilog_top_module_name(),
-        )
-        # save generated lib filename in attribute
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-
-        return sim
+    def get_verilog_paths(self):
+        verilog_paths = super().get_verilog_paths()
+        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
+        return verilog_paths

@@ -51,7 +51,6 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
 )
 from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
-from finn.custom_op.fpgadataflow.streamingmaxpool import StreamingMaxPool
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
@@ -81,5 +80,4 @@ custom_op["StreamingConcat"] = StreamingConcat
 custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["StreamingEltwise"] = StreamingEltwise
-custom_op["StreamingMaxPool"] = StreamingMaxPool
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour

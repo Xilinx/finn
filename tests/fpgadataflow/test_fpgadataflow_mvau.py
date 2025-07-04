@@ -29,6 +29,7 @@
 import pytest
 
 import numpy as np
+import os
 import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -51,6 +52,7 @@ import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
@@ -67,6 +69,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import is_versal
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -156,6 +159,24 @@ def make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W):
     )  # At this step, the MatMul layer does not optimize the bit-width of the output datatype
     model.set_initializer("weights", W)
     # model.set_tensor_layout("ifm", DataLayout.NHWC)
+
+    return model
+
+
+def make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt):
+    matmul_node = helper.make_node("MatMul", ["ifm", "wfm"], ["ofm"])
+    graph = helper.make_graph(
+        nodes=[matmul_node], name="matmul_graph", inputs=[ifm, wfm], outputs=[ofm]
+    )
+
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("ifm", idt)
+    model.set_tensor_datatype("wfm", wdt)
+    model.set_tensor_datatype(
+        "ofm", DataType["INT32"]
+    )  # At this step, the MatMul layer does not optimize the bit-width of the output datatype
 
     return model
 
@@ -358,10 +379,12 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
+# Pumped memory
+@pytest.mark.parametrize("pumpedMemory", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpedMemory):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -370,6 +393,11 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     simd = mw // sf
     assert mh % pe == 0
     assert mw % sf == 0
+    if (pumpedMemory and mem_mode != "internal_decoupled") or (simd == 1 and pumpedMemory):
+        pytest.skip(
+            """Pumped memory can only be used in combination with
+            internal decoupled mem mode. And SIMD > 1."""
+        )
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
@@ -402,6 +430,7 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("pumpedMemory", int(pumpedMemory))
         inst.set_nodeattr("preferred_impl_style", "hls")
 
     # prepare input data
@@ -460,15 +489,23 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
+# RAM style
+@pytest.mark.parametrize("ram_style", ["distributed", "block", "ultra"])
+@pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
 # Backend
 @pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, ram_style, part
 ):
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
+    if preferred_impl_style == "hls" and ram_style == "ultra" and not is_versal(part):
+        # reference: https://github.com/Xilinx/finn/issues/1312
+        pytest.skip(
+            "Known error for runtime writeable weights and HLS MVU. Described in issue 1312"
+        )
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -509,6 +546,9 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("ram_style", ram_style)
+        if ram_style == "ultra":
+            inst.set_nodeattr("runtime_writeable_weights", 1)
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
 
@@ -529,14 +569,14 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             y += act.min()
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
-    # TODO split up into several dependent tests -- need to check how this
-    # works for parametrized tests...
-    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+
+    clk_ns = 5
+    model = model.transform(SpecializeLayers(part))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
+    model = model.transform(PrepareIP(part, clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -556,6 +596,67 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     exp_cycles = exp_cycles_dict[node.name]
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
+
+    # Run stitched-ip RTLsim to have memstream in the test loop
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
+    # tensor names have changed, create new input dict with same input values
+    exec_ctx_dict = {"global_in": x}
+    # functions to write uram if ultrascale device
+    if preferred_impl_style == "hls":
+        node = model.get_nodes_by_op_type("MVAU_hls")[0]
+    else:
+        node = model.get_nodes_by_op_type("MVAU_rtl")[0]
+    inst = getCustomOp(node)
+    weights = model.get_initializer(node.input[1])
+    inst.make_weight_file(weights, "decoupled_runtime", "weights.dat")
+    with open("weights.dat", "r") as f:
+        weight_stream = f.read().strip()
+    os.remove("weights.dat")
+    weight_stream = map(lambda x: int(x, 16), weight_stream.split("\n"))
+    weight_stream = list(weight_stream)
+
+    # helper functions to write or read axilite
+    def write_weights(sim):
+        addr = 0
+        writes = []
+        for nw in weight_stream:
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
+            addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
+
+    extracted_weight_stream = []
+
+    def read_weights(sim):
+        addr = 0
+        read_handles = []
+        addresses = []
+        for i in range(len(weight_stream)):
+            addresses.append(addr)
+            addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
+
+    if not is_versal(part) and ram_style == "ultra":
+        rtlsim_exec(model, exec_ctx_dict, pre_hook=write_weights, post_hook=read_weights)
+        output_mvau_rtl_stitch = exec_ctx_dict["global_out"]
+        assert extracted_weight_stream == weight_stream
+    else:
+        output_mvau_rtl_stitch = oxe.execute_onnx(model, exec_ctx_dict)["global_out"]
+
+    assert (
+        y_expected == output_mvau_rtl_stitch
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
 # mem_mode: internal_embedded or internal_decoupled
@@ -610,7 +711,7 @@ def test_mvau_fifocharacterize_rtlsim(
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
     total_fold = nf * sf
-    exp_total_cycles = total_fold + 10
+    exp_total_cycles = int(np.ceil(total_fold * 1.2))
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
@@ -625,7 +726,10 @@ def test_mvau_fifocharacterize_rtlsim(
     assert period_attr == exp_total_cycles
     chrc_in = node_inst.get_nodeattr("io_chrc_in")
     chrc_out = node_inst.get_nodeattr("io_chrc_out")
-    assert chrc_in.shape == (1, 2 * exp_total_cycles)
+    if mem_mode == "internal_decoupled":
+        assert chrc_in.shape == (2, 2 * exp_total_cycles)
+    else:
+        assert chrc_in.shape == (1, 2 * exp_total_cycles)
     assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # total number of transactions == 2*SF
     assert chrc_in[0, -1] == 2 * sf
@@ -634,25 +738,37 @@ def test_mvau_fifocharacterize_rtlsim(
 
 
 @pytest.mark.parametrize("mh", [18])
-@pytest.mark.parametrize("mw", [128])
+@pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("pe", [1, 9, 18])
-@pytest.mark.parametrize("simd", [1, 64, 128])
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
-@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT8"]])
+@pytest.mark.parametrize("simd", [1, 16, 32])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
+)
 @pytest.mark.parametrize(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
 )
 @pytest.mark.parametrize("clk_ns", [1.66, 4])
+@pytest.mark.parametrize("pumpedMemory", [False, True])
+@pytest.mark.parametrize("pumpedCompute", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
+def test_fpgadataflow_rtl_mvau(
+    mh, mw, pe, simd, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
+):
     if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
             since this variable only affects DSP58s"""
         )
 
+    if pe == 1 and simd == 1 and pumpedMemory:
+        pytest.skip("Skip PE=SIMD=1 with pumpedMemory=True, known weight generation bug")
+
+    if simd == 1 and pumpedCompute:
+        pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
+
+    idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
     ofm_shape = (3, 3)
     ofm_h, ofm_w = ofm_shape
@@ -683,6 +799,7 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(SpecializeLayers(part))
     model = model.transform(GiveUniqueNodeNames())
 
+    assert model.graph.node[0].op_type == "MVAU_rtl"
     # Apply folding (i.e. specify to use DSPs)
     folding_config = {
         "Defaults": {},
@@ -690,6 +807,8 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
             "PE": pe,
             "SIMD": simd,
             "resType": "dsp",
+            "pumpedMemory": pumpedMemory,
+            "pumpedCompute": pumpedCompute,
         },
     }
     model = model.transform(ApplyConfig(folding_config))
@@ -723,9 +842,121 @@ def test_fpgadataflow_rtl_mvau(mh, mw, pe, simd, idt, wdt, part, clk_ns):
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(part, clk_ns))
 
-    model.set_metadata_prop("rtlsim_so", "")
     model.set_metadata_prop("exec_mode", "rtlsim")
     output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    assert (
+        output_matmul == output_mvau_rtl_stitch
+    ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.parametrize("mh", [32])
+@pytest.mark.parametrize("mw", [16])
+@pytest.mark.parametrize("n_vectors", [32])
+@pytest.mark.parametrize("pe", [1, 16, 32])
+@pytest.mark.parametrize("simd", [1, 8, 16])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
+)
+@pytest.mark.parametrize(
+    "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
+)
+# Backend
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, part, impl_style):
+    # if 7 series and rtl selected, skip because narrow range can't be ensured for the second input
+    if part == "xc7z020clg400-1" and impl_style == "rtl":
+        pytest.skip("Skip test because narrow range can't be ensured for the second input")
+
+    clk_ns = 4
+
+    idt, wdt = idt_wdt
+    # Create test input vector (produced by SWG)
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+
+    model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    inpA_name = model.graph.input[0].name
+    inpB_name = model.graph.input[1].name
+    outp_name = model.graph.output[0].name
+
+    # Create MatMul & obtain golden reference output
+    inpTensor_A = gen_finn_dt_tensor(
+        model.get_tensor_datatype(inpA_name), model.get_tensor_shape(inpA_name)
+    )
+    inpTensor_W = gen_finn_dt_tensor(
+        model.get_tensor_datatype(inpB_name), model.get_tensor_shape(inpB_name)
+    )
+    input_dict = {inpA_name: inpTensor_A, inpB_name: inpTensor_W}
+
+    # Execute ONNX model
+    output_matmul = oxe.execute_onnx(model, input_dict)[outp_name]
+
+    # Create MVAU
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", str(impl_style))
+
+    # Apply convert-to-rtl step
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "MVAU_" + str(impl_style)
+    # Apply folding (i.e. specify to use DSPs)
+    folding_config = {
+        "Defaults": {},
+        "MVAU_%s_0"
+        % impl_style: {
+            "PE": pe,
+            "SIMD": simd,
+            "resType": "auto",
+        },
+    }
+    model = model.transform(ApplyConfig(folding_config))
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    # make sure the changed datatypes are propagated through the network
+    model = model.transform(InferDataTypes())
+
+    # Run CPPsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    output_mvau_hls = oxe.execute_onnx(model, input_dict)[outp_name]
+    assert (
+        output_matmul == output_mvau_hls
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+
+    # Run node-by-node RTLsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)[outp_name]
+    assert (
+        output_matmul == output_mvau_rtl
+    ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
+
+    # Run stitched-ip RTLsim
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)[outp_name]
 
     assert (
         output_matmul == output_mvau_rtl_stitch

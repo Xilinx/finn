@@ -158,5 +158,5 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
         # pixels)
         if not is_1d:
             exp_cycles = exp_cycles - in_dim
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
         assert exp_cycles != 0

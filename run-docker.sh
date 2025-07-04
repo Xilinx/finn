@@ -75,23 +75,14 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
 : ${LOCALHOST_URL="localhost"}
-: ${PYNQ_USERNAME="xilinx"}
-: ${PYNQ_PASSWORD="xilinx"}
-: ${PYNQ_BOARD="Pynq-Z1"}
-: ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
-: ${ALVEO_USERNAME="alveo_user"}
-: ${ALVEO_PASSWORD=""}
-: ${ALVEO_BOARD="U250"}
-: ${ALVEO_TARGET_DIR="/tmp"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
-: ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --always --tags --dirty).$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
-: ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
@@ -102,6 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SINGULARITY=""}
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
+: ${FINN_DOCKER_NO_CACHE="0"}
 
 DOCKER_INTERACTIVE=""
 
@@ -142,7 +134,7 @@ elif [ "$1" = "build_custom" ]; then
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
-  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
@@ -151,19 +143,6 @@ else
   gecho "Running container with passed arguments"
   DOCKER_CMD="$@"
 fi
-
-
-if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
-  gecho "nvidia-docker detected, enabling GPUs"
-  if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
-    FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
-  else
-    FINN_DOCKER_EXTRA+="--gpus all "
-  fi
-fi
-
-VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
 
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
@@ -175,8 +154,6 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $FINN_XILINX_PATH into $FINN_XILINX_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
@@ -188,6 +165,10 @@ fi
 if [ -d "$FINN_XRT_PATH" ];then
   cp $FINN_XRT_PATH/$XRT_DEB_VERSION.deb .
   export LOCAL_XRT=1
+fi
+
+if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
+  FINN_DOCKER_BUILD_EXTRA+="--no-cache "
 fi
 
 # Build the FINN Docker image
@@ -215,17 +196,14 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
-DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
-DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
-DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
-DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
-DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647
 DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
+# Workaround for running multiple Vivado instances simultaneously, see:
+# https://adaptivesupport.amd.com/s/article/63253?language=en_US
+DOCKER_EXEC+="-e XILINX_LOCAL_USER_DATA=no "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
   DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
   DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
@@ -258,11 +236,6 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   if [ -d "$PLATFORM_REPO_PATHS" ];then
     DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
     DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-    DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
-    DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
-    DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
-    DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
-    DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
 
@@ -302,11 +275,12 @@ if [ -z "$FINN_SINGULARITY" ];then
 else
   SINGULARITY_BASE="singularity exec"
   # Replace command options for Singularity
-  SINGULARITY_EXEC="${DOCKER_EXEC//"-e "/"--env "}"
-  SINGULARITY_EXEC="${SINGULARITY_EXEC//"-v "/"-B "}"
-  SINGULARITY_EXEC="${SINGULARITY_EXEC//"-w "/"--pwd "}"
+  SINGULARITY_EXEC="${DOCKER_EXEC//-e /--env }"
+  SINGULARITY_EXEC="${SINGULARITY_EXEC//-v /-B }"
+  SINGULARITY_EXEC="${SINGULARITY_EXEC//-w /--pwd }"
   CMD_TO_RUN="$SINGULARITY_BASE $SINGULARITY_EXEC $FINN_SINGULARITY /usr/local/bin/finn_entrypoint.sh $DOCKER_CMD"
   gecho "FINN_SINGULARITY is set, launching Singularity container instead of Docker"
 fi
 
+echo $CMD_TO_RUN
 $CMD_TO_RUN

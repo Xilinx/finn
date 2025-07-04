@@ -1,5 +1,5 @@
 # Copyright (C) 2020, Xilinx, Inc.
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,6 @@ import pytest
 
 import numpy as np
 import os
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -99,9 +98,15 @@ def test_runtime_weights_single_layer():
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
     assert extracted_weight_stream == old_weight_stream
@@ -120,9 +125,14 @@ def test_runtime_weights_single_layer():
 
     def write_weights(sim):
         addr = 0
+        writes = []
         for nw in new_weight_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["act_1"]

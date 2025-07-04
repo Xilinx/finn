@@ -29,7 +29,6 @@
 
 import math
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -37,7 +36,6 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator1D:
 # input 0 is the input tensor, shape NHWC = (1, IFMDim_H, IFMDim_W, IFMChannels)
@@ -334,89 +332,7 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
             return 0
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
-
-        # TODO ensure codegen dir exists
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-        if self.get_input_datatype() == DataType["BIPOLAR"]:
-            # store bipolar activations as binary
-            inp = (inp + 1) / 2
-            export_idt = DataType["BINARY"]
-        else:
-            export_idt = self.get_input_datatype()
-        # reshape input into folded form
-        inp = inp.reshape(folded_ishape)
-        # make copy before saving array
-        reshaped_input = inp.copy()
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == exp_oshape
-            ), "cppsim \
-            did not produce expected output shape"
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType["BIPOLAR"]:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output
-        shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
+        HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
@@ -542,47 +458,47 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws_stride":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, Dilation1_x, SIMD1>
-                (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0_{}, out_{}, numReps, {});""".format(
-                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
+                    OFMDim1, SIMD1, Stride1> (in0_V, out0_V, numReps, {});""".format(
+                    swu_variant, hls_ram_style
                 )
             ]
 
@@ -597,7 +513,7 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
+        npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
         if self.use_parallel_window_output():
@@ -609,13 +525,12 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
             multi_pixel_out = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", true, 1, %d);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", true, 1, %d);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
                 multi_pixel_out,
@@ -625,16 +540,16 @@ class ConvolutionInputGenerator_hls(ConvolutionInputGenerator, HLSBackend):
     def blackboxfunction(self):
         if self.use_parallel_window_output():
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_V,
                     hls::stream<ap_uint<ConvKernelDim1_x*SIMD1*Input_precision1>>
-                    &out_{})""".format(
-                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                    &out0_V)""".format(
+                    self.onnx_node.name
                 )
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
-                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out_{})""".format(
-                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_V,
+                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out0_V)""".format(
+                    self.onnx_node.name
                 )
             ]
