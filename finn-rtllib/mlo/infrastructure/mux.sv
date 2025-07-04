@@ -115,12 +115,15 @@ always_comb begin: NSL_GEN
     endcase
 end
 
+assign s_axis_fs_tready = axis_fs_tready;
+assign axis_fs_tready = m_axis_int_tready;
+
 always_comb begin: DP_GEN
     cnt_gen_N = cnt_gen_C;
 
     axis_fs_tvalid = 1'b0;
     axis_fs_tdata = s_axis_fs_tdata;
-    s_axis_fs_tready = 1'b0;
+    //s_axis_fs_tready = 1'b0;
 
     idx_fs_tvalid = 1'b0;
 
@@ -134,7 +137,7 @@ always_comb begin: DP_GEN
 
         ST_GEN_DATA: begin
             axis_fs_tvalid = s_axis_fs_tvalid;
-            s_axis_fs_tready = axis_fs_tready;
+            //s_axis_fs_tready = axis_fs_tready;
 
             if(s_axis_fs_tvalid && s_axis_fs_tready) begin
                 cnt_gen_N = cnt_gen_C + 1;
@@ -289,7 +292,7 @@ always_comb begin : DP
     m_axis_int_tvalid = 1'b0;
     m_axis_int_tdata = '0;
 
-    axis_fs_tready = 1'b0;
+    //axis_fs_tready = 1'b0;
     s_axis_if_tready = 1'b0;
 
     // RD
