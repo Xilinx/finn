@@ -1,12 +1,12 @@
 module $LOOP_CONTROL_WRAPPER_NAME$ #(
-    parameter N_MAX_LAYERS   = $N_MAX_LAYERS$,
+    parameter N_LAYERS       = $N_LAYERS$,
+
     parameter ADDR_BITS      = 64,
     parameter DATA_BITS      = 256,
     parameter LEN_BITS       = 32,
-    parameter CNT_BITS       = 16,
+    parameter IDX_BITS       = 16,
     parameter ILEN_BITS      = $ILEN_BITS$,
     parameter OLEN_BITS      = $OLEN_BITS$,
-    parameter M_AXI_HBM_BASE_ADDR = 0, // m_axi_hbm base address
     parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0
 ) (
     //- Global Control ------------------
@@ -59,41 +59,41 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  m_axis_core_in_tready,
 
     // AXI4S master interface for core_in_fw_idx
-    output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
+    output [IDX_BITS-1:0]  m_axis_core_in_fw_idx_tdata,
     output                 m_axis_core_in_fw_idx_tvalid,
     input                  m_axis_core_in_fw_idx_tready,
-
-    // AXI4S slave interface for core_out_fw_idx
-    input  [DATA_BITS-1:0] s_axis_core_out_fw_idx_tdata,
-    input                  s_axis_core_out_fw_idx_tvalid,
-    output                 s_axis_core_out_fw_idx_tready,
 
     // AXI4S slave interface for core_out
     input  [DATA_BITS-1:0] s_axis_core_out_tdata,
     input                  s_axis_core_out_tvalid,
     output                 s_axis_core_out_tready,
 
-    // activation signals
+    // AXI4S slave interface for core_out_fw_idx
+    input  [IDX_BITS-1:0] s_axis_core_out_fw_idx_tdata,
+    input                  s_axis_core_out_fw_idx_tvalid,
+    output                 s_axis_core_out_fw_idx_tready,
+
+    // Activation signals
     input  [DATA_BITS-1:0] in0_V_tdata,
     input                  in0_V_tvalid,
     output                 in0_V_tready,
+
     output [DATA_BITS-1:0] out0_V_tdata,
     output                 out0_V_tvalid,
     input                  out0_V_tready,
 
-    // control signals
-    output wire [1:0]         done_if
+    // Control signals
+    output wire [1:0]      done_if
 );
 
     loop_control #(
-        .N_MAX_LAYERS(N_MAX_LAYERS),
+        .N_LAYERS(N_LAYERS),
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
         .LEN_BITS(LEN_BITS),
-        .CNT_BITS(CNT_BITS),
+        .IDX_BITS(IDX_BITS),
         .ILEN_BITS(ILEN_BITS),
         .OLEN_BITS(OLEN_BITS),
-        .M_AXI_HBM_BASE_ADDR(M_AXI_HBM_BASE_ADDR),
         .LAYER_OFFS_INT(LAYER_OFFS_INT)
     ) loop_control_inst (
        .aclk(ap_clk),
@@ -155,14 +155,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
         .s_axis_core_out_fw_idx_tdata(s_axis_core_out_fw_idx_tdata),
         .s_axis_core_out_fw_idx_tvalid(s_axis_core_out_fw_idx_tvalid),
         .s_axis_core_out_fw_idx_tready(s_axis_core_out_fw_idx_tready),
-
-       .axis_fs_tdata(in0_V_tdata),
-       .axis_fs_tvalid(in0_V_tvalid),
-       .axis_fs_tready(in0_V_tready),
-       .axis_se_tdata(out0_V_tdata),
-       .axis_se_tvalid(out0_V_tvalid),
-       .axis_se_tready(out0_V_tready),
-
+        
        // control signals
        .n_layers($N_LAYERS$),
        .done_if(done_if)
