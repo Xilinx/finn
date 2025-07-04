@@ -79,7 +79,7 @@ def prep_rtlsim_io_dict(model, execution_context):
         if_name = if_dict["s_axis"][i][0]
         io_dict["inputs"][if_name] = packed_input
     # go over outputs to determine how many values will be produced
-    num_out_values = 0
+    num_out_values = {}
     o_tensor_info = []
     for o, o_vi in enumerate(model.graph.output):
         # output in io_dict just needs an empty list
@@ -100,7 +100,9 @@ def prep_rtlsim_io_dict(model, execution_context):
         o_folded_shape = tuple(o_folded_shape)
         o_stream_w = last_node.get_outstream_width()
         o_tensor_info.append((o_stream_w, o_dt, o_folded_shape, o_shape))
-        num_out_values += batchsize * last_node.get_number_output_values()
+        num_out_values[if_name] = batchsize * last_node.get_number_output_values()
+    if len(num_out_values.keys()) == 1:
+        num_out_values = num_out_values[if_name]
     return io_dict, if_dict, num_out_values, o_tensor_info, batchsize
 
 
