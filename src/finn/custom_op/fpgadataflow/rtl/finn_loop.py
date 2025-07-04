@@ -746,7 +746,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
         )
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0]"
+            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] "
             "[get_bd_intf_pins %s/s_axis_core_out_fw_idx]" % (bd_name, loop_shell_name)
         )
 
