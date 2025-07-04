@@ -109,6 +109,7 @@ class SimEngine:
 
             # Execute Cycle
             self.ticks += 1
+            print(f"Cycle {self.ticks}")
             strong = False
             for task in self.tasks:
                 # Tasks read signals and derive updates to schedule for after the clock cycle
@@ -534,6 +535,8 @@ class SimEngine:
                         else:
                             self.wa_queue.insert(0, (addr, length, size))
                             break
+                    if len(self.wd_queue) == 0:
+                        break
 
                 # Push out Read Replies
                 if self.rready.read().as_bool() or not self.rvalid.as_bool():

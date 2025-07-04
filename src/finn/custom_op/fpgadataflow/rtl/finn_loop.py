@@ -300,6 +300,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         input_elements = np.prod(self.get_normal_input_shape(0))
         input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
+        output_elements = np.prod(self.get_normal_output_shape(0))
+        output_bytes = (output_elements * self.get_output_datatype(0).bitwidth() + 8 - 1) // 8
+        code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
+        code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
+
         # round up to next power of 2
         input_bytes_rounded_to_power_of_2 = 2 ** (math.ceil(math.log2(input_bytes)))
         code_gen_dict["$LAYER_OFFS_INT$"] = [
@@ -627,9 +632,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ]
 
         source_files = [
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_macros.svh",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/axi_intf.sv",
-            f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/infrastructure/queue.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_top.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/krnl_counter.sv",
             f"{os.environ['FINN_ROOT']}/finn-rtllib/mlo/cdma/cdma_a/cdma_a.sv",

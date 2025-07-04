@@ -47,28 +47,28 @@ module demux #(
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1
 ) (
-    input  wire                         aclk,
-    input  wire                         aresetn,
+    input  logic                         aclk,
+    input  logic                         aresetn,
 
-    input  wire                         s_idx_tvalid,
-    output wire                         s_idx_tready,
-    input  wire [IDX_BITS-1:0]          s_idx_tdata,
+    input  logic                         s_idx_tvalid,
+    output logic                         s_idx_tready,
+    input  logic [IDX_BITS-1:0]          s_idx_tdata,
 
-    output wire                         m_idx_tvalid,
-    input  wire                         m_idx_tready,
-    output wire [IDX_BITS-1:0]          m_idx_tdata,
+    output logic                         m_idx_tvalid,
+    input  logic                         m_idx_tready,
+    output logic [IDX_BITS-1:0]          m_idx_tdata,
 
-    input  wire                         s_axis_tvalid,
-    output wire                         s_axis_tready,
-    input  wire [DATA_BITS-1:0]         s_axis_tdata,
+    input  logic                         s_axis_tvalid,
+    output logic                         s_axis_tready,
+    input  logic [OLEN_BITS-1:0]         s_axis_tdata,
 
-    output wire                         m_axis_if_tvalid,
-    input  wire                         m_axis_if_tready,
-    output wire [DATA_BITS-1:0]         m_axis_if_tdata,
+    output logic                         m_axis_if_tvalid,
+    input  logic                         m_axis_if_tready,
+    output logic [OLEN_BITS-1:0]         m_axis_if_tdata,
 
-    output wire                         m_axis_se_tvalid,
-    input  wire                         m_axis_se_tready,
-    output wire [DATA_BITS-1:0]         m_axis_se_tdata
+    output logic                         m_axis_se_tvalid,
+    input  logic                         m_axis_se_tready,
+    output logic [OLEN_BITS-1:0]         m_axis_se_tdata
 );
 
 localparam integer FM_BEATS = FM_SIZE / (OLEN_BITS/8);
@@ -105,7 +105,7 @@ always_ff @(posedge aclk) begin: REG
         val_seq_C <= val_seq_N;
         idx_C <= idx_N;
         seq_C <= seq_N;
-    end 
+    end
 end
 
 always_comb begin: NSL
@@ -128,10 +128,11 @@ always_comb begin: DP
     val_seq_N = val_seq_C;
     idx_N = idx_C;
     seq_N = seq_C;
-    
+    s_idx_tready = 1'b0;
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
             if(s_idx_tvalid) begin
+                s_idx_tready = 1'b1;
                 if(s_idx_tdata == N_LAYERS-1) begin
                     val_seq_N = 1'b1;
                     seq_N = 1'b0;
@@ -175,14 +176,14 @@ assign m_idx_tdata = idx_C;
 
 // Regs
 typedef enum logic[1:0] {ST_DATA_IDLE, ST_DATA_MUX_SE, ST_DATA_MUX_IF} state_data_t;
-state_t state_data_C = ST_DATA_IDLE, state_data_N;
+state_data_t state_data_C = ST_DATA_IDLE, state_data_N;
 
 logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
 
 logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
-always_ff @( posedge aclk ) begin : REG
+always_ff @( posedge aclk ) begin : REG1
     if(~aresetn) begin
         state_data_C <= ST_DATA_IDLE;
         cnt_data_C <= 'X;
@@ -193,7 +194,7 @@ always_ff @( posedge aclk ) begin : REG
     end
 end
 
-always_comb begin : NSL
+always_comb begin : NSL1
     state_data_N = state_data_C;
 
     case (state_data_C)
@@ -209,7 +210,7 @@ always_comb begin : NSL
     endcase
 end
 
-always_comb begin : DP
+always_comb begin : DP1
     cnt_data_N = cnt_data_C;
 
     // S
@@ -220,7 +221,7 @@ always_comb begin : DP
     m_axis_se_tvalid = 1'b0;
     m_axis_se_tdata = s_axis_int_tdata;
     m_axis_if_tvalid = 1'b0;
-    m_axis_if_tdata = s_axis_int_tdata;    
+    m_axis_if_tdata = s_axis_int_tdata;
 
     // RD
     case (state_data_C)

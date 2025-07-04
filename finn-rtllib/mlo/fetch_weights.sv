@@ -48,10 +48,9 @@ module fetch_weights #(
     parameter int unsigned              ADDR_BITS = 64,
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
-    parameter int unsigned              CNT_BITS = 16,
+    parameter int unsigned              IDX_BITS = 16,
 
-    parameter logic[ADDR_BITS-1:0]      LAYER_OFFS,
-    parameter int unsigned              N_MAX_LAYERS,
+    parameter int unsigned              N_LAYERS,
 
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              EN_OREG = 1,
@@ -59,8 +58,9 @@ module fetch_weights #(
     parameter int unsigned              DBG = 0,
 
     // Safely deducible parameters
-    parameter   DS_BITS_BA = (PE+7)/8 * 8,
-	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+    parameter                          DS_BITS_BA = (PE+7)/8 * 8,
+	parameter                          WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + 8) & ~7 // 8-byte aligned
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
@@ -107,7 +107,7 @@ module fetch_weights #(
     // Index
     input  logic                        s_idx_tvalid,
     output logic                        s_idx_tready,
-    input  logic[2*CNT_BITS-1:0]        s_idx_tdata,
+    input  logic[IDX_BITS-1:0]          s_idx_tdata,
 
     // Stream
     // TODO: Should we reg this? Would be quite wide ...
@@ -117,13 +117,13 @@ module fetch_weights #(
 );
 
 // Offsets
-logic [N_MAX_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
-for(genvar i = 0; i < N_MAX_LAYERS; i++) begin
+logic [N_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
+for(genvar i = 0; i < N_LAYERS; i++) begin
     assign l_offsets[i] = (i * LAYER_OFFS);
 end
 
 logic q_idx_out_tvalid, q_idx_out_tready;
-logic [2*CNT_BITS-1:0] q_idx_out_tdata;
+logic [IDX_BITS-1:0] q_idx_out_tdata;
 logic q_dma_tvalid, q_dma_tready;
 logic [ADDR_BITS+LEN_BITS-1:0] q_dma_tdata;
 logic q_dma_out_tvalid, q_dma_out_tready;
@@ -132,7 +132,7 @@ logic [ADDR_BITS+LEN_BITS-1:0] q_dma_out_tdata;
 // Queues
 Q_srl #(
     .depth(QDEPTH),
-    .width(2*CNT_BITS)
+    .width(IDX_BITS)
 ) inst_queue_in (
     .clock(aclk), .reset(!aresetn),
     .count(), .maxcount(),
@@ -154,11 +154,11 @@ Q_srl #(
 typedef enum logic[0:0] {ST_IDLE, ST_READ} state_t;
 state_t state_C = ST_IDLE, state_N;
 
-logic [CNT_BITS-1:0] cnt_frames_C = '0, cnt_frames_N;
-logic [CNT_BITS-1:0] n_frames_C = '0, n_frames_N;
+logic [IDX_BITS-1:0] cnt_frames_C = '0, cnt_frames_N;
+logic [IDX_BITS-1:0] n_frames_C = '0, n_frames_N;
 logic [ADDR_BITS-1:0] addr_C = '0, addr_N;
 logic [LEN_BITS-1:0] len_C = '0, len_N;
-logic [CNT_BITS-1:0] layer_C = '0, layer_N;
+logic [IDX_BITS-1:0] layer_C = '0;
 
 always_ff @( posedge aclk ) begin : REG
     if(~aresetn) begin
@@ -210,10 +210,9 @@ always_comb begin : DP
             q_idx_out_tready = 1'b1;
             if(q_idx_out_tvalid) begin
                 cnt_frames_N = 0;
-                layer_N = q_idx_out_tdata[0+:CNT_BITS];
-                n_frames_N = q_idx_out_tdata[CNT_BITS+:CNT_BITS];
+                n_frames_N = q_idx_out_tdata;
                 len_N = MH * MW;
-                addr_N = l_offsets[q_idx_out_tdata[0+:CNT_BITS]];
+                addr_N = l_offsets[q_idx_out_tdata];
             end
         end
 
