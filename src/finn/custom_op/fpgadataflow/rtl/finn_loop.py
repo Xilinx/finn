@@ -405,7 +405,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                         outfile.write(line)
                                 os.remove(iter_file)
 
-
                 # Replace the path for the dat files in the ipgen files
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
                 param_customop = getCustomOp(param_node)
@@ -470,7 +469,6 @@ class FINNLoop(HWCustomOp, RTLBackend):
     def get_verilog_top_module_intf_names(self):
         # from wrapper template
         addr_bits = 64
-        data_bits = 256
 
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
@@ -481,12 +479,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # to block diagram interface port and connect to fetch_start component
         intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
 
-
         intf_names["m_axis"] = []
         # AXI4S master interface to drive final loop output externalize
         # to block diagram interface port and connect to store_end component
         intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
-
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
@@ -750,8 +746,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/m_axis_0" % bd_name
         )
         cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0] [get_bd_intf_pins %s/s_axis_core_out_fw_idx]"
-            % (bd_name, loop_shell_name)
+            "connect_bd_intf_net [get_bd_intf_pins %s/m_axis_0]"
+            "[get_bd_intf_pins %s/s_axis_core_out_fw_idx]" % (bd_name, loop_shell_name)
         )
 
         cmd.append(

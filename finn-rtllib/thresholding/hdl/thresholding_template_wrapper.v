@@ -25,7 +25,7 @@
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
  * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF/scratch/finn/test/code_gen_ipgen_Thresholding_rtl_0_n9w6opfh/Thresholding_rtl_0.v
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
@@ -40,7 +40,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
 	parameter  SIGNED = $SIGNED$,	// signed inputs
-	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
+	parameter  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	parameter  SETS = $SETS$,  // Number of independent threshold sets
