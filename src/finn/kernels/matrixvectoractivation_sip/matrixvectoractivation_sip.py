@@ -344,7 +344,6 @@ input	        {axilite[0]}_RREADY,
 output	[31:0]  {axilite[0]}_RDATA,
 output	[ 1:0]  {axilite[0]}_RRESP,
 """
-
         top_ports = top_inft_names['axilite'] + top_inft_names['s_axis'] + top_inft_names['m_axis']
         top_port_names = [port[0] for port in top_ports]
         code_gen_dict["$TOP_PORT_NAMES$"] = ':'.join(top_port_names)
@@ -356,7 +355,7 @@ output	[ 1:0]  {axilite[0]}_RRESP,
         code_gen_dict["$MVAU$"] = f"""
 wire WSTRM_TREADY;
 wire WSTRM_TVALID;
-wire WSTRM_TDATA;
+wire [WIDTH-1:0] WSTRM_TDATA;
 
 {self.name + "_MVAUHLS"} impl
 (
@@ -386,9 +385,21 @@ wire WSTRM_TDATA;
  .ap_rst_n({top_inft_names["rst"][0]}),
  .m_axis_0_tready(WSTRM_TREADY),
  .m_axis_0_tvalid(WSTRM_TVALID),
- .m_axis_0_tdata(WSTRM_TDATA)
+ .m_axis_0_tdata(WSTRM_TDATA),
+
+ .s_axilite_ARADDR({{AXILITE_ADDR_WIDTH{{1'b0}}}}),
+ .s_axilite_ARPROT(3'b0),
+ .s_axilite_ARVALID(1'b0),
+ .s_axilite_AWADDR({{AXILITE_ADDR_WIDTH{{1'b0}}}}),
+ .s_axilite_AWPROT(3'b0),
+ .s_axilite_AWVALID(1'b0),
+ .s_axilite_BREADY(1'b0),
+ .s_axilite_RREADY(1'b0),
+ .s_axilite_WDATA(32'b0),
+ .s_axilite_WSTRB(4'b1),
+ .s_axilite_WVALID(1'b0)
 );
-""" # ADD AXILITE FOR RUNTIME WRITABLE CASE ##############################################################################
+""" # CONNECT AXILITE FOR RUNTIME WRITABLE CASE, CURRENTLY SET TO 0s ##############################################################################
 
         # Find and replace parameters in template, then return
         node_dir = ctx.directory
@@ -399,10 +410,8 @@ wire WSTRM_TDATA;
         with open(node_dir / Path(f'{self.name}.v'), 'w') as f:
             f.write(template)
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, node_ctx) -> list[str]:
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-
-        code_gen_dir = "$CODEGEN_DIR_IP_GEN$"
 
         sourcefiles = [
             f"{self.name}.v",
@@ -410,6 +419,10 @@ wire WSTRM_TDATA;
 
         cmd = []
         for f in sourcefiles:
-            cmd += [f"add_files -norecurse {Path(code_gen_dir) / Path(f)}"]
+            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
         cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
+
+        for subkernel in self.subkernels:
+            cmd += subkernel.code_generation_ipi(node_ctx.get_subcontext(Path(subkernel.name)))
+
         return cmd

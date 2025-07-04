@@ -177,10 +177,16 @@ class MVAUHLS(Kernel):
         f_thresh.close()
 
     ######################### Other methods #########################
-    def code_generation_ipi(self) -> List[str]:
+    def code_generation_ipi(self, node_ctx) -> List[str]:
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        ip_vlnv = f"xilinx.com:hls:{self.name}:1.0"
-        cmd = [f"create_bd_cell -type ip -vlnv {ip_vlnv} {self.name}"]
+        # ip_vlnv = f"xilinx.com:hls:{self.name}:1.0"
+        # cmd = [f"create_bd_cell -type ip -vlnv {ip_vlnv} {self.name}"]
+        # return cmd
+
+        sourcefiles = self.get_abs_verilog_files(node_ctx)
+        cmd = []
+        for f in sourcefiles:
+            cmd += [f"add_files -norecurse {'../'+str((Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
         return cmd
 
     def get_input_datatype(self, ind=0):

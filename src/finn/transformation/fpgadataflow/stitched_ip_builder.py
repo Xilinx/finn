@@ -276,7 +276,7 @@ class StitchedIPBuilder(Transformation):
             ip_dir_value = node_ctx.directory
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += ['../'+str(ip_dir_value.relative_to(self.ctx.directory))]
-            kernel_cmds = kernel.code_generation_ipi()
+            kernel_cmds = kernel.code_generation_ipi(node_ctx)
             kernel_cmds = [cmd.replace("$CODEGEN_DIR_IP_GEN$", '../'+str(node_ctx.directory.relative_to(self.ctx.directory))) for cmd in kernel_cmds]
             self.create_cmds += kernel_cmds
             self.connect_clk_rst(node, kernel)

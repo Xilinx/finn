@@ -5,6 +5,7 @@ from finn.kernels import gkr
 import finn_xsi.adapter as finnxsi
 
 from .code_builder import CodeBuilder
+from .stitched_ip_builder import StitchedIPBuilder
 
 from qonnx.transformation.base import Transformation
 from qonnx.core.modelwrapper import ModelWrapper
@@ -37,6 +38,7 @@ class RTLSimBuilder(Transformation):
     # Modified version from qonnx.transformation.base.NodeLocalTransformation
     def apply(self, model: ModelWrapper):
         model = model.transform(CodeBuilder(self.ctx, self._num_workers))
+        model = model.transform(StitchedIPBuilder(self.ctx))
         # make a detached copy of the input model that applyNodeLocal
         # can use for read-only access
         self.ref_input_model = copy.deepcopy(model)

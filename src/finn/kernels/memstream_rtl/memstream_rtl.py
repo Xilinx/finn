@@ -133,10 +133,8 @@ class MemstreamRTL(Kernel):
             with open(node_dir / Path(self.name + ".v"), "w") as f:
                 f.write(template_wrapper)
 
-    def code_generation_ipi(self) -> List[str]:
+    def code_generation_ipi(self, node_ctx) -> List[str]:
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-
-        code_gen_dir = "$CODEGEN_DIR_IP_GEN$"
 
         sourcefiles = [
             f"{self.name}.v",
@@ -144,8 +142,8 @@ class MemstreamRTL(Kernel):
 
         cmd = []
         for f in sourcefiles:
-            cmd += [f"add_files -norecurse {Path(code_gen_dir) / Path(f)}"]
-        cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
+            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
+        # cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
         return cmd
 
     def get_input_datatype(self, ind=0):

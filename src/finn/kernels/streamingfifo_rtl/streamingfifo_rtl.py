@@ -4,6 +4,7 @@ from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from pkgutil import get_data
 from qonnx.core.datatype import DataType
+import numpy as np
 
 
 @dataclass(frozen=True, init=False)
@@ -46,10 +47,8 @@ class StreamingFIFORTL(Kernel):
             ret["ap_none"] = ["maxcount"]
         return ret
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, node_ctx):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-
-        code_gen_dir = "$CODEGEN_DIR_IP_GEN$"
 
         sourcefiles = [
             f"{self.name}.v",
@@ -57,7 +56,7 @@ class StreamingFIFORTL(Kernel):
 
         cmd = []
         for f in sourcefiles:
-            cmd += [f"add_files -norecurse {Path(code_gen_dir) / Path(f)}"]
+            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
         cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
         return cmd
 
@@ -72,6 +71,16 @@ class StreamingFIFORTL(Kernel):
         folded_shape = self.folded_shape
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
+
+    def get_folded_input_shape(self, ind=0):
+        return self.folded_shape
+
+    def get_folded_output_shape(self, ind=0):
+        return self.folded_shape
+
+    def get_number_output_values(self):
+        folded_oshape = self.get_folded_output_shape()
+        return np.prod(folded_oshape[:-1])
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
