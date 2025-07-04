@@ -35,6 +35,7 @@ from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -65,7 +66,10 @@ def make_split_model(IN_SHAPE, IN_DTYPE, SPLIT, AXIS):
         "Split", [inp.name, split_init.name], [out.name for out in outputs], axis=AXIS
     )
     graph = oh.make_graph(nodes=[split_node], name="split_test", inputs=[inp], outputs=outputs)
-    model = oh.make_model(graph)
+
+    # set opset version to 13 for specific Split configuration
+    opset_imports = [oh.make_opsetid("", 13)]
+    model = qonnx_make_model(graph, opset_imports=opset_imports)
     model = ModelWrapper(model)
     for out in outputs:
         model.set_tensor_datatype(out.name, IN_DTYPE)

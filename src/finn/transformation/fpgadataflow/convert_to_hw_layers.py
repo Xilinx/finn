@@ -1227,14 +1227,17 @@ class InferSplitLayer(Transformation):
                 # ready for conversion
                 channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.output]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                # when creating the fpgadataflow node we remove the second parameter input
                 new_node = helper.make_node(
                     "StreamingSplit",
-                    node.input,
+                    [node.input[0]],
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     name="StreamingSplit_" + node.name,
                     SIMD=1,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
                     ChannelsPerStream=channels_per_stream,
                     inputDataType=model.get_tensor_datatype(node.input[0]).name,
                     numInputVectors=inp_vec,

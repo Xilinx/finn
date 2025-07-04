@@ -219,14 +219,14 @@ class HWCustomOp(CustomOp):
         back to one"""
         finnxsi.reset_rtlsim(sim)
 
-    def rtlsim_multi_io(self, sim, io_dict, sname=None):
+    def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
-            sname="_V",
+            sname=sname,
             liveness_threshold=get_liveness_threshold_cycles(),
         )
 
