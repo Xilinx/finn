@@ -89,6 +89,8 @@ logic [FM_BEATS_BITS-1:0] cnt_gen_C = '0, cnt_gen_N;
 
 logic axis_fs_tvalid, axis_fs_tready;
 logic [ILEN_BITS-1:0] axis_fs_tdata;
+logic axis_fs_tvalid_q, axis_fs_tready_q;
+logic [ILEN_BITS-1:0] axis_fs_tdata_q;
 
 logic idx_fs_tvalid, idx_fs_tready;
 
@@ -110,7 +112,7 @@ always_comb begin: NSL_GEN
             state_gen_N = (s_axis_fs_tvalid && idx_fs_tready) ? ST_GEN_DATA : ST_GEN_IDLE;
 
         ST_GEN_DATA:
-            state_gen_N = (axis_fs_tvalid && axis_fs_tready && (cnt_gen_C == FM_BEATS-1)) ? ST_GEN_IDLE : ST_GEN_DATA;
+            state_gen_N = (s_axis_fs_tvalid && s_axis_fs_tready && (cnt_gen_C == FM_BEATS-1)) ? ST_GEN_IDLE : ST_GEN_DATA;
 
     endcase
 end
@@ -146,6 +148,15 @@ always_comb begin: DP_GEN
 
     endcase
 end
+
+Q_srl #(
+    .depth(2), .width(ILEN_BITS)
+) inst_queue_gend (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(axis_fs_tdata), .i_v(axis_fs_tvalid), .i_r(axis_fs_tready),
+    .o_d(axis_fs_tdata_q), .o_v(axis_fs_tvalid_q), .o_r(axis_fs_tready_q)
+);
 
 //
 // Mux control
@@ -256,7 +267,7 @@ logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
-always_ff @( posedge aclk ) begin : REG
+always_ff @( posedge aclk ) begin : REG_DATA
     if(~aresetn) begin
         state_data_C <= ST_DATA_IDLE;
         cnt_data_C <= 'X;
@@ -267,7 +278,7 @@ always_ff @( posedge aclk ) begin : REG
     end
 end
 
-always_comb begin : NSL
+always_comb begin : NSL_DATA
     state_data_N = state_data_C;
 
     case (state_data_C)
@@ -283,7 +294,7 @@ always_comb begin : NSL
     endcase
 end
 
-always_comb begin : DP
+always_comb begin : DP_DATA
     cnt_data_N = cnt_data_C;
 
     // S
@@ -292,7 +303,7 @@ always_comb begin : DP
     m_axis_int_tvalid = 1'b0;
     m_axis_int_tdata = '0;
 
-    //axis_fs_tready = 1'b0;
+    axis_fs_tready_q = 1'b0;
     s_axis_if_tready = 1'b0;
 
     // RD
@@ -303,9 +314,9 @@ always_comb begin : DP
         end
 
         ST_DATA_MUX_FS: begin
-            m_axis_int_tvalid = axis_fs_tvalid;
-            //axis_fs_tready = m_axis_int_tready;
-            m_axis_int_tdata = axis_fs_tdata;
+            m_axis_int_tvalid = axis_fs_tvalid_q;
+            axis_fs_tready_q = m_axis_int_tready;
+            m_axis_int_tdata = axis_fs_tdata_q;
 
             if(m_axis_int_tvalid & m_axis_int_tready) begin
                 cnt_data_N = cnt_data_C + 1;

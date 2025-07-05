@@ -40,7 +40,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
 	parameter  SIGNED = $SIGNED$,	// signed inputs
-	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
+	parameter  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	parameter  SETS = $SETS$,  // Number of independent threshold sets
