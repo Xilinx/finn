@@ -124,10 +124,8 @@ end
 
 logic q_idx_out_tvalid, q_idx_out_tready;
 logic [IDX_BITS-1:0] q_idx_out_tdata;
-logic q_dma_tvalid, q_dma_tready;
-logic [ADDR_BITS+LEN_BITS-1:0] q_dma_tdata;
-logic q_dma_out_tvalid, q_dma_out_tready;
-logic [ADDR_BITS+LEN_BITS-1:0] q_dma_out_tdata;
+logic [ADDR_BITS-1:0] q_dma_addr;
+logic [LEN_BITS-1:0] q_dma_len;
 
 // Queues
 Q_srl #(
@@ -140,91 +138,8 @@ Q_srl #(
     .o_d(q_idx_out_tdata), .o_v(q_idx_out_tvalid), .o_r(q_idx_out_tready)
 );
 
-Q_srl #(
-    .depth(QDEPTH),
-    .width(ADDR_BITS+LEN_BITS)
-) inst_queue_dma (
-    .clock(aclk), .reset(!aresetn),
-    .count(), .maxcount(),
-    .i_d(q_dma_tdata), .i_v(q_dma_tvalid), .i_r(q_dma_tready),
-    .o_d(q_dma_out_tdata), .o_v(q_dma_out_tvalid), .o_r(q_dma_out_tready)
-);
-
-// Regs
-typedef enum logic[0:0] {ST_IDLE, ST_READ} state_t;
-state_t state_C = ST_IDLE, state_N;
-
-logic [IDX_BITS-1:0] cnt_frames_C = '0, cnt_frames_N;
-logic [IDX_BITS-1:0] n_frames_C = '0, n_frames_N;
-logic [ADDR_BITS-1:0] addr_C = '0, addr_N;
-logic [LEN_BITS-1:0] len_C = '0, len_N;
-logic [IDX_BITS-1:0] layer_C = '0;
-
-always_ff @( posedge aclk ) begin : REG
-    if(~aresetn) begin
-        state_C <= ST_IDLE;
-
-        cnt_frames_C <= 'X;
-        n_frames_C <= 'X;
-        addr_C <= 'X;
-        len_C <= 'X;
-    end
-    else begin
-        state_C <= state_N;
-
-        cnt_frames_C <= cnt_frames_N;
-        n_frames_C <= n_frames_N;
-        addr_C <= addr_N;
-        len_C <= len_N;
-    end
-end
-
-always_comb begin : NSL
-    state_N = state_C;
-
-    case (state_C)
-        ST_IDLE:
-            state_N = q_idx_out_tvalid ? ST_READ : ST_IDLE;
-
-        ST_READ:
-            state_N = ((cnt_frames_C == n_frames_C - 1) && q_dma_tready) ? ST_IDLE : ST_READ;
-
-    endcase
-end
-
-always_comb begin : DP
-    // AL
-    cnt_frames_N = cnt_frames_C;
-    n_frames_N = n_frames_C;
-    addr_N = addr_C;
-    len_N = len_C;
-
-    // S
-    q_idx_out_tready = 1'b0;
-    q_dma_tvalid = 1'b0;
-    q_dma_tdata = {len_C, addr_C};
-
-    // RD
-    case (state_C)
-        ST_IDLE: begin
-            q_idx_out_tready = 1'b1;
-            if(q_idx_out_tvalid) begin
-                cnt_frames_N = 0;
-                n_frames_N = q_idx_out_tdata;
-                len_N = MH * MW;
-                addr_N = l_offsets[q_idx_out_tdata];
-            end
-        end
-
-        ST_READ: begin
-            q_dma_tvalid = 1'b1;
-            if(q_dma_tready) begin
-                cnt_frames_N = cnt_frames_C + 1;
-            end
-        end
-
-    endcase
-end
+assign q_dma_addr = l_offsets[q_idx_out_tdata];
+assign q_dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8 + 8) & ~7;
 
 // DMA
 logic axis_dma_tvalid;
@@ -240,8 +155,8 @@ cdma_u_rd #(
 ) inst_dma (
     .aclk(aclk), .aresetn(aresetn),
 
-    .rd_valid(q_dma_out_tvalid), .rd_ready(q_dma_out_tready),
-    .rd_paddr(q_dma_out_tdata[0+:ADDR_BITS]), .rd_len(q_dma_out_tdata[ADDR_BITS+:LEN_BITS]),
+    .rd_valid(q_idx_out_tvalid), .rd_ready(q_idx_out_tready),
+    .rd_paddr(q_dma_addr), .rd_len(q_dma_len),
     .rd_done(m_done),
 
     .m_axi_ddr_arvalid(m_axi_ddr_arvalid),

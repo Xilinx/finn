@@ -90,7 +90,7 @@ logic seq_tready;
 logic seq_out_tvalid, seq_out_tready;
 logic seq_out_tdata;
 
-always_ff @(posedge aclk) begin: REG
+always_ff @(posedge aclk) begin: REG_CTRL
     if(~aresetn) begin
         state_ctrl_C <= ST_CTRL_IDLE;
 
@@ -108,7 +108,7 @@ always_ff @(posedge aclk) begin: REG
     end
 end
 
-always_comb begin: NSL
+always_comb begin: NSL_CTRL
     state_ctrl_N = state_ctrl_C;
 
     case (state_ctrl_C)
@@ -123,12 +123,14 @@ always_comb begin: NSL
     endcase
 end
 
-always_comb begin: DP
+always_comb begin: DP_CTRL
     val_idx_N = val_idx_C;
     val_seq_N = val_seq_C;
     idx_N = idx_C;
     seq_N = seq_C;
+
     s_idx_tready = 1'b0;
+
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
             if(s_idx_tvalid) begin
@@ -183,7 +185,7 @@ logic [FM_BEATS_BITS-1:0] cnt_data_C = '0, cnt_data_N;
 logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
-always_ff @( posedge aclk ) begin : REG1
+always_ff @( posedge aclk ) begin : REG_DATA
     if(~aresetn) begin
         state_data_C <= ST_DATA_IDLE;
         cnt_data_C <= 'X;
@@ -194,7 +196,7 @@ always_ff @( posedge aclk ) begin : REG1
     end
 end
 
-always_comb begin : NSL1
+always_comb begin : NSL_DATA
     state_data_N = state_data_C;
 
     case (state_data_C)
@@ -210,7 +212,7 @@ always_comb begin : NSL1
     endcase
 end
 
-always_comb begin : DP1
+always_comb begin : DP_DATA
     cnt_data_N = cnt_data_C;
 
     // S

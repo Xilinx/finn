@@ -120,6 +120,9 @@ for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
 end
 localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
+localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS/8);
+localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
+
 //
 // Write side
 //
@@ -405,6 +408,15 @@ logic [OLEN_BITS-1:0] s_axis_int_tdata;
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [OLEN_BITS-1:0] m_axis_int_tdata;
 
+logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
+always_ff @(posedge aclk) begin
+    if(~aresetn) cnt_dwc_C <= '0;
+    else cnt_dwc_C <= (s_axis_int_tvalid && s_axis_int_tready) ? ((cnt_dwc_C == FM_BEATS_IN-1) ? 0 : cnt_dwc_C + 1) : cnt_dwc_C;
+end
+
+logic last_dwc_in;
+assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
+
 axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (
     .aclk(aclk),
     .aresetn(aresetn),
@@ -413,7 +425,7 @@ axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (
     .s_axis_tready(s_axis_int_tready),
     .s_axis_tdata (s_axis_int_tdata),
     .s_axis_tkeep ('1),
-    .s_axis_tlast (1'b0),
+    .s_axis_tlast (last_dwc_in),
 
     .m_axis_tvalid(axis_dma_wr_tvalid),
     .m_axis_tready(axis_dma_wr_tready),
@@ -421,7 +433,6 @@ axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (
     .m_axis_tkeep (axis_dma_wr_tkeep),
     .m_axis_tlast (axis_dma_wr_tlast)
 );
-
 
 axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) inst_dwc_rd (
     .aclk(aclk),
