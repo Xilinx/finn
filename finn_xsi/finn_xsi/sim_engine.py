@@ -481,7 +481,7 @@ class SimEngine:
 
                     length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
-                    assert addr + length * size < len(self.img), "Read extends beyond range."
+                    assert addr + length * size - 1 < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
 
