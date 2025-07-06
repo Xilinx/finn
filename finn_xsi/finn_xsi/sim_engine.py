@@ -545,6 +545,10 @@ class SimEngine:
             def __call__(self, sim):
                 ret = []
 
+                if self.bvalid.read().as_bool():
+                    if self.bready.read().as_bool():
+                        self.bvalid.set(0).write_back()
+
                 # Process Write Updates
                 while len(self.wa_queue) > 0:
                     addr, length, size = self.wa_queue.pop(0)
@@ -553,6 +557,10 @@ class SimEngine:
                             self.map[addr] = (self.wd_queue.pop(0), size)
                             addr += size
                             length -= 1
+                            if length == 0:
+                                # Push out Write Response
+                                self.bvalid.set(1).write_back()
+                                self.bresp.set(0).write_back()  # OK Response
                         else:
                             self.wa_queue.insert(0, (addr, length, size))
                             break
