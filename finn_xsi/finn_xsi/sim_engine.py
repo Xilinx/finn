@@ -593,6 +593,8 @@ class SimEngine:
                     if self.bready.read().as_bool():
                         ret[self.bvalid] = "1" 
                         _ = self.wr_completion_queue.pop(0)
+                        with open("hbm_wr_debug.txt", 'a') as fp:
+                            fp.write(f"BVALID {len(self.wr_completion_queue)=}\n")
                 else:
                     ret[self.bvalid] = "0" 
 
@@ -601,11 +603,12 @@ class SimEngine:
                     assert self.awburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.awaddr.read().as_hexstr(), 16)
-                    #length = 1 + self.awlen.read().as_unsigned()
-                    length = self.awlen.read().as_unsigned()
+                    length = 1 + self.awlen.read().as_unsigned()
                     size = 2 ** self.awsize.read().as_unsigned()
                     self.wa_queue.append((addr, length, size))
                     self.wr_completion_queue.insert(0, 1)
+                    with open("hbm_wr_debug.txt", 'a') as fp:
+                        fp.write(f"WRITE {addr=} {length=} {size=}\n")
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():
@@ -616,8 +619,7 @@ class SimEngine:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
-                    #length = 1 + self.arlen.read().as_unsigned()
-                    length = self.arlen.read().as_unsigned()
+                    length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
                     self.ra_queue.append((addr, length, size))
 
