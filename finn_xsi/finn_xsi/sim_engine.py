@@ -484,12 +484,10 @@ class SimEngine:
                     assert self.base <= addr, "Read address out of range."
                     addr -= self.base
 
-                    #length = 1 + self.arlen.read().as_unsigned()
-                    length = self.arlen.read().as_unsigned()
+                    length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
                     if( addr + (length*size) > len(self.img)):
                         print(f"Range extends beyond range {addr=} {length=} {size=}")
-                        import pdb; pdb.set_trace()
                         assert addr + length * size < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
@@ -551,6 +549,9 @@ class SimEngine:
                 self.wd_queue = []  # Write Data      (data)
                 self.ra_queue = []  # Read Addresses  (addr, len, size)
                 self.wr_completion_queue = [] # A queue to track the write completions
+
+            def __bool__(self):
+                return False
 
             def __call__(self, sim):
                 ret = {}
