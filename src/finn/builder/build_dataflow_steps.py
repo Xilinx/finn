@@ -177,10 +177,10 @@ def verify_step(
             inp_dict = {inp_tensor_name: in_npy}
             if rtlsim_pre_hook is not None:
                 rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
-                out_dict = inp_dict
+                out_npy = inp_dict[out_tensor_name]
             else:
                 out_dict = execute_onnx(model, inp_dict, True)
-            out_npy = out_dict[out_tensor_name]
+                out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
             print(
