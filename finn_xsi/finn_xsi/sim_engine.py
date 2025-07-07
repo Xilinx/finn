@@ -590,7 +590,6 @@ class SimEngine:
 
                 # Process write completion queue items
                 if len(self.wr_completion_queue) > 0:
-                    import pdb; pdb.set_trace()
                     if self.bready.as_bool():
                         ret[self.bvalid] = "1" 
                         _ = self.wr_completion_queue.pop(0)
@@ -617,7 +616,8 @@ class SimEngine:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
-                    length = 1 + self.arlen.read().as_unsigned()
+                    #length = 1 + self.arlen.read().as_unsigned()
+                    length = self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
                     self.ra_queue.append((addr, length, size))
 
