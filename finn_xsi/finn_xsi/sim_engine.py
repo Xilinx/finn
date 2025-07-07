@@ -590,7 +590,7 @@ class SimEngine:
 
                 # Process write completion queue items
                 if len(self.wr_completion_queue) > 0:
-                    if self.bready.as_bool():
+                    if self.bready.read().as_bool():
                         ret[self.bvalid] = "1" 
                         _ = self.wr_completion_queue.pop(0)
                 else:
