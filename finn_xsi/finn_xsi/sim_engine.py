@@ -478,16 +478,17 @@ class SimEngine:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
-                    #addr = addr - 8*self.rd_count
-                    #self.rd_count = self.rd_count + 2
+                    # addr = addr - 8*self.rd_count
+                    # self.rd_count = self.rd_count + 2
 
                     assert self.base <= addr, "Read address out of range."
                     addr -= self.base
 
-                    #length = 1 + self.arlen.read().as_unsigned()
-                    length = self.arlen.read().as_unsigned()
+                    length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
-                    assert addr + length * size - 1 < len(self.img), "Read extends beyond range."
+                    if addr + (length * size) > len(self.img):
+                        print(f"Range extends beyond range {addr=} {length=} {size=}")
+                        assert addr + length * size < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
 
@@ -547,7 +548,10 @@ class SimEngine:
                 self.wa_queue = []  # Write Addresses (addr, len, size)
                 self.wd_queue = []  # Write Data      (data)
                 self.ra_queue = []  # Read Addresses  (addr, len, size)
-                self.wr_completion_queue = [] # A queue to track the write completions
+                self.wr_completion_queue = []  # A queue to track the write completions
+
+            def __bool__(self):
+                return False
 
             def __call__(self, sim):
                 ret = {}
