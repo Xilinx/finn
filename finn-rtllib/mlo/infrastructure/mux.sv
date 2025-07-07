@@ -117,6 +117,9 @@ always_comb begin: NSL_GEN
     endcase
 end
 
+assign s_axis_fs_tready = axis_fs_tready;
+assign axis_fs_tready = m_axis_int_tready;
+
 always_comb begin: DP_GEN
     cnt_gen_N = cnt_gen_C;
 
