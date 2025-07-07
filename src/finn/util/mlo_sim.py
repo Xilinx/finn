@@ -43,7 +43,6 @@ def is_mlo(model: ModelWrapper) -> bool:
             return True
     return False
 
-
 def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]:
     """Factory that will construct a prehook function to
     setup the axi memory mapped interfaces for MLO validation.
@@ -59,7 +58,6 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
     finnloop_body = finnloop_op.get_nodeattr("body")
 
     mvau_hbm_weights = {}
-    extern_idx = 0
     for idx, lb_inp in enumerate(finnloop_body.graph.input):
         downstream = finnloop_body.find_consumer(lb_inp.name)
         if downstream.op_type.startswith("MVAU"):
@@ -68,8 +66,7 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
             param_name = finnloop_op.onnx_node.input[idx]
             param_val = model.get_initializer(param_name)
             mvau_hbm_weights[idx]["value"] = param_val
-            mvau_hbm_weights[idx]["extern_idx"] = extern_idx
-            extern_idx = extern_idx + 1
+            mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split('_')[-1]) 
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
