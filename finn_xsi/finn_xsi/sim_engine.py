@@ -593,8 +593,6 @@ class SimEngine:
                     if self.bready.read().as_bool():
                         ret[self.bvalid] = "1" 
                         _ = self.wr_completion_queue.pop(0)
-                        with open("hbm_wr_debug.txt", 'a') as fp:
-                            fp.write(f"BVALID {len(self.wr_completion_queue)=}\n")
                 else:
                     ret[self.bvalid] = "0" 
 
@@ -607,8 +605,6 @@ class SimEngine:
                     size = 2 ** self.awsize.read().as_unsigned()
                     self.wa_queue.append((addr, length, size))
                     self.wr_completion_queue.insert(0, 1)
-                    with open("hbm_wr_debug.txt", 'a') as fp:
-                        fp.write(f"WRITE {addr=} {length=} {size=}\n")
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():
