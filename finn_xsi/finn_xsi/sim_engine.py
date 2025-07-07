@@ -413,6 +413,8 @@ class SimEngine:
     def aximm_ro_image(self, mm_axi, base, img):
         class AximmRoImage:
             def __init__(self, top, mm_axi, base, img):
+                self.mm_axi = mm_axi
+                self.rd_count = 0
                 # Tie off Write Channels
                 for tie_off in ("awready", "wready", "bvalid"):
                     port = top.get_bus_port(mm_axi, tie_off)
@@ -476,10 +478,14 @@ class SimEngine:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
+                    #addr = addr - 8*self.rd_count
+                    #self.rd_count = self.rd_count + 2
+
                     assert self.base <= addr, "Read address out of range."
                     addr -= self.base
 
-                    length = 1 + self.arlen.read().as_unsigned()
+                    #length = 1 + self.arlen.read().as_unsigned()
+                    length = self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
                     assert addr + length * size - 1 < len(self.img), "Read extends beyond range."
 
@@ -541,13 +547,10 @@ class SimEngine:
                 self.wa_queue = []  # Write Addresses (addr, len, size)
                 self.wd_queue = []  # Write Data      (data)
                 self.ra_queue = []  # Read Addresses  (addr, len, size)
+                self.wr_completion_queue = [] # A queue to track the write completions
 
             def __call__(self, sim):
-                ret = []
-
-                if self.bvalid.read().as_bool():
-                    if self.bready.read().as_bool():
-                        self.bvalid.set(0).write_back()
+                ret = {}
 
                 # Process Write Updates
                 while len(self.wa_queue) > 0:
@@ -557,10 +560,6 @@ class SimEngine:
                             self.map[addr] = (self.wd_queue.pop(0), size)
                             addr += size
                             length -= 1
-                            if length == 0:
-                                # Push out Write Response
-                                self.bvalid.set(1).write_back()
-                                self.bresp.set(0).write_back()  # OK Response
                         else:
                             self.wa_queue.insert(0, (addr, length, size))
                             break
@@ -586,14 +585,23 @@ class SimEngine:
                         # Silent Reply Interface
                         ret[self.rvalid] = "0"
 
+                # Process write completion queue items
+                if len(self.wr_completion_queue) > 0:
+                    if self.bready.read().as_bool():
+                        ret[self.bvalid] = "1"
+                        _ = self.wr_completion_queue.pop(0)
+                else:
+                    ret[self.bvalid] = "0"
+
                 # Queue new Write Address Requests
                 if self.awvalid.read().as_bool():
                     assert self.awburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
-                    addr = int(self.araddr.read().as_hexstr(), 16)
-                    length = 1 + self.arlen.read().as_unsigned()
-                    size = 2 ** self.arsize.read().as_unsigned()
+                    addr = int(self.awaddr.read().as_hexstr(), 16)
+                    length = 1 + self.awlen.read().as_unsigned()
+                    size = 2 ** self.awsize.read().as_unsigned()
                     self.wa_queue.append((addr, length, size))
+                    self.wr_completion_queue.insert(0, 1)
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():

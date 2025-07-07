@@ -407,12 +407,12 @@ def make_loop_modelwrapper(mw, mh, iter_count):
 
 
 def make_loop_modelwrapper_nofork(mw, mh, iter_count):
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 3, 3, mw])
-    mm0_out = helper.make_tensor_value_info("mm0_out", TensorProto.FLOAT, [1, 3, 3, mh])
-    mt0_out = helper.make_tensor_value_info("mt0_out", TensorProto.FLOAT, [1, 3, 3, mh])
-    mm1_out = helper.make_tensor_value_info("mm1_out", TensorProto.FLOAT, [1, 3, 3, mh])
-    mt1_out = helper.make_tensor_value_info("mt1_out", TensorProto.FLOAT, [1, 3, 3, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 3, 3, mh))
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 3, mw])
+    mm0_out = helper.make_tensor_value_info("mm0_out", TensorProto.FLOAT, [1, 3, mh])
+    mt0_out = helper.make_tensor_value_info("mt0_out", TensorProto.FLOAT, [1, 3, mh])
+    mm1_out = helper.make_tensor_value_info("mm1_out", TensorProto.FLOAT, [1, 3, mh])
+    mt1_out = helper.make_tensor_value_info("mt1_out", TensorProto.FLOAT, [1, 3, mh])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 3, mh))
     dtype = DataType["INT8"]
     W0 = gen_finn_dt_tensor(dtype, (mw, mh))
     W1 = gen_finn_dt_tensor(dtype, (mw, mh))
@@ -441,7 +441,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         ActVal=0,
         binaryXnorMode=0,
         noActivation=1,
-        numInputVectors=list((1, 3, 3)),
+        numInputVectors=list((1, 3)),
         mlo_max_iter=3,
         inFIFODepths=[2, 2],
         name="MVAU_rtl0",
@@ -458,7 +458,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         inputDataType="INT32",
         weightDataType="INT33",
         outputDataType="INT8",
-        numInputVectors=list((1, 3, 3)),
+        numInputVectors=list((1, 3)),
         mlo_max_iter=3,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
@@ -480,7 +480,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         ActVal=0,
         binaryXnorMode=0,
         noActivation=1,
-        numInputVectors=list([1, 3, 3]),
+        numInputVectors=list([1, 3]),
         mlo_max_iter=3,
         inFIFODepths=[2, 2],
         name="MVAU_rtl1",
@@ -497,7 +497,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         inputDataType="INT32",
         weightDataType="INT33",
         outputDataType="INT8",
-        numInputVectors=list((1, 3, 3)),
+        numInputVectors=list((1, 3)),
         mlo_max_iter=3,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
@@ -584,7 +584,7 @@ def test_fpgadataflow_loop():
     body = body.transform(CompileCppSim())
     body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)
-    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, 16])
+    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 16])
     input_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, input_dict)
     y = y_dict[model.graph.output[0].name]
