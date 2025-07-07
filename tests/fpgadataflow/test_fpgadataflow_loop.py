@@ -1,7 +1,8 @@
 import pytest
 
 import numpy as np
-import os
+
+# import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper

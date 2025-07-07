@@ -139,7 +139,7 @@ Q_srl #(
 );
 
 assign q_dma_addr = l_offsets[q_idx_out_tdata];
-assign q_dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8 + 7) & ~7;
+assign q_dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
 
 // DMA
 logic axis_dma_tvalid;
