@@ -38,456 +38,444 @@
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
 module intermediate_frames #(
+    parameter int unsigned              ILEN_BITS,
+    parameter int unsigned              OLEN_BITS,
+
     parameter int unsigned              ADDR_BITS = 64,
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
-    parameter int unsigned              CNT_BITS = 16,
+    parameter int unsigned              IDX_BITS = 16,
 
-    parameter logic[ADDR_BITS-1:0]      ADDR_INT,
-    parameter logic[ADDR_BITS-1:0]      LAYER_OFFS_INT,
-    parameter int unsigned              N_MAX_LAYERS,
-    parameter int unsigned              ILEN_BITS,
-    parameter int unsigned              OLEN_BITS,
-    parameter int unsigned              N_OUTSTANDING_DMAS = 32,
+    parameter logic[LEN_BITS-1:0]       FM_SIZE,
+
+    parameter int unsigned              N_OUTSTANDING_DMAS = 128,
+
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0
 ) (
-    input  wire                         aclk,
-    input  wire                         aresetn,
+    input  logic                        aclk,
+    input  logic                        aresetn,
 
-    output logic [1:0]                  m_done,
+    // MM
+    output logic [ADDR_BITS-1:0]        m_axi_ddr_araddr,
+    output logic [1:0]                  m_axi_ddr_arburst,
+    output logic [3:0]                  m_axi_ddr_arcache,
+    output logic [1:0]                  m_axi_ddr_arid,
+    output logic [7:0]                  m_axi_ddr_arlen,
+    output logic                        m_axi_ddr_arlock,
+    output logic [2:0]                  m_axi_ddr_arprot,
+    output logic [2:0]                  m_axi_ddr_arsize,
+    input  logic                        m_axi_ddr_arready,
+    output logic                        m_axi_ddr_arvalid,
+    output logic [ADDR_BITS-1:0]        m_axi_ddr_awaddr,
+    output logic [1:0]                  m_axi_ddr_awburst,
+    output logic [3:0]                  m_axi_ddr_awcache,
+    output logic [1:0]                  m_axi_ddr_awid,
+    output logic [7:0]                  m_axi_ddr_awlen,
+    output logic                        m_axi_ddr_awlock,
+    output logic [2:0]                  m_axi_ddr_awprot,
+    output logic [2:0]                  m_axi_ddr_awsize,
+    input  logic                        m_axi_ddr_awready,
+    output logic                        m_axi_ddr_awvalid,
+    input  logic [DATA_BITS-1:0]        m_axi_ddr_rdata,
+    input  logic [1:0]                  m_axi_ddr_rid,
+    input  logic                        m_axi_ddr_rlast,
+    input  logic [1:0]                  m_axi_ddr_rresp,
+    output logic                        m_axi_ddr_rready,
+    input  logic                        m_axi_ddr_rvalid,
+    output logic [DATA_BITS-1:0]        m_axi_ddr_wdata,
+    output logic                        m_axi_ddr_wlast,
+    output logic [DATA_BITS/8-1:0]      m_axi_ddr_wstrb,
+    input  logic                        m_axi_ddr_wready,
+    output logic                        m_axi_ddr_wvalid,
+    input  logic [1:0]                  m_axi_ddr_bid,
+    input  logic [1:0]                  m_axi_ddr_bresp,
+    output logic                        m_axi_ddr_bready,
+    input  logic                        m_axi_ddr_bvalid,
 
-    AXI4.master                         m_axi_hbm,
+    // Idx
+    input  logic [IDX_BITS-1:0]         s_idx_tdata,
+    input  logic                        s_idx_tvalid,
+    output logic                        s_idx_tready,
 
-    AXI4S.slave                         s_idx,
-    AXI4S.master                        m_idx,
+    output logic [IDX_BITS-1:0]         m_idx_tdata,
+    output logic                        m_idx_tvalid,
+    input  logic                        m_idx_tready,
 
-    AXI4S.slave                         s_axis,
-    AXI4S.master                        m_axis
+    // Data
+    input  logic [OLEN_BITS-1:0]        s_axis_tdata,
+    input  logic                        s_axis_tvalid,
+    output logic                        s_axis_tready,
+
+    output logic [ILEN_BITS-1:0]        m_axis_tdata,
+    output logic                        m_axis_tvalid,
+    input  logic                        m_axis_tready
 );
 
 // Offsets
-logic [N_MAX_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
-for(genvar i = 0; i < N_MAX_LAYERS; i++) begin
-    assign l_offsets[i] = ADDR_INT | (i * LAYER_OFFS_INT);
+logic [N_OUTSTANDING_DMAS-1:0][ADDR_BITS-1:0] l_offsets;
+for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
+    assign l_offsets[i] = (i * FM_SIZE);
 end
+localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-// -------------------------------------------------------------------------
-// Input queueing - S0
-// -------------------------------------------------------------------------
+localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS/8);
+localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
 
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s0_dma ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s0_dma_out ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s0_buf ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s0_buf_out ();
+//
+// Write side
+//
 
-queue #(.QDEPTH(QDEPTH), .QWIDTH(2*CNT_BITS+LEN_BITS)) inst_queue_dma_s0 (.aclk(aclk), .aresetn(aresetn), .s_axis(q_s0_dma), .m_axis(q_s0_dma_out));
-queue #(.QDEPTH(QDEPTH), .QWIDTH(2*CNT_BITS+LEN_BITS)) inst_queue_buf_s0 (.aclk(aclk), .aresetn(aresetn), .s_axis(q_s0_buf), .m_axis(q_s0_buf_out));
+// Input queue
+logic idx_in_tvalid, idx_in_tready;
+logic [IDX_BITS-1:0] idx_in_tdata;
 
-assign s_idx.tready = q_s0_dma.tready & q_s0_buf.tready;
-assign q_s0_dma.tvalid = q_s0_buf.tready & s_idx.tvalid;
-assign q_s0_buf.tvalid = q_s0_dma.tready & s_idx.tvalid;
-assign q_s0_dma.tdata = s_idx.tdata;
-assign q_s0_buf.tdata = s_idx.tdata;
+Q_srl #(
+    .depth(QDEPTH), .width(IDX_BITS)
+) inst_queue_seq (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
+    .o_d(idx_in_tdata), .o_v(idx_in_tvalid), .o_r(idx_in_tready)
+);
 
-// -------------------------------------------------------------------------
-// Store DMA
-// -------------------------------------------------------------------------
+// Circ buff
+logic wr_sent, wr_rdy;
+logic rd_done;
 
-typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_STORE} state_wr_t;
+Q_srl #(
+    .depth(N_OUTSTANDING_DMAS), .width(1)
+) inst_queue_outstanding (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(1'b1), .i_v(wr_sent), .i_r(wr_rdy),
+    .o_d(), .o_v(), .o_r(rd_done)
+);
+
+// FSM
+typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_SEND} state_wr_t;
 state_wr_t state_wr_C = ST_WR_IDLE, state_wr_N;
 
-logic [CNT_BITS-1:0] cnt_frames_wr_C = '0, cnt_frames_wr_N;
-logic [CNT_BITS-1:0] n_frames_wr_C = '0, n_frames_wr_N;
-logic [LEN_BITS-1:0] len_wr_C = '0, len_wr_N;
-logic [ADDR_BITS-1:0] addr_wr_C = '0, addr_wr_N;
+logic [N_OUTSTANDING_DMAS_BITS-1:0] wr_ptr_C = '0, wr_ptr_N;
 
-logic [CNT_BITS-1:0] cnt_outstanding_C = N_OUTSTANDING_DMAS;
-logic cnt_outstanding_decr, cnt_outstanding_incr;
+logic s0_dma_in_tvalid, s0_dma_in_tready;
+logic [ADDR_BITS-1:0] s0_dma_in_tdata;
+logic s0_dma_out_tvalid, s0_dma_out_tready;
+logic [ADDR_BITS-1:0] s0_dma_out_tdata;
 
-// -------------------------------------------------------------------------
+Q_srl #(
+    .depth(QDEPTH), .width(ADDR_BITS)
+) inst_queue_s0_dma (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(s0_dma_in_tdata), .i_v(s0_dma_in_tvalid), .i_r(s0_dma_in_tready),
+    .o_d(s0_dma_out_tdata), .o_v(s0_dma_out_tvalid), .o_r(s0_dma_out_tready)
+);
 
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_wr_dma ();
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_wr_dma_out ();
-AXI4S #(.AXI4S_DATA_BITS(1)) q_wr_fr_done ();
-AXI4S #(.AXI4S_DATA_BITS(1)) q_wr_fr_done_out ();
-
-// DMA write queue
-queue #(.QDEPTH(QDEPTH), .QWIDTH(ADDR_BITS+LEN_BITS)) inst_wr_dma (.aclk(aclk), .aresetn(aresetn), .s_axis(q_wr_dma), .m_axis(q_wr_dma_out));
-// Frame done queue (signal fetch DMA)
-queue #(.QDEPTH(2*N_OUTSTANDING_DMAS), .QWIDTH(1)) inst_wr_fr_done (.aclk(aclk), .aresetn(aresetn), .s_axis(q_wr_fr_done), .m_axis(q_wr_fr_done_out));
-
-assign q_wr_fr_done.tvalid = wr_done;
-assign q_wr_fr_done.tdata = 1'b1;
-
-// -------------------------------------------------------------------------
-
-always_ff @( posedge aclk ) begin : REG_WR
+always_ff @(posedge aclk) begin: REG_WR
     if(~aresetn) begin
         state_wr_C <= ST_WR_IDLE;
-
-        cnt_frames_wr_C <= 'X;
-        n_frames_wr_C <= 'X;
-        len_wr_C <= 'X;
-        addr_wr_C <= 'X;
-    end
-    else begin
+        wr_ptr_C <= '0;
+    end else begin
         state_wr_C <= state_wr_N;
-
-        cnt_frames_wr_C <= cnt_frames_wr_N;
-        n_frames_wr_C <= n_frames_wr_N;
-        len_wr_C <= len_wr_N;
-        addr_wr_C <= addr_wr_N;
+        wr_ptr_C <= wr_ptr_N;
     end
 end
 
-always_comb begin : NSL_WR
+always_comb begin: NSL_WR
     state_wr_N = state_wr_C;
 
     case (state_wr_C)
         ST_WR_IDLE:
-            state_wr_N = q_s0_dma_out.tvalid ? ST_WR_STORE : ST_WR_IDLE;
+            state_wr_N = (idx_in_tvalid && m_idx_tready) ? ST_WR_SEND : ST_WR_IDLE;
 
-        ST_WR_STORE:
-            state_wr_N = ((cnt_frames_wr_C == n_frames_wr_C - 1) && (q_wr_dma.tready && cnt_outstanding_C > 0)) ? ST_WR_IDLE : ST_WR_STORE;
+        ST_WR_SEND:
+            state_wr_N = (wr_rdy && s0_dma_in_tready) ? ST_WR_IDLE : ST_WR_SEND;
 
     endcase
 end
 
-always_comb begin : DP_WR
-    cnt_frames_wr_N = cnt_frames_wr_C;
-    n_frames_wr_N = n_frames_wr_C;
-    len_wr_N = len_wr_C;
-    addr_wr_N = addr_wr_C;
+always_comb begin: DP_WR
+    wr_ptr_N = wr_ptr_C;
 
-    q_s0_dma_out.tready = 1'b0;
-    q_wr_dma.tvalid = 1'b0;
-    q_wr_dma.tdata = {len_wr_C, addr_wr_C};
+    idx_in_tready = 1'b0;
+    m_idx_tvalid = 1'b0;
+    m_idx_tdata = idx_in_tdata + 1;
 
-    cnt_outstanding_decr = 1'b0;
+    s0_dma_in_tvalid = 1'b0;
+    s0_dma_in_tdata = l_offsets[wr_ptr_C];
+    wr_sent = 1'b0;
 
     case (state_wr_C)
         ST_WR_IDLE: begin
-            q_s0_dma_out.tready = 1'b1;
-            if(q_s0_dma_out.tvalid) begin
-                cnt_frames_wr_N = 0;
-                n_frames_wr_N = q_s0_dma_out.tdata[CNT_BITS+:CNT_BITS];
-                len_wr_N = q_s0_dma_out.tdata[2*CNT_BITS+:LEN_BITS];
-                addr_wr_N = l_offsets[q_s0_dma_out.tdata[0+:CNT_BITS]];
+            if(idx_in_tvalid) begin
+                m_idx_tvalid = 1'b1;
+
+                if(m_idx_tready) begin
+                    idx_in_tready = 1'b1;
+                end
             end
         end
 
-        ST_WR_STORE: begin
-            if(q_wr_dma.tready && cnt_outstanding_C > 0) begin
-                q_wr_dma.tvalid = 1'b1;
-                cnt_outstanding_decr = 1'b1;
+        ST_WR_SEND: begin
+            if(wr_rdy) begin
+                s0_dma_in_tvalid = 1'b1;
 
-                cnt_frames_wr_N = cnt_frames_wr_C + 1;
-                addr_wr_N = addr_wr_C + len_wr_C;
+                if(s0_dma_in_tready) begin
+                    wr_sent = 1'b1;
+                    wr_ptr_N = (wr_ptr_C == N_OUTSTANDING_DMAS-1) ? 0 : wr_ptr_C + 1;
+                end
             end
         end
 
     endcase
 end
 
-// -------------------------------------------------------------------------
-// Queueing - S1
-// -------------------------------------------------------------------------
+//
+// Completion queue
+//
 
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s1_dma ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s1_dma_out ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s1_buf ();
-AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) q_s1_buf_out ();
-logic [CNT_BITS-1:0] incr_lyr;
+logic done_wr_in, done_wr_out;
+logic rd_start;
 
-queue #(.QDEPTH(QDEPTH), .QWIDTH(2*CNT_BITS+LEN_BITS)) inst_queue_dma_s1 (.aclk(aclk), .aresetn(aresetn), .s_axis(q_s1_dma), .m_axis(q_s1_dma_out));
-queue #(.QDEPTH(QDEPTH), .QWIDTH(2*CNT_BITS+LEN_BITS)) inst_queue_buf_s1 (.aclk(aclk), .aresetn(aresetn), .s_axis(q_s1_buf), .m_axis(m_idx));
+Q_srl #(
+    .depth(N_OUTSTANDING_DMAS), .width(1)
+) inst_queue_done (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(1'b1), .i_v(done_wr_in), .i_r(),
+    .o_d(), .o_v(done_wr_out), .o_r(rd_start)
+);
 
-assign q_s0_buf_out.tready = q_s1_dma.tready & q_s1_buf.tready;
-assign q_s1_dma.tvalid = q_s1_buf.tready & q_s0_buf_out.tvalid;
-assign q_s1_buf.tvalid = q_s1_dma.tready & q_s0_buf_out.tvalid;
-assign q_s1_dma.tdata = q_s0_buf_out.tdata;
-assign incr_lyr = q_s0_buf_out.tdata[0+:CNT_BITS] + 1;
-assign q_s1_buf.tdata = {q_s0_buf_out.tdata[CNT_BITS+:CNT_BITS+LEN_BITS], incr_lyr};
+//
+// Read side
+//
 
-// -------------------------------------------------------------------------
-// Fetch DMA
-// -------------------------------------------------------------------------
-
-typedef enum logic[0:0] {ST_RD_IDLE, ST_RD_FETCH} state_rd_t;
+typedef enum logic[0:0] {ST_RD_IDLE, ST_RD_SEND} state_rd_t;
 state_rd_t state_rd_C = ST_RD_IDLE, state_rd_N;
 
-logic [CNT_BITS-1:0] cnt_frames_rd_C = '0, cnt_frames_rd_N;
-logic [CNT_BITS-1:0] n_frames_rd_C = '0, n_frames_rd_N;
-logic [LEN_BITS-1:0] len_rd_C = '0, len_rd_N;
-logic [ADDR_BITS-1:0] addr_rd_C = '0, addr_rd_N;
+logic [N_OUTSTANDING_DMAS_BITS-1:0] rd_ptr_C = '0, rd_ptr_N;
 
-logic rd_done;
+logic s1_dma_in_tvalid, s1_dma_in_tready;
+logic [ADDR_BITS-1:0] s1_dma_in_tdata;
+logic s1_dma_out_tvalid, s1_dma_out_tready;
+logic [ADDR_BITS-1:0] s1_dma_out_tdata;
 
-// -------------------------------------------------------------------------
+Q_srl #(
+    .depth(QDEPTH), .width(ADDR_BITS)
+) inst_queue_s1_dma (
+    .clock(aclk), .reset(!aresetn),
+    .count(), .maxcount(),
+    .i_d(s1_dma_in_tdata), .i_v(s1_dma_in_tvalid), .i_r(s1_dma_in_tready),
+    .o_d(s1_dma_out_tdata), .o_v(s1_dma_out_tvalid), .o_r(s1_dma_out_tready)
+);
 
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_rd_dma ();
-AXI4S #(.AXI4S_DATA_BITS(ADDR_BITS+LEN_BITS)) q_rd_dma_out ();
-
-// DMA read queue
-queue #(.QDEPTH(QDEPTH), .QWIDTH(ADDR_BITS+LEN_BITS)) inst_rd_dma (.aclk(aclk), .aresetn(aresetn), .s_axis(q_rd_dma), .m_axis(q_rd_dma_out));
-
-// -------------------------------------------------------------------------
-
-always_ff @( posedge aclk ) begin : REG_RD
+always_ff @(posedge aclk) begin: REG_RD
     if(~aresetn) begin
         state_rd_C <= ST_RD_IDLE;
-
-        cnt_frames_rd_C <= 'X;
-        n_frames_rd_C <= 'X;
-        len_rd_C <= 'X;
-        addr_rd_C <= 'X;
-    end
-    else begin
+        rd_ptr_C <= '0;
+    end else begin
         state_rd_C <= state_rd_N;
-
-        cnt_frames_rd_C <= cnt_frames_rd_N;
-        n_frames_rd_C <= n_frames_rd_N;
-        len_rd_C <= len_rd_N;
-        addr_rd_C <= addr_rd_N;
+        rd_ptr_C <= rd_ptr_N;
     end
 end
 
-always_comb begin : NSL_RD
+always_comb begin: NSL_RD
     state_rd_N = state_rd_C;
 
     case (state_rd_C)
         ST_RD_IDLE:
-            state_rd_N = q_s1_dma_out.tvalid ? ST_RD_FETCH : ST_RD_IDLE;
+            state_rd_N = done_wr_out ? ST_RD_SEND : ST_RD_IDLE;
 
-        ST_RD_FETCH: begin
-            state_rd_N = ((cnt_frames_rd_C == n_frames_rd_C-1) && (q_rd_dma.tready && q_wr_fr_done_out.tvalid)) ? ST_RD_IDLE : ST_RD_FETCH;
-        end
+        ST_RD_SEND:
+            state_rd_N = s1_dma_in_tready ? ST_RD_IDLE : ST_RD_SEND;
 
     endcase
 end
 
-always_comb begin : DP_RD
-    cnt_frames_rd_N = cnt_frames_rd_C;
-    n_frames_rd_N = n_frames_rd_C;
-    len_rd_N = len_rd_C;
-    addr_rd_N = addr_rd_C;
+always_comb begin: DP_RD
+    rd_ptr_N = rd_ptr_C;
 
-    q_s1_dma_out.tready = 1'b0;
-    q_rd_dma.tvalid = 1'b0;
-    q_rd_dma.tdata = {len_rd_C, addr_rd_C};
-    q_wr_fr_done_out.tready = 1'b0;
-
-    cnt_outstanding_incr = 1'b0;
+    rd_start = 1'b0;
+    s1_dma_in_tvalid = 1'b0;
+    s1_dma_in_tdata = l_offsets[rd_ptr_C];
 
     case (state_rd_C)
         ST_RD_IDLE: begin
-            q_s1_dma_out.tready = 1'b1;
-            if(q_s1_dma_out.tvalid) begin
-                cnt_frames_rd_N = 0;
-                n_frames_rd_N = q_s1_dma_out.tdata[CNT_BITS+:CNT_BITS];
-                len_rd_N = q_s1_dma_out.tdata[2*CNT_BITS+:LEN_BITS];
-                addr_rd_N = l_offsets[q_s1_dma_out.tdata[0+:CNT_BITS]];
+            if(done_wr_out) begin
+                rd_start = 1'b1;
             end
         end
 
-        ST_RD_FETCH: begin
-            if(q_rd_dma.tready && q_wr_fr_done_out.tvalid) begin
-                q_rd_dma.tvalid = 1'b1;
-                q_wr_fr_done_out.tready = 1'b1;
-                cnt_outstanding_incr = 1'b1;
+        ST_RD_SEND: begin
+            s1_dma_in_tvalid = 1'b1;
 
-                cnt_frames_rd_N = cnt_frames_rd_C + 1;
-                addr_rd_N = addr_rd_C + len_rd_C;
+            if(s1_dma_in_tready) begin
+                rd_ptr_N = (rd_ptr_C == N_OUTSTANDING_DMAS-1) ? 0 : rd_ptr_C + 1;
             end
         end
 
     endcase
 end
 
-// -------------------------------------------------------------------------
-// Sync between DMAs
-// -------------------------------------------------------------------------
+//
+// DMA
+//
 
-always_ff @( posedge aclk ) begin : REG_SYNC
-    if(~aresetn) begin
-        cnt_outstanding_C <= N_OUTSTANDING_DMAS;
-    end
-    else begin
-        cnt_outstanding_C <= (cnt_outstanding_decr & cnt_outstanding_incr) ? cnt_outstanding_C :
-                            (cnt_outstanding_decr ? cnt_outstanding_C - 1 :
-                            (cnt_outstanding_incr ? cnt_outstanding_C + 1 :
-                            cnt_outstanding_C));
+logic axis_dma_rd_tvalid, axis_dma_rd_tready;
+logic [DATA_BITS-1:0] axis_dma_rd_tdata;
+logic [DATA_BITS/8-1:0] axis_dma_rd_tkeep;
+logic axis_dma_rd_tlast;
 
-    end
-end
+logic axis_dma_wr_tvalid, axis_dma_wr_tready;
+logic [DATA_BITS-1:0] axis_dma_wr_tdata;
+logic [DATA_BITS/8-1:0] axis_dma_wr_tkeep;
+logic axis_dma_wr_tlast;
 
-// -------------------------------------------------------------------------
-// Central DMA
-// -------------------------------------------------------------------------
-
-AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) dma_rd_f ();
-AXI4SF #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(1)) dma_wr_f ();
-AXI4SF #(.AXI4S_DATA_BITS(ILEN_BITS)) dma_rd_dwc ();
-AXI4SF #(.AXI4S_DATA_BITS(OLEN_BITS)) dma_wr_dwc ();
-
-cdma_top #(
+cdma_u #(
     .ADDR_BITS(ADDR_BITS),
     .LEN_BITS(LEN_BITS),
-    .DATA_BITS(DATA_BITS),
-    .CDMA_RD(1),
-    .CDMA_WR(1)
+    .DATA_BITS(DATA_BITS)
 ) inst_dma (
     .aclk(aclk),
     .aresetn(aresetn),
 
-    .m_axi_ddr(m_axi_hbm),
+    .m_axi_ddr_arvalid(m_axi_ddr_arvalid),
+    .m_axi_ddr_arready(m_axi_ddr_arready),
+    .m_axi_ddr_araddr(m_axi_ddr_araddr),
+    .m_axi_ddr_arid(m_axi_ddr_arid),
+    .m_axi_ddr_arlen(m_axi_ddr_arlen),
+    .m_axi_ddr_arsize(m_axi_ddr_arsize),
+    .m_axi_ddr_arburst(m_axi_ddr_arburst),
+    .m_axi_ddr_arlock(m_axi_ddr_arlock),
+    .m_axi_ddr_arcache(m_axi_ddr_arcache),
+    .m_axi_ddr_arprot(m_axi_ddr_arprot),
+    .m_axi_ddr_rvalid(m_axi_ddr_rvalid),
+    .m_axi_ddr_rready(m_axi_ddr_rready),
+    .m_axi_ddr_rdata(m_axi_ddr_rdata),
+    .m_axi_ddr_rlast(m_axi_ddr_rlast),
+    .m_axi_ddr_rid(m_axi_ddr_rid),
+    .m_axi_ddr_rresp(m_axi_ddr_rresp),
+    .m_axi_ddr_awvalid(m_axi_ddr_awvalid),
+    .m_axi_ddr_awready(m_axi_ddr_awready),
+    .m_axi_ddr_awaddr(m_axi_ddr_awaddr),
+    .m_axi_ddr_awid(m_axi_ddr_awid),
+    .m_axi_ddr_awlen(m_axi_ddr_awlen),
+    .m_axi_ddr_awsize(m_axi_ddr_awsize),
+    .m_axi_ddr_awburst(m_axi_ddr_awburst),
+    .m_axi_ddr_awlock(m_axi_ddr_awlock),
+    .m_axi_ddr_awcache(m_axi_ddr_awcache),
+    .m_axi_ddr_wdata(m_axi_ddr_wdata),
+    .m_axi_ddr_wstrb(m_axi_ddr_wstrb),
+    .m_axi_ddr_wlast(m_axi_ddr_wlast),
+    .m_axi_ddr_wvalid(m_axi_ddr_wvalid),
+    .m_axi_ddr_wready(m_axi_ddr_wready),
+    .m_axi_ddr_bid(m_axi_ddr_bid),
+    .m_axi_ddr_bresp(m_axi_ddr_bresp),
+    .m_axi_ddr_bvalid(m_axi_ddr_bvalid),
+    .m_axi_ddr_bready(m_axi_ddr_bready),
 
-    .rd_valid(q_rd_dma_out.tvalid),
-    .rd_ready(q_rd_dma_out.tready),
-    .rd_paddr(q_rd_dma_out.tdata[0+:ADDR_BITS]),
-    .rd_len(q_rd_dma_out.tdata[ADDR_BITS+:LEN_BITS]),
-    .rd_done(rd_done),
+    .rd_valid(s1_dma_out_tvalid),
+    .rd_ready(s1_dma_out_tready),
+    .rd_paddr(s1_dma_out_tdata),
+    .rd_len  (FM_SIZE),
+    .rd_done (rd_done),
 
-    .wr_valid(q_wr_dma_out.tvalid),
-    .wr_ready(q_wr_dma_out.tready),
-    .wr_paddr(q_wr_dma_out.tdata[0+:ADDR_BITS]),
-    .wr_len(q_wr_dma_out.tdata[ADDR_BITS+:LEN_BITS]),
-    .wr_done(wr_done),
+    .wr_valid(s0_dma_out_tvalid),
+    .wr_ready(s0_dma_out_tready),
+    .wr_paddr(s0_dma_out_tdata),
+    .wr_len  (FM_SIZE),
+    .wr_done (done_wr_in),
 
-    .s_axis_ddr(dma_wr_f),
-    .m_axis_ddr(dma_rd_f)
+    .m_axis_ddr_tvalid(axis_dma_rd_tvalid),
+    .m_axis_ddr_tready(axis_dma_rd_tready),
+    .m_axis_ddr_tdata (axis_dma_rd_tdata),
+    .m_axis_ddr_tkeep (axis_dma_rd_tkeep),
+    .m_axis_ddr_tlast (axis_dma_rd_tlast),
+
+    .s_axis_ddr_tvalid(axis_dma_wr_tvalid),
+    .s_axis_ddr_tready(axis_dma_wr_tready),
+    .s_axis_ddr_tdata (axis_dma_wr_tdata),
+    .s_axis_ddr_tkeep (axis_dma_wr_tkeep),
+    .s_axis_ddr_tlast (axis_dma_wr_tlast)
 );
-//`AXIS_AXISF_ASSIGN(dma_wr, dma_wr_f)
-//`AXISF_AXIS_ASSIGN(dma_rd_f, dma_rd)
-assign m_done = {rd_done, wr_done};
 
 // DWC
-axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS))
-          inst_dwc_wr (.aclk(aclk),
-                       .aresetn(aresetn),
+logic s_axis_int_tvalid, s_axis_int_tready;
+logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
-                       .s_axis_tvalid(dma_wr_dwc.tvalid),
-                       .s_axis_tready(dma_wr_dwc.tready),
-                       .s_axis_tdata(dma_wr_dwc.tdata),
-                       .s_axis_tkeep(dma_wr_dwc.tkeep),
-                       .s_axis_tlast(dma_wr_dwc.tlast),
+logic m_axis_int_tvalid, m_axis_int_tready;
+logic [OLEN_BITS-1:0] m_axis_int_tdata;
 
-                       .m_axis_tvalid(dma_wr_f.tvalid),
-                       .m_axis_tready(dma_wr_f.tready),
-                       .m_axis_tdata(dma_wr_f.tdata),
-                       .m_axis_tkeep(dma_wr_f.tkeep),
-                       .m_axis_tlast(dma_wr_f.tlast)
-                    );
-axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS))
-         inst_dwc_rd (.aclk(aclk),
-                      .aresetn(aresetn),
+logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
+always_ff @(posedge aclk) begin
+    if(~aresetn) cnt_dwc_C <= '0;
+    else cnt_dwc_C <= (s_axis_int_tvalid && s_axis_int_tready) ? ((cnt_dwc_C == FM_BEATS_IN-1) ? 0 : cnt_dwc_C + 1) : cnt_dwc_C;
+end
 
-                      .s_axis_tvalid(dma_rd_f.tvalid),
-                      .s_axis_tready(dma_rd_f.tready),
-                      .s_axis_tdata(dma_rd_f.tdata),
-                      .s_axis_tkeep(dma_rd_f.tkeep),
-                      .s_axis_tlast(dma_rd_f.tlast),
+logic last_dwc_in;
+assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
 
-                      .m_axis_tvalid(dma_rd_dwc.tvalid),
-                      .m_axis_tready(dma_rd_dwc.tready),
-                      .m_axis_tdata(dma_rd_dwc.tdata),
-                      .m_axis_tkeep(dma_rd_dwc.tkeep),
-                      .m_axis_tlast(dma_rd_dwc.tlast));
+axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (
+    .aclk(aclk),
+    .aresetn(aresetn),
 
+    .s_axis_tvalid(s_axis_int_tvalid),
+    .s_axis_tready(s_axis_int_tready),
+    .s_axis_tdata (s_axis_int_tdata),
+    .s_axis_tkeep ('1),
+    .s_axis_tlast (last_dwc_in),
+
+    .m_axis_tvalid(axis_dma_wr_tvalid),
+    .m_axis_tready(axis_dma_wr_tready),
+    .m_axis_tdata (axis_dma_wr_tdata),
+    .m_axis_tkeep (axis_dma_wr_tkeep),
+    .m_axis_tlast (axis_dma_wr_tlast)
+);
+
+axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) inst_dwc_rd (
+    .aclk(aclk),
+    .aresetn(aresetn),
+
+    .s_axis_tvalid(axis_dma_rd_tvalid),
+    .s_axis_tready(axis_dma_rd_tready),
+    .s_axis_tdata (axis_dma_rd_tdata),
+    .s_axis_tkeep (axis_dma_rd_tkeep),
+    .s_axis_tlast (axis_dma_rd_tlast),
+
+    .m_axis_tvalid(m_axis_int_tvalid),
+    .m_axis_tready(m_axis_int_tready),
+    .m_axis_tdata (m_axis_int_tdata),
+    .m_axis_tkeep (),
+    .m_axis_tlast ()
+);
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS))
-                     inst_reg_wr (.aclk(aclk),
-                                  .aresetn(aresetn),
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg_wr (
+    .aclk(aclk),
+    .aresetn(aresetn),
 
-                                  .s_axis_tvalid(s_axis.tvalid),
-                                  .s_axis_tready(s_axis.tready),
-                                  .s_axis_tdata(s_axis.tdata),
+    .s_axis_tvalid(s_axis_tvalid),
+    .s_axis_tready(s_axis_tready),
+    .s_axis_tdata (s_axis_tdata),
 
-                                  .m_axis_tvalid(dma_wr_dwc.tvalid),
-                                  .m_axis_tready(dma_wr_dwc.tready),
-                                  .m_axis_tdata(dma_wr_dwc.tdata)
-                                  );
+    .m_axis_tvalid(s_axis_int_tvalid),
+    .m_axis_tready(s_axis_int_tready),
+    .m_axis_tdata (s_axis_int_tdata)
+);
 
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS))
-                     inst_reg_rd (.aclk(aclk),
-                                  .aresetn(aresetn),
+axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg_rd (
+    .aclk(aclk),
+    .aresetn(aresetn),
 
-                                  .s_axis_tvalid(dma_rd_dwc.tvalid),
-                                  .s_axis_tready(dma_rd_dwc.tready),
-                                  .s_axis_tdata(dma_rd_dwc.tdata),
+    .s_axis_tvalid(m_axis_int_tvalid),
+    .s_axis_tready(m_axis_int_tready),
+    .s_axis_tdata (m_axis_int_tdata),
 
-                                  .m_axis_tvalid(m_axis.tvalid),
-                                  .m_axis_tready(m_axis.tready),
-                                  .m_axis_tdata(m_axis.tdata)
-                                  );
-
-//
-// DBG
-//
-
-//if(DBG == 1) begin
-//    ila_if inst_ila_if (
-//        .clk(aclk),
-//        .probe0(s_idx.tvalid),
-//        .probe1(s_idx.tready),
-//        .probe2(q_s0_dma_out.tvalid),
-//        .probe3(q_s0_dma_out.tready),
-//        .probe4(q_s0_buf_out.tvalid),
-//        .probe5(q_s0_buf_out.tready),
-//        .probe6(state_wr_C),
-//        .probe7(cnt_frames_wr_C), // 16
-//        .probe8(n_frames_wr_C), // 16
-//        .probe9(len_wr_C), // 32
-//        .probe10(addr_wr_C), // 64
-//        .probe11(cnt_outstanding_C), // 16
-//        .probe12(cnt_outstanding_decr),
-//        .probe13(cnt_outstanding_incr),
-//        .probe14(q_wr_dma_out.tvalid),
-//        .probe15(q_wr_dma_out.tready),
-//        .probe16(q_wr_fr_done_out.tvalid),
-//        .probe17(q_wr_fr_done_out.tready),
-//        .probe18(wr_done),
-//        .probe19(q_s1_dma_out.tvalid),
-//        .probe20(q_s1_dma_out.tready),
-//        .probe21(m_idx.tvalid),
-//        .probe22(m_idx.tready),
-//        .probe23(state_rd_C),
-//        .probe24(cnt_frames_rd_C), // 16
-//        .probe25(n_frames_rd_C), // 16
-//        .probe26(len_rd_C), // 32
-//        .probe27(addr_rd_C), // 64
-//        .probe28(rd_done),
-//        .probe29(q_rd_dma_out.tvalid),
-//        .probe30(q_rd_dma_out.tready),
-//        .probe31(s_axis.tvalid),
-//        .probe32(s_axis.tready),
-//        .probe33(m_axis.tvalid),
-//        .probe34(m_axis.tready),
-//        .probe35(m_idx.tdata[0+:CNT_BITS]), // 16
-//        .probe36(dma_wr_dwc.tready),
-//        .probe37(dma_wr_dwc.tvalid),
-//        .probe38(dma_wr.tvalid),
-//        .probe39(dma_wr.tready),
-//        .probe40(q_rd_dma_out.tdata[0+:64]), // 64
-//        .probe41(q_wr_dma_out.tdata[0+:64]), // 64
-//        .probe42(q_rd_dma_out.tdata[64+:32]), // 32
-//        .probe43(q_wr_dma_out.tdata[64+:32]), // 32
-//        .probe44(wr_done),
-//        .probe45(rd_done),
-//        .probe46(m_axi_hbm.arvalid),
-//        .probe47(m_axi_hbm.arready),
-//        .probe48(m_axi_hbm.awvalid),
-//        .probe49(m_axi_hbm.awready),
-//        .probe50(m_axi_hbm.araddr), // 64
-//        .probe51(m_axi_hbm.awaddr), // 64
-//        .probe52(m_axi_hbm.rvalid),
-//        .probe53(m_axi_hbm.rready),
-//        .probe54(m_axi_hbm.wvalid),
-//        .probe55(m_axi_hbm.wready)
-//    );
-//end
+    .m_axis_tvalid(m_axis_tvalid),
+    .m_axis_tready(m_axis_tready),
+    .m_axis_tdata (m_axis_tdata)
+);
 
 endmodule

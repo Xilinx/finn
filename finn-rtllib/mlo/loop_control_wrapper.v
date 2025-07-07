@@ -1,16 +1,18 @@
 module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter N_MAX_LAYERS   = $N_MAX_LAYERS$,
+    parameter INPUT_BYTES    = $INPUT_BYTES$, // number of bytes in the input shape
+    parameter OUTPUT_BYTES   = $OUTPUT_BYTES$, // number of bytes in the output shape
+    parameter N_LAYERS       = $N_LAYERS$,
+
     parameter ADDR_BITS      = 64,
     parameter DATA_BITS      = 256,
     parameter LEN_BITS       = 32,
-    parameter CNT_BITS       = 16,
+    parameter IDX_BITS       = 16,
     parameter ILEN_BITS      = $ILEN_BITS$,
-    parameter OLEN_BITS      = $OLEN_BITS$,
-    parameter M_AXI_HBM_BASE_ADDR = 0, // m_axi_hbm base address
-    parameter LAYER_OFFS_INT = $LAYER_OFFS_INT$ // calculate layer offsets in intermediate buffer => 0
+    parameter OLEN_BITS      = $OLEN_BITS$
 ) (
     //- Global Control ------------------
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:idx_fs:idx_se, ASSOCIATED_RESET = ap_rst_n" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:s_axis_core_out_fw_idx, ASSOCIATED_RESET = ap_rst_n" *)
     (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
     input   ap_clk,
     (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -54,51 +56,47 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  m_axi_hbm_bvalid,
 
     // AXI4S master interface for core_in
-    output [DATA_BITS-1:0] m_axis_core_in_tdata,
+    output [ILEN_BITS-1:0] m_axis_core_in_tdata,
     output                 m_axis_core_in_tvalid,
     input                  m_axis_core_in_tready,
 
     // AXI4S master interface for core_in_fw_idx
-    output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
+    output [IDX_BITS-1:0]  m_axis_core_in_fw_idx_tdata,
     output                 m_axis_core_in_fw_idx_tvalid,
     input                  m_axis_core_in_fw_idx_tready,
 
     // AXI4S slave interface for core_out
-    input  [DATA_BITS-1:0] s_axis_core_out_tdata,
+    input  [OLEN_BITS-1:0] s_axis_core_out_tdata,
     input                  s_axis_core_out_tvalid,
     output                 s_axis_core_out_tready,
 
-    // activation signals
-    input  [DATA_BITS-1:0] in0_V_tdata,
+    // AXI4S slave interface for core_out_fw_idx
+    input  [IDX_BITS-1:0] s_axis_core_out_fw_idx_tdata,
+    input                  s_axis_core_out_fw_idx_tvalid,
+    output                 s_axis_core_out_fw_idx_tready,
+
+    // Activation signals
+    input  [ILEN_BITS-1:0] in0_V_tdata,
     input                  in0_V_tvalid,
     output                 in0_V_tready,
-    output [DATA_BITS-1:0] out0_V_tdata,
+
+    output [OLEN_BITS-1:0] out0_V_tdata,
     output                 out0_V_tvalid,
     input                  out0_V_tready,
 
-    // control signals
-    output wire [1:0]         done_if,
-
-    // AXI4S slave interface for idx_fs
-    input  [DATA_BITS-1:0] idx_fs_tdata,
-    input                  idx_fs_tvalid,
-    output                 idx_fs_tready,
-    // AXI4S master interface for idx_se
-    output [DATA_BITS-1:0] idx_se_tdata,
-    output                 idx_se_tvalid,
-    input                  idx_se_tready
+    // Control signals
+    output wire [1:0]      done_if
 );
 
     loop_control #(
-        .N_MAX_LAYERS(N_MAX_LAYERS),
+        .N_LAYERS(N_LAYERS),
+        .FM_SIZE(INPUT_BYTES),
         .ADDR_BITS(ADDR_BITS),
         .DATA_BITS(DATA_BITS),
         .LEN_BITS(LEN_BITS),
-        .CNT_BITS(CNT_BITS),
+        .IDX_BITS(IDX_BITS),
         .ILEN_BITS(ILEN_BITS),
-        .OLEN_BITS(OLEN_BITS),
-        .M_AXI_HBM_BASE_ADDR(M_AXI_HBM_BASE_ADDR),
-        .LAYER_OFFS_INT(LAYER_OFFS_INT)
+        .OLEN_BITS(OLEN_BITS)
     ) loop_control_inst (
        .aclk(ap_clk),
        .aresetn(ap_rst_n),
@@ -141,41 +139,33 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .m_axi_hbm_bvalid(m_axi_hbm_bvalid),
 
        // AXI4S master interface for core_in
-       .m_axis_core_in_tdata(m_axis_core_in_tdata),
-       .m_axis_core_in_tvalid(m_axis_core_in_tvalid),
-       .m_axis_core_in_tready(m_axis_core_in_tready),
+       .m_axis_core_tdata(m_axis_core_in_tdata),
+       .m_axis_core_tvalid(m_axis_core_in_tvalid),
+       .m_axis_core_tready(m_axis_core_in_tready),
 
        // AXI4S slave interface for core_out
-       .s_axis_core_out_tdata(s_axis_core_out_tdata),
-       .s_axis_core_out_tvalid(s_axis_core_out_tvalid),
-       .s_axis_core_out_tready(s_axis_core_out_tready),
+       .s_axis_core_tdata(s_axis_core_out_tdata),
+       .s_axis_core_tvalid(s_axis_core_out_tvalid),
+       .s_axis_core_tready(s_axis_core_out_tready),
 
        // AXI4S master interface for core_in_fw_idx
-       .m_axis_core_in_fw_idx_tdata(m_axis_core_in_fw_idx_tdata),
-       .m_axis_core_in_fw_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
-       .m_axis_core_in_fw_idx_tready(m_axis_core_in_fw_idx_tready),
+       .m_idx_tdata(m_axis_core_in_fw_idx_tdata),
+       .m_idx_tvalid(m_axis_core_in_fw_idx_tvalid),
+       .m_idx_tready(m_axis_core_in_fw_idx_tready),
 
-       .axis_fs_tdata(in0_V_tdata),
-       .axis_fs_tvalid(in0_V_tvalid),
-       .axis_fs_tready(in0_V_tready),
-       .axis_se_tdata(out0_V_tdata),
-       .axis_se_tvalid(out0_V_tvalid),
-       .axis_se_tready(out0_V_tready),
+       // AXI4S slave interface for core_out_fw_idx
+       .s_idx_tdata(s_axis_core_out_fw_idx_tdata),
+       .s_idx_tvalid(s_axis_core_out_fw_idx_tvalid),
+       .s_idx_tready(s_axis_core_out_fw_idx_tready),
 
-       // control signals
-       .n_layers($N_LAYERS$),
-       .done_if(done_if),
+       // Activation signals
+       .s_axis_fs_tdata(in0_V_tdata),
+       .s_axis_fs_tvalid(in0_V_tvalid),
+       .s_axis_fs_tready(in0_V_tready),
 
-       // AXI4S slave interface for idx_fs
-      .idx_fs_tdata(idx_fs_tdata),
-      .idx_fs_tvalid(idx_fs_tvalid),
-      .idx_fs_tready(idx_fs_tready),
-
-      // AXI4S master interface for idx_se
-      .idx_se_tdata(idx_se_tdata),
-      .idx_se_tvalid(idx_se_tvalid),
-      .idx_se_tready(idx_se_tready)
-
+       .m_axis_se_tdata(out0_V_tdata),
+       .m_axis_se_tvalid(out0_V_tvalid),
+       .m_axis_se_tready(out0_V_tready)
     );
 
 endmodule

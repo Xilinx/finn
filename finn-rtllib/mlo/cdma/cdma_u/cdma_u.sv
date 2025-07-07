@@ -43,7 +43,7 @@ module cdma_u #(
     //parameter integer                   ADDR_BITS = HBM_ADDR_BITS,
     //parameter integer                   LEN_BITS = HBM_LEN_BITS,
     //parameter integer                   ID_BITS = HBM_ID_BITS,
-    
+
     parameter integer                   DATA_BITS = 256,
     parameter integer                   ADDR_BITS = 64,
     parameter integer                   LEN_BITS = 32,

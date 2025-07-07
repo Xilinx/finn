@@ -38,14 +38,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	SIMD = $SIMD$,
     parameter   N_REPS = $N_REPS$,
 	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
+    parameter   N_LAYERS = $N_LAYERS$,
 
     parameter   ADDR_BITS = 64,
     parameter   DATA_BITS = 256,
     parameter   LEN_BITS = 32,
-    parameter   CNT_BITS = 16,
-
-    parameter   LAYER_OFFS = $LAYER_OFFS$,
-    parameter   N_MAX_LAYERS = $N_MAX_LAYERS$,
+    parameter   IDX_BITS = 16,
 
 	// Safely deducible parameters
 	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
@@ -101,20 +99,20 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // Index
     input  wire                                in_idx0_V_tvalid,
     output wire                                in_idx0_V_tready,
-    input  wire[2*CNT_BITS-1:0]                in_idx0_V_tdata,
+    input  wire[IDX_BITS-1:0]                  in_idx0_V_tdata,
 
     // Stream
-    output wire                                out0_V_TVALID,
-    input  wire                                out0_V_TREADY,
-    output wire[WS_BITS_BA-1:0]    out0_V_TDATA
+    output wire                                out0_V_tvalid,
+    input  wire                                out0_V_tready,
+    output wire[WS_BITS_BA-1:0]                out0_V_tdata
 );
 
 
 fetch_weights #(
     .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
-    .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .CNT_BITS(CNT_BITS),
-    .LAYER_OFFS(LAYER_OFFS), .N_MAX_LAYERS(N_MAX_LAYERS)
+    .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
+    .N_LAYERS(N_LAYERS)
 ) inst (
     .aclk               (ap_clk),
     .aresetn            (ap_rst_n),
@@ -155,13 +153,13 @@ fetch_weights #(
     .m_axi_ddr_bready   (axi_mm_bready),
     .m_axi_ddr_bvalid   (axi_mm_bvalid),
 
-    .s_idx_tvalid       (in_idx0_V_TVALID),
-    .s_idx_tready       (in_idx0_V_TREADY),
-    .s_idx_tdata        (in_idx0_V_TDATA),
+    .s_idx_tvalid       (in_idx0_V_tvalid),
+    .s_idx_tready       (in_idx0_V_tready),
+    .s_idx_tdata        (in_idx0_V_tdata),
 
-    .m_axis_tvalid      (out0_V_TVALID),
-    .m_axis_tready      (out0_V_TREADY),
-    .m_axis_tdata       (out0_V_TDATA)
+    .m_axis_tvalid      (out0_V_tvalid),
+    .m_axis_tready      (out0_V_tready),
+    .m_axis_tdata       (out0_V_tdata)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

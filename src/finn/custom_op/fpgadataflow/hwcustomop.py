@@ -354,7 +354,7 @@ class HWCustomOp(CustomOp):
             mh = self.get_nodeattr("MH")
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            n_reps = self.get_nodeattr("numInputVectors")[-1]
+            n_reps = np.prod(self.get_nodeattr("numInputVectors"))
             layer_offs = mw * mh
             # upper bound on how many layers can be supported, set to 64 for now
             n_max_layers = 64
@@ -368,7 +368,7 @@ class HWCustomOp(CustomOp):
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$LAYER_OFFS$": [str(layer_offs)],
-                "$N_MAX_LAYERS$": [str(n_max_layers)],
+                "$N_LAYERS$": [str(n_max_layers)],
             }
             # apply code generation to template
             with open(template_path, "r") as f:

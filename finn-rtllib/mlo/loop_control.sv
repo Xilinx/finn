@@ -37,201 +37,241 @@
     //
     // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 
-    `include "axi_macros.svh"
-
     module loop_control #(
-        parameter int unsigned N_MAX_LAYERS = 16, // Maximum number of layers in the FINN pipeline
-        parameter int unsigned ADDR_BITS = 64, // Address bits for
-        parameter int unsigned DATA_BITS = 512, // Data bits for AXI4
-        parameter int unsigned LEN_BITS = 32, // Length bits for AXI4
-        parameter int unsigned CNT_BITS = 16, // Counter bits for AXI4S
-        parameter int unsigned ILEN_BITS = 16, // Length bits for AXI4S input
-        parameter int unsigned OLEN_BITS = 16, // Length bits for AXI4S output
-        parameter int unsigned M_AXI_HBM_BASE_ADDR   = 64'h4100000000, // Start address for intermediate frames
-        parameter int unsigned LAYER_OFFS_INT = 64'h10000
+        // COMPILER SET, this is the size of the global in, global out frames
+        parameter int unsigned FM_SIZE,
+        // COMPILER SET, number of layers
+        parameter int unsigned N_LAYERS,
+        // COMPILER SET? Input and output core bus widths
+        parameter int unsigned ILEN_BITS,
+        parameter int unsigned OLEN_BITS,
+
+        // These can be as is
+        parameter int unsigned IDX_BITS = 16,
+        parameter int unsigned ADDR_BITS = 64,
+        parameter int unsigned DATA_BITS = 256,
+        parameter int unsigned LEN_BITS = 32
     ) (
         input  logic                aclk,
         input  logic                aresetn,
 
         // AXI4 master interface for m_axi_hbm
-        output [ADDR_BITS-1:0] m_axi_hbm_araddr,
-        output [1:0]           m_axi_hbm_arburst,
-        output [3:0]           m_axi_hbm_arcache,
-        output [1:0]           m_axi_hbm_arid,
-        output [7:0]           m_axi_hbm_arlen,
-        output                 m_axi_hbm_arlock,
-        output [2:0]           m_axi_hbm_arprot,
-        output [2:0]           m_axi_hbm_arsize,
-        input                  m_axi_hbm_arready,
-        output                 m_axi_hbm_arvalid,
-        output [ADDR_BITS-1:0] m_axi_hbm_awaddr,
-        output [1:0]           m_axi_hbm_awburst,
-        output [3:0]           m_axi_hbm_awcache,
-        output [1:0]           m_axi_hbm_awid,
-        output [7:0]           m_axi_hbm_awlen,
-        output                 m_axi_hbm_awlock,
-        output [2:0]           m_axi_hbm_awprot,
-        output [2:0]           m_axi_hbm_awsize,
-        input                  m_axi_hbm_awready,
-        output                 m_axi_hbm_awvalid,
-        input  [DATA_BITS-1:0] m_axi_hbm_rdata,
-        input  [1:0]           m_axi_hbm_rid,
-        input                  m_axi_hbm_rlast,
-        input  [1:0]           m_axi_hbm_rresp,
-        output                 m_axi_hbm_rready,
-        input                  m_axi_hbm_rvalid,
-        output [DATA_BITS-1:0] m_axi_hbm_wdata,
-        output                 m_axi_hbm_wlast,
-        output [DATA_BITS/8-1:0] m_axi_hbm_wstrb,
-        input                  m_axi_hbm_wready,
-        output                 m_axi_hbm_wvalid,
-        input  [1:0]           m_axi_hbm_bid,
-        input  [1:0]           m_axi_hbm_bresp,
-        output                 m_axi_hbm_bready,
-        input                  m_axi_hbm_bvalid,
+        output [ADDR_BITS-1:0]      m_axi_hbm_araddr,
+        output [1:0]                m_axi_hbm_arburst,
+        output [3:0]                m_axi_hbm_arcache,
+        output [1:0]                m_axi_hbm_arid,
+        output [7:0]                m_axi_hbm_arlen,
+        output                      m_axi_hbm_arlock,
+        output [2:0]                m_axi_hbm_arprot,
+        output [2:0]                m_axi_hbm_arsize,
+        input                       m_axi_hbm_arready,
+        output                      m_axi_hbm_arvalid,
+        output [ADDR_BITS-1:0]      m_axi_hbm_awaddr,
+        output [1:0]                m_axi_hbm_awburst,
+        output [3:0]                m_axi_hbm_awcache,
+        output [1:0]                m_axi_hbm_awid,
+        output [7:0]                m_axi_hbm_awlen,
+        output                      m_axi_hbm_awlock,
+        output [2:0]                m_axi_hbm_awprot,
+        output [2:0]                m_axi_hbm_awsize,
+        input                       m_axi_hbm_awready,
+        output                      m_axi_hbm_awvalid,
+        input  [DATA_BITS-1:0]      m_axi_hbm_rdata,
+        input  [1:0]                m_axi_hbm_rid,
+        input                       m_axi_hbm_rlast,
+        input  [1:0]                m_axi_hbm_rresp,
+        output                      m_axi_hbm_rready,
+        input                       m_axi_hbm_rvalid,
+        output [DATA_BITS-1:0]      m_axi_hbm_wdata,
+        output                      m_axi_hbm_wlast,
+        output [DATA_BITS/8-1:0]    m_axi_hbm_wstrb,
+        input                       m_axi_hbm_wready,
+        output                      m_axi_hbm_wvalid,
+        input  [1:0]                m_axi_hbm_bid,
+        input  [1:0]                m_axi_hbm_bresp,
+        output                      m_axi_hbm_bready,
+        input                       m_axi_hbm_bvalid,
 
         // AXI4S master interface for core_in
-        output [DATA_BITS-1:0] m_axis_core_in_tdata,
-        output                 m_axis_core_in_tvalid,
-        input                  m_axis_core_in_tready,
+        output [ILEN_BITS-1:0]      m_axis_core_tdata,
+        output                      m_axis_core_tvalid,
+        input                       m_axis_core_tready,
 
         // AXI4S slave interface for core_out
-        input  [DATA_BITS-1:0] s_axis_core_out_tdata,
-        input                  s_axis_core_out_tvalid,
-        output                 s_axis_core_out_tready,
+        input  [OLEN_BITS-1:0]      s_axis_core_tdata,
+        input                       s_axis_core_tvalid,
+        output                      s_axis_core_tready,
 
         // AXI4S master interface for core_in_fw_idx
-        output [DATA_BITS-1:0] m_axis_core_in_fw_idx_tdata,
-        output                 m_axis_core_in_fw_idx_tvalid,
-        input                  m_axis_core_in_fw_idx_tready,
+        output [IDX_BITS-1:0]       m_idx_tdata,
+        output                      m_idx_tvalid,
+        input                       m_idx_tready,
 
-        // activation signals
-        input  [DATA_BITS-1:0] axis_fs_tdata,
-        input                  axis_fs_tvalid,
-        output                 axis_fs_tready,
-        output [DATA_BITS-1:0] axis_se_tdata,
-        output                 axis_se_tvalid,
-        input                  axis_se_tready,
+        // AXI4S slave interface for core_out_fw_idx
+        input  [IDX_BITS-1:0]       s_idx_tdata,
+        input                       s_idx_tvalid,
+        output                      s_idx_tready,
 
-        // control signals
-        input  wire [CNT_BITS-1:0] n_layers,
-        output wire [1:0]         done_if,
+        // Activation signals
+        input  [ILEN_BITS-1:0]      s_axis_fs_tdata,
+        input                       s_axis_fs_tvalid,
+        output                      s_axis_fs_tready,
 
-        // AXI4S slave interface for idx_fs
-        input  [DATA_BITS-1:0] idx_fs_tdata,
-        input                  idx_fs_tvalid,
-        output                 idx_fs_tready,
-        // AXI4S master interface for idx_se
-        output [DATA_BITS-1:0] idx_se_tdata,
-        output                 idx_se_tvalid,
-        input                  idx_se_tready
+        output [OLEN_BITS-1:0]      m_axis_se_tdata,
+        output                      m_axis_se_tvalid,
+        input                       m_axis_se_tready
     );
 
+    logic idx_if_in_tvalid, idx_if_in_tready;
+    logic [IDX_BITS-1:0] idx_if_in_tdata;
+    logic idx_if_out_tvalid, idx_if_out_tready;
+    logic [IDX_BITS-1:0] idx_if_out_tdata;
 
-    AXI4  #(.AXI4_ADDR_BITS(ADDR_BITS), .AXI4_DATA_BITS(DATA_BITS)) m_axi_hbm_if();
-    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_in ();
-    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_out ();
-    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) core_in_fw_idx ();
-    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_fs_if ();
-    AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis_se_if ();
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_fs_if ();
-    AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_se_if ();
+    logic axis_if_in_tvalid, axis_if_in_tready;
+    logic [OLEN_BITS-1:0] axis_if_in_tdata;
+    logic axis_if_out_tvalid, axis_if_out_tready;
+    logic [ILEN_BITS-1:0] axis_if_out_tdata;
 
-    `AXI_ASSIGN_I2S(m_axi_hbm_if, m_axi_hbm)
-    `AXIS_ASSIGN_I2S(core_in, m_axis_core_in)
-    `AXIS_ASSIGN_S2I(s_axis_core_out,  core_out)
+    // ================-----------------------------------------------------------------
+    // Mux (input to the core)
+    // ================-----------------------------------------------------------------
 
-    `AXIS_ASSIGN_I2S(core_in_fw_idx, m_axis_core_in_fw_idx)
+    mux #(
+        .IDX_BITS(IDX_BITS),
+        .FM_SIZE(FM_SIZE),
+        .ILEN_BITS(ILEN_BITS)
+    ) inst_mux_in (
+        .aclk(aclk),
+        .aresetn(aresetn),
 
-    `AXIS_ASSIGN_I2S(axis_fs_if, axis_fs)
-    `AXIS_ASSIGN_S2I(axis_se, axis_se_if)
-    `AXIS_ASSIGN_I2S(idx_fs_if, idx_fs)
-    `AXIS_ASSIGN_S2I(idx_se, idx_se_if)
+        // Idx
+        .s_idx_tvalid(idx_if_out_tvalid),
+        .s_idx_tready(idx_if_out_tready),
+        .s_idx_tdata (idx_if_out_tdata),
 
-  //  ================-----------------------------------------------------------------
-  //  Intermediate frames
-  //  ================-----------------------------------------------------------------
+        .m_idx_tvalid(m_idx_tvalid),
+        .m_idx_tready(m_idx_tready),
+        .m_idx_tdata (m_idx_tdata),
 
-   AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_if_in ();
-   AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_if_out ();
-   AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) axis_if_in ();
-   AXI4S #(.AXI4S_DATA_BITS(ILEN_BITS)) axis_if_out ();
+        // Data
+        .s_axis_fs_tvalid(s_axis_fs_tvalid),
+        .s_axis_fs_tready(s_axis_fs_tready),
+        .s_axis_fs_tdata (s_axis_fs_tdata),
 
-   intermediate_frames #(
-       .ADDR_BITS(ADDR_BITS),
-       .DATA_BITS(DATA_BITS),
-       .LEN_BITS(LEN_BITS),
-       .CNT_BITS(CNT_BITS),
-       .ILEN_BITS(ILEN_BITS),
-       .OLEN_BITS(OLEN_BITS),
-       .ADDR_INT(M_AXI_HBM_BASE_ADDR),
-       .LAYER_OFFS_INT(LAYER_OFFS_INT),
-       .N_MAX_LAYERS(N_MAX_LAYERS)
-   ) inst_intermediate_frames (
-       .aclk(aclk),
-       .aresetn(aresetn),
+        .s_axis_if_tvalid(axis_if_out_tvalid),
+        .s_axis_if_tready(axis_if_out_tready),
+        .s_axis_if_tdata (axis_if_out_tdata),
 
-       .m_done(done_if),
+        .m_axis_tvalid(m_axis_core_tvalid),
+        .m_axis_tready(m_axis_core_tready),
+        .m_axis_tdata (m_axis_core_tdata)
+    );
 
-       .m_axi_hbm(m_axi_hbm_if),
+    // ================-----------------------------------------------------------------
+    // Demux (output of the core)
+    // ================-----------------------------------------------------------------
 
-       .s_idx(idx_if_in),
-       .m_idx(idx_if_out),
+    demux #(
+        .N_LAYERS(N_LAYERS),
+        .IDX_BITS(IDX_BITS),
+        .FM_SIZE(FM_SIZE),
+        .OLEN_BITS(OLEN_BITS)
+    ) inst_mux_out (
+        .aclk(aclk),
+        .aresetn(aresetn),
 
-       .s_axis(axis_if_in),
-       .m_axis(axis_if_out)
+        // Idx
+        .s_idx_tvalid(s_idx_tvalid),
+        .s_idx_tready(s_idx_tready),
+        .s_idx_tdata (s_idx_tdata),
+
+        .m_idx_tvalid(idx_if_in_tvalid),
+        .m_idx_tready(idx_if_in_tready),
+        .m_idx_tdata (idx_if_in_tdata),
+
+        // Data
+        .s_axis_tvalid(s_axis_core_tvalid),
+        .s_axis_tready(s_axis_core_tready),
+        .s_axis_tdata (s_axis_core_tdata),
+
+        .m_axis_if_tvalid(axis_if_in_tvalid),
+        .m_axis_if_tready(axis_if_in_tready),
+        .m_axis_if_tdata (axis_if_in_tdata),
+
+        .m_axis_se_tvalid(m_axis_se_tvalid),
+        .m_axis_se_tready(m_axis_se_tready),
+        .m_axis_se_tdata (m_axis_se_tdata)
    );
 
-   // ================-----------------------------------------------------------------
-   // Mux in
-   // ================-----------------------------------------------------------------
+    //  ================-----------------------------------------------------------------
+    //  Intermediate frames
+    //  ================-----------------------------------------------------------------
 
-   AXI4S #(.AXI4S_DATA_BITS(2*CNT_BITS+LEN_BITS)) idx_out ();
+    intermediate_frames #(
+        .FM_SIZE(FM_SIZE),
+        .ILEN_BITS(ILEN_BITS),
+        .OLEN_BITS(OLEN_BITS),
+        .ADDR_BITS(ADDR_BITS),
+        .DATA_BITS(DATA_BITS),
+        .LEN_BITS(LEN_BITS),
+        .IDX_BITS(IDX_BITS)
+    ) inst_intermediate_frames (
+        .aclk(aclk),
+        .aresetn(aresetn),
 
-   mux_in #(
-       .ADDR_BITS(ADDR_BITS),
-       .DATA_BITS(DATA_BITS),
-       .LEN_BITS(LEN_BITS),
-       .CNT_BITS(CNT_BITS),
+        // MM
+        .m_axi_ddr_arvalid(m_axi_hbm_arvalid),
+        .m_axi_ddr_arready(m_axi_hbm_arready),
+        .m_axi_ddr_araddr(m_axi_hbm_araddr),
+        .m_axi_ddr_arid(m_axi_hbm_arid),
+        .m_axi_ddr_arlen(m_axi_hbm_arlen),
+        .m_axi_ddr_arsize(m_axi_hbm_arsize),
+        .m_axi_ddr_arburst(m_axi_hbm_arburst),
+        .m_axi_ddr_arlock(m_axi_hbm_arlock),
+        .m_axi_ddr_arcache(m_axi_hbm_arcache),
+        .m_axi_ddr_arprot(m_axi_hbm_arprot),
+        .m_axi_ddr_rvalid(m_axi_hbm_rvalid),
+        .m_axi_ddr_rready(m_axi_hbm_rready),
+        .m_axi_ddr_rdata(m_axi_hbm_rdata),
+        .m_axi_ddr_rlast(m_axi_hbm_rlast),
+        .m_axi_ddr_rid(m_axi_hbm_rid),
+        .m_axi_ddr_rresp(m_axi_hbm_rresp),
+        .m_axi_ddr_awvalid(m_axi_hbm_awvalid),
+        .m_axi_ddr_awready(m_axi_hbm_awready),
+        .m_axi_ddr_awaddr(m_axi_hbm_awaddr),
+        .m_axi_ddr_awid(m_axi_hbm_awid),
+        .m_axi_ddr_awlen(m_axi_hbm_awlen),
+        .m_axi_ddr_awsize(m_axi_hbm_awsize),
+        .m_axi_ddr_awburst(m_axi_hbm_awburst),
+        .m_axi_ddr_awlock(m_axi_hbm_awlock),
+        .m_axi_ddr_awcache(m_axi_hbm_awcache),
+        .m_axi_ddr_wdata(m_axi_hbm_wdata),
+        .m_axi_ddr_wstrb(m_axi_hbm_wstrb),
+        .m_axi_ddr_wlast(m_axi_hbm_wlast),
+        .m_axi_ddr_wvalid(m_axi_hbm_wvalid),
+        .m_axi_ddr_wready(m_axi_hbm_wready),
+        .m_axi_ddr_bid(m_axi_hbm_bid),
+        .m_axi_ddr_bresp(m_axi_hbm_bresp),
+        .m_axi_ddr_bvalid(m_axi_hbm_bvalid),
+        .m_axi_ddr_bready(m_axi_hbm_bready),
 
-       .ILEN_BITS(ILEN_BITS)
-   ) inst_mux_in (
-       .aclk(aclk),
-       .aresetn(aresetn),
-       .s_idx_fs(idx_fs_if),
-       .s_idx_if(idx_if_out),
-       .m_idx_fw(core_in_fw_idx),
-       .m_idx_out(idx_out),
+        // Idx
+        .s_idx_tvalid(idx_if_in_tvalid),
+        .s_idx_tready(idx_if_in_tready),
+        .s_idx_tdata (idx_if_in_tdata),
 
-       .s_axis_fs(axis_fs_if),
-       .s_axis_if(axis_if_out),
-       .m_axis(core_in)
-   );
+        .m_idx_tvalid(idx_if_out_tvalid),
+        .m_idx_tready(idx_if_out_tready),
+        .m_idx_tdata (idx_if_out_tdata),
 
-   // ================-----------------------------------------------------------------
-   // Mux out
-   // ================-----------------------------------------------------------------
+        // Data
+        .s_axis_tvalid(axis_if_in_tvalid),
+        .s_axis_tready(axis_if_in_tready),
+        .s_axis_tdata (axis_if_in_tdata),
 
-   mux_out #(
-       .ADDR_BITS(ADDR_BITS),
-       .DATA_BITS(DATA_BITS),
-       .LEN_BITS(LEN_BITS),
-       .CNT_BITS(CNT_BITS),
-
-       .OLEN_BITS(OLEN_BITS)
-   ) inst_mux_out (
-       .aclk(aclk),
-       .aresetn(aresetn),
-
-       .n_layers(n_layers),
-
-       .s_idx(idx_out),
-       .m_idx_se(idx_se_if),
-       .m_idx_if(idx_if_in),
-
-       .s_axis(core_out),
-       .m_axis_se(axis_se_if),
-       .m_axis_if(axis_if_in)
-   );
+        .m_axis_tvalid(axis_if_out_tvalid),
+        .m_axis_tready(axis_if_out_tready),
+        .m_axis_tdata (axis_if_out_tdata)
+    );
 
 endmodule
