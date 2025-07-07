@@ -592,10 +592,10 @@ class SimEngine:
                 # Process write completion queue items
                 if len(self.wr_completion_queue) > 0:
                     if self.bready.read().as_bool():
-                        ret[self.bvalid] = "1" 
+                        ret[self.bvalid] = "1"
                         _ = self.wr_completion_queue.pop(0)
                 else:
-                    ret[self.bvalid] = "0" 
+                    ret[self.bvalid] = "0"
 
                 # Queue new Write Address Requests
                 if self.awvalid.read().as_bool():

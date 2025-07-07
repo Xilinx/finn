@@ -60,7 +60,7 @@ module fetch_weights #(
     // Safely deducible parameters
     parameter                          DS_BITS_BA = (PE+7)/8 * 8,
 	parameter                          WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
+    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + 7) & ~7 // 8-byte aligned
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
