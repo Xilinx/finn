@@ -63,6 +63,10 @@ class KernelRegistry(metaclass=KernelRegistryMeta):
         # Return the same object to ensure this is a singleton.
         return self
 
+    def kernel_exists(self, op_type: str) -> bool:
+        # Check if a customop has any kernels registered. No constraints checking.
+        return self._mapping.get(op_type) != None
+
     def register(self, op_type: str, k: Kernel, priority: int = -2) -> None:
         """Register a kernel at a particular priority"""  
         if not (op_type in self._mapping.keys()): # No previous customop was registered so we need to add one

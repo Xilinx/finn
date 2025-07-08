@@ -80,14 +80,15 @@ class RTLSimBuilder(Transformation):
 
         verilog_files = [Path("../..") / file.relative_to(node_ctx.top_ctx.directory) for file in verilog_files]
 
-        single_src_dir = node_ctx.directory / Path("rtlsim_" + kernel.name + "_")
+        single_src_dir = node_ctx.directory / Path("rtlsim_" + node.name + "_")
         single_src_dir.mkdir(exist_ok=True)
-        trace_file = node_ctx.rtlsim_trace
+        trace_file = self.ref_input_model.get_metadata_prop("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
         ret = finnxsi.compile_sim_obj(
-            kernel.name, [str(file) for file in verilog_files], str(single_src_dir), debug
+            node.name, [str(file) for file in verilog_files], str(single_src_dir), debug
         )
         # save generated lib filename in attribute
-        node_ctx.rtlsim_so = Path(ret[0]) / Path(ret[1])
+        # Not necessary in new kernel flow?
+        # node.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
 
         return (node, node_ctx, False)

@@ -30,7 +30,7 @@
 import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import Transformation
 
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.kernels.kernel_registry import gkr
 
 
 class SetExecMode(Transformation):
@@ -47,7 +47,7 @@ class SetExecMode(Transformation):
     def apply(self, model):
         for node in model.graph.node:
             op_type = node.op_type
-            if is_hls_node(node) or is_rtl_node(node):
+            if gkr.kernel_exists(op_type):
                 try:
                     # lookup op_type in registry of CustomOps
                     inst = registry.getCustomOp(node)

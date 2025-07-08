@@ -100,33 +100,31 @@ class SetFolding(Transformation):
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
-            "AddStreams_hls",
-            "ChannelwiseOp_hls",
-            "DuplicateStreams_hls",
-            "GlobalAccPool_hls",
-            "Thresholding_hls",
-            "Thresholding_rtl",
+            "AddStreams",
+            "ChannelwiseOp",
+            "DuplicateStreams",
+            "GlobalAccPool",
+            "Thresholding",
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator* has a special case when depthwise=1
         # ConvolutionInputGenerator_rtl supports additional parallelism by
         # setting parallel_window=1 mode after maxing out SIMD
         simd_ops = [
-            "DownSampler_hls",
-            "FMPadding_hls",
-            "FMPadding_Pixel_hls",
-            "ConvolutionInputGenerator_hls",
-            "ConvolutionInputGenerator_rtl",
+            "DownSampler",
+            "FMPadding_hls", # TODO: NEEDS TO CHANGE FOR NEW FLOW
+            "FMPadding_Pixel",
+            "ConvolutionInputGenerator",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VVAU_hls", "VVAU_rtl", "Pool_hls"]
+        depthwise_op_exceptions = ["VVAU", "Pool"]
         for node in graph.node:
-            if not (is_hls_node(node) or is_rtl_node(node)):
+            if node.op_type == "StreamingDataflowPartition":
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type in ["MVAU_hls", "MVAU_rtl"]:
+            if op_type in ["MVAU"]:
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
@@ -153,12 +151,12 @@ class SetFolding(Transformation):
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "LabelSelect_hls":
+            elif op_type == "LabelSelect":
                 max_pe = node_inst.get_nodeattr("Labels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
-                if op_type in ["VVAU_hls", "VVAU_rtl"]:
+                if op_type in ["VVAU"]:
                     node_inst.set_nodeattr("SIMD", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
@@ -166,7 +164,7 @@ class SetFolding(Transformation):
                 pe = node_inst.get_nodeattr("PE")
                 cyc = node_inst.get_exp_cycles()
                 if (
-                    op_type in ["VVAU_hls", "VVAU_rtl"]
+                    op_type in ["VVAU"]
                     and pe == max_pe
                     and cyc > self.target_cycles_per_frame
                 ):
@@ -179,15 +177,15 @@ class SetFolding(Transformation):
                     swu_node_inst = getCustomOp(swu_node)
                     swu_node_inst.set_nodeattr("SIMD", pe)
                     # enable parallel_window mode of RTL SWG if needed
-                    if swu_node.op_type == "ConvolutionInputGenerator_rtl":
+                    if swu_node.op_type == "ConvolutionInputGenerator_rtl": # TODO: NEEDS TO CHANGE FOR NEW FLOW
                         if op_type.startswith("VVAU") and node_inst.get_nodeattr("SIMD") > 1:
                             swu_node_inst.set_nodeattr("parallel_window", 1)
                         else:
                             swu_node_inst.set_nodeattr("parallel_window", 0)
                 else:
-                    if op_type in ["VVAU_hls", "VVAU_rtl"]:
+                    if op_type in ["VVAU"]:
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
-                    elif op_type == "Pool_hls":
+                    elif op_type == "Pool":
                         ksize = node_inst.get_nodeattr("KernelSize")
                     else:
                         raise Exception("Undefined edge case for %s" % op_type)
@@ -199,14 +197,14 @@ class SetFolding(Transformation):
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
                         # init/reset parallel_window mode of RTL SWG
-                        if op_type == "ConvolutionInputGenerator_rtl":
+                        if op_type == "ConvolutionInputGenerator_rtl": # TODO: NEEDS TO CHANGE FOR NEW FLOW
                             node_inst.set_nodeattr("parallel_window", 0)
                         self.optimize_attribute_val(node_inst, max_simd, "SIMD")
                         # enable parallel_window mode of RTL SWG if needed
                         simd = node_inst.get_nodeattr("SIMD")
                         cyc = node_inst.get_exp_cycles()
                         if (
-                            op_type == "ConvolutionInputGenerator_rtl"
+                            op_type == "ConvolutionInputGenerator_rtl" # TODO: NEEDS TO CHANGE FOR NEW FLOW
                             and simd == max_simd
                             and cyc > self.target_cycles_per_frame
                         ):

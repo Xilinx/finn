@@ -34,13 +34,13 @@ except ModuleNotFoundError:
 import numpy as np
 import os
 from qonnx.custom_op.registry import getCustomOp
+from pathlib import Path
 
 from finn.util.basic import (
     get_finn_root,
     get_liveness_threshold_cycles,
     get_vivado_root,
     launch_process_helper,
-    make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -164,10 +164,11 @@ def rtlsim_exec_cppxsi(
         vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
-        single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
+        single_src_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent / Path("rtlsim_" + top_module_name + "_")
+        single_src_dir.mkdir(exist_ok=True)
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+            top_module_name, all_verilog_srcs, str(single_src_dir), debug=debug
         )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
@@ -261,7 +262,7 @@ def rtlsim_exec_cppxsi(
         "g++",
         f"-I{finnxsi_dir}",
         f"-I{vivado_incl_dir}",
-        f"-I{sim_base}",
+        "-I.",
         "-std=c++17",
         "-O3",
         "-o",
@@ -330,10 +331,11 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
             all_verilog_srcs = f.read().split()
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
-        single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
+        single_src_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent / Path("rtlsim_" + top_module_name + "_")
+        single_src_dir.mkdir(exist_ok=True)
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+            top_module_name, all_verilog_srcs, str(single_src_dir), debug=debug
         )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])

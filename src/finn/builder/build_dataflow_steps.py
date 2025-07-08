@@ -124,6 +124,14 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
 from finn.util.test import execute_parent
 
+import importlib.resources
+from pathlib import Path
+from finn.util.context import Context
+from finn.transformation.fpgadataflow.code_builder import CodeBuilder
+from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
+from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
+from finn.transformation.fpgadataflow.change_paths import ChangePaths
+
 
 def verify_step(
     model: ModelWrapper,
@@ -534,67 +542,6 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Generate IP for nodes. Generate RTL for RTL nodes, generate and
-    synthesise HLS for HLS nodes with Vitis HLS. Then create stitched IP."""
-
-    ####### Until step_specialize_layers is removed, this is necessary. ############
-
-    from qonnx.transformation.base import Transformation
-
-    class SuffixRemover(Transformation):
-
-        """ Remove _rtl or _hls suffixes from node types """
-
-        def apply(self, model: ModelWrapper):
-
-            # Iterate over nodes in graph
-            graph = model.graph
-            for node in graph.node:
-
-                if '_' in node.op_type:
-                    node.op_type = node.op_type.rsplit('_', 1)[0]
-
-            return (model, False)
-
-    model_mod = model.transform(SuffixRemover())
-
-    ####### Until step_specialize_layers is removed, this is necessary. ############
-
-    import importlib.resources
-    from pathlib import Path
-    from finn.util.context import Context
-    from finn.transformation.fpgadataflow.code_builder import CodeBuilder
-    from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
-    from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
-
-    libraries = {
-        "finnkernel" : importlib.resources.files("finn"),
-        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
-    }
-
-    report_dir = cfg.output_dir+"_new_flow" + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-
-    # (self, directory: Path, libraries: Dict[str,Path], fpga_part: str, clk_ns: int, top_ctx: "Context" = None, ip_name: str="finn_design", vitis: bool=False, signature=[])
-    ctx = Context(
-        directory=Path(cfg.output_dir+"_new_flow"),
-        libraries=libraries,
-        fpga_part=cfg._resolve_fpga_part(),
-        clk_ns=cfg.synth_clk_period_ns,
-        clk_hls=cfg._resolve_hls_clk_period(),
-        vitis=cfg.stitched_ip_gen_dcp,
-        signature=cfg.signature,
-        rtlsim_trace=Path(os.path.abspath(report_dir) + "/fifosim_trace.wdb"),
-    )
-
-    model_mod = model_mod.transform(CodeBuilder(ctx))
-    model_mod = model_mod.transform(StitchedIPBuilder(ctx))
-    model_mode = model_mod.transform(RTLSimBuilder(ctx))
-
-    return model
-
-
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
@@ -697,6 +644,119 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_set_fifo_depths_new(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    Depending on the auto_fifo_depths setting, do one of the following:
+    * if auto_fifo_depths=True:  Run the appropriate auto-sizing transformation
+    to attempt to determine the FIFO sizes that provide full throughput.
+    May take a long time.
+    * if auto_fifo_depths=False:  Assume the folding config file contains FIFO
+    sizes as well. Runs the `InsertFIFO` transformation, then
+    `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
+    Coherency with config file node naming is ensured by calling
+    `GiveUniqueNodeNames`.
+    """
+
+    if cfg.auto_fifo_depths:
+        if cfg.auto_fifo_strategy == "characterize":
+            model = model.transform(InsertDWC())
+            # model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+            model = model.transform(GiveUniqueNodeNames())
+            # model = model.transform(
+            #     PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+            # )
+            # model = model.transform(HLSSynthIP())
+            # model = model.transform(PrepareRTLSim())
+            model = model.transform(RTLSimBuilder(ctx))
+            model = model.transform(AnnotateCycles())
+            period = model.analysis(dataflow_performance)["max_cycles"] + 10
+            model = model.transform(DeriveCharacteristic(period))
+            model = model.transform(DeriveFIFOSizes())
+            model = model.transform(
+                InsertFIFO(
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    max_qsrl_depth=256,
+                    create_shallow_fifos=True,
+                )
+            )
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+        elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            if cfg.fifosim_save_waveform:
+                report_dir = cfg.output_dir + "/report"
+                os.makedirs(report_dir, exist_ok=True)
+                model.set_metadata_prop(
+                    "rtlsim_trace", os.path.abspath(report_dir) + "/fifosim_trace.wdb"
+                )
+
+            libraries = {
+                "finnkernel" : importlib.resources.files("finn"),
+                "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
+            }
+            ctx = Context(
+                directory=Path(cfg.output_dir+"/rtlsim_fifo_depths"),
+                libraries=libraries,
+                fpga_part=cfg._resolve_fpga_part(),
+                clk_ns=cfg.synth_clk_period_ns,
+                clk_hls=cfg._resolve_hls_clk_period(),
+                vitis=cfg.stitched_ip_gen_dcp,
+                signature=cfg.signature,
+            )
+
+            model = model.transform(
+                InsertAndSetFIFODepths(
+                    ctx,
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                    swg_exception=cfg.default_swg_exception,
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    fifosim_input_throttle=cfg.fifosim_input_throttle,
+                )
+            )
+            # InsertAndSetFIFODepths internally removes any shallow FIFOs
+            # so no need to call RemoveShallowFIFOs here
+        else:
+            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
+    else:
+        # assume folding cfg json contains FIFO sizes too
+        # insert DWCs, FIFOs and run ApplyConfig once more
+        model = model.transform(InsertDWC())
+        # need to make sure all FIFOs are created so that their depth can be
+        # set by ApplyConfig, so create_shallow_fifos=True
+        model = model.transform(InsertFIFO(create_shallow_fifos=True))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        if cfg.folding_config_file is not None:
+            model = model.transform(ApplyConfig(cfg.folding_config_file))
+
+    # extract the final configuration and save it as json
+    hw_attrs = [
+        "PE",
+        "SIMD",
+        "parallel_window",
+        "ram_style",
+        "depth",
+        "impl_style",
+        "resType",
+        "mem_mode",
+        "runtime_writeable_weights",
+        "inFIFODepths",
+        "outFIFODepths",
+        "depth_trigger_uram",
+        "depth_trigger_bram",
+    ]
+    extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
+
+    # perform FIFO splitting and shallow FIFO removal only after the final config
+    # json file has been written. otherwise, since these transforms may add/remove
+    # FIFOs, we get name mismatch problems when trying to reuse the final config.
+    if cfg.split_large_fifos:
+        model = model.transform(SplitLargeFIFOs())
+    model = model.transform(RemoveShallowFIFOs())
+
+    return model
+
+
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
@@ -735,6 +795,88 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+    return model
+
+
+def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Generate IP for nodes. Generate RTL for RTL nodes, generate and
+    synthesise HLS for HLS nodes with Vitis HLS. Then create stitched IP."""
+
+    libraries = {
+        "finnkernel" : importlib.resources.files("finn"),
+        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
+    }
+
+    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        verify_model = deepcopy(model)
+        verify_model = verify_model.transform(SetExecMode("rtlsim"))
+
+        ctx = Context(
+            directory=Path(cfg.output_dir+"/rtlsim_node_by_node"),
+            libraries=libraries,
+            fpga_part=cfg._resolve_fpga_part(),
+            clk_ns=cfg.synth_clk_period_ns,
+            clk_hls=cfg._resolve_hls_clk_period(),
+            vitis=cfg.stitched_ip_gen_dcp,
+            signature=cfg.signature,
+        )
+        verify_model = verify_model.transform(RTLSimBuilder(ctx))
+        verify_model = verify_model.transform(ChangePaths(ctx,True))
+        verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
+        verify_model = verify_model.transform(ChangePaths(ctx,False))
+
+    if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
+        # prepare ip-stitched rtlsim
+        verify_model = deepcopy(model)
+        verify_model.set_metadata_prop("exec_mode", "rtlsim")
+        # use critical path estimate to set rtlsim liveness threshold
+        # (very conservative)
+        verify_model = verify_model.transform(AnnotateCycles())
+        estimate_network_performance = verify_model.analysis(dataflow_performance)
+        prev_liveness = get_liveness_threshold_cycles()
+        os.environ["LIVENESS_THRESHOLD"] = str(
+            int(estimate_network_performance["critical_path_cycles"] * 1.1)
+        )
+        if cfg.verify_save_rtlsim_waveforms:
+            verify_out_dir = cfg.output_dir + "/verification_output"
+            os.makedirs(verify_out_dir, exist_ok=True)
+            abspath = os.path.abspath(verify_out_dir)
+            verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+
+        ctx = Context(
+            directory=Path(cfg.output_dir+"/rtlsim_stitched_ip"),
+            libraries=libraries,
+            fpga_part=cfg._resolve_fpga_part(),
+            clk_ns=cfg.synth_clk_period_ns,
+            clk_hls=cfg._resolve_hls_clk_period(),
+            vitis=cfg.stitched_ip_gen_dcp,
+            signature=cfg.signature,
+        )
+        verify_model = verify_model.transform(RTLSimBuilder(ctx))
+        verify_model = verify_model.transform(ChangePaths(ctx,True))
+        verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+        verify_model = verify_model.transform(ChangePaths(ctx,False))
+        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+
+    if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
+        ctx = Context(
+            directory=Path(cfg.output_dir+"/ip_gen"),
+            libraries=libraries,
+            fpga_part=cfg._resolve_fpga_part(),
+            clk_ns=cfg.synth_clk_period_ns,
+            clk_hls=cfg._resolve_hls_clk_period(),
+            vitis=cfg.stitched_ip_gen_dcp,
+            signature=cfg.signature,
+        )
+        model = model.transform(CodeBuilder(ctx))
+        model = model.transform(StitchedIPBuilder(ctx))
+        # TODO copy all ip sources into output dir? as zip?
+        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        shutil.copytree(
+            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
+        )
+        print("Vivado stitched IP written into " + stitched_ip_dir)
+
     return model
 
 
@@ -953,6 +1095,7 @@ build_dataflow_step_lookup = {
     "step_hw_codegen": step_hw_codegen,
     "step_hw_ipgen": step_hw_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
+    "step_set_fifo_depths_new": step_set_fifo_depths_new,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_create_stitched_ip_new": step_create_stitched_ip_new,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,

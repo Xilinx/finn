@@ -32,7 +32,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.kernels.kernel_registry import gkr
 
 
 class AnnotateCycles(Transformation):
@@ -47,7 +47,7 @@ class AnnotateCycles(Transformation):
         graph = model.graph
         # annotate node cycles
         for node in graph.node:
-            if is_hls_node(node) or is_rtl_node(node):
+            if gkr.kernel_exists(node.op_type):
                 op_inst = registry.getCustomOp(node)
                 cycles = op_inst.get_exp_cycles()
                 op_inst.set_nodeattr("cycles_estimate", cycles)

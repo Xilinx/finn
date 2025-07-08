@@ -81,6 +81,6 @@ class CodeBuilder(Transformation):
         elif kernel.impl_style == 'sip':
             gen_sip_node(kernel, node_ctx)
         else:
-            raise RuntimeError(f"Kernel.impl_style of {kernel.name} is {kernel.impl_style}, not recognised by CodeBuilder.")
+            raise RuntimeError(f"Kernel.impl_style of {node.name} is {kernel.impl_style}, not recognised by CodeBuilder.")
 
         return (node, node_ctx, False)

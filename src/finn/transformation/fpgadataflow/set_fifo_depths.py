@@ -42,13 +42,11 @@ from qonnx.transformation.general import (
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
+from finn.transformation.fpgadataflow.change_paths import ChangePaths
 
 
 def reset_implementation(node):
@@ -266,6 +264,7 @@ class InsertAndSetFIFODepths(Transformation):
 
     def __init__(
         self,
+        ctx,
         fpgapart,
         clk_ns=10.0,
         max_qsrl_depth=256,
@@ -275,6 +274,7 @@ class InsertAndSetFIFODepths(Transformation):
         fifosim_input_throttle=True,
     ):
         super().__init__()
+        self.ctx = ctx
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.max_qsrl_depth = max_qsrl_depth
@@ -286,13 +286,13 @@ class InsertAndSetFIFODepths(Transformation):
     def apply(self, model):
         # these optypes may potentially use external weights
         # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
+        extw_optypes = ["MVAU", "VVAU"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
         for node in model.graph.node:
             # verify assumptions
-            assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
+            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(
                 node
             )
             op_type = node.op_type
@@ -330,18 +330,16 @@ class InsertAndSetFIFODepths(Transformation):
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
-        model = model.transform(SpecializeLayers(self.fpgapart))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
         # gather FIFO names, check they are of expected depth
         fifos = {}
-        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")
+        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
         for node in fifo_nodes:
             fifos[node.name] = 0
             node = getCustomOp(node)
             node.set_nodeattr("depth_monitor", 1)
-            node.set_nodeattr("impl_style", "rtl")
             # check depths and fix as necessary
             if (self.max_depth is not None) and (node.get_nodeattr("depth") != self.max_depth):
                 node.set_nodeattr("depth", self.max_depth)
@@ -351,9 +349,7 @@ class InsertAndSetFIFODepths(Transformation):
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_cycles = perf["max_cycles"]
-        model = model.transform(PrepareIP(self.fpgapart, self.clk_ns))
-        model = model.transform(HLSSynthIP())
-        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
+        model = model.transform(RTLSimBuilder(self.ctx))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         # do rtlsim in C++ for FIFO sizing
@@ -382,7 +378,9 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
+        model = model.transform(ChangePaths(self.ctx,True))
         sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
+        model = model.transform(ChangePaths(self.ctx,False))
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
@@ -410,10 +408,7 @@ class InsertAndSetFIFODepths(Transformation):
                 toplevel_style_exception = toplevel_in or toplevel_out
                 # Set FIFO implementation/ram styles
                 if (depth > self.max_qsrl_depth) and (not toplevel_style_exception):
-                    node_inst.set_nodeattr("impl_style", "vivado")
                     node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
-                else:
-                    node_inst.set_nodeattr("impl_style", "rtl")
                 # reset implementation
                 reset_implementation(node_inst)
                 del fifos[node.name]
@@ -570,7 +565,7 @@ class SplitLargeFIFOs(Transformation):
         graph_modified = False
         for node in graph.node:
             node_ind += 1
-            if node.op_type == ("StreamingFIFO_rtl"):
+            if node.op_type == ("StreamingFIFO"):
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
@@ -595,16 +590,15 @@ class SplitLargeFIFOs(Transformation):
                             graph.value_info.append(out_tensor)
                             model.set_tensor_datatype(out_tensor.name, DataType[dtype])
                         fifo_node = helper.make_node(
-                            "StreamingFIFO_rtl",
+                            "StreamingFIFO",
                             [inp],
                             [outp],
-                            domain="finn.custom_op.fpgadataflow.rtl",
+                            domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
                             depth=fifo_depth,
                             folded_shape=fld_shape,
                             normal_shape=n_shape,
                             dataType=dtype,
-                            impl_style=impl_style,
                             ram_style=ram_style,
                             name=node.name + "_" + str(i),
                         )
