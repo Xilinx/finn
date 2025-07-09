@@ -70,16 +70,14 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
             param_name = finnloop_op.onnx_node.input[idx]
-            #import pdb; pdb.set_trace()
-            #param_val = model.get_initializer(param_name)
-            #mvau_hbm_weights[idx]["value"] = param_val
             datfile = f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_{downstream.name}.dat"
             mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
             mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split('_')[-1]) 
+            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_{downstream.name}" 
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
         for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(f"m_axi_gmem{intf['extern_idx']}", 0, intf["value"].flatten())
+            sim.aximm_ro_image(intf['extern_name'], 0, intf["value"].flatten())
 
     return mlo_rtlsim_prehook

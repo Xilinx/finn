@@ -444,8 +444,8 @@ class SimEngine:
                 self.base = base
                 self.img = [f"{_:02x}" for _ in np.array(img).astype(np.uint8)]
                 # This is a hack to account for the minimum DMA burst read size of 32 bytes.
-                # i in range(32):
-                #    self.img.append("00")  # Pad to 32 bytes
+                for i in range(32):
+                    self.img.append("00")  # Pad to 32 bytes
                 self.queue = []
 
             def __bool__(self):

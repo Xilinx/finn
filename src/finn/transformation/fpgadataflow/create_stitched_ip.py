@@ -250,7 +250,8 @@ class CreateStitchedIP(Transformation):
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                     % (inst_name, mm_intf_name[0])
                 )
-                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                #ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                ext_if_name = f"m_axi_{inst_name}"
                 self.connect_cmds.append(
                     "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
                 )
