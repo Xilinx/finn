@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 
-class ChangePaths(Transformation):
+class ChangeDATPaths(Transformation):
     """Convert DAT file paths between being relative to the output directory
        and absolute paths."""
 

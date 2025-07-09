@@ -130,7 +130,7 @@ from finn.util.context import Context
 from finn.transformation.fpgadataflow.code_builder import CodeBuilder
 from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
 from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
-from finn.transformation.fpgadataflow.change_paths import ChangePaths
+from finn.transformation.fpgadataflow.change_dat_paths import ChangeDATPaths
 
 
 def verify_step(
@@ -821,9 +821,9 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
             signature=cfg.signature,
         )
         verify_model = verify_model.transform(RTLSimBuilder(ctx))
-        verify_model = verify_model.transform(ChangePaths(ctx,True))
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
         verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
-        verify_model = verify_model.transform(ChangePaths(ctx,False))
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
 
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
@@ -853,9 +853,9 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
             signature=cfg.signature,
         )
         verify_model = verify_model.transform(RTLSimBuilder(ctx))
-        verify_model = verify_model.transform(ChangePaths(ctx,True))
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-        verify_model = verify_model.transform(ChangePaths(ctx,False))
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:

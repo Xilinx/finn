@@ -46,7 +46,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
-from finn.transformation.fpgadataflow.change_paths import ChangePaths
+from finn.transformation.fpgadataflow.change_dat_paths import ChangeDATPaths
 
 
 def reset_implementation(node):
@@ -378,9 +378,9 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
-        model = model.transform(ChangePaths(self.ctx,True))
+        model = model.transform(ChangeDATPaths(self.ctx,True))
         sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
-        model = model.transform(ChangePaths(self.ctx,False))
+        model = model.transform(ChangeDATPaths(self.ctx,False))
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind
