@@ -30,6 +30,7 @@
 # This module contains helpers for handling the MLO rtlsimulation. It instantiates
 # aximm simulation tasks for handling the aximm interfaces.
 
+import numpy as np
 from finn_xsi.sim_engine import SimEngine
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -42,6 +43,14 @@ def is_mlo(model: ModelWrapper) -> bool:
         if node.op_type == "FINNLoop":
             return True
     return False
+
+
+def dat_file_to_numpy_array(file_path):
+    with open(file_path, "r") as file:
+        byte_values = [int(line.strip(), 16) for line in file]
+    byte_array = np.array(byte_values, dtype=np.uint8)
+    return byte_array
+
 
 def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]:
     """Factory that will construct a prehook function to
@@ -58,18 +67,21 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
     finnloop_body = finnloop_op.get_nodeattr("body")
 
     mvau_hbm_weights = {}
-    extern_idx = 0
+    # extern_idx = 0
     for idx, lb_inp in enumerate(finnloop_body.graph.input):
         downstream = finnloop_body.find_consumer(lb_inp.name)
         if downstream.op_type.startswith("MVAU"):
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
-            param_name = finnloop_op.onnx_node.input[idx]
-            param_val = model.get_initializer(param_name)
-            mvau_hbm_weights[idx]["value"] = param_val
-            #mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split('_')[-1])
-            mvau_hbm_weights[idx]["extern_idx"] = extern_idx
-            extern_idx = extern_idx + 1
+            # param_name = finnloop_op.onnx_node.input[idx]
+            # import pdb; pdb.set_trace()
+            # param_val = model.get_initializer(param_name)
+            # mvau_hbm_weights[idx]["value"] = param_val
+            datfile = (
+                f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_{downstream.name}.dat"
+            )
+            mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
+            mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split("_")[-1])
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
