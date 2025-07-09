@@ -108,7 +108,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         name="MVAU_rtl0",
     )
@@ -125,7 +125,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl0",
@@ -147,7 +147,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list([1, 3, 3]),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         name="MVAU_rtl1",
     )
@@ -164,7 +164,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl1",
@@ -186,7 +186,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         name="MVAU_rtl2",
     )
@@ -204,7 +204,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl2",
@@ -258,7 +258,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl4",
@@ -276,7 +276,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl5",
@@ -347,7 +347,7 @@ def make_loop_modelwrapper(mw, mh, iter_count):
     loop_body_model = loop_body_model.transform(InferShapes())
     loop_body_model = loop_body_model.transform(InferDataTypes())
 
-    iteration = 3
+    iteration = iter_count 
     # stack according to iteration count
     W0 = np.stack([W0] * iter_count)
     W1 = np.stack([W1] * iter_count)
@@ -443,7 +443,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list((1, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         name="MVAU_rtl0",
     )
@@ -460,7 +460,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl0",
@@ -482,7 +482,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         binaryXnorMode=0,
         noActivation=1,
         numInputVectors=list([1, 3]),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         name="MVAU_rtl1",
     )
@@ -499,7 +499,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
         weightDataType="INT33",
         outputDataType="INT8",
         numInputVectors=list((1, 3)),
-        mlo_max_iter=3,
+        mlo_max_iter=iter_count,
         inFIFODepths=[2, 2],
         ActVal=int(dtype.min()),
         name="Thresholding_rtl1",
@@ -525,7 +525,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
     loop_body_model = loop_body_model.transform(InferShapes())
     loop_body_model = loop_body_model.transform(InferDataTypes())
 
-    iteration = 3
+    iteration = iter_count 
     # stack according to iteration count
     W0 = np.stack([W0] * iter_count)
     W1 = np.stack([W1] * iter_count)
@@ -562,7 +562,7 @@ def make_loop_modelwrapper_nofork(mw, mh, iter_count):
 
 
 def test_fpgadataflow_loop():
-    model = make_loop_modelwrapper(16, 16, 3)
+    model = make_loop_modelwrapper(16, 16, 1)
     model = model.transform(InferShapes())
     model.save("finn_loop.onnx")
     inst = getCustomOp(model.graph.node[0])
@@ -585,7 +585,7 @@ def test_fpgadataflow_loop():
     body = body.transform(CompileCppSim())
     body = body.transform(SetExecMode("cppsim"))
     inst.set_nodeattr("body", body.graph)
-    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 16])
+    x = gen_finn_dt_tensor(DataType["INT8"], [1, 3, 3, 16])
     input_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, input_dict)
     y = y_dict[model.graph.output[0].name]
