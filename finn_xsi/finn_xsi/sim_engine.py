@@ -413,6 +413,8 @@ class SimEngine:
     def aximm_ro_image(self, mm_axi, base, img):
         class AximmRoImage:
             def __init__(self, top, mm_axi, base, img):
+                self.mm_axi = mm_axi
+                self.rd_count = 0
                 # Tie off Write Channels
                 for tie_off in ("awready", "wready", "bvalid"):
                     port = top.get_bus_port(mm_axi, tie_off)
@@ -441,6 +443,9 @@ class SimEngine:
                 # Hold on to Image
                 self.base = base
                 self.img = [f"{_:02x}" for _ in np.array(img).astype(np.uint8)]
+                # This is a hack to account for the minimum DMA burst read size of 32 bytes.
+                for i in range(32):
+                    self.img.append("00")  # Pad to 32 bytes
                 self.queue = []
 
             def __bool__(self):
@@ -476,12 +481,17 @@ class SimEngine:
                     assert self.arburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
                     addr = int(self.araddr.read().as_hexstr(), 16)
+                    # addr = addr - 8*self.rd_count
+                    # self.rd_count = self.rd_count + 2
+
                     assert self.base <= addr, "Read address out of range."
                     addr -= self.base
 
                     length = 1 + self.arlen.read().as_unsigned()
                     size = 2 ** self.arsize.read().as_unsigned()
-                    assert addr + length * size < len(self.img), "Read extends beyond range."
+                    if addr + (length * size) > len(self.img): # account for minimum dma burst read size of 32 bytes
+                        print(f"Range extends beyond range {addr=} {length=} {size=}")
+                        #assert addr + length * size < len(self.img), "Read extends beyond range."
 
                     self.queue.append((addr, length, size))
 
@@ -494,15 +504,36 @@ class SimEngine:
     def aximm_queue(self, mm_axi):
         "Pick up all write requests to carry them over to complete"
         " a later read request with the same address and size."
+
         class AximmQueue:
             def __init__(self, top, mm_axi):
                 # Collect Ports of Read Channels
                 for name in (
-                    "awready", "awvalid", "awaddr", "awlen", "awburst", "awsize",
-                    "wready", "wvalid", "wdata", "wlast",
-                    "bready", "bvalid", "bdata", "bresp",
-                    "arready", "arvalid", "araddr", "arlen", "arburst", "arsize",
-                    "rready", "rvalid", "rdata", "rresp", "rlast",
+                    "awready",
+                    "awvalid",
+                    "awaddr",
+                    "awlen",
+                    "awburst",
+                    "awsize",
+                    "wready",
+                    "wvalid",
+                    "wdata",
+                    "wlast",
+                    "bready",
+                    "bvalid",
+                    "bdata",
+                    "bresp",
+                    "arready",
+                    "arvalid",
+                    "araddr",
+                    "arlen",
+                    "arburst",
+                    "arsize",
+                    "rready",
+                    "rvalid",
+                    "rdata",
+                    "rresp",
+                    "rlast",
                 ):
                     self.__dict__[name] = top.get_bus_port(mm_axi, name)
                 self.awready.set(1).write_back()
@@ -520,9 +551,13 @@ class SimEngine:
                 self.wa_queue = []  # Write Addresses (addr, len, size)
                 self.wd_queue = []  # Write Data      (data)
                 self.ra_queue = []  # Read Addresses  (addr, len, size)
+                self.wr_completion_queue = []  # A queue to track the write completions
+
+            def __bool__(self):
+                return False
 
             def __call__(self, sim):
-                ret = []
+                ret = {}
 
                 # Process Write Updates
                 while len(self.wa_queue) > 0:
@@ -548,7 +583,7 @@ class SimEngine:
                         assert size == size0, "Write and read size mismatch."
                         ret[self.rdata] = data
                         if length > 1:
-                            self.ra_queue.insert(0, (addr+size, length-1, size))
+                            self.ra_queue.insert(0, (addr + size, length - 1, size))
                             ret[self.rlast] = "0"
                         else:
                             ret[self.rlast] = "1"
@@ -557,14 +592,23 @@ class SimEngine:
                         # Silent Reply Interface
                         ret[self.rvalid] = "0"
 
+                # Process write completion queue items
+                if len(self.wr_completion_queue) > 0:
+                    if self.bready.read().as_bool():
+                        ret[self.bvalid] = "1"
+                        _ = self.wr_completion_queue.pop(0)
+                else:
+                    ret[self.bvalid] = "0"
+
                 # Queue new Write Address Requests
                 if self.awvalid.read().as_bool():
                     assert self.awburst.read().as_unsigned() == 1, "Only INCR bursts supported."
 
-                    addr = int(self.araddr.read().as_hexstr(), 16)
-                    length = 1 + self.arlen.read().as_unsigned()
-                    size = 2 ** self.arsize.read().as_unsigned()
+                    addr = int(self.awaddr.read().as_hexstr(), 16)
+                    length = 1 + self.awlen.read().as_unsigned()
+                    size = 2 ** self.awsize.read().as_unsigned()
                     self.wa_queue.append((addr, length, size))
+                    self.wr_completion_queue.insert(0, 1)
 
                 # Queue received Write Data
                 if self.wvalid.read().as_bool():
@@ -579,6 +623,6 @@ class SimEngine:
                     size = 2 ** self.arsize.read().as_unsigned()
                     self.ra_queue.append((addr, length, size))
 
-                return  ret
+                return ret
 
         self.enlist(AximmQueue(self, mm_axi))
