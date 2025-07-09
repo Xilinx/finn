@@ -91,7 +91,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                     )
 
                 if in_ind == 1:
-                    if dynamic_input:
+                    if dynamic_input or self.get_nodeattr("mlo_max_iter"):
                         reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
                         self.make_weight_file(
                             reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
