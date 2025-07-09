@@ -431,7 +431,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
             ),
             apply_to_subgraphs=True,
-            use_preorder_traversal=False
+            use_preorder_traversal=False,
         )
         # extract the suggested configuration and save it as json
         hw_attrs = [
@@ -491,7 +491,9 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
         # need to call AnnotateCycles before dataflow_performance
-        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False)
+        model = model.transform(
+            AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False
+        )
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
         n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
@@ -601,6 +603,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
+                    cfg_n_inference=cfg.fifosim_n_inferences,
                 ),
                 apply_to_subgraphs=True,
                 use_preorder_traversal=False,
@@ -731,7 +734,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
         # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False)
+        model = model.transform(
+            AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False
+        )
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 20
