@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from .kernel import Kernel, KernelInvalidParameter
-from typing import Dict, List, Callable
+from typing import Dict, List, Callable, Optional
+from .cache_manager import cache_manager
 
 
 class KernelRegistryOverwriteDefault(Exception):
@@ -100,6 +101,73 @@ class KernelRegistry(metaclass=KernelRegistryMeta):
             cost_fn = default_cost_fn
 
         return cost_fn(candidates_viable)
+
+    def clear_cache(self, op_type: Optional[str] = None, kernel_class: Optional[str] = None) -> int:
+        """Clear cached files for kernels.
+        
+        Args:
+            op_type: Operation type to clear cache for (if None, clears all)
+            kernel_class: Kernel class to clear cache for (if None, clears all)
+            
+        Returns:
+            Number of cache entries invalidated
+        """
+        return cache_manager.invalidate_cache(op_type, kernel_class)
+
+    def cleanup_cache(self) -> int:
+        """Remove expired cache entries from disk.
+        
+        Returns:
+            Number of entries cleaned up
+        """
+        return cache_manager.cleanup_expired()
+
+    def cache_stats(self) -> Dict:
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        return cache_manager.get_cache_stats()
+
+    def check_shared_files_changed(self, op_type: str) -> List[str]:
+        """Check if shared files have changed for kernels of a given operation type.
+        
+        Args:
+            op_type: Operation type to check
+            
+        Returns:
+            List of changed file paths
+        """
+        if op_type not in self._mapping:
+            return []
+        
+        changed_files = []
+        kernels = self._mapping[op_type]._priority_list()
+        
+        for kernel_class in kernels:
+            # Create a dummy instance to check shared files
+            try:
+                # Get a minimal config to instantiate the kernel
+                dummy_config = {}
+                for field in kernel_class.__dataclass_fields__:
+                    if hasattr(kernel_class, field):
+                        field_type = kernel_class.__dataclass_fields__[field].type
+                        if field_type == str:
+                            dummy_config[field] = "dummy"
+                        elif field_type == int:
+                            dummy_config[field] = 0
+                        elif field_type == list:
+                            dummy_config[field] = []
+                
+                kernel_instance = kernel_class(**dummy_config)
+                files = cache_manager.check_shared_files_changed(kernel_instance)
+                changed_files.extend(files)
+            except:
+                # If we can't instantiate the kernel, skip it
+                pass
+        
+        return list(set(changed_files))  # Remove duplicates
 
 #####################################################
 ## The Global Kernel Registry
