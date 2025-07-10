@@ -18,7 +18,7 @@ class StreamingDataWidthConverterRTL(Kernel):
 
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
 
-    kernelFiles: FrozenSet[Path] = frozenset({Path("kernels/streamingdatawidthconverter_rtl/hdl/shared")})
+    kernelFiles: FrozenSet[Path] = frozenset({Path("kernels/streaming_datawidth_converter/rtl/hdl/shared")})
 
     @property
     def instanceFiles(self) -> FrozenSet[Tuple[Callable,Path]]:
@@ -68,7 +68,7 @@ class StreamingDataWidthConverterRTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "streamingdatawidthconverter_rtl/hdl/dwc_template.v"
+        template_path = "streaming_datawidth_converter/rtl/hdl/dwc_template.v"
 
         code_gen_dict = self.get_template_values()
 

@@ -86,7 +86,7 @@ class MemstreamRTL(Kernel):
 
     ######################### Code Generation #########################
     kernelFiles: FrozenSet[Path] = frozenset({
-        Path("kernels/memstream_rtl/hdl/shared")
+        Path("kernels/mvau/memstream/hdl/shared")
     })
 
     @property
@@ -108,7 +108,7 @@ class MemstreamRTL(Kernel):
                     runtime_writeable == 1
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
-            template_path = "memstream_rtl/hdl/memstream_wrapper_template.v"
+            template_path = "mvau/memstream/hdl/memstream_wrapper_template.v"
             depth = self.calc_wmem()
             padded_width = self.get_instream_width_padded(1)
 

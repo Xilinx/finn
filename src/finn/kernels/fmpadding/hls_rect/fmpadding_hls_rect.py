@@ -40,7 +40,7 @@ class FMPaddingHLS_Rect(Kernel):
             BRAMs= None
         )
 
-    def code_generation_ipi(self) -> List[str]:
+    def code_generation_ipi(self, node_ctx) -> List[str]:
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         ip_vlnv = f"xilinx.com:hls:{self.name}:1.0"
         cmd = [f"create_bd_cell -type ip -vlnv {ip_vlnv} {self.name}"]

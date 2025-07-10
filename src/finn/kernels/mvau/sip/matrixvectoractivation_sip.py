@@ -3,8 +3,8 @@ import numpy as np
 from dataclasses import dataclass, field
 
 from finn.kernels import Kernel, KernelProjection
-from finn.kernels.matrixvectoractivation_hls import MVAUHLS
-from finn.kernels.memstream_rtl import MemstreamRTL
+from finn.kernels.mvau.hls import MVAUHLS
+from finn.kernels.mvau.memstream import MemstreamRTL
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from pkgutil import get_data
@@ -403,7 +403,7 @@ wire [WIDTH-1:0] WSTRM_TDATA;
 
         # Find and replace parameters in template, then return
         node_dir = ctx.directory
-        template_path = "matrixvectoractivation_sip/hdl/mvau_sip_template.v"
+        template_path = "mvau/sip/hdl/mvau_sip_template.v"
         template = get_data('finn.kernels', template_path).decode('utf-8')
         for key in code_gen_dict:
             template = template.replace(key, str(code_gen_dict[key]))

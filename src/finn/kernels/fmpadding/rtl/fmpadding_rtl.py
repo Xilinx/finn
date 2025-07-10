@@ -26,7 +26,7 @@ class FMPaddingRTL(Kernel):
     ) 
 
     kernelFiles: FrozenSet[Path] = frozenset({
-        Path("kernels/fmpadding_rtl/hdl/shared")
+        Path("kernels/fmpadding/rtl/hdl/shared")
     })
 
     @property
@@ -60,10 +60,8 @@ class FMPaddingRTL(Kernel):
             intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def code_generation_ipi(self) -> List[str]:
+    def code_generation_ipi(self, node_ctx) -> List[str]:
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-
-        code_gen_dir = "$CODEGEN_DIR_IP_GEN$"
 
         sourcefiles = [
             f"{self.name}.v",
@@ -71,7 +69,7 @@ class FMPaddingRTL(Kernel):
 
         cmd = []
         for f in sourcefiles:
-            cmd += [f"add_files -norecurse {Path(code_gen_dir) / Path(f)}"]
+            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
         cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
         return cmd
 
@@ -83,7 +81,7 @@ class FMPaddingRTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "fmpadding_rtl/hdl/fmpadding_template.v"
+        template_path = "fmpadding/rtl/hdl/fmpadding_template.v"
         dimY, dimX = self.ImgDim
         padT, padL, padB, padR = self.Padding
         y_counter_bits = int(math.ceil(math.log2(padT + dimY + padB + 1)))

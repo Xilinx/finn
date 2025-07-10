@@ -12,6 +12,8 @@ from qonnx.core.modelwrapper import ModelWrapper
 import copy
 import multiprocessing as mp
 from qonnx.util.basic import get_num_default_workers
+import importlib
+import shutil
 
 
 class CodeBuilder(Transformation):
@@ -63,6 +65,28 @@ class CodeBuilder(Transformation):
             self.ctx.update_subcontext(node_ctx)
             if run is True:
                 run_again = True
+
+        # Kernel files go to "output/kernel_name"
+        for kernel_name, paths in self.ctx.kernel_files.items():
+            if len(paths) != 0:
+                dst_path = self.ctx.get_kernel_dir(kernel_name)
+
+                for path in paths:
+                    full_path = importlib.resources.files("finn") / path
+                    if full_path.is_file():
+                        shutil.copy(full_path, dst_path)
+                    else:
+                        shutil.copytree(full_path, dst_path, dirs_exist_ok=True)
+
+        # Shared files go to "output/shared"
+        if len(self.ctx.shared) != 0:
+            dst_path = self.ctx.shared_dir
+
+            for shared_path in self.ctx.shared:
+                if shared_path.is_file():
+                    shutil.copy(shared_path, dst_path)
+                else:
+                    shutil.copytree(shared_path, dst_path, dirs_exist_ok=True)
 
         return (model, run_again)
 

@@ -10,7 +10,7 @@ import json
 import os
 import shutil
 import time
-import threading
+from multiprocessing import Lock
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import importlib.util
@@ -19,7 +19,10 @@ from .kernel import Kernel
 
 
 class CacheManager:
-    """Manages kernel file caching based on configuration hashes."""
+    """Manages instance file caching based on configuration hashes."""
+
+    # Thread lock for metadata operations
+    _metadata_lock = Lock()
     
     def __init__(self, cache_dir: Optional[str] = None):
         """Initialize cache manager.
@@ -36,11 +39,6 @@ class CacheManager:
         # Metadata file for cache information
         self.metadata_file = self.cache_dir / "cache_metadata.json"
         
-        # Thread lock for metadata operations
-        self._metadata_lock = threading.RLock()
-        
-        self._load_metadata()
-        
         # Session statistics for tracking hits/misses
         self.session_stats = {
             "cache_hits": 0,
@@ -49,53 +47,52 @@ class CacheManager:
             "miss_details": []  # List of (kernel_name, kernel_class, op_type)
         }
     
+    
     def _load_metadata(self):
         """Load cache metadata from disk."""
-        with self._metadata_lock:
-            if self.metadata_file.exists():
-                try:
-                    with open(self.metadata_file, 'r') as f:
-                        self.metadata = json.load(f)
-                except Exception as e:
-                    # Create fresh metadata if loading fails
-                    self.metadata = {
-                        "version": "1.0",
-                        "entries": {},
-                        "created": time.time()
-                    }
-            else:
+        if self.metadata_file.exists():
+            try:
+                with open(self.metadata_file, 'r') as f:
+                    self.metadata = json.load(f)
+            except Exception as e:
+                # Create fresh metadata if loading fails
                 self.metadata = {
                     "version": "1.0",
                     "entries": {},
                     "created": time.time()
                 }
+        else:
+            self.metadata = {
+                "version": "1.0",
+                "entries": {},
+                "created": time.time()
+            }
     
     def _save_metadata(self):
         """Save cache metadata to disk."""
-        with self._metadata_lock:
-            try:
-                # Reload metadata before saving to merge any concurrent changes
-                if self.metadata_file.exists():
-                    try:
-                        with open(self.metadata_file, 'r') as f:
-                            existing_metadata = json.load(f)
-                        # Merge entries from existing metadata
-                        existing_entries = existing_metadata.get("entries", {})
-                        current_entries = self.metadata.get("entries", {})
-                        # Combine entries (current takes precedence for conflicts)
-                        merged_entries = {**existing_entries, **current_entries}
-                        self.metadata["entries"] = merged_entries
-                    except Exception as e:
-                        print(f"Error: Could not merge existing metadata: {e}")
-                
-                # Use atomic write to prevent corruption
-                temp_file = self.metadata_file.with_suffix('.tmp')
-                with open(temp_file, 'w') as f:
-                    json.dump(self.metadata, f, indent=2)
-                # Atomic move
-                temp_file.replace(self.metadata_file)
-            except Exception as e:
-                print(f"Error: Error saving metadata to {self.metadata_file}: {e}")
+        try:
+            # Reload metadata before saving to merge any concurrent changes
+            if self.metadata_file.exists():
+                try:
+                    with open(self.metadata_file, 'r') as f:
+                        existing_metadata = json.load(f)
+                    # Merge entries from existing metadata
+                    existing_entries = existing_metadata.get("entries", {})
+                    current_entries = self.metadata.get("entries", {})
+                    # Combine entries (current takes precedence for conflicts)
+                    merged_entries = {**existing_entries, **current_entries}
+                    self.metadata["entries"] = merged_entries
+                except Exception as e:
+                    print(f"Error: Could not merge existing metadata: {e}")
+            
+            # Use atomic write to prevent corruption
+            temp_file = self.metadata_file.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
+                json.dump(self.metadata, f, indent=2)
+            # Atomic move
+            temp_file.replace(self.metadata_file)
+        except Exception as e:
+            print(f"Error: Error saving metadata to {self.metadata_file}: {e}")
     
     def _get_shared_files_hashes(self, kernel: Kernel) -> Dict[str, str]:
         """Get hashes of shared files referenced by the kernel.
@@ -318,6 +315,8 @@ class CacheManager:
             self._record_cache_miss(kernel_name, kernel_class, op_type)
             return False
         
+        with CacheManager._metadata_lock:
+            self._load_metadata()
         # Check if cache entry is in metadata
         if cache_hash not in self.metadata["entries"]:
             self._record_cache_miss(kernel_name, kernel_class, op_type)
@@ -369,9 +368,11 @@ class CacheManager:
                 elif item.is_dir():
                     shutil.copytree(item, target_dir / item.name, dirs_exist_ok=True)
             
-            # Update access time in metadata
-            self.metadata["entries"][cache_hash]["last_accessed"] = time.time()
-            self._save_metadata()
+            with CacheManager._metadata_lock:
+                self._load_metadata()
+                # Update access time in metadata
+                self.metadata["entries"][cache_hash]["last_accessed"] = time.time()
+                self._save_metadata()
             
             return True
             
@@ -410,17 +411,19 @@ class CacheManager:
                 elif item.is_dir():
                     shutil.copytree(item, cache_path / item.name, dirs_exist_ok=True)
             
-            # Update metadata
-            self.metadata["entries"][cache_hash] = {
-                "op_type": op_type,
-                "kernel_class": kernel.__class__.__name__,
-                "kernel_name": kernel_name,  # Add kernel name for debugging
-                "created": time.time(),
-                "last_accessed": time.time(),
-                "config_hash": cache_hash,
-                "shared_files": self._get_shared_files_hashes(kernel)
-            }
-            self._save_metadata()
+            with CacheManager._metadata_lock:
+                self._load_metadata()
+                # Update metadata
+                self.metadata["entries"][cache_hash] = {
+                    "op_type": op_type,
+                    "kernel_class": kernel.__class__.__name__,
+                    "kernel_name": kernel_name,  # Add kernel name for debugging
+                    "created": time.time(),
+                    "last_accessed": time.time(),
+                    "config_hash": cache_hash,
+                    "shared_files": self._get_shared_files_hashes(kernel)
+                }
+                self._save_metadata()
             
             return True
             
@@ -441,28 +444,30 @@ class CacheManager:
         """
         invalidated = 0
         
-        for cache_hash, entry in self.metadata["entries"].items():
-            should_invalidate = False
+        with CacheManager._metadata_lock:
+            self._load_metadata()
+            for cache_hash, entry in self.metadata["entries"].items():
+                should_invalidate = False
+                
+                # Check type/class filters
+                if op_type is not None and entry.get("op_type") != op_type:
+                    continue
+                
+                if kernel_class is not None and entry.get("kernel_class") != kernel_class:
+                    continue
+                
+                # If no filters specified, invalidate all
+                if op_type is None and kernel_class is None:
+                    should_invalidate = True
+                else:
+                    should_invalidate = True
+                
+                if should_invalidate:
+                    entry["expired"] = True
+                    invalidated += 1
             
-            # Check type/class filters
-            if op_type is not None and entry.get("op_type") != op_type:
-                continue
-            
-            if kernel_class is not None and entry.get("kernel_class") != kernel_class:
-                continue
-            
-            # If no filters specified, invalidate all
-            if op_type is None and kernel_class is None:
-                should_invalidate = True
-            else:
-                should_invalidate = True
-            
-            if should_invalidate:
-                entry["expired"] = True
-                invalidated += 1
-        
-        if invalidated > 0:
-            self._save_metadata()
+            if invalidated > 0:
+                self._save_metadata()
         
         return invalidated
     
@@ -481,6 +486,8 @@ class CacheManager:
         # Find cache entries for this kernel class
         kernel_class = kernel.__class__.__name__
         
+        with CacheManager._metadata_lock:
+            self._load_metadata()
         for cache_hash, entry in self.metadata["entries"].items():
             if (entry.get("kernel_class") == kernel_class and 
                 not entry.get("expired", False)):
@@ -508,21 +515,23 @@ class CacheManager:
         """
         cleaned = 0
         
-        for cache_hash, entry in list(self.metadata["entries"].items()):
-            if entry.get("expired", False):
-                op_type = entry.get("op_type", "unknown")
-                cache_path = self._get_cache_path(op_type, cache_hash)
-                
-                try:
-                    if cache_path.exists():
-                        shutil.rmtree(cache_path)
-                    del self.metadata["entries"][cache_hash]
-                    cleaned += 1
-                except Exception as e:
-                    print(f"Error cleaning up cache entry {cache_hash}: {e}")
-        
-        if cleaned > 0:
-            self._save_metadata()
+        with CacheManager._metadata_lock:
+            self._load_metadata()
+            for cache_hash, entry in list(self.metadata["entries"].items()):
+                if entry.get("expired", False):
+                    op_type = entry.get("op_type", "unknown")
+                    cache_path = self._get_cache_path(op_type, cache_hash)
+                    
+                    try:
+                        if cache_path.exists():
+                            shutil.rmtree(cache_path)
+                        del self.metadata["entries"][cache_hash]
+                        cleaned += 1
+                    except Exception as e:
+                        print(f"Error cleaning up cache entry {cache_hash}: {e}")
+            
+            if cleaned > 0:
+                self._save_metadata()
         
         return cleaned
     
@@ -532,6 +541,8 @@ class CacheManager:
         Returns:
             Dictionary with cache statistics
         """
+        with CacheManager._metadata_lock:
+            self._load_metadata()
         total_entries = len(self.metadata["entries"])
         expired_entries = sum(1 for e in self.metadata["entries"].values() 
                             if e.get("expired", False))

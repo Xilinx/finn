@@ -24,7 +24,7 @@ class StreamingFIFORTL(Kernel):
 
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
 
-    kernelFiles: FrozenSet[Path] = frozenset({Path("kernels/streamingfifo_rtl/hdl/Q_srl.v")})
+    kernelFiles: FrozenSet[Path] = frozenset({Path("kernels/streaming_fifo/rtl/hdl/Q_srl.v")})
 
     @property
     def instanceFiles(self) -> FrozenSet[Tuple[Callable,Path]]:
@@ -84,7 +84,7 @@ class StreamingFIFORTL(Kernel):
 
     def toplevel(self, ctx):
         node_dir = ctx.directory
-        template_path = "streamingfifo_rtl/hdl/fifo_template.v"
+        template_path = "streaming_fifo/rtl/hdl/fifo_template.v"
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
         code_gen_dict = {}
