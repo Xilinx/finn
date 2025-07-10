@@ -43,10 +43,18 @@ def is_mlo(model: ModelWrapper) -> bool:
             return True
     return False
 
+
 def dat_file_to_numpy_array(file_path):
+    byte_values = []
+    
     with open(file_path, 'r') as file:
-        byte_values = [int(line.strip(), 16) for line in file]
+        for line in file:
+            hex_string = line.strip()
+            for i in range(0, len(hex_string), 2):
+                byte = hex_string[i:i+2]
+                byte_values.append(int(byte, 16))
     byte_array = np.array(byte_values, dtype=np.uint8)
+    
     return byte_array
 
 def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]:
