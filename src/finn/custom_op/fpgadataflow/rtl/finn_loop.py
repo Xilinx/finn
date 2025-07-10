@@ -281,7 +281,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 else:
                     params = context[node.input[i]]
                     input_dict[loop_body.graph.input[i].name] = params[i_iter]
-            outp_dict = oxe.execute_onnx(loop_body, input_dict)
+            outp_dict = oxe.execute_onnx(loop_body, input_dict, return_full_exec_context=True)
+            np.savez(f"expt_out_{i_iter}.npz", **outp_dict)
             inp_values = outp_dict[loop_body.graph.output[0].name]
         result = outp_dict[loop_body.graph.output[0].name]
         context[node.output[0]] = np.asarray(result, dtype=np.float32)
