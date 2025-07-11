@@ -276,6 +276,8 @@ class MVAU_hls(MVAU, HLSBackend):
             wdt = self.get_input_datatype(1)
             elem_bits = wdt.bitwidth()
             packed_bits = self.get_instream_width(1)
+            if self.get_nodeattr("dynamic_input"):
+                packed_bits = packed_bits * self.get_nodeattr("SIMD")
             packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = wdt.get_hls_datatype_str()
             npy_type = "float"
@@ -307,8 +309,11 @@ class MVAU_hls(MVAU, HLSBackend):
             or mem_mode == "external"
             or self.get_nodeattr("mlo_max_iter")
         ):
+            iwidth = self.get_instream_width(1)
+            if self.get_nodeattr("dynamic_input"):
+                iwidth = iwidth * self.get_nodeattr("SIMD")
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(self.get_instream_width(1))
+                'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(iwidth)
             )
 
     def docompute(self):
@@ -412,6 +417,9 @@ class MVAU_hls(MVAU, HLSBackend):
             or mem_mode == "external"
             or self.get_nodeattr("mlo_max_iter")
         ):
+            wwidth = self.get_instream_width(1)
+            if self.get_nodeattr("dynamic_input"):
+                wwidth = wwidth * self.get_nodeattr("SIMD")
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(
                     hls::stream<ap_uint<{}>> &in0_V,
@@ -420,7 +428,7 @@ class MVAU_hls(MVAU, HLSBackend):
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(0),
-                    self.get_instream_width(1),
+                    wwidth,
                     self.get_outstream_width(),
                 )
             ]
@@ -489,9 +497,11 @@ class MVAU_hls(MVAU, HLSBackend):
         max_of_io = super().get_ap_int_max_w()
         # internal_decoupled mode weight stream
         weightstream = self.get_instream_width(1)
+        simd = self.get_nodeattr("SIMD")
+        if self.get_nodeattr("dynamic_input"):
+            weightstream = weightstream * simd
         # single PE weight entry
         weight_bits = self.get_input_datatype(1).bitwidth()
-        simd = self.get_nodeattr("SIMD")
         single_pe_w = simd * weight_bits
         return max([weightstream, max_of_io, single_pe_w])
 
@@ -572,6 +582,8 @@ class MVAU_hls(MVAU, HLSBackend):
                 or self.get_nodeattr("mlo_max_iter")
             ):
                 wnbits = self.get_instream_width(1)
+                if self.get_nodeattr("dynamic_input"):
+                    wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
 
                 # we have converted bipolar weights to binary for export,

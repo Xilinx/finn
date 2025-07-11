@@ -177,14 +177,6 @@ finn.custom\_op.fpgadataflow.streamingfifo
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingmaxpool
-----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.streamingmaxpool
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.templates
 ----------------------------------------
 

@@ -258,7 +258,11 @@ class MVAU(HWCustomOp):
             i_bits = self.get_input_datatype(0).bitwidth()
             width = i_bits * self.get_nodeattr("SIMD")
         elif ind == 1:
-            if (
+            if self.get_nodeattr("dynamic_input"):
+                width = (
+                    self.get_folded_input_shape(ind)[-1] * self.get_input_datatype(ind).bitwidth()
+                )
+            elif (
                 self.get_nodeattr("mem_mode") == "internal_decoupled"
                 or self.get_nodeattr("mem_mode") == "external"
                 or self.get_nodeattr("mlo_max_iter")
@@ -726,6 +730,8 @@ class MVAU(HWCustomOp):
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_instream_width(1)
+                if self.get_nodeattr("dynamic_input"):
+                    weight_width = weight_width * simd
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
                 weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
@@ -756,6 +762,8 @@ class MVAU(HWCustomOp):
                 # memstream axi-lite interface will map each mem line to
                 # one or multiple 32-bit words
                 weight_width = self.get_instream_width(1)
+                if self.get_nodeattr("dynamic_input"):
+                    weight_width = weight_width * simd
                 words_per_memwidth = 2 ** math.ceil(math.log2(weight_width / 32))
                 if words_per_memwidth < 1:
                     words_per_memwidth = 1
@@ -924,13 +932,18 @@ class MVAU(HWCustomOp):
         else:
             dynamic_input = self.get_nodeattr("dynamic_input")
             mem_mode = self.get_nodeattr("mem_mode")
-            if mem_mode == "external" or dynamic_input:
-                intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
-            elif mem_mode == "internal_decoupled":
-                # only expose axilite interface if attribute is set
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                if runtime_writeable:
-                    intf_names["axilite"] = ["s_axilite"]
+            if dynamic_input:
+                weight_width = self.get_instream_width(1)
+                weight_width = weight_width * self.get_nodeattr("SIMD")
+                intf_names["s_axis"].append(("in1_V", roundup_to_integer_multiple(weight_width, 8)))
+            else:
+                if mem_mode == "external":
+                    intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
+                elif mem_mode == "internal_decoupled":
+                    # only expose axilite interface if attribute is set
+                    runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                    if runtime_writeable:
+                        intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
     def code_generation_ipi(self):

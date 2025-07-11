@@ -113,10 +113,8 @@ ipgen_template = """
 
 #include "bnn-library.h"
 
-// includes for network parameters
 $GLOBALS$
 
-// defines for network parameters
 $DEFINES$
 
 $BLACKBOXFUNCTION$

@@ -107,6 +107,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                 or self.get_nodeattr("mlo_max_iter")
             ):
                 wnbits = self.get_instream_width(1)
+                if dynamic_input:
+                    wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)

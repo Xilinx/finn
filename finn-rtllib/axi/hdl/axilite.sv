@@ -239,7 +239,7 @@ module axilite #(
 			end
 		end
 		assign	src_ack = IpRAck;
-		assign	src_data = IpRData[IpAddr[WSEL_BITS-1:0]];
+		assign	src_data = IpAddr[WSEL_BITS-1:0] < FOLD? IpRData[IpAddr[WSEL_BITS-1:0]] : '0;
 		assign	clr_rd = src_ack;
 
 	end : genFold
