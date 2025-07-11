@@ -244,7 +244,7 @@ always_comb begin : NSL_PROC_RD
             end
 
         ST_RD_1:
-            if(ordy && ((state_wr_C != ST_WR_0) || (curr_sf_C > cons_sfnf_C))) begin
+            if(ordy && ((state_wr_C != ST_WR_1) || (curr_sf_C > cons_sfnf_C))) begin
                 if((cons_sfnf_C == N_TLS-1) && (cons_r_C == N_REPS-1)) begin
                     state_rd_N = ST_RD_0;
                 end
