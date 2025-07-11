@@ -169,9 +169,10 @@ class CreateStitchedIP(Transformation):
                         % (inst_name, clock2x_intf_name)
                     )
 
-    def connect_axi(self, node):
+    def connect_axi(self, node, model):
         inst_name = node.name
         node_inst = getCustomOp(node)
+        inputs = [inp.name for inp in model.graph.input]
         axilite_intf_name = node_inst.get_verilog_top_module_intf_names()["axilite"]
         aximm_intf_name = node_inst.get_verilog_top_module_intf_names()["aximm"]
         if len(axilite_intf_name) != 0:
@@ -250,8 +251,10 @@ class CreateStitchedIP(Transformation):
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                     % (inst_name, mm_intf_name[0])
                 )
-                #ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
-                ext_if_name = f"m_axi_{inst_name}"
+                # ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                # ext_if_name = f"m_axi_{inst_name}"
+                idx = inputs.index(node.input[1])
+                ext_if_name = f"m_axi_MVAU_id_{idx}"
                 self.connect_cmds.append(
                     "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
                 )
@@ -417,7 +420,7 @@ class CreateStitchedIP(Transformation):
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node)
             self.connect_ap_none_external(node)
-            self.connect_axi(node)
+            self.connect_axi(node, model)
             for i in range(len(node.input)):
                 if not is_external_input(model, node, i):
                     producer = model.find_producer(node.input[i])

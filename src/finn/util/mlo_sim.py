@@ -74,6 +74,7 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
     finnloop_body = finnloop_op.get_nodeattr("body")
 
     mvau_hbm_weights = {}
+    extern_idx = 0
     for idx, lb_inp in enumerate(finnloop_body.graph.input):
         downstream = finnloop_body.find_consumer(lb_inp.name)
         if downstream.op_type.startswith("MVAU"):
@@ -81,8 +82,9 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
             mvau_hbm_weights[idx]["name"] = lb_inp.name
             datfile = f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_MVAU_id_{idx}.dat"
             mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
-            mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split("_")[-1])
-            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_{downstream.name}"
+            mvau_hbm_weights[idx]["extern_idx"] = extern_idx
+            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
+            extern_idx += 1
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
