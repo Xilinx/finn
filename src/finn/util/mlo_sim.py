@@ -30,11 +30,12 @@
 # This module contains helpers for handling the MLO rtlsimulation. It instantiates
 # aximm simulation tasks for handling the aximm interfaces.
 
+import numpy as np
 from finn_xsi.sim_engine import SimEngine
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from typing import Callable
-import numpy as np
+
 
 def is_mlo(model: ModelWrapper) -> bool:
     """Returns True if the model is an MLO model, false otherwise"""
@@ -43,18 +44,18 @@ def is_mlo(model: ModelWrapper) -> bool:
             return True
     return False
 
+
 def dat_file_to_numpy_array(file_path):
     byte_values = []
-    
-    with open(file_path, 'r') as file:
+
+    with open(file_path, "r") as file:
         for line in file:
             hex_string = line.strip()
             for i in range(len(hex_string) - 2, -1, -2):
-                byte = hex_string[i:i+2]
+                byte = hex_string[i : i + 2]
                 byte_values.append(int(byte, 16))
-    
     byte_array = np.array(byte_values, dtype=np.uint8)
-    
+
     return byte_array
 
 
@@ -78,15 +79,14 @@ def mlo_prehook_func_factory(model: ModelWrapper) -> Callable[[SimEngine], None]
         if downstream.op_type.startswith("MVAU"):
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
-            param_name = finnloop_op.onnx_node.input[idx]
-            datfile = f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_{downstream.name}.dat"
+            datfile = f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}/memblock_MVAU_id_{idx}.dat"
             mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
-            mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split('_')[-1]) 
-            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_{downstream.name}" 
+            mvau_hbm_weights[idx]["extern_idx"] = int(downstream.name.split("_")[-1])
+            mvau_hbm_weights[idx]["extern_name"] = f"m_axi_{downstream.name}"
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
         for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(intf['extern_name'], 0, intf["value"].flatten())
+            sim.aximm_ro_image(intf["extern_name"], 0, intf["value"].flatten())
 
     return mlo_rtlsim_prehook

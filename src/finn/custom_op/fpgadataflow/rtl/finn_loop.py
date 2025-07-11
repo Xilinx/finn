@@ -376,7 +376,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         shutil.move(param_path, new_param_file)
             if param_node.op_type.startswith("MVAU"):
                 # concatinate all .dat files together
-                param_file = "{}/memblock_{}.dat".format(path, param_node.name)
+                param_file = "{}/memblock_MVAU_id_{}.dat".format(path, i + 1)
                 with open(param_file, "w") as outfile:
                     for iter in range(iteration):
                         memblock_file = "{}/memblock_{}.dat".format(path, iter)
@@ -391,8 +391,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 o_bitwidth = DataType[output_data_type].bitwidth()
                 for stage in range(o_bitwidth):
                     for pe_value in range(pe):
-                        param_file = path + "/%s_threshs_%s_%s.dat" % (
-                            param_node.name,
+                        param_file = path + "/Thresholding_id_%s_threshs_%s_%s.dat" % (
+                            i + 1,
                             pe_value,
                             stage,
                         )
@@ -417,11 +417,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                 fpath = os.path.join(dname, fname)
                                 with open(fpath, "r") as f:
                                     s = f.read()
-                                old = '$readmemh(".'
-                                new = '$readmemh("%s' % path
-                                s = s.replace(old, new)
-                                old = '"./'
-                                new = '"%s/' % path
+                                old = "./%s" % param_node.name
+                                new = "%s/Thresholding_id_%s" % (path, i + 1)
                                 s = s.replace(old, new)
                                 with open(fpath, "w") as f:
                                     f.write(s)
