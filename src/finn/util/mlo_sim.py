@@ -54,6 +54,8 @@ def dat_file_to_numpy_array(file_path):
             for i in range(len(hex_string) - 2, -1, -2):
                 byte = hex_string[i : i + 2]
                 byte_values.append(int(byte, 16))
+            if len(hex_string)%2 == 1: # Dealing when we have a leftover nibble 
+                byte_value.append(int(hex_string[-1], 16))
     byte_array = np.array(byte_values, dtype=np.uint8)
 
     return byte_array
