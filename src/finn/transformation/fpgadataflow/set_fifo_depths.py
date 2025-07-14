@@ -45,7 +45,8 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation.fpgadataflow.rtl_sim_builder import RTLSimBuilder
+from finn.transformation.fpgadataflow.code_builder import CodeBuilder
+from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
 from finn.transformation.fpgadataflow.change_dat_paths import ChangeDATPaths
 
 
@@ -349,7 +350,8 @@ class InsertAndSetFIFODepths(Transformation):
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_cycles = perf["max_cycles"]
-        model = model.transform(RTLSimBuilder(self.ctx))
+        model = model.transform(CodeBuilder(self.ctx))
+        model = model.transform(StitchedIPBuilder(self.ctx))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         # do rtlsim in C++ for FIFO sizing

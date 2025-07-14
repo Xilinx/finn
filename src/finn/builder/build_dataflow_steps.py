@@ -802,17 +802,18 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Generate IP for nodes. Generate RTL for RTL nodes, generate and
     synthesise HLS for HLS nodes with Vitis HLS. Then create stitched IP."""
 
+    make_stitched_ip = DataflowOutputType.STITCHED_IP in cfg.generate_outputs
+    rtlsim_node_by_node = VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps()
+    rtlsim_stitched_ip = VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
+
     libraries = {
         "finnkernel" : importlib.resources.files("finn"),
         "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
     }
 
-    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        verify_model = deepcopy(model)
-        verify_model = verify_model.transform(SetExecMode("rtlsim"))
-
+    if make_stitched_ip or rtlsim_node_by_node or rtlsim_stitched_ip:
         ctx = Context(
-            directory=Path(cfg.output_dir+"/rtlsim_node_by_node"),
+            directory=Path(cfg.output_dir+"/ipgen"),
             libraries=libraries,
             fpga_part=cfg._resolve_fpga_part(),
             clk_ns=cfg.synth_clk_period_ns,
@@ -820,12 +821,19 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
             vitis=cfg.stitched_ip_gen_dcp,
             signature=cfg.signature,
         )
-        verify_model = verify_model.transform(RTLSimBuilder(ctx))
+        model = model.transform(CodeBuilder(ctx))
+        model = model.transform(StitchedIPBuilder(ctx))
+
+    if rtlsim_node_by_node:
+        verify_model = deepcopy(model)
+        verify_model.set_metadata_prop("exec_mode", "")
+        verify_model = verify_model.transform(SetExecMode("rtlsim"))
+        verify_model = verify_model.transform(RTLSimBuilder(ctx,True))
         verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
         verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
         verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
 
-    if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
+    if rtlsim_stitched_ip:
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
         verify_model.set_metadata_prop("exec_mode", "rtlsim")
@@ -843,39 +851,10 @@ def step_create_stitched_ip_new(model: ModelWrapper, cfg: DataflowBuildConfig):
             abspath = os.path.abspath(verify_out_dir)
             verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
 
-        ctx = Context(
-            directory=Path(cfg.output_dir+"/rtlsim_stitched_ip"),
-            libraries=libraries,
-            fpga_part=cfg._resolve_fpga_part(),
-            clk_ns=cfg.synth_clk_period_ns,
-            clk_hls=cfg._resolve_hls_clk_period(),
-            vitis=cfg.stitched_ip_gen_dcp,
-            signature=cfg.signature,
-        )
-        verify_model = verify_model.transform(RTLSimBuilder(ctx))
         verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
         verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
-
-    if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        ctx = Context(
-            directory=Path(cfg.output_dir+"/ip_gen"),
-            libraries=libraries,
-            fpga_part=cfg._resolve_fpga_part(),
-            clk_ns=cfg.synth_clk_period_ns,
-            clk_hls=cfg._resolve_hls_clk_period(),
-            vitis=cfg.stitched_ip_gen_dcp,
-            signature=cfg.signature,
-        )
-        model = model.transform(CodeBuilder(ctx))
-        model = model.transform(StitchedIPBuilder(ctx))
-        # TODO copy all ip sources into output dir? as zip?
-        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
-        shutil.copytree(
-            model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
-        )
-        print("Vivado stitched IP written into " + stitched_ip_dir)
 
     return model
 

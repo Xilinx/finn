@@ -164,7 +164,10 @@ def rtlsim_exec_cppxsi(
         vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
-        single_src_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent / Path("rtlsim_" + top_module_name + "_")
+        ipgen_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent
+        rtlsim_dir =  ipgen_dir.parent / Path(f"{ipgen_dir.name}_rtlsim")
+        rtlsim_dir.mkdir(exist_ok=True)
+        single_src_dir = rtlsim_dir / Path("rtlsim_" + top_module_name + "_")
         single_src_dir.mkdir(exist_ok=True)
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
@@ -331,7 +334,10 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
             all_verilog_srcs = f.read().split()
         top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
         top_module_name = top_module_file_name.strip(".v")
-        single_src_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent / Path("rtlsim_" + top_module_name + "_")
+        ipgen_dir = Path(model.get_metadata_prop("vivado_stitch_proj")).parent
+        rtlsim_dir =  ipgen_dir.parent / Path(f"{ipgen_dir.name}_rtlsim")
+        rtlsim_dir.mkdir(exist_ok=True)
+        single_src_dir = rtlsim_dir / Path("rtlsim_" + top_module_name + "_")
         single_src_dir.mkdir(exist_ok=True)
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(

@@ -37,8 +37,8 @@ class RTLSimBuilder(Transformation):
 
     # Modified version from qonnx.transformation.base.NodeLocalTransformation
     def apply(self, model: ModelWrapper):
-        model = model.transform(CodeBuilder(self.ctx, self._num_workers))
-        model = model.transform(StitchedIPBuilder(self.ctx))
+        self.rtlsim_dir = self.ctx.directory.parent / Path(f"{self.ctx.directory.name}_rtlsim")
+        self.rtlsim_dir.mkdir(exist_ok=True)
         # make a detached copy of the input model that applyNodeLocal
         # can use for read-only access
         self.ref_input_model = copy.deepcopy(model)
@@ -78,17 +78,14 @@ class RTLSimBuilder(Transformation):
 
         verilog_files = kernel.get_abs_verilog_files(node_ctx)
 
-        verilog_files = [Path("../..") / file.relative_to(node_ctx.top_ctx.directory) for file in verilog_files]
+        verilog_files = [Path("../..") / file.relative_to(node_ctx.top_ctx.directory.parent) for file in verilog_files]
 
-        single_src_dir = node_ctx.directory / Path("rtlsim_" + node.name + "_")
+        single_src_dir = self.rtlsim_dir / Path("rtlsim_" + node.name + "_")
         single_src_dir.mkdir(exist_ok=True)
         trace_file = self.ref_input_model.get_metadata_prop("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
         ret = finnxsi.compile_sim_obj(
             node.name, [str(file) for file in verilog_files], str(single_src_dir), debug
         )
-        # save generated lib filename in attribute
-        # Not necessary in new kernel flow?
-        # node.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
 
         return (node, node_ctx, False)
