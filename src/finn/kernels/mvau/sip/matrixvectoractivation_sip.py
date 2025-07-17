@@ -1,5 +1,6 @@
 import math
 import numpy as np
+import os
 from dataclasses import dataclass, field
 
 from finn.kernels import Kernel, KernelProjection
@@ -9,6 +10,9 @@ from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from pkgutil import get_data
 from qonnx.core.datatype import DataType
+
+from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 @dataclass(frozen=True, init=False)
@@ -69,8 +73,10 @@ class MVAUSIP(Kernel):
     pumpedMemory: int = 0
     pumpedCompute: int
     ip_vlnv: str
-    weights: np.ndarray
-    thresholds: np.ndarray = None
+    weights: np.ndarray     # From: weights = model.get_initializer(self.onnx_node.input[1])
+    thresholds: np.ndarray = None  # From: if len(self.onnx_node.input) > 2: thresholds = model.get_initializer(self.onnx_node.input[2])
+    # dynamic input
+    dynamic_input: bool = False
 
     ######################### Constraints #########################
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
@@ -426,3 +432,196 @@ wire [WIDTH-1:0] WSTRM_TDATA;
             cmd += subkernel.code_generation_ipi(node_ctx.get_subcontext(Path(subkernel.name)))
 
         return cmd
+
+    def get_normal_input_shape(self, ind=0):
+        mw = self.MW
+        if ind == 0:
+            vecs = list(self.numInputVectors)
+            shape = tuple(vecs + [mw])
+        elif ind == 1:
+            mh = self.MH
+            shape = tuple([mw, mh])
+        else:
+            raise Exception("Undefined input shape for requested input")
+        return shape
+
+    def get_normal_output_shape(self, ind=0):
+        mh = self.MH
+        vecs = list(self.numInputVectors)
+        normal_output_shape = tuple(vecs + [mh])
+        return normal_output_shape
+
+    def get_folded_input_shape(self, ind=0):
+        mw = self.MW
+        mh = self.MH
+        simd = self.SIMD
+        pe = self.PE
+        sf = mw // simd
+        nf = mh // pe
+        vecs = list(self.numInputVectors)
+
+        if ind == 0:
+            # calculate shape of input 0
+            folded_input_shape = tuple(vecs + [sf, simd])
+        elif ind == 1:
+            if self.dynamic_input:
+                # calculate shape of input 1 (weights dynamic)
+                folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
+            elif self.mem_mode == "external":
+                # calculate shape of input 1 (weights static and external)
+                folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
+            else:
+                raise Exception("Undefined input shape for requested input")
+        else:
+            raise Exception("Undefined input shape for requested input")
+
+        return folded_input_shape
+
+    def get_folded_output_shape(self, ind=0):
+        mh = self.MH
+        pe = self.PE
+        nf = mh // pe
+        vecs = list(self.numInputVectors)
+        folded_output_shape = tuple(vecs + [nf, pe])
+        return folded_output_shape
+
+    def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
+        dynamic_input = self.dynamic_input
+        mem_mode = self.mem_mode
+
+        # create a npy file fore each input of the node (in_ind is input index)
+        for in_ind, inputs in enumerate(node.input):
+            # it is assumed that the first input of the node is the data input
+            # the second input are the weights
+            assert (
+                str(context[inputs].dtype) == "float32"
+            ), """Input datatype is
+            not float32 as expected."""
+
+            if in_ind == 0:
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
+
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                if self.get_input_datatype(0) == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType["BINARY"]
+                else:
+                    export_idt = self.get_input_datatype(0)
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
+                np.save(
+                    os.path.join(code_gen_dir, "input_0.npy"),
+                    reshaped_input,
+                )
+
+            if in_ind == 1:
+                if dynamic_input:
+                    reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                    
+                    self.make_weight_file_rtlsim(
+                        reshaped_input, "{}/input_1.npy".format(code_gen_dir)
+                    )
+
+        sim = self.get_rtlsim(code_gen_dir, rtlsim_trace)
+        nbits = self.get_instream_width(0)
+        inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+        self.reset_rtlsim(sim)
+
+        if dynamic_input or mem_mode in ["external"]:
+            wnbits = self.get_instream_width(1)
+            export_wdt = self.get_input_datatype(1)
+
+            # we have converted bipolar weights to binary for export,
+            # so use it as such for weight generation
+            if self.get_input_datatype(1) == DataType["BIPOLAR"]:
+                export_wdt = DataType["BINARY"]
+
+            wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
+            num_w_reps = np.prod(self.numInputVectors)
+
+            io_dict = {
+                "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                "outputs": {"out0": []},
+            }
+        else:
+            io_dict = {
+                "inputs": {"in0": inp},
+                "outputs": {"out0": []},
+            }
+
+        self.rtlsim_multi_io(sim, io_dict, node)
+        super().close_rtlsim(sim)
+        output = io_dict["outputs"]["out0"]
+        odt = self.get_output_datatype()
+        target_bits = odt.bitwidth()
+        packed_bits = self.get_outstream_width()
+        out_npy_path = "{}/output_0.npy".format(code_gen_dir)
+        out_shape = self.get_folded_output_shape()
+        rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+        # load and reshape output
+        output = np.load(out_npy_path)
+        oshape = self.get_normal_output_shape()
+        output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+        context[node.output[0]] = output
+
+    def make_weight_file_rtlsim(self, weights, weight_file_name):
+        """Produce a file containing given weights in appropriate format for this
+        layer. This file can be used for rtlsim.
+
+        Arguments:
+
+        * weights : numpy array with weights to be put into the file
+        * weight_file_name : filename for the weight file to be generated
+
+        """
+        # convert weights into hlslib/rtllib-compatible format
+        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
+        # create a weight stream for various flavors of internal_decoupled mode:
+        # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
+        weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+        # reverse SIMD flip for saving weights in .npy
+        weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
+        # simd_flipped
+        weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, self.PE * self.SIMD)
+        weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
+        # save weight stream into npy for cppsim
+        np.save(weight_file_name, weight_tensor_simd_flipped)
+
+    def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0 and MW % SIMD == 0
+        * for bipolar {-1,+1} weights, convert to binary {0, 1}
+        * interleave rows between PEs
+        * reshape into (1, PE, WMEM, SIMD) and return
+        """
+        mw = self.MW
+        mh = self.MH
+        pe = self.PE
+        simd = self.SIMD
+        wmem = self.calc_wmem()
+        assert orig_weight_matrix.shape == (
+            mw,
+            mh,
+        ), """Weights matrix doesn't
+        have expected shape (mw, mh)"""
+        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        # start by transposing the original weight matrix, since ONNX and
+        # finn-hlslib use different assumptions
+        # ONNX uses (in_features, out_features) and matmul(x, W)
+        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
+        ret = orig_weight_matrix.T
+        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
+            # convert bipolar to binary
+            ret = (ret + 1) / 2
+        # interleave rows between PEs and reshape
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        # create SIMD as innermost dimension and add a dummy outer dim
+        ret = ret.reshape(1, pe, wmem, simd)
+        # reverse the SIMD dimension
+        ret = np.flip(ret, axis=-1)
+        return ret

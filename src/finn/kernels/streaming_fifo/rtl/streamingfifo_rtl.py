@@ -5,6 +5,7 @@ from pathlib import Path
 from pkgutil import get_data
 from qonnx.core.datatype import DataType
 import numpy as np
+import warnings
 
 
 @dataclass(frozen=True, init=False)
@@ -81,6 +82,32 @@ class StreamingFIFORTL(Kernel):
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
+
+    def get_normal_input_shape(self, ind=0):
+        depth = self.get_adjusted_depth()
+        assert depth >= 1, """Depth is too low"""
+        if depth > 256 and self.impl_style == "rtl":
+            warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
+        return self.normal_shape
+
+    def get_normal_output_shape(self, ind=0):
+        return self.get_normal_input_shape()
+    
+    def get_adjusted_depth(self):
+        impl = self.impl_style
+        depth = self.depth
+        if impl == "vivado":
+            old_depth = depth
+            # round up depth to nearest power-of-2
+            # Vivado FIFO impl may fail otherwise
+            depth = (1 << (depth - 1).bit_length()) if impl == "vivado" else depth
+            if old_depth != depth:
+                warnings.warn(
+                    "%s: rounding-up FIFO depth from %d to %d for impl_style=vivado"
+                    % (self.name, old_depth, depth)
+                )
+
+        return depth
 
     def toplevel(self, ctx):
         node_dir = ctx.directory

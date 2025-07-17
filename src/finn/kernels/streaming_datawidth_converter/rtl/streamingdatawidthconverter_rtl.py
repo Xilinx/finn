@@ -55,6 +55,14 @@ class StreamingDataWidthConverterRTL(Kernel):
         out_width = self.outWidth
         return out_width
 
+    def get_normal_input_shape(self, ind=0):
+        ishape = self.shape
+        return ishape
+
+    def get_normal_output_shape(self, ind=0):
+        oshape = self.shape
+        return oshape
+
     def get_template_values(self):
         topname = self.name
         ibits = self.get_instream_width()

@@ -555,6 +555,31 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     `GiveUniqueNodeNames`.
     """
 
+    libraries = {
+        "finnkernel" : importlib.resources.files("finn"),
+        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
+    }
+
+    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        ctx = Context(
+            directory=Path(cfg.output_dir+"/rtlsim_node_by_node"),
+            libraries=libraries,
+            fpga_part=cfg._resolve_fpga_part(),
+            clk_ns=cfg.synth_clk_period_ns,
+            clk_hls=cfg._resolve_hls_clk_period(),
+            vitis=cfg.stitched_ip_gen_dcp,
+            signature=cfg.signature,
+        )
+
+        verify_model = deepcopy(model)
+        verify_model = verify_model.transform(CodeBuilder(ctx))
+        verify_model.set_metadata_prop("exec_mode", "node_by_node_rtlsim")
+        verify_model.set_metadata_prop("rtlsim_dir", str(ctx.directory)+"_rtlsim")
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
+        verify_model = verify_model.transform(RTLSimBuilder(ctx,True))
+        verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
+        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
+
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
@@ -660,7 +685,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     synthesise HLS for HLS nodes with Vitis HLS. Then create stitched IP."""
 
     make_stitched_ip = DataflowOutputType.STITCHED_IP in cfg.generate_outputs
-    rtlsim_node_by_node = VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps()
     rtlsim_stitched_ip = VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
 
     libraries = {
@@ -668,7 +692,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
     }
 
-    if make_stitched_ip or rtlsim_node_by_node or rtlsim_stitched_ip:
+    if make_stitched_ip or rtlsim_stitched_ip:
         ctx = Context(
             directory=Path(cfg.output_dir+"/ipgen"),
             libraries=libraries,
@@ -680,15 +704,6 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         )
         model = model.transform(CodeBuilder(ctx))
         model = model.transform(StitchedIPBuilder(ctx))
-
-    if rtlsim_node_by_node:
-        verify_model = deepcopy(model)
-        verify_model.set_metadata_prop("exec_mode", "")
-        verify_model = verify_model.transform(SetExecMode("rtlsim"))
-        verify_model = verify_model.transform(RTLSimBuilder(ctx,True))
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
-        verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
 
     if rtlsim_stitched_ip:
         # prepare ip-stitched rtlsim

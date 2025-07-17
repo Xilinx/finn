@@ -1,5 +1,6 @@
 import numpy as np
 from dataclasses import dataclass, field
+import os
 
 from finn.kernels import Kernel
 from finn.util import templates
@@ -8,6 +9,7 @@ from pathlib import Path
 from qonnx.core.datatype import DataType
 
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 from finn.util.data_packing import numpy_to_hls_code
 
@@ -68,9 +70,12 @@ class MVAUHLS(Kernel):
     # weight data from the weight FIFOs.
     runtime_writeable_weights: int = 0
     pumpedMemory: int = 0
+    pumpedCompute: int
     ip_vlnv: str
     weights: np.ndarray     # From: weights = model.get_initializer(self.onnx_node.input[1])
     thresholds: np.ndarray = None  # From: if len(self.onnx_node.input) > 2: thresholds = model.get_initializer(self.onnx_node.input[2])
+    # dynamic input
+    dynamic_input: bool = False
 
     ######################### Constraints #########################
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
@@ -90,7 +95,7 @@ class MVAUHLS(Kernel):
             (self.code_generation_ipgen, Path(f"{self.name}.cpp"))
         })
 
-        if self.mem_mode == "internal_embedded":
+        if (not self.dynamic_input) and (self.mem_mode == "internal_embedded"):
             out.add((self.generate_params, Path("params.h")))
 
         if self.thresholds is not None:
@@ -126,7 +131,7 @@ class MVAUHLS(Kernel):
         code_gen_dir = ctx.directory
         # save hlslib-compatible weights in params.h
         weight_filename = "{}/params.h".format(code_gen_dir)
-        self.make_weight_file(self.weights, "hls_header", weight_filename)
+        self.make_weight_file(self.weights, weight_filename)
 
     def generate_thresh(self, ctx):
         code_gen_dir = ctx.directory
@@ -449,16 +454,13 @@ class MVAUHLS(Kernel):
             )
         return code_gen_dict
 
-    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+    def make_weight_file(self, weights, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
-        layer. This file can be used for either synthesis or run-time reconfig
-        of weights.
+        layer. This file can be used for synthesis.
 
         Arguments:
 
         * weights : numpy array with weights to be put into the file
-        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
-          decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
 
         """
@@ -469,31 +471,28 @@ class MVAUHLS(Kernel):
         # so use it as such for weight generation
         if self.get_input_datatype(1) == DataType["BIPOLAR"]:
             export_wdt = DataType["BINARY"]
-        if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
-            # write weights into C++ header file as dictated by finn-hlslib
-            f_weights = open(weight_file_name, "w")
-            if export_wdt.bitwidth() != 1:
-                f_weights.write(
-                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
-                        self.SIMD,
-                        export_wdt.get_hls_datatype_str(),
-                        self.PE,
-                        self.calc_wmem(),
-                    )
+        weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
+        # write weights into C++ header file as dictated by finn-hlslib
+        f_weights = open(weight_file_name, "w")
+        if export_wdt.bitwidth() != 1:
+            f_weights.write(
+                "const FixedPointWeights<{},{},{},{}> weights = ".format(
+                    self.SIMD,
+                    export_wdt.get_hls_datatype_str(),
+                    self.PE,
+                    self.calc_wmem(),
                 )
-            else:
-                f_weights.write(
-                    "const BinaryWeights<{},{},{}> weights = ".format(
-                        self.SIMD,
-                        self.PE,
-                        self.calc_wmem(),
-                    )
-                )
-            f_weights.write(weight_hls_code)
-            f_weights.close()
+            )
         else:
-            raise Exception("Unknown weight_file_mode")
+            f_weights.write(
+                "const BinaryWeights<{},{},{}> weights = ".format(
+                    self.SIMD,
+                    self.PE,
+                    self.calc_wmem(),
+                )
+            )
+        f_weights.write(weight_hls_code)
+        f_weights.close()
 
     def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
@@ -637,3 +636,164 @@ class MVAUHLS(Kernel):
         simd = self.SIMD
         single_pe_w = simd * weight_bits
         return max([weightstream, max_of_io, single_pe_w])
+
+    def get_normal_input_shape(self, ind=0):
+        mw = self.MW
+        if ind == 0:
+            vecs = list(self.numInputVectors)
+            shape = tuple(vecs + [mw])
+        elif ind == 1:
+            mh = self.MH
+            shape = tuple([mw, mh])
+        else:
+            raise Exception("Undefined input shape for requested input")
+        return shape
+
+    def get_normal_output_shape(self, ind=0):
+        mh = self.MH
+        vecs = list(self.numInputVectors)
+        normal_output_shape = tuple(vecs + [mh])
+        return normal_output_shape
+
+    def get_folded_input_shape(self, ind=0):
+        mw = self.MW
+        mh = self.MH
+        simd = self.SIMD
+        pe = self.PE
+        sf = mw // simd
+        nf = mh // pe
+        vecs = list(self.numInputVectors)
+
+        if ind == 0:
+            # calculate shape of input 0
+            folded_input_shape = tuple(vecs + [sf, simd])
+        elif ind == 1:
+            if self.dynamic_input:
+                # calculate shape of input 1 (weights dynamic)
+                folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
+            elif self.mem_mode == "external":
+                # calculate shape of input 1 (weights static and external)
+                folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
+            else:
+                raise Exception("Undefined input shape for requested input")
+        else:
+            raise Exception("Undefined input shape for requested input")
+
+        return folded_input_shape
+
+    def get_folded_output_shape(self, ind=0):
+        mh = self.MH
+        pe = self.PE
+        nf = mh // pe
+        vecs = list(self.numInputVectors)
+        folded_output_shape = tuple(vecs + [nf, pe])
+        return folded_output_shape
+
+    def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
+        dynamic_input = self.dynamic_input
+        mem_mode = self.mem_mode
+
+        if (not self.dynamic_input) and (mem_mode in ["internal_decoupled", "external"]):
+            weight_filename_sim = "{}/input_1.npy".format(code_gen_dir)
+            # save internal_decoupled weights for rtlsim
+            self.make_weight_file_rtlsim(self.weights, weight_filename_sim)
+
+        # create a npy file fore each input of the node (in_ind is input index)
+        for in_ind, inputs in enumerate(node.input):
+            # it is assumed that the first input of the node is the data input
+            # the second input are the weights
+            assert (
+                str(context[inputs].dtype) == "float32"
+            ), """Input datatype is
+            not float32 as expected."""
+
+            if in_ind == 0:
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
+
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                if self.get_input_datatype(0) == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType["BINARY"]
+                else:
+                    export_idt = self.get_input_datatype(0)
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
+                np.save(
+                    os.path.join(code_gen_dir, "input_0.npy"),
+                    reshaped_input,
+                )
+
+            if in_ind == 1:
+                if dynamic_input:
+                    reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                    
+                    self.make_weight_file_rtlsim(
+                        reshaped_input, "{}/input_1.npy".format(code_gen_dir)
+                    )
+
+        sim = self.get_rtlsim(code_gen_dir, rtlsim_trace)
+        nbits = self.get_instream_width(0)
+        inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+        self.reset_rtlsim(sim)
+
+        if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
+            wnbits = self.get_instream_width(1)
+            export_wdt = self.get_input_datatype(1)
+
+            # we have converted bipolar weights to binary for export,
+            # so use it as such for weight generation
+            if self.get_input_datatype(1) == DataType["BIPOLAR"]:
+                export_wdt = DataType["BINARY"]
+
+            wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
+            num_w_reps = np.prod(self.numInputVectors)
+
+            io_dict = {
+                "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                "outputs": {"out0": []},
+            }
+        else:
+            io_dict = {
+                "inputs": {"in0": inp},
+                "outputs": {"out0": []},
+            }
+
+        self.rtlsim_multi_io(sim, io_dict, node)
+        super().close_rtlsim(sim)
+        output = io_dict["outputs"]["out0"]
+        odt = self.get_output_datatype()
+        target_bits = odt.bitwidth()
+        packed_bits = self.get_outstream_width()
+        out_npy_path = "{}/output_0.npy".format(code_gen_dir)
+        out_shape = self.get_folded_output_shape()
+        rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+        # load and reshape output
+        output = np.load(out_npy_path)
+        oshape = self.get_normal_output_shape()
+        output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+        context[node.output[0]] = output
+
+    def make_weight_file_rtlsim(self, weights, weight_file_name):
+        """Produce a file containing given weights in appropriate format for this
+        layer. This file can be used for rtlsim.
+
+        Arguments:
+
+        * weights : numpy array with weights to be put into the file
+        * weight_file_name : filename for the weight file to be generated
+
+        """
+        # convert weights into hlslib/rtllib-compatible format
+        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
+        # create a weight stream for various flavors of internal_decoupled mode:
+        # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
+        weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+        # reverse SIMD flip for saving weights in .npy
+        weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
+        # simd_flipped
+        weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, self.PE * self.SIMD)
+        weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
+        # save weight stream into npy for cppsim
+        np.save(weight_file_name, weight_tensor_simd_flipped)

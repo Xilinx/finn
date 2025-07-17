@@ -32,6 +32,7 @@ import qonnx.analysis.topology as ta
 from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
 
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.core.node_by_node_rtlsim_exec import node_by_node_rtlsim_exec
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
@@ -52,6 +53,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
         return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
+    elif model_exec_mode == "node_by_node_rtlsim":
+        return node_by_node_rtlsim_exec(model, input_dict, return_full_exec_context, start_node, end_node)
     elif model_exec_mode == "rtlsim":
         # check sanity of model and then use stitched IP for rtlsim
         if not model.check_all_tensor_shapes_specified():

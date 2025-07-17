@@ -5,6 +5,15 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.util.context import Context
 
+import numpy as np
+import os
+import warnings
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.basic import get_liveness_threshold_cycles
+import finn_xsi.adapter as finnxsi
+
 @dataclass
 class KernelProjection:
     """ resource and performance projections of a given kernel instance """
@@ -96,12 +105,9 @@ class Kernel:
         if self.impl_style == "hls":
             verilog_paths: set[Path] = set()
             verilog_path = Path("{}/project_{}/sol1/impl/verilog/".format(node_ctx.directory, self.name))
-            subcore_verilog_path = Path("{}/project_{}/sol1/impl/ip/hdl/ip/".format(node_ctx.directory, self.name))
             # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir if it exists
             # TODO: Might be able to remove subcore_verilog_path after splitting MVAU-like into SIP kernels?
             verilog_paths.add(verilog_path)
-            if Path(subcore_verilog_path).is_dir():
-                verilog_paths.add(subcore_verilog_path)
 
             verilog_files = set()
             for verilog_path in verilog_paths:
@@ -111,7 +117,7 @@ class Kernel:
             return verilog_files
 
         elif self.impl_style == "rtl":
-            rtl_suffixes = [".v", ".sv", ".vhd", ".vh"]
+            rtl_suffixes = [".v", ".sv", ".vh"]
             code_gen_dir = node_ctx.directory
             kernel_dir = node_ctx.top_ctx.get_kernel_dir(type(self).__name__)
             shared_dir = node_ctx.top_ctx.shared_dir
@@ -129,10 +135,10 @@ class Kernel:
             return instance_verilog_files | kernel_verilog_files | shared_verilog_files
 
         elif self.impl_style == "sip":
-            rtl_suffixes = [".v", ".sv", ".vhd", ".vh"]
+            rtl_suffixes = [".v", ".sv", ".vh"]
             code_gen_dir = node_ctx.directory
             # Get paths to instance files.
-            instance_verilog_files = {file for file in code_gen_dir.rglob('*') if (file.is_file() and file.suffix in rtl_suffixes)}
+            instance_verilog_files = {file for file in code_gen_dir.iterdir() if (file.is_file() and file.suffix in rtl_suffixes)}
 
             verilog_files = set()
             for subkernel in self.subkernels:
@@ -154,6 +160,140 @@ class Kernel:
     def projection(self) -> KernelProjection:
         """ Returns a projection of the configured kernels performance across various metrics """
         return KernelProjection(cycles=None, LUTs=None, DSPs=None, BRAMs=None)
+
+    ######################### RTL Simulation #########################
+    def get_rtlsim(self, code_gen_dir, rtlsim_trace):
+        """Return a xsi wrapper for the emulation library
+        for this node."""
+
+        rtlsim_so = str(Path(code_gen_dir) / Path(f"xsim.dir/{self.name}/xsimk.so"))
+        assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
+
+        sim_base, sim_rel = rtlsim_so.split("xsim.dir")
+        sim_rel = "xsim.dir" + sim_rel
+        # pass in correct tracefile from attribute
+        tracefile = rtlsim_trace
+        if tracefile == "default":
+            tracefile = self.name + ".wdb"
+        sim = finnxsi.load_sim_obj(str(Path.cwd() / Path(sim_base)), sim_rel, tracefile)
+
+        return sim
+
+    def rtlsim_multi_io(self, sim, io_dict, node):
+        inst = getCustomOp(node)
+        "Run rtlsim for this node, supports multiple i/o streams."
+        num_out_values = inst.get_number_output_values()
+        total_cycle_count = finnxsi.rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values,
+            sname="_V_",
+            liveness_threshold=get_liveness_threshold_cycles(),
+        )
+
+        inst.set_nodeattr("cycles_rtlsim", total_cycle_count)
+
+    def reset_rtlsim(self, sim):
+        """Sets reset input in finnxsi to zero, toggles the clock and set it
+        back to one"""
+        finnxsi.reset_rtlsim(sim)
+
+    def close_rtlsim(self, sim):
+        "Close and free up resources for rtlsim."
+        finnxsi.close_rtlsim(sim)
+
+    def build_rtlsim(self, node_ctx: Context, rtlsim_dir: Path, rtlsim_trace: str) -> None:
+
+        verilog_files = self.get_abs_verilog_files(node_ctx)
+
+        verilog_files = [Path("../..") / file.relative_to(node_ctx.top_ctx.directory.parent) for file in verilog_files]
+
+        single_src_dir = rtlsim_dir / Path("rtlsim_" + self.name + "_")
+        single_src_dir.mkdir(exist_ok=True)
+        trace_file = rtlsim_trace
+        debug = not (trace_file is None or trace_file == "")
+        ret = finnxsi.compile_sim_obj(
+            self.name, [str(file) for file in verilog_files], str(single_src_dir), debug
+        )
+
+    def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
+        inst = getCustomOp(node)
+        inputs = {}
+        for i, inp in enumerate(node.input):
+            exp_ishape = tuple(self.get_normal_input_shape(i))
+            folded_ishape = inst.get_folded_input_shape(i)
+            inp_val = context[inp]
+
+            if self.impl_style == 'rtl':
+                assert str(inp_val.dtype) == "float32", "Input datatype is not float32"
+            elif self.impl_style == 'hls':
+                # Make sure the input has the right container datatype
+                if inp_val.dtype is not np.float32:
+                    # Issue a warning to make the user aware of this type-cast
+                    warnings.warn(
+                        f"{self.name}: Changing input container datatype from "
+                        f"{inp_val.dtype} to {np.float32}"
+                    )
+                    # Convert the input to floating point representation as the
+                    # container datatype
+                    inp_val = inp_val.astype(np.float32)
+
+            assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
+            export_idt = inst.get_input_datatype(i)
+
+            if self.impl_style == 'hls':
+                if export_idt == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    inp_val = (inp_val + 1) / 2
+                    export_idt = DataType["BINARY"]
+
+            reshaped_input = inp_val.reshape(folded_ishape)
+            np.save(os.path.join(code_gen_dir, "input_%s.npy" % i), reshaped_input)
+            nbits = inst.get_instream_width(i)
+
+            if self.impl_style == 'hls':
+                # if the stream is not exposed, it has 0 width and no npy file will be created
+                if nbits == 0:
+                    continue
+
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_{}.npy".format(code_gen_dir, i), export_idt, nbits
+            )
+            inputs["in%s" % i] = rtlsim_inp
+        outputs = {}
+        for o, outp in enumerate(node.output):
+            outputs["out%s" % o] = []
+        # assembled execution context
+        io_dict = {"inputs": inputs, "outputs": outputs}
+
+        sim = self.get_rtlsim(code_gen_dir, rtlsim_trace)
+        self.reset_rtlsim(sim)
+        self.rtlsim_multi_io(sim, io_dict, node)
+        self.close_rtlsim(sim)
+        for o, outp in enumerate(node.output):
+            rtlsim_output = io_dict["outputs"]["out%s" % o]
+            odt = inst.get_output_datatype(o)
+            target_bits = odt.bitwidth()
+            packed_bits = inst.get_outstream_width(o)
+
+            if self.impl_style == 'rtl':
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
+            elif self.impl_style == 'hls':
+                out_npy_path = "{}/output_{}.npy".format(code_gen_dir, o)
+
+            out_shape = inst.get_folded_output_shape(o)
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            exp_oshape = tuple(self.get_normal_output_shape(o))
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[outp] = output
+
+            assert (
+                context[outp].shape == exp_oshape
+            ), "Output shape doesn't match expected shape."
 
     ######################### Other common methods #########################
     def get_verilog_top_module_intf_names(self) -> Dict[str,List]:

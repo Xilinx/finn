@@ -74,9 +74,12 @@ class MemstreamRTL(Kernel):
     # weight data from the weight FIFOs.
     runtime_writeable_weights: int = 0
     pumpedMemory: int = 0
+    pumpedCompute: int
     ip_vlnv: str
-    weights: np.ndarray
-    thresholds: np.ndarray = None
+    weights: np.ndarray     # From: weights = model.get_initializer(self.onnx_node.input[1])
+    thresholds: np.ndarray = None  # From: if len(self.onnx_node.input) > 2: thresholds = model.get_initializer(self.onnx_node.input[2])
+    # dynamic input
+    dynamic_input: bool = False
 
     ######################### Constraints #########################
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
@@ -91,10 +94,15 @@ class MemstreamRTL(Kernel):
 
     @property
     def instanceFiles(self) -> FrozenSet[Tuple[Callable,Path]]:
-        return { 
-            (self.generate_hdl_memstream, Path(self.name + ".v")),
-            (self.generate_params, Path("memblock.dat"))
-        } 
+
+        out = set({
+            (self.generate_hdl_memstream, Path(self.name + ".v"))
+        })
+
+        if (not self.dynamic_input) and (self.mem_mode == "internal_decoupled"):
+            out.add((self.generate_params, Path("memblock.dat")))
+
+        return frozenset(out)
 
     ######################### Other methods #########################
     def generate_hdl_memstream(self, ctx):
@@ -221,27 +229,18 @@ class MemstreamRTL(Kernel):
 
     def generate_params(self, ctx):
         code_gen_dir = ctx.directory
-        # weights, if not external
-        if self.mem_mode == "internal_decoupled" or self.mem_mode == "external":
-            weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
-            # save internal_decoupled weights for cppsim
-            self.make_weight_file(self.weights, "decoupled_npy", weight_filename_sim)
-            if self.mem_mode == "internal_decoupled":
-                # also save weights as Verilog .dat file
-                # This file will be ignored when synthesizing UltraScale memory.
-                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-                self.make_weight_file(self.weights, "decoupled_verilog_dat", weight_filename_rtl)
+        # also save weights as Verilog .dat file
+        # This file will be ignored when synthesizing UltraScale memory.
+        weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
+        self.make_weight_file(self.weights, weight_filename_rtl)
 
-    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+    def make_weight_file(self, weights, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
-        layer. This file can be used for either synthesis or run-time reconfig
-        of weights.
+        layer. This file can be used for synthesis.
 
         Arguments:
 
         * weights : numpy array with weights to be put into the file
-        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
-          decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
 
         """
@@ -252,81 +251,45 @@ class MemstreamRTL(Kernel):
         # so use it as such for weight generation
         if self.get_input_datatype(1) == DataType["BIPOLAR"]:
             export_wdt = DataType["BINARY"]
-        if "decoupled" in weight_file_mode:
-            # create a weight stream for various flavors of internal_decoupled mode:
-            # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
-            weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
-            # reverse SIMD flip for saving weights in .npy
-            weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
-            # PE flip for saving weights in .dat
-            weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-            # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
-            pe = self.PE
-            simd = self.SIMD
-            # simd_flipped
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, pe * simd)
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
-            # flipped
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
-            if weight_file_mode == "decoupled_npy":
-                # save weight stream into npy for cppsim
-                np.save(weight_file_name, weight_tensor_simd_flipped)
-            elif weight_file_mode == "decoupled_verilog_dat":
-                # convert weight values into hexstring
-                weight_width = self.get_instream_width(1)
-                # pad to nearest 4 bits to get hex strings
-                weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+        # create a weight stream for various flavors of internal_decoupled mode:
+        # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
+        weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+        # PE flip for saving weights in .dat
+        weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+        # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
+        pe = self.PE
+        simd = self.SIMD
+        # flipped
+        weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
+        weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
+        # convert weight values into hexstring
+        weight_width = self.get_instream_width(1)
+        # pad to nearest 4 bits to get hex strings
+        weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+        weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+            weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+        )
+        # add zeroes to pad out file to 1024 entries
+        weight_stream = weight_tensor_pe_flipped.flatten()
+        weight_stream = weight_stream.copy()
+        if self.pumpedMemory:
+            # if pe = simd = 1, known bug, ask user to increase parallelism
+            if pe == simd == 1:
+                raise Exception(
+                    """Pumped memory with pe=simd=1 is not supported.
+                    Please increase parallelism."""
                 )
-                # add zeroes to pad out file to 1024 entries
-                weight_stream = weight_tensor_pe_flipped.flatten()
-                weight_stream = weight_stream.copy()
-                if self.pumpedMemory:
-                    # if pe = simd = 1, known bug, ask user to increase parallelism
-                    if pe == simd == 1:
-                        raise Exception(
-                            """Pumped memory with pe=simd=1 is not supported.
-                            Please increase parallelism."""
-                        )
-                    split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
-                    k = 0
-                    for i in range(len(weight_stream)):
-                        weight = weight_stream[i]
-                        split_w_stream[k] = weight[len(weight) // 2 :]
-                        split_w_stream[k + 1] = weight[: len(weight) // 2]
-                        k += 2
-                    weight_stream = split_w_stream
-                with open(weight_file_name, "w") as f:
-                    for val in weight_stream:
-                        f.write(val + "\n")
-            elif weight_file_mode == "decoupled_runtime":
-                # memstream axi-lite interface will map each mem line to
-                # one or multiple 32-bit words
-                weight_width = self.get_instream_width(1)
-                words_per_memwidth = 2 ** math.ceil(math.log2(weight_width / 32))
-                if words_per_memwidth < 1:
-                    words_per_memwidth = 1
-                weight_width_padded = words_per_memwidth * 32
-                # first, pack and ensure padding to 32 bits
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
-                )
-                weight_stream = weight_tensor_pe_flipped.flatten()
-                weight_stream = weight_stream.copy()
-                with open(weight_file_name, "w") as f:
-                    for val in weight_stream:
-                        # split into groups of 8 hex digits (= 32 bits)
-                        words_32b = textwrap.wrap(val, 8)
-                        words_32b.reverse()
-                        for word_32b in words_32b:
-                            f.write(word_32b + "\n")
-            else:
-                raise Exception("Unknown weight_file_mode")
-
-        else:
-            raise Exception("Unknown weight_file_mode")
+            split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
+            k = 0
+            for i in range(len(weight_stream)):
+                weight = weight_stream[i]
+                split_w_stream[k] = weight[len(weight) // 2 :]
+                split_w_stream[k + 1] = weight[: len(weight) // 2]
+                k += 2
+            weight_stream = split_w_stream
+        with open(weight_file_name, "w") as f:
+            for val in weight_stream:
+                f.write(val + "\n")
 
     def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into

@@ -76,16 +76,6 @@ class RTLSimBuilder(Transformation):
         # Fetch kernel, skip this node if kernel is not RTL
         kernel: Kernel = gkr.kernel(node.op_type, attributes)
 
-        verilog_files = kernel.get_abs_verilog_files(node_ctx)
-
-        verilog_files = [Path("../..") / file.relative_to(node_ctx.top_ctx.directory.parent) for file in verilog_files]
-
-        single_src_dir = self.rtlsim_dir / Path("rtlsim_" + node.name + "_")
-        single_src_dir.mkdir(exist_ok=True)
-        trace_file = self.ref_input_model.get_metadata_prop("rtlsim_trace")
-        debug = not (trace_file is None or trace_file == "")
-        ret = finnxsi.compile_sim_obj(
-            node.name, [str(file) for file in verilog_files], str(single_src_dir), debug
-        )
+        kernel.build_rtlsim(node_ctx, self.rtlsim_dir, self.ref_input_model.get_metadata_prop("rtlsim_trace"))
 
         return (node, node_ctx, False)
