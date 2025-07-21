@@ -44,13 +44,17 @@ class FMPaddingRTL(Kernel):
         odim_w = idim_w + pad_w
         return [odim_h, odim_w]
 
-    def projection(self)->KernelProjection:
+    def projection(self, fpgapart: str) -> KernelProjection:
         odim_h, odim_w = self.get_padded_odim()
         return KernelProjection(
             cycles = (self.NumChannels / self.SIMD)*self.numInputVectors*odim_h*odim_w,
-            LUTs = None,
-            DSPs = None,
-            BRAMs= None
+            LUT=None,
+            DSP=None,
+            BRAM_18k=None,
+            URAM=None,
+            BRAM_efficiency=None,
+            URAM_efficiency=None,
+
         )
 
     def get_verilog_top_module_intf_names(self):

@@ -26,9 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from dataclasses import asdict
+
 import qonnx.custom_op.registry as registry
 
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def res_estimation(model, fpgapart):
@@ -41,9 +44,9 @@ def res_estimation(model, fpgapart):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_hls_node(node) or is_rtl_node(node):
-            inst = registry.getCustomOp(node)
-            res_dict[node.name] = inst.node_res_estimation(fpgapart)
+        if gkr.kernel_exists(node.op_type):
+            kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+            res_dict[node.name] = asdict(kernel.projection(fpgapart))
 
     return res_dict
 
@@ -59,28 +62,33 @@ def res_estimation_complete(model, fpgapart):
 
     res_dict = {}
     for node in model.graph.node:
-        if is_hls_node(node) or is_rtl_node(node):
+        if gkr.kernel_exists(node.op_type):
             inst = registry.getCustomOp(node)
             op_type = node.op_type
             if op_type.startswith("MVAU") or op_type.startswith("VVAU"):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
+                res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("resType", "lut")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
+                res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("resType", orig_restype)
             elif op_type.startswith("ConvolutionInputGenerator"):
                 orig_ramstyle = inst.get_nodeattr("ram_style")
                 res_dict[node.name] = []
                 inst.set_nodeattr("ram_style", "block")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
+                res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("ram_style", "distributed")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
+                res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("ram_style", "ultra")
-                res_dict[node.name].append(inst.node_res_estimation(fpgapart))
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
+                res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("ram_style", orig_ramstyle)
             else:
-                res_dict[node.name] = [inst.node_res_estimation(fpgapart)]
+                res_dict[node.name] = [asdict(kernel.projection(fpgapart))]
 
     return res_dict

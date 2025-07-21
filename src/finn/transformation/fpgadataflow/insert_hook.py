@@ -34,7 +34,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.kernels.kernel_registry import gkr
 
 
 def _is_hook_node(node):
@@ -46,7 +46,7 @@ def _is_hook_node(node):
 
 def _suitable_node(node):
     if node is not None:
-        if is_hls_node(node) or is_rtl_node(node):
+        if gkr.kernel_exists(node.op_type):
             if not _is_hook_node(node):
                 return True
             else:

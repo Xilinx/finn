@@ -1,4 +1,4 @@
-from finn.kernels import Kernel, KernelProjection
+from finn.kernels import Kernel
 from dataclasses import dataclass
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
@@ -32,14 +32,6 @@ class StreamingFIFORTL(Kernel):
         return {
             (self.toplevel, Path(f"{self.name}.v"))
         }
-
-    def projection(self)->KernelProjection:
-        return KernelProjection(
-            cycles= None,
-            LUTs  = None,
-            DSPs  = None,
-            BRAMs = None
-        )
 
     def get_verilog_top_module_intf_names(self):
         ret = super().get_verilog_top_module_intf_names()

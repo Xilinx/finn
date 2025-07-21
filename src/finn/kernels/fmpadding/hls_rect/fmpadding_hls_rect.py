@@ -32,12 +32,16 @@ class FMPaddingHLS_Rect(Kernel):
             (self.toplevel, Path(f'{self.name}.cpp'))
         })
 
-    def projection(self)->KernelProjection:
+    def projection(self, fpgapart: str) -> KernelProjection:
         return KernelProjection(
             cycles = (self.NumChannels / self.SIMD)*self.numInputVectors*self.padded_odim[0]*self.padded_odim[1],
-            LUTs = None,
-            DSPs = None,
-            BRAMs= None
+            LUT=None,
+            DSP=None,
+            BRAM_18k=None,
+            URAM=None,
+            BRAM_efficiency=None,
+            URAM_efficiency=None,
+
         )
 
     def code_generation_ipi(self, node_ctx) -> List[str]:

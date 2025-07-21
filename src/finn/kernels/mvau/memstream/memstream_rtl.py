@@ -38,9 +38,9 @@ class MemstreamRTL(Kernel):
     accDataType: str = "INT32"
     # use xnor-popcount for binary weights/inputs, thus treating them
     # as bipolar
-    binaryXnorMode: int = 0
+    binaryXnorMode: bool = False
     # no-activation mode (produce accumulators)
-    noActivation: int = 0
+    noActivation: bool = False
     # number of input vectors, examples:
     # [1] is a single vector (like a FC layer with batch=1)
     # [4] is four vectors (like a FC layer with batch=4)
@@ -72,10 +72,9 @@ class MemstreamRTL(Kernel):
     # always "flush" the accelerator by first passing a dummy input
     # vector through the accelerator. This will get rid of any old
     # weight data from the weight FIFOs.
-    runtime_writeable_weights: int = 0
-    pumpedMemory: int = 0
-    pumpedCompute: int
-    ip_vlnv: str
+    runtime_writeable_weights: bool = False
+    pumpedMemory: bool = False
+    pumpedCompute: bool = False
     weights: np.ndarray     # From: weights = model.get_initializer(self.onnx_node.input[1])
     thresholds: np.ndarray = None  # From: if len(self.onnx_node.input) > 2: thresholds = model.get_initializer(self.onnx_node.input[2])
     # dynamic input
@@ -130,7 +129,7 @@ class MemstreamRTL(Kernel):
                 "$WIDTH$": [str(padded_width)],
                 "$INIT_FILE$": [str(init_file)],
                 "$RAM_STYLE$": [ram_style],
-                "$PUMPED_MEMORY$": [str(self.pumpedMemory)],
+                "$PUMPED_MEMORY$": [str(int(self.pumpedMemory))],
             }
             # apply code generation to template
             template_wrapper = get_data('finn.kernels', template_path).decode('utf-8')

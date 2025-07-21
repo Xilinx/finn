@@ -407,12 +407,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
     which contains the desired setting. If the user preference cannot be fulfilled,
     a warning will be printed and the implementation style will be set to a default."""
 
-    if cfg.specialize_layers_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
-    model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
+    warnings.warn("Deprecated with new kernel flow. Implementation style is decided by kernel registry.")
     return model
 
 
@@ -519,7 +514,7 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Generate Vitis HLS code to prepare HLSBackend nodes for IP generation.
     And fills RTL templates for RTLBackend nodes."""
 
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    warnings.warn("Deprecated with new kernel flow. Combined with step_create_stitched_ip.")
     return model
 
 
@@ -527,18 +522,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run Vitis HLS synthesis on generated code for HLSBackend nodes,
     in order to generate IP blocks. For RTL nodes this step does not do anything."""
 
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-        json.dump(estimate_layer_resources_hls, f, indent=2)
-
-    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        model = model.transform(PrepareRTLSim())
-        model = model.transform(SetExecMode("rtlsim"))
-        verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+    warnings.warn("Deprecated with new kernel flow. Combined with step_create_stitched_ip.")
     return model
 
 
@@ -575,10 +559,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         verify_model = verify_model.transform(CodeBuilder(ctx))
         verify_model.set_metadata_prop("exec_mode", "node_by_node_rtlsim")
         verify_model.set_metadata_prop("rtlsim_dir", str(ctx.directory)+"_rtlsim")
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
+        verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_node_by_node",True))
         verify_model = verify_model.transform(RTLSimBuilder(ctx,True))
         verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
+        verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_node_by_node",False))
 
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
@@ -703,6 +687,13 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             signature=cfg.signature,
         )
         model = model.transform(CodeBuilder(ctx))
+
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        estimate_layer_resources_hls = model.analysis(partial(hls_synth_res_estimation, code_gen_dir=ctx.directory))
+        with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+            json.dump(estimate_layer_resources_hls, f, indent=2)
+
         model = model.transform(StitchedIPBuilder(ctx))
 
     if rtlsim_stitched_ip:
@@ -723,9 +714,9 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             abspath = os.path.abspath(verify_out_dir)
             verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
 
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,True))
+        verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/ipgen",True))
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-        verify_model = verify_model.transform(ChangeDATPaths(ctx,False))
+        verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/ipgen",False))
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
 
     return model
@@ -757,7 +748,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 20
+        model = model.transform(ChangeDATPaths(cfg.output_dir+"/ipgen",True))
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
+        model = model.transform(ChangeDATPaths(cfg.output_dir+"/ipgen",True))
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
         clk_ns = cfg.synth_clk_period_ns

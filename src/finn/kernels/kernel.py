@@ -17,10 +17,13 @@ import finn_xsi.adapter as finnxsi
 @dataclass
 class KernelProjection:
     """ resource and performance projections of a given kernel instance """
-    cycles : int
-    LUTs   : int
-    DSPs   : int
-    BRAMs  : int
+    cycles   : int
+    LUT      : int
+    DSP      : int
+    BRAM_18k : int
+    URAM     : int
+    BRAM_efficiency : float
+    URAM_efficiency : float
 
 class KernelInvalidParameter(Exception):
     def __init__(self, message: str):  
@@ -105,8 +108,7 @@ class Kernel:
         if self.impl_style == "hls":
             verilog_paths: set[Path] = set()
             verilog_path = Path("{}/project_{}/sol1/impl/verilog/".format(node_ctx.directory, self.name))
-            # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir if it exists
-            # TODO: Might be able to remove subcore_verilog_path after splitting MVAU-like into SIP kernels?
+            # default impl only returns the HLS verilog codegen dir
             verilog_paths.add(verilog_path)
 
             verilog_files = set()
@@ -157,9 +159,20 @@ class Kernel:
         return tuple()
 
     ######################### Projections #########################
-    def projection(self) -> KernelProjection:
+    def projection(self, fpgapart: str) -> KernelProjection:
         """ Returns a projection of the configured kernels performance across various metrics """
-        return KernelProjection(cycles=None, LUTs=None, DSPs=None, BRAMs=None)
+        return KernelProjection(
+            cycles=None,
+            LUT=None,
+            DSP=None,
+            BRAM_18k=None,
+            URAM=None,
+            BRAM_efficiency=None,
+            URAM_efficiency=None,
+        )
+
+    def get_exp_cycles(self) -> int:
+        return None
 
     ######################### RTL Simulation #########################
     def get_rtlsim(self, code_gen_dir, rtlsim_trace):

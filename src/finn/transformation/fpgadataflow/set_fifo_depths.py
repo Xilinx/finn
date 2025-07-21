@@ -380,9 +380,9 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
-        model = model.transform(ChangeDATPaths(self.ctx,True))
+        model = model.transform(ChangeDATPaths(str(self.ctx.directory),True))
         sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
-        model = model.transform(ChangeDATPaths(self.ctx,False))
+        model = model.transform(ChangeDATPaths(str(self.ctx.directory),False))
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

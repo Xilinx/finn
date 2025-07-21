@@ -29,7 +29,8 @@
 
 import qonnx.custom_op.registry as registry
 
-from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def exp_cycles_per_layer(model):
@@ -42,8 +43,8 @@ def exp_cycles_per_layer(model):
 
     cycle_dict = {}
     for node in model.graph.node:
-        if is_hls_node(node) or is_rtl_node(node):
-            inst = registry.getCustomOp(node)
+        if gkr.kernel_exists(node.op_type):
+            inst = gkr.kernel(node.op_type, get_node_attr(node, model))
             cycle_dict[node.name] = int(inst.get_exp_cycles())
 
     return cycle_dict

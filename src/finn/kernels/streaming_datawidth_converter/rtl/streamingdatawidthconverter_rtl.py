@@ -1,4 +1,4 @@
-from finn.kernels import Kernel, KernelProjection
+from finn.kernels import Kernel
 from dataclasses import dataclass
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
@@ -25,14 +25,6 @@ class StreamingDataWidthConverterRTL(Kernel):
         return {
             (self.toplevel, Path(f"{self.name}.v"))
         }
-
-    def projection(self)->KernelProjection:
-        return KernelProjection(
-            cycles= None,
-            LUTs  = None,
-            DSPs  = None,
-            BRAMs = None
-        )
 
     def code_generation_ipi(self, node_ctx):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""

@@ -11,17 +11,17 @@ class ChangeDATPaths(Transformation):
     """Convert DAT file paths between being relative to the output directory
        and absolute paths."""
 
-    def __init__(self, ctx: Context, abs: bool = False):
+    def __init__(self, ipgen_dir: str, abs: bool = False):
         super().__init__()
-        self.ctx = ctx
+        self.ipgen_dir = ipgen_dir
         self.abs = abs
-        self.rtl_suffixes = [".v", ".sv", ".vhd", ".vh"]
+        self.rtl_suffixes = [".v", ".sv", ".vh"]
 
     def apply(self, model):
         for node in model.graph.node:
 
             # find the IP gen dir
-            ipgen_path = self.ctx.get_subcontext(Path(node.name)).directory
+            ipgen_path = Path(self.ipgen_dir) / Path(node.name)
 
             if ipgen_path is not None and os.path.isdir(ipgen_path):
                 for dname, dirs, files in os.walk(ipgen_path):
@@ -45,14 +45,14 @@ class ChangeDATPaths(Transformation):
                                     if not path_obj.is_absolute():
                                         if (Path(dname) / path_obj).is_file():
                                             path_obj = (Path(dname) / path_obj).resolve()
-                                        elif (self.ctx.directory.resolve() / path_obj).is_file():
-                                            path_obj = (self.ctx.directory.resolve() / path_obj)
+                                        elif (Path(self.ipgen_dir).resolve() / path_obj).is_file():
+                                            path_obj = (Path(self.ipgen_dir).resolve() / path_obj)
                                         else:
-                                            raise RuntimeError(f"Path {path_obj} did not exist in {dname} or {self.ctx.directory.resolve()}.")
+                                            raise RuntimeError(f"Path {path_obj} did not exist in {dname} or {Path(self.ipgen_dir).resolve()}.")
                                 else:
                                     # Convert paths to relative, assume they are currently absolute.
                                     if path_obj.is_absolute():
-                                        path_obj = path_obj.relative_to(self.ctx.directory.resolve())
+                                        path_obj = path_obj.relative_to(Path(self.ipgen_dir).resolve())
                                     else:
                                         raise RuntimeError(f"Path {path_obj} in {dname}/{fname} is not absolute.")
                                 changed_paths.append(str(path_obj))

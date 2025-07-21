@@ -35,9 +35,9 @@ class MVAUSIP(Kernel):
     accDataType: str = "INT32"
     # use xnor-popcount for binary weights/inputs, thus treating them
     # as bipolar
-    binaryXnorMode: int = 0
+    binaryXnorMode: bool = False
     # no-activation mode (produce accumulators)
-    noActivation: int = 0
+    noActivation: bool = False
     # number of input vectors, examples:
     # [1] is a single vector (like a FC layer with batch=1)
     # [4] is four vectors (like a FC layer with batch=4)
@@ -69,10 +69,9 @@ class MVAUSIP(Kernel):
     # always "flush" the accelerator by first passing a dummy input
     # vector through the accelerator. This will get rid of any old
     # weight data from the weight FIFOs.
-    runtime_writeable_weights: int = 0
-    pumpedMemory: int = 0
-    pumpedCompute: int
-    ip_vlnv: str
+    runtime_writeable_weights: bool = False
+    pumpedMemory: bool = False
+    pumpedCompute: bool = False
     weights: np.ndarray     # From: weights = model.get_initializer(self.onnx_node.input[1])
     thresholds: np.ndarray = None  # From: if len(self.onnx_node.input) > 2: thresholds = model.get_initializer(self.onnx_node.input[2])
     # dynamic input
@@ -107,13 +106,28 @@ class MVAUSIP(Kernel):
         return tuple(subkernels_inited)
 
     ######################### Projections #########################
-    def projection(self)->KernelProjection:
+    def projection(self, fpgapart: str) -> KernelProjection:
         return KernelProjection(
-            cycles = None,
-            LUTs = self.lut_estimation(),
-            DSPs = self.dsp_estimation(),
-            BRAMs= None
+            cycles = self.get_exp_cycles(),
+            LUT = self.lut_estimation(),
+            DSP = self.dsp_estimation(fpgapart),
+            BRAM_18k= self.bram_estimation(),
+            URAM = self.uram_estimation(),
+            BRAM_efficiency = self.bram_efficiency_estimation(),
+            URAM_efficiency = self.uram_efficiency_estimation()
+
         )
+
+    def get_exp_cycles(self):
+        pe = self.PE
+        simd = self.SIMD
+        num_inp_vec = self.numInputVectors
+        mh = self.MH
+        mw = self.MW
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        return int(exp_cycles)
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
@@ -192,6 +206,94 @@ class MVAUSIP(Kernel):
         else:
             mult_dsp = 0
         return int(mult_dsp)
+
+    def uram_estimation(self):
+        P = self.PE
+        Q = self.SIMD
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.mem_mode
+        mstyle = self.ram_style
+        if (
+            (mmode == "internal_decoupled" and mstyle != "ultra")
+            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
+            or (mmode == "external")
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        # TODO add in/out FIFO contributions
+        P = self.PE
+        Q = self.SIMD
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.mem_mode
+        mstyle = self.ram_style
+        if (
+            (mmode == "internal_decoupled" and mstyle in ["distributed", "ultra"])
+            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
+            or (mmode == "external")
+        ):
+            return 0
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # assuming internal_decoupled (RTL) memory,
+        # which is more efficient than internal_embedded (HLS)
+        if mem_width == 1:
+            return math.ceil(omega / 16384)
+        elif mem_width == 2:
+            return math.ceil(omega / 8192)
+        elif mem_width <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
+        elif mem_width <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
+
+    def bram_efficiency_estimation(self):
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""

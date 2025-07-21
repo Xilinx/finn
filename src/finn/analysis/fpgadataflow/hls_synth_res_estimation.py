@@ -26,16 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
-import qonnx.custom_op.registry as registry
 import warnings
 import xml.etree.ElementTree as ET
 
-from finn.util.fpgadataflow import is_hls_node
+from finn.util.kernel_util import select_kernels
 
 
-def hls_synth_res_estimation(model):
+def hls_synth_res_estimation(model, code_gen_dir):
     """Extracts the FPGA resource results from the Vitis HLS synthesis estimates.
-    Note that this analysis pass only works on nodes that have an HLS backend.
+    Note that this analysis pass only works on nodes that were implemented in HLS.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
     visible in the results.
@@ -43,38 +42,29 @@ def hls_synth_res_estimation(model):
     Returns {node name : resources_dict}."""
 
     res_dict = {}
-    for node in model.graph.node:
-        if is_hls_node(node):
-            # init values to zero
-            res_dict[node.name] = dict()
-            res_dict[node.name]["BRAM_18K"] = 0
-            res_dict[node.name]["FF"] = 0
-            res_dict[node.name]["LUT"] = 0
-            res_dict[node.name]["DSP48E"] = 0
-            res_dict[node.name]["URAM"] = 0
-            inst = registry.getCustomOp(node)
-            code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
-            if code_gen_dir == "":
-                warnings.warn(
-                    """Could not find report files, values will be set to zero
-                    for this node. Please run "PrepareIP" transformation and
-                    "HLSSynthIP" first to generate the report files"""
-                )
-            else:
-                xmlfile = "{}/project_{}/sol1/syn/report/{}_csynth.xml".format(
-                    code_gen_dir, node.name, node.name
-                )
+    for kernel, code_gen_dir_kernel in select_kernels(model, code_gen_dir, lambda k: k.impl_style == "hls"):
+        # init values to zero
+        res_dict[kernel.name] = dict()
+        res_dict[kernel.name]["BRAM_18K"] = 0
+        res_dict[kernel.name]["FF"] = 0
+        res_dict[kernel.name]["LUT"] = 0
+        res_dict[kernel.name]["DSP48E"] = 0
+        res_dict[kernel.name]["URAM"] = 0
 
-                if os.path.isfile(xmlfile):
-                    tree = ET.parse(xmlfile)
-                    root = tree.getroot()
-                    for item in root.findall("AreaEstimates/Resources"):
-                        for child in item:
-                            res_dict[node.name][child.tag] = child.text
-                else:
-                    warnings.warn(
-                        """Could not find report files, values will be set to zero
-                        for this node. Please run "PrepareIP" transformation and
-                        "HLSSynthIP" first to generate the report files"""
-                    )
+        xmlfile = "{}/project_{}/sol1/syn/report/{}_csynth.xml".format(
+            code_gen_dir_kernel, kernel.name, kernel.name
+        )
+
+        if os.path.isfile(xmlfile):
+            tree = ET.parse(xmlfile)
+            root = tree.getroot()
+            for item in root.findall("AreaEstimates/Resources"):
+                for child in item:
+                    res_dict[kernel.name][child.tag] = child.text
+        else:
+            warnings.warn(
+                """Could not find report files, values will be set to zero
+                for this node. Please run "PrepareIP" transformation and
+                "HLSSynthIP" first to generate the report files"""
+            )
     return res_dict
