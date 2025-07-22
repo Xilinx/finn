@@ -39,7 +39,7 @@ from finn.kernels.kernel_registry import gkr
 class DeriveCharacteristic(NodeLocalTransformation):
     """For each node in the graph, run rtlsim to obtain the i/o
     characteristic function for FIFO sizing and set the attribute.
-    It is assumed that the PrepareRTLSim transformation was already
+    It is assumed that the RTLSimBuilder transformation was already
     called on the graph.
 
     This transformation performs rtlsim for each node, so it will run for

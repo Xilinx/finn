@@ -37,7 +37,7 @@ class FMPaddingHLS_Square(Kernel):
             cycles = (self.NumChannels / self.SIMD)*self.numInputVectors*self.padded_odim[0]*self.padded_odim[1],
             LUT=None,
             DSP=None,
-            BRAM_18k=None,
+            BRAM_18K=None,
             URAM=None,
             BRAM_efficiency=None,
             URAM_efficiency=None,

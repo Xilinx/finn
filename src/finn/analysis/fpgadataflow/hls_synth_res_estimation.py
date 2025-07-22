@@ -64,7 +64,7 @@ def hls_synth_res_estimation(model, code_gen_dir):
         else:
             warnings.warn(
                 """Could not find report files, values will be set to zero
-                for this node. Please run "PrepareIP" transformation and
-                "HLSSynthIP" first to generate the report files"""
+                for this node. Please run "CodeBuilder" first to generate
+                the report files"""
             )
     return res_dict

@@ -20,7 +20,7 @@ class KernelProjection:
     cycles   : int
     LUT      : int
     DSP      : int
-    BRAM_18k : int
+    BRAM_18K : int
     URAM     : int
     BRAM_efficiency : float
     URAM_efficiency : float
@@ -165,7 +165,7 @@ class Kernel:
             cycles=None,
             LUT=None,
             DSP=None,
-            BRAM_18k=None,
+            BRAM_18K=None,
             URAM=None,
             BRAM_efficiency=None,
             URAM_efficiency=None,

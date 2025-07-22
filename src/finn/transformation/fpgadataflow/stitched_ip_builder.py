@@ -520,7 +520,7 @@ class StitchedIPBuilder(Transformation):
                 model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
             else:
                 raise Exception(
-                    """CreateStitchedIP failed, no wrapper HDL found under %s or %s.
+                    """StitchedIPBuilder failed, no wrapper HDL found under %s or %s.
                     Please check logs under the parent directory."""
                     % (wrapper_filename, wrapper_filename_alt)
                 )

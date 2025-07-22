@@ -285,9 +285,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
             shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
         shutil.copy(axi_dir + "axilite.sv", code_gen_dir)
 
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        # i.e. during the HLSSynthIP() transformation
+        # set ipgen_path and ip_path so that CodeBuilder transformation
+        # and StitchedIPBuilder transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
         return

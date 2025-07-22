@@ -46,7 +46,7 @@ class AnnotateResources(Transformation):
     * 'synth' -- use post-synthesis (Vivado or Vitis) report
 
     No annotations can be provided unless the relevant transformation for the
-    chosen mode (e.g. HLSSynthIP for hls) was previously run.
+    chosen mode (e.g. CodeBuilder for HLS) was previously run.
     """
 
     def __init__(self, mode, fpgapart, override_res_dict=None):

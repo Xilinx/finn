@@ -50,7 +50,7 @@ class FMPaddingRTL(Kernel):
             cycles = (self.NumChannels / self.SIMD)*self.numInputVectors*odim_h*odim_w,
             LUT=None,
             DSP=None,
-            BRAM_18k=None,
+            BRAM_18K=None,
             URAM=None,
             BRAM_efficiency=None,
             URAM_efficiency=None,

@@ -66,7 +66,7 @@ class HLSBackend(ABC):
         assert (
             code_gen_dir != ""
         ), """Node attribute "code_gen_dir_ipgen" is
-        not set. Please run HLSSynthIP first."""
+        not set. Please run CodeBuilder first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
         subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
             code_gen_dir, self.onnx_node.name
