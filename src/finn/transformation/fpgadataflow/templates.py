@@ -46,7 +46,7 @@ if {$NUM_AXILITE > 9} {
 set NUM_AXIMM %d
 set BOARD %s
 set FPGA_PART %s
-create_project finn_zynq_link ./ -part $FPGA_PART
+create_project -force finn_zynq_link ./ -part $FPGA_PART
 
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]

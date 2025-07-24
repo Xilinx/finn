@@ -136,7 +136,7 @@ class StitchedIPBuilder(Transformation):
         if len(aximm_intf_name) != 0:
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (node.names, aximm_intf_name[0][0])
+                % (node.name, aximm_intf_name[0][0])
             )
             ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
             self.connect_cmds.append(
@@ -390,8 +390,8 @@ class StitchedIPBuilder(Transformation):
             tcl.append("wait_on_run [get_runs synth_1]")
             tcl.append("open_run synth_1 -name synth_1")
             tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
-            tcl.append("write_checkpoint %s.dcp" % block_name)
-            tcl.append("write_xdc %s.xdc" % block_name)
+            tcl.append("write_checkpoint -force %s.dcp" % block_name)
+            tcl.append("write_xdc -force %s.xdc" % block_name)
             tcl.append(
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name

@@ -111,7 +111,7 @@ class MVAUSIP(Kernel):
             cycles = self.get_exp_cycles(),
             LUT = self.lut_estimation(),
             DSP = self.dsp_estimation(fpgapart),
-            BRAM_18k= self.bram_estimation(),
+            BRAM_18K= self.bram_estimation(),
             URAM = self.uram_estimation(),
             BRAM_efficiency = self.bram_efficiency_estimation(),
             URAM_efficiency = self.uram_efficiency_estimation()

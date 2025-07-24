@@ -21,9 +21,12 @@ class DummyKernel(Kernel):
     def projection(self)->KernelProjection:
         return KernelProjection(
             cycles = self.in_shape[-1]/self.SIMD,
-            LUTs = self.SIMD*36,
-            DSPs = self.SIMD*12,
-            BRAMs=self.SIMD*1024
+            LUT = self.SIMD*36,
+            DSP = self.SIMD*12,
+            BRAM_18K=self.SIMD*1024,
+            URAM=None,
+            BRAM_efficiency=None,
+            URAM_efficiency=None,
         )
 
 def test_kernel_assertion_checking():
