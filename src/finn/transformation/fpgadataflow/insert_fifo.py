@@ -188,7 +188,7 @@ class InsertFIFO(Transformation):
                 # insert FIFO as first node, except when first node is DMA
                 if (
                     not first_node.op_type.startswith("StreamingFIFO")
-                    and first_node.op_type != "IODMA_hls"
+                    and first_node.op_type != "IODMA"
                 ):
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
@@ -249,7 +249,7 @@ class InsertFIFO(Transformation):
                 final_node = model.find_producer(graph_out_name)
                 if (
                     not final_node.op_type.startswith("StreamingFIFO")
-                    and final_node.op_type != "IODMA_hls"
+                    and final_node.op_type != "IODMA"
                 ):
                     assert (
                         final_node.op_type != "TLastMarker_hls"

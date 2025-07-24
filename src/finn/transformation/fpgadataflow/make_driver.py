@@ -317,7 +317,7 @@ class MakePYNQDriver(Transformation):
                 sdp_inst = getCustomOp(node)
                 idma_name = sdp_inst.get_nodeattr("instance_name")
                 df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
-                assert df_model.graph.node[0].op_type == "IODMA_hls"
+                assert df_model.graph.node[0].op_type == "IODMA"
                 iodma_node = getCustomOp(df_model.graph.node[0])
                 if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
                     init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])

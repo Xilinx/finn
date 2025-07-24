@@ -35,6 +35,8 @@ from qonnx.util.basic import get_by_name
 
 from finn.analysis.fpgadataflow.floorplan_params import floorplan_params
 from finn.util.basic import make_build_dir
+from finn.kernels import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 class Floorplan(Transformation):
@@ -119,7 +121,7 @@ class Floorplan(Transformation):
         df_nodes = list(
             filter(lambda x: get_by_name(x.attribute, "backend") is not None, all_nodes)
         )
-        dma_nodes = list(filter(lambda x: x.op_type == "IODMA_hls", df_nodes))
+        dma_nodes = list(filter(lambda x: x.op_type == "IODMA", df_nodes))
         non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
         dyn_tlastmarker_nodes = list(
             filter(
@@ -161,9 +163,10 @@ class Floorplan(Transformation):
             node_slr = node_inst.get_nodeattr("slr")
             for pre_node in pre_nodes:
                 pre_inst = getCustomOp(pre_node)
+                kernel = gkr.kernel(pre_node.op_type, get_node_attr(pre_node, model))
                 pre_slr = pre_inst.get_nodeattr("slr")
                 if node_slr == pre_slr:
-                    axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()["axilite"]
+                    axilite_intf_name = kernel.get_verilog_top_module_intf_names()["axilite"]
                     if len(axilite_intf_name) != 0:
                         node_inst.set_nodeattr("partition_id", partition_cnt)
                         partition_cnt += 1
