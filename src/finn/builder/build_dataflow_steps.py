@@ -76,16 +76,13 @@ from finn.builder.build_dataflow_config import (
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveCharacteristic,
     DeriveFIFOSizes,
 )
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
@@ -96,13 +93,6 @@ from finn.transformation.fpgadataflow.minimize_accumulator_width import (
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
@@ -110,7 +100,6 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
@@ -124,7 +113,6 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
 from finn.util.test import execute_parent
 
-import importlib.resources
 from pathlib import Path
 from finn.util.context import Context
 from finn.transformation.fpgadataflow.code_builder import CodeBuilder
@@ -221,42 +209,6 @@ def verify_step(
                 shutil.move(wdb_path, new_wdb_path)
 
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
-
-
-def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    if not cfg.rtlsim_use_vivado_comps:
-        need_restitch = False
-        # switch impl_style=vivado components to rtl
-        # StreamingFIFO must have impl_style=rtl
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            inst = getCustomOp(fifo_layer)
-            if inst.get_nodeattr("impl_style") != "rtl":
-                inst.set_nodeattr("impl_style", "rtl")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
-        # if we've made alterations to the model, need to do some re-prep
-        if need_restitch:
-            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-            verify_model = verify_model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            )
-            verify_model = verify_model.transform(HLSSynthIP())
-            verify_model = verify_model.transform(
-                CreateStitchedIP(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                    vitis=False,
-                )
-            )
-    else:
-        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
-
-    # set top-level prop for stitched-ip rtlsim and launch
-    verify_model.set_metadata_prop("exec_mode", "rtlsim")
-    # TODO make configurable
-    # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
-    return verify_model
 
 
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -452,11 +404,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ApplyConfig(cfg.folding_config_file))
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
-        # prepare cppsim
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
-        model = model.transform(SetExecMode("cppsim"))
-        verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
+        warnings.warn("CppSim deprecated with new kernel flow.")
     return model
 
 
@@ -539,15 +487,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     `GiveUniqueNodeNames`.
     """
 
-    libraries = {
-        "finnkernel" : importlib.resources.files("finn"),
-        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
-    }
-
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
         ctx = Context(
             directory=Path(cfg.output_dir+"/rtlsim_node_by_node"),
-            libraries=libraries,
+            libraries=cfg._resolve_kernel_libs(),
             fpga_part=cfg._resolve_fpga_part(),
             clk_ns=cfg.synth_clk_period_ns,
             clk_hls=cfg._resolve_hls_clk_period(),
@@ -567,13 +510,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.auto_fifo_depths:
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
-            # model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
-            # model = model.transform(
-            #     PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-            # )
-            # model = model.transform(HLSSynthIP())
-            # model = model.transform(PrepareRTLSim())
             model = model.transform(RTLSimBuilder(ctx))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
@@ -596,13 +533,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     "rtlsim_trace", os.path.abspath(report_dir) + "/fifosim_trace.wdb"
                 )
 
-            libraries = {
-                "finnkernel" : importlib.resources.files("finn"),
-                "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
-            }
             ctx = Context(
                 directory=Path(cfg.output_dir+"/rtlsim_fifo_depths"),
-                libraries=libraries,
+                libraries=cfg._resolve_kernel_libs(),
                 fpga_part=cfg._resolve_fpga_part(),
                 clk_ns=cfg.synth_clk_period_ns,
                 clk_hls=cfg._resolve_hls_clk_period(),
@@ -671,15 +604,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     make_stitched_ip = DataflowOutputType.STITCHED_IP in cfg.generate_outputs
     rtlsim_stitched_ip = VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps()
 
-    libraries = {
-        "finnkernel" : importlib.resources.files("finn"),
-        "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
-    }
-
     if make_stitched_ip or rtlsim_stitched_ip:
         ctx = Context(
             directory=Path(cfg.output_dir+"/ipgen"),
-            libraries=libraries,
+            libraries=cfg._resolve_kernel_libs(),
             fpga_part=cfg._resolve_fpga_part(),
             clk_ns=cfg.synth_clk_period_ns,
             clk_hls=cfg._resolve_hls_clk_period(),
@@ -854,10 +782,12 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
                 ZynqBuild(
-                    cfg.board,
-                    cfg.synth_clk_period_ns,
-                    cfg.enable_hw_debug,
+                    platform=cfg.board,
+                    period_ns=cfg.synth_clk_period_ns,
+                    enable_debug=cfg.enable_hw_debug,
                     partition_model_dir=partition_model_dir,
+                    out_dir=cfg.output_dir,
+                    libraries=cfg._resolve_kernel_libs(),
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
@@ -881,13 +811,15 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 VitisBuild(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                    cfg._resolve_vitis_platform(),
+                    fpga_part=cfg._resolve_fpga_part(),
+                    period_ns=cfg.synth_clk_period_ns,
+                    platform=cfg._resolve_vitis_platform(),
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
+                    out_dir=cfg.output_dir,
+                    libraries=cfg._resolve_kernel_libs(),
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")

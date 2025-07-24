@@ -29,10 +29,12 @@
 
 import numpy as np
 import os
+import importlib.resources
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, List, Optional
+from pathlib import Path
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
 from finn.util.basic import alveo_default_platform, part_map
@@ -169,8 +171,8 @@ class DataflowBuildConfig:
 
     #: (Optional) Path to configuration JSON file in which user can specify
     #: a preferred implementation style (HLS or RTL) for each node.
-    #: The SpecializeLayers transformation picks up these settings and if possible
-    #: fulfills the desired implementation style for each layer by converting the
+    #: The KernelRegistry could pick up these settings and if possible
+    #: fulfill the desired implementation style for each layer by converting the
     #: node into its HLS or RTL variant.
     #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     specialize_layers_config_file: Optional[str] = None
@@ -259,6 +261,10 @@ class DataflowBuildConfig:
     #: Target Xilinx FPGA part. Only needed when board is not specified.
     #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
+
+    #: A dict of custom kernel HDL/HLS libraries that contain RTL and HLS files
+    #: used by custom kernels.
+    custom_kernel_libs: Optional[dict[str, Path]] = None
 
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
@@ -388,6 +394,18 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_kernel_libs(self):
+        # Default HDL/HLS libraries
+        libs = {
+            "finn" : importlib.resources.files("finn"),
+            "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
+        }
+        if self.custom_kernel_libs is None:
+            return libs
+        else:
+            libs.update(self.custom_kernel_libs)
+            return libs
 
     def _resolve_cycles_per_frame(self):
         if self.target_fps is None:

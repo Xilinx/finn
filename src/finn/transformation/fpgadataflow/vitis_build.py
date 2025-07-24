@@ -30,6 +30,7 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 from enum import Enum
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -43,15 +44,14 @@ from qonnx.transformation.general import (
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
+from finn.util.context import Context
+from finn.transformation.fpgadataflow.code_builder import CodeBuilder
+from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
 
 from . import templates
 
@@ -172,12 +172,14 @@ class VitisLink(Transformation):
     def __init__(
         self,
         platform,
+        ipgen_vitis_dir,
         f_mhz=200,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
     ):
         super().__init__()
         self.platform = platform
+        self.ipgen_vitis_dir = ipgen_vitis_dir
         self.f_mhz = f_mhz
         self.strategy = strategy
         self.enable_debug = enable_debug
@@ -274,7 +276,8 @@ class VitisLink(Transformation):
                         )
 
         # create a temporary folder for the project
-        link_dir = make_build_dir(prefix="vitis_link_proj_")
+        link_dir = Path(self.ipgen_vitis_dir / Path("vitis_link_proj"))
+        Path(link_dir).mkdir(exist_ok=True)
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
         # add Vivado physopt directives if desired
@@ -335,9 +338,9 @@ class VitisLink(Transformation):
         working_dir = os.environ["PWD"]
         with open(gen_rep_xml_sh, "w") as f:
             f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write("vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl"))
-            f.write("cd {}\n".format(working_dir))
+            f.write(f"pushd {link_dir}\n")
+            f.write("vivado -mode batch -source ./gen_report_xml.tcl\n")
+            f.write("popd\n")
         bash_command = ["bash", gen_rep_xml_sh]
         process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_genxml.communicate()
@@ -368,6 +371,8 @@ class VitisBuild(Transformation):
         fpga_part,
         period_ns,
         platform,
+        out_dir,
+        libraries,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
         floorplan_file=None,
@@ -378,6 +383,8 @@ class VitisBuild(Transformation):
         self.fpga_part = fpga_part
         self.period_ns = period_ns
         self.platform = platform
+        self.out_dir = out_dir
+        self.libraries = libraries
         self.strategy = strategy
         self.enable_debug = enable_debug
         self.floorplan_file = floorplan_file
@@ -385,9 +392,12 @@ class VitisBuild(Transformation):
         self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
+        # Make ipgen dir for vitis
+        ipgen_vitis_dir = Path(self.out_dir+"/ipgen_vitis")
+        ipgen_vitis_dir.mkdir(exist_ok=True)
         _check_vitis_envvars()
         # prepare at global level, then break up into kernels
-        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
+        prep_transforms = [InsertIODMA(512), InsertDWC()]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
@@ -409,15 +419,23 @@ class VitisBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
             kernel_model = kernel_model.transform(RemoveUnusedTensors())
             kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)
-            kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
-            kernel_model = kernel_model.transform(HLSSynthIP())
-            kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
+
+            ctx = Context(
+                directory=(ipgen_vitis_dir / Path(sdp_node.onnx_node.name)),
+                libraries=self.libraries,
+                fpga_part=self.fpga_part,
+                clk_ns=self.period_ns,
+                ip_name=sdp_node.onnx_node.name,
+                clk_hls=self.period_ns,
+                vitis=True,
+                signature=None,
             )
+            kernel_model = kernel_model.transform(CodeBuilder(ctx))
+            kernel_model = kernel_model.transform(StitchedIPBuilder(ctx))
+
             kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))
             kernel_model.set_metadata_prop("platform", "alveo")
             kernel_model.save(dataflow_model_filename)
@@ -426,6 +444,7 @@ class VitisBuild(Transformation):
             model = model.transform(
                 VitisLink(
                     self.platform,
+                    ipgen_vitis_dir,
                     round(1000 / self.period_ns),
                     strategy=self.strategy,
                     enable_debug=self.enable_debug,
