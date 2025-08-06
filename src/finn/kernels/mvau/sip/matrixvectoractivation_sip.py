@@ -334,6 +334,10 @@ class MVAUSIP(Kernel):
         """Returns FINN DataType of output."""
         return DataType[self.outputDataType]
 
+    def get_number_output_values(self):
+        nf = np.prod(self.get_folded_output_shape()[:-1])
+        return nf
+
     ######################### Other methods #########################
 
     def get_instream_width(self, ind=0):

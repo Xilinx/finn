@@ -382,3 +382,6 @@ class IODMAHLS(Kernel):
         code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW")
 
         return code_gen_dict
+
+    def get_exp_cycles(self) -> int:
+        return 0

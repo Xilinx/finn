@@ -6,6 +6,7 @@ from pkgutil import get_data
 from qonnx.core.datatype import DataType
 import numpy as np
 import warnings
+import math
 
 
 @dataclass(frozen=True, init=False)
@@ -17,7 +18,7 @@ class StreamingFIFORTL(Kernel):
     normal_shape:list[int]
     dataType:str
     ram_style:str
-    depth_monitor:int
+    depth_monitor:bool = False
     inFIFODepths:list[int]
     outFIFODepths:list[int]
 
@@ -123,3 +124,70 @@ class StreamingFIFORTL(Kernel):
 
         with open(node_dir / Path(f'{self.name}.v'), 'w') as f:
             f.write(template)
+
+    def get_exp_cycles(self) -> int:
+        return 0
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM"""
+        impl = self.impl_style
+        ram_type = self.ram_style
+        depth = self.get_adjusted_depth()
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
+            # Non-BRAM based implementation
+            return 0
+
+        if W == 1:
+            return math.ceil(depth / 16384)
+        elif W == 2:
+            return math.ceil(depth / 8192)
+        elif W <= 4:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 4))
+        elif W <= 9:
+            return (math.ceil(depth / 2048)) * (math.ceil(W / 9))
+        elif W <= 18 or depth > 512:
+            return (math.ceil(depth / 1024)) * (math.ceil(W / 18))
+        else:
+            return (math.ceil(depth / 512)) * (math.ceil(W / 36))
+
+    def uram_estimation(self):
+        """Calculates resource estimation for URAM"""
+
+        impl = self.impl_style
+        ram_type = self.ram_style
+        depth = self.get_adjusted_depth()
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
+            # Non-BRAM based implementation
+            return 0
+        else:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
+
+    def bram_efficiency_estimation(self):
+        depth = self.get_adjusted_depth()
+        W = self.get_instream_width()
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * depth
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        impl = self.impl_style
+        ram_type = self.ram_style
+        depth = self.get_adjusted_depth()
+        W = self.get_instream_width()
+
+        address_luts = 2 * math.ceil(math.log(depth, 2))
+
+        if impl == "rtl" or (impl == "vivado" and ram_type == "distributed"):
+            ram_luts = (math.ceil(depth / 32)) * (math.ceil(W / 2))
+        else:
+            ram_luts = 0
+
+        return int(address_luts + ram_luts)
