@@ -12,6 +12,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 import copy
 import multiprocessing as mp
 from qonnx.util.basic import get_num_default_workers
+from qonnx.custom_op.registry import getCustomOp
 from pathlib import Path
 
 
@@ -76,6 +77,9 @@ class RTLSimBuilder(Transformation):
         # Fetch kernel, skip this node if kernel is not RTL
         kernel: Kernel = gkr.kernel(node.op_type, attributes)
 
-        kernel.build_rtlsim(node_ctx, self.rtlsim_dir, self.ref_input_model.get_metadata_prop("rtlsim_trace"))
+        ret = kernel.build_rtlsim(node_ctx, self.rtlsim_dir, self.ref_input_model.get_metadata_prop("rtlsim_trace"))
+
+        inst = getCustomOp(node)
+        inst.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])
 
         return (node, node_ctx, False)

@@ -33,6 +33,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 class AnnotateCycles(Transformation):
@@ -49,7 +50,8 @@ class AnnotateCycles(Transformation):
         for node in graph.node:
             if gkr.kernel_exists(node.op_type):
                 op_inst = registry.getCustomOp(node)
-                cycles = op_inst.get_exp_cycles()
+                kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+                cycles = kernel.get_exp_cycles()
                 op_inst.set_nodeattr("cycles_estimate", cycles)
             elif node.op_type == "StreamingDataflowPartition":
                 # recurse into model to manually annotate per-layer cycles

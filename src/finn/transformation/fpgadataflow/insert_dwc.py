@@ -31,6 +31,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def _is_dwc_node(node):
@@ -78,28 +80,30 @@ class InsertDWC(Transformation):
                     if _suitable_node(consumer) is True:
                         n0 = getCustomOp(n)
                         n1 = getCustomOp(consumer)
-                        n0_out_shape = n0.get_folded_output_shape(out_idx)
+                        k0 = gkr.kernel(n.op_type, get_node_attr(n, model))
+                        k1 = gkr.kernel(consumer.op_type, get_node_attr(consumer, model))
+                        n0_out_shape = k0.get_folded_output_shape(out_idx)
                         # get input idx
                         in_idx = None
                         for idx, n_input in enumerate(consumer.input):
                             if output_name == n_input:
                                 in_idx = idx
                         assert in_idx is not None, "Malformed model"
-                        n1_in_shape = n1.get_folded_input_shape(in_idx)
+                        n1_in_shape = k1.get_folded_input_shape(in_idx)
 
                         if n0_out_shape[-1] != n1_in_shape[-1]:
                             graph_modified = True
                             # determine dwc inwidth
-                            dwc_in_width = n0.get_outstream_width(out_idx)
+                            dwc_in_width = k0.get_outstream_width(out_idx)
                             # determine dwc outwidth
-                            dwc_out_width = n1.get_instream_width(in_idx)
+                            dwc_out_width = k1.get_instream_width(in_idx)
                             node_optype = "StreamingDataWidthConverter"
 
                             # determine shape for dwc
-                            dwc_shape = n0.get_normal_output_shape(out_idx)
+                            dwc_shape = k0.get_normal_output_shape(out_idx)
 
                             # determine FINN dtype for dwc
-                            dtype = n0.get_output_datatype(out_idx)
+                            dtype = k0.get_output_datatype(out_idx)
                             # determine onnx tensor dtype for dwc
                             n0_otensor = model.get_tensor_valueinfo(output_name)
                             n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type

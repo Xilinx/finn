@@ -8,7 +8,7 @@ from finn.kernels import Kernel
 from finn.kernels.kernel_registry import gkr
 
 
-def get_node_attr(node, model) -> dict:
+def get_node_attr(node, model=None) -> dict:
     """ Given a node and the model it belongs to, returns a list of node attributes
         and other data as a dict."""
     # Get node attributes
@@ -17,7 +17,7 @@ def get_node_attr(node, model) -> dict:
     # Convert bytes to str
     attributes = {key : val.decode('utf-8') if type(val)==bytes else val for key,val in attributes.items()}
 
-    if "MVAU" in node.op_type:
+    if (model != None) and ("MVAU" in node.op_type):
         attributes["weights"] = model.get_initializer(node.input[1])
         if len(node.input) > 2:
             attributes["thresholds"] = model.get_initializer(node.input[2])

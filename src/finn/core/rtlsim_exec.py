@@ -43,6 +43,8 @@ from finn.util.basic import (
     launch_process_helper,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def prep_rtlsim_io_dict(model, execution_context):
@@ -56,16 +58,17 @@ def prep_rtlsim_io_dict(model, execution_context):
         i_dt = model.get_tensor_datatype(i_name)
         first_node_onnx = model.find_consumer(i_name)
         first_node = getCustomOp(first_node_onnx)
+        first_kernel = gkr.kernel(first_node_onnx.op_type, get_node_attr(first_node_onnx, model))
         node_inp_ind = list(first_node_onnx.input).index(i_name)
         if node_inp_ind == 0:
             # default node input (input 0)
-            i_stream_w = first_node.get_instream_width()
-            i_folded_shape = first_node.get_folded_input_shape()
+            i_stream_w = first_kernel.get_instream_width()
+            i_folded_shape = first_kernel.get_folded_input_shape()
         else:
             # not input 0; node must support specifying inp index
             # for these functions
-            i_stream_w = first_node.get_instream_width(node_inp_ind)
-            i_folded_shape = first_node.get_folded_input_shape(node_inp_ind)
+            i_stream_w = first_kernel.get_instream_width(node_inp_ind)
+            i_folded_shape = first_kernel.get_folded_input_shape(node_inp_ind)
         batchsize = i_tensor.shape[0]
         # override batch size for input
         i_folded_shape = list(i_folded_shape)
@@ -89,8 +92,9 @@ def prep_rtlsim_io_dict(model, execution_context):
         o_name = o_vi.name
         o_shape = model.get_tensor_shape(o_name)
         o_dt = model.get_tensor_datatype(o_name)
-        last_node = getCustomOp(model.find_producer(o_name))
-        o_folded_shape = last_node.get_folded_output_shape()
+        last_node = model.find_producer(o_name)
+        last_kernel = gkr.kernel(last_node.op_type, get_node_attr(last_node, model))
+        o_folded_shape = last_kernel.get_folded_output_shape()
         # override batch size from actual input
         o_shape = list(o_shape)
         o_shape[0] = batchsize
@@ -98,9 +102,9 @@ def prep_rtlsim_io_dict(model, execution_context):
         o_folded_shape = list(o_folded_shape)
         o_folded_shape[0] = batchsize
         o_folded_shape = tuple(o_folded_shape)
-        o_stream_w = last_node.get_outstream_width()
+        o_stream_w = last_kernel.get_outstream_width()
         o_tensor_info.append((o_stream_w, o_dt, o_folded_shape, o_shape))
-        num_out_values += batchsize * last_node.get_number_output_values()
+        num_out_values += batchsize * last_kernel.get_number_output_values()
     return io_dict, if_dict, num_out_values, o_tensor_info, batchsize
 
 
@@ -195,16 +199,18 @@ def rtlsim_exec_cppxsi(
         first_node = model.find_consumer(iname)
         assert first_node is not None, "Failed to find consumer for " + iname
         fnode_inst = getCustomOp(first_node)
+        fnode_kernel = gkr.kernel(first_node.op_type, get_node_attr(first_node, model))
         top_ind = list(first_node.input).index(iname)
-        ishape_folded = fnode_inst.get_folded_input_shape(ind=top_ind)
+        ishape_folded = fnode_kernel.get_folded_input_shape(ind=top_ind)
         instream_iters.append(np.prod(ishape_folded[:-1]))
     for top_out in model.graph.output:
         oname = top_out.name
         last_node = model.find_producer(oname)
         assert last_node is not None, "Failed to find producer for " + oname
         lnode_inst = getCustomOp(last_node)
+        lnode_kernel = gkr.kernel(last_node.op_type, get_node_attr(last_node, model))
         top_ind = list(last_node.output).index(oname)
-        oshape_folded = lnode_inst.get_folded_output_shape(ind=top_ind)
+        oshape_folded = lnode_kernel.get_folded_output_shape(ind=top_ind)
         outstream_iters.append(np.prod(oshape_folded[:-1]))
 
     # retrieve the number of inputs from execution_context

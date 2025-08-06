@@ -35,6 +35,9 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.util.basic import get_by_name
 
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
+
 
 class InsertIODMA(Transformation):
     """Insert DMA nodes on inputs and outputs, or as specified by filters in
@@ -112,12 +115,12 @@ class InsertIODMA(Transformation):
                 else:
                     in_shape = model.get_tensor_shape(graph_in_name)
                     in_dtype = model.get_tensor_datatype(graph_in_name)
-                    first_node_inst = getCustomOp(first_node)
-                    in_folded_shape = first_node_inst.get_folded_input_shape()
+                    first_node_kernel = gkr.kernel(first_node.op_type, get_node_attr(first_node, model))
+                    in_folded_shape = first_node_kernel.get_folded_input_shape()
                     # take advantage of AXI stream width padding for DMA alignment
                     # (AXI streams are always padded to 8 bits)
                     # this is the width of stream output expected from the DMA
-                    padded_instream_width = first_node_inst.get_instream_width_padded()
+                    padded_instream_width = first_node_kernel.get_instream_width_padded()
                     padded_instream_bytes = padded_instream_width // 8
                     # determine the feasible interface width
                     transfer_bits = padded_instream_width * np.prod(in_folded_shape[:-1])
@@ -158,12 +161,12 @@ class InsertIODMA(Transformation):
                 else:
                     out_shape = model.get_tensor_shape(graph_out_name)
                     out_dtype = model.get_tensor_datatype(graph_out_name)
-                    final_node_inst = getCustomOp(final_node)
-                    out_folded_shape = final_node_inst.get_folded_output_shape()
+                    final_node_kernel = gkr.kernel(final_node.op_type, get_node_attr(final_node, model))
+                    out_folded_shape = final_node_kernel.get_folded_output_shape()
                     # take advantage of AXI stream width padding for DMA alignment
                     # (AXI streams are always padded to 8 bits)
                     # this is the width of stream input to DMA
-                    padded_outstream_width = final_node_inst.get_outstream_width_padded()
+                    padded_outstream_width = final_node_kernel.get_outstream_width_padded()
                     padded_outstream_bytes = padded_outstream_width // 8
                     # determine the feasible interface width
                     transfer_bits = padded_outstream_width * np.prod(out_folded_shape[:-1])
@@ -207,6 +210,7 @@ class InsertIODMA(Transformation):
             )
             for fc_node in fc_extw_nodes:
                 fc_inst = getCustomOp(fc_node)
+                fc_kernel = gkr.kernel(fc_node.op_type, get_node_attr(fc_node, model))
                 fc_w_name = fc_node.input[1]
                 w_shape = model.get_tensor_shape(fc_w_name)
                 w_dtype = model.get_tensor_datatype(fc_w_name)
@@ -217,7 +221,7 @@ class InsertIODMA(Transformation):
                 # calculate width of stream output from DMA
                 pe = get_by_name(fc_node.attribute, "PE").i
                 simd = get_by_name(fc_node.attribute, "SIMD").i
-                streamWidth = fc_inst.get_instream_width_padded(1)
+                streamWidth = fc_kernel.get_instream_width_padded(1)
                 # make new buffer
                 W = model.get_initializer(fc_w_name)
                 iodma_mem = self.get_mem_init(W, pe, simd)

@@ -34,6 +34,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
 
 from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 class DeriveCharacteristic(NodeLocalTransformation):
@@ -52,18 +53,24 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None, manual_bypass=False):
+    def __init__(self, period, rtlsim_dir, num_workers=None, manual_bypass=False):
         super().__init__(num_workers=num_workers)
         self.period = period
         self.manual_bypass = manual_bypass
+        self.rtlsim_dir = rtlsim_dir
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
         if gkr.kernel_exists(op_type):
             try:
-                # lookup op_type in registry of CustomOps
-                inst = registry.getCustomOp(node)
-                inst.derive_characteristic_fxns(period=self.period)
+                kernel_rtlsim_dir = self.rtlsim_dir + f"/rtlsim_{node.name}_"
+                kernel = gkr.kernel(node.op_type, get_node_attr(node, self.ref_input_model))
+                kernel.derive_characteristic_fxns(
+                    period=self.period,
+                    node=node,
+                    kernel_rtlsim_dir=kernel_rtlsim_dir,
+                    rtlsim_trace=self.ref_input_model.get_metadata_prop("rtlsim_trace")
+                )
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)

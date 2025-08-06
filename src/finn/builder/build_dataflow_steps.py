@@ -503,7 +503,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         verify_model.set_metadata_prop("exec_mode", "node_by_node_rtlsim")
         verify_model.set_metadata_prop("rtlsim_dir", str(ctx.directory)+"_rtlsim")
         verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_node_by_node",True))
-        verify_model = verify_model.transform(RTLSimBuilder(ctx,True))
+        verify_model = verify_model.transform(RTLSimBuilder(ctx))
         verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
         verify_model = verify_model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_node_by_node",False))
 
@@ -511,10 +511,23 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
             model = model.transform(GiveUniqueNodeNames())
+            ctx = Context(
+                directory=Path(cfg.output_dir+"/rtlsim_fifo_depths_characterize"),
+                libraries=cfg._resolve_kernel_libs(),
+                fpga_part=cfg._resolve_fpga_part(),
+                clk_ns=cfg.synth_clk_period_ns,
+                clk_hls=cfg._resolve_hls_clk_period(),
+                vitis=cfg.stitched_ip_gen_dcp,
+                signature=cfg.signature,
+            )
+            model = model.transform(CodeBuilder(ctx))
+            model.set_metadata_prop("rtlsim_dir", str(ctx.directory)+"_rtlsim")
+            model = model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_fifo_depths_characterize",True))
             model = model.transform(RTLSimBuilder(ctx))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
-            model = model.transform(DeriveCharacteristic(period))
+            model = model.transform(DeriveCharacteristic(period, rtlsim_dir=model.get_metadata_prop("rtlsim_dir")))
+            model = model.transform(ChangeDATPaths(cfg.output_dir+"/rtlsim_fifo_depths_characterize",False))
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(

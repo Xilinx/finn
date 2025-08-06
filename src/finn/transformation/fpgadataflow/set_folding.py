@@ -36,6 +36,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def divisors(num):
@@ -87,11 +88,12 @@ class SetFolding(Transformation):
         self.mvau_wwidth_max = mvau_wwidth_max
         self.two_pass_relaxation = two_pass_relaxation
 
-    def optimize_attribute_val(self, node_inst, max_val, attr_name):
+    def optimize_attribute_val(self, node_inst, max_val, attr_name, node, model):
         node_inst.set_nodeattr(attr_name, 1)
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
-            cyc = node_inst.get_exp_cycles()
+            kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+            cyc = kernel.get_exp_cycles()
             if cyc < self.target_cycles_per_frame:
                 # finish if target met
                 break
@@ -135,7 +137,8 @@ class SetFolding(Transformation):
                 for simd_val in divisors(max_simd):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
-                    cyc = node_inst.get_exp_cycles()
+                    kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+                    cyc = kernel.get_exp_cycles()
                     if cyc < self.target_cycles_per_frame:
                         # finish if target met
                         break
@@ -147,29 +150,30 @@ class SetFolding(Transformation):
                         node_inst.set_nodeattr("SIMD", prev_simd_val)
                         break
                 # increase PE until target met or reached max_pe
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                self.optimize_attribute_val(node_inst, max_pe, "PE", node, model)
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                self.optimize_attribute_val(node_inst, max_pe, "PE", node, model)
             elif op_type == "LabelSelect":
                 max_pe = node_inst.get_nodeattr("Labels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                self.optimize_attribute_val(node_inst, max_pe, "PE", node, model)
             elif op_type in depthwise_op_exceptions:
                 # init/reset SIMD of VVAU
                 if op_type in ["VVAU"]:
                     node_inst.set_nodeattr("SIMD", 1)
                 max_pe = node_inst.get_nodeattr("Channels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                self.optimize_attribute_val(node_inst, max_pe, "PE", node, model)
                 # increase SIMD for VVAU once PE is exhausted
                 pe = node_inst.get_nodeattr("PE")
-                cyc = node_inst.get_exp_cycles()
+                kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+                cyc = kernel.get_exp_cycles()
                 if (
                     op_type in ["VVAU"]
                     and pe == max_pe
                     and cyc > self.target_cycles_per_frame
                 ):
                     max_simd = np.prod(node_inst.get_nodeattr("Kernel"))
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD", node, model)
                 # also set the folding of the upsteam DW SWU
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
@@ -199,10 +203,11 @@ class SetFolding(Transformation):
                         # init/reset parallel_window mode of RTL SWG
                         if op_type == "ConvolutionInputGenerator_rtl": # TODO: NEEDS TO CHANGE FOR NEW FLOW
                             node_inst.set_nodeattr("parallel_window", 0)
-                        self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                        self.optimize_attribute_val(node_inst, max_simd, "SIMD", node, model)
                         # enable parallel_window mode of RTL SWG if needed
                         simd = node_inst.get_nodeattr("SIMD")
-                        cyc = node_inst.get_exp_cycles()
+                        kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+                        cyc = kernel.get_exp_cycles()
                         if (
                             op_type == "ConvolutionInputGenerator_rtl" # TODO: NEEDS TO CHANGE FOR NEW FLOW
                             and simd == max_simd
@@ -214,7 +219,7 @@ class SetFolding(Transformation):
                         continue
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD", node, model)
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)
 

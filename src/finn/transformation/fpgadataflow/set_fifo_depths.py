@@ -48,6 +48,8 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation.fpgadataflow.code_builder import CodeBuilder
 from finn.transformation.fpgadataflow.stitched_ip_builder import StitchedIPBuilder
 from finn.transformation.fpgadataflow.change_dat_paths import ChangeDATPaths
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def reset_implementation(node):
@@ -298,6 +300,7 @@ class InsertAndSetFIFODepths(Transformation):
             )
             op_type = node.op_type
             assert not op_type.startswith("StreamingFIFO"), "Found existing StreamingFIFO node"
+            kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
             node = getCustomOp(node)
             ifd = node.get_nodeattr("inFIFODepths")
             ofd = node.get_nodeattr("outFIFODepths")
@@ -309,11 +312,11 @@ class InsertAndSetFIFODepths(Transformation):
                 # (except stream width hence the :-1)
                 for i in range(len(ifd)):
                     # safe guard that for very small tensors depth is not set to 1
-                    tensor_size = np.prod(node.get_folded_input_shape(i)[:-1])
+                    tensor_size = np.prod(kernel.get_folded_input_shape(i)[:-1])
                     ifd[i] = tensor_size if tensor_size > 1 else 2
                 for o in range(len(ofd)):
                     # safe guard that for very small tensors depth is not set to 1
-                    depth = np.prod(node.get_folded_output_shape(o)[:-1])
+                    depth = np.prod(kernel.get_folded_output_shape(o)[:-1])
                     ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
@@ -375,7 +378,9 @@ class InsertAndSetFIFODepths(Transformation):
         # set up rate limit for input throttling
         if self.fifosim_input_throttle:
             first_node = getCustomOp(model.graph.node[0])
-            inp_fold = np.prod(first_node.get_folded_input_shape()[:-1])
+            first_node = model.graph.node[0]
+            first_kernel = gkr.kernel(first_node.op_type, get_node_attr(first_node, model))
+            inp_fold = np.prod(first_kernel.get_folded_input_shape()[:-1])
             throttle_cycles = max(0, max_cycles - inp_fold)
         else:
             throttle_cycles = 0
@@ -569,11 +574,12 @@ class SplitLargeFIFOs(Transformation):
             node_ind += 1
             if node.op_type == ("StreamingFIFO"):
                 n_inst = getCustomOp(node)
+                n_kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
                 depth = n_inst.get_nodeattr("depth")
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
-                    fld_shape = n_inst.get_folded_output_shape()
-                    n_shape = n_inst.get_normal_output_shape()
+                    fld_shape = n_kernel.get_folded_output_shape()
+                    n_shape = n_kernel.get_normal_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")
                     ram_style = n_inst.get_nodeattr("ram_style")
                     shape = model.get_tensor_shape(node.input[0])

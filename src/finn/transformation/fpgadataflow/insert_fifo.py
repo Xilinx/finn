@@ -34,6 +34,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def _is_fifo_node(node):
@@ -110,18 +112,20 @@ class InsertFIFO(Transformation):
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
                         n0 = getCustomOp(first_node)
+                        k0 = gkr.kernel(first_node.op_type, get_node_attr(first_node, model))
                         # determine fifo node attributes
-                        fld_shape = n0.get_folded_output_shape()
-                        dtype = n0.get_output_datatype()
+                        fld_shape = k0.get_folded_output_shape()
+                        dtype = k0.get_output_datatype()
                         n0_otensor = model.get_tensor_valueinfo(output_name)
                         n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
 
                         # check if folded_shape of output of first node and
                         # input of the second node is equal
                         n1 = getCustomOp(consumer)
+                        k1 = gkr.kernel(consumer.op_type, get_node_attr(consumer, model))
                         for idx, inp in enumerate(consumer.input):
                             if inp == output_name:
-                                fld_shape_2 = n1.get_folded_input_shape(ind=idx)
+                                fld_shape_2 = k1.get_folded_input_shape(ind=idx)
                                 idx_inp = idx
                         assert _suitable_folded_shapes(
                             fld_shape, fld_shape_2
@@ -129,7 +133,7 @@ class InsertFIFO(Transformation):
                         folded output shape of the first node is not the same as the
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
-                        n_shape = n0.get_normal_output_shape()
+                        n_shape = k0.get_normal_output_shape()
 
                         # check if outFIFOdepths attribute of first node
                         # and inFIFOdepths attribute of consumer node is equal
@@ -147,7 +151,7 @@ class InsertFIFO(Transformation):
                             fifo_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 n0_tensor_dtype,
-                                n0.get_normal_output_shape(),
+                                k0.get_normal_output_shape(),
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
@@ -193,10 +197,11 @@ class InsertFIFO(Transformation):
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
+                    k0 = gkr.kernel(first_node.op_type, get_node_attr(first_node, model))
                     # determine fifo node attributes
-                    fld_shape = n0.get_folded_input_shape(inp_ind)
-                    n_shape = n0.get_normal_input_shape(inp_ind)
-                    dtype = n0.get_input_datatype(inp_ind)
+                    fld_shape = k0.get_folded_input_shape(inp_ind)
+                    n_shape = k0.get_normal_input_shape(inp_ind)
+                    dtype = k0.get_input_datatype(inp_ind)
                     n0_itensor = model.get_tensor_valueinfo(graph_in_name)
                     n0_tensor_dtype = n0_itensor.type.tensor_type.elem_type
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
@@ -208,7 +213,7 @@ class InsertFIFO(Transformation):
                         fifo_output_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             n0_tensor_dtype,
-                            n0.get_normal_input_shape(inp_ind),
+                            k0.get_normal_input_shape(inp_ind),
                         )
                         graph.value_info.append(fifo_output_tensor)
                         model.set_tensor_datatype(fifo_output_tensor.name, dtype)
@@ -256,11 +261,12 @@ class InsertFIFO(Transformation):
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
+                    k0 = gkr.kernel(final_node.op_type, get_node_attr(final_node, model))
                     out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
-                    fld_shape = n0.get_folded_output_shape(out_ind)
-                    n_shape = n0.get_normal_output_shape(out_ind)
-                    dtype = n0.get_output_datatype(out_ind)
+                    fld_shape = k0.get_folded_output_shape(out_ind)
+                    n_shape = k0.get_normal_output_shape(out_ind)
+                    dtype = k0.get_output_datatype(out_ind)
                     n0_otensor = model.get_tensor_valueinfo(graph_out_name)
                     n0_tensor_dtype = n0_otensor.type.tensor_type.elem_type
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
@@ -272,7 +278,7 @@ class InsertFIFO(Transformation):
                         fifo_input_tensor = oh.make_tensor_value_info(
                             model.make_new_valueinfo_name(),
                             n0_tensor_dtype,
-                            n0.get_normal_output_shape(out_ind),
+                            k0.get_normal_output_shape(out_ind),
                         )
                         graph.value_info.append(fifo_input_tensor)
                         model.set_tensor_datatype(fifo_input_tensor.name, dtype)

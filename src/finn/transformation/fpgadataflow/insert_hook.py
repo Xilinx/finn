@@ -35,6 +35,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
 from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 def _is_hook_node(node):
@@ -78,15 +79,16 @@ class InsertHook(Transformation):
                         n.name + ": HLS node with fan-out higher than 1 cannot be stitched"
                     )
                     n0 = getCustomOp(n)
+                    k0 = gkr.kernel(n.op_type, get_node_attr(n, model))
                     n0_hook = n0.get_nodeattr("output_hook")
                     if n0_hook in list_supported_hooks:
                         if n0_hook == "checksum":
                             if len(consumers) == 1:
                                 if consumers[0].op_type == "CheckSum_hls":
                                     continue
-                            n0_normal_oshape = n0.get_normal_output_shape()
-                            n0_folded_oshape = n0.get_folded_output_shape()
-                            n0_odt = n0.get_output_datatype()
+                            n0_normal_oshape = k0.get_normal_output_shape()
+                            n0_folded_oshape = k0.get_folded_output_shape()
+                            n0_odt = k0.get_output_datatype()
                             items_per_word = n0.get_nodeattr("PE")
                             words_per_frame = np.prod(n0_folded_oshape[:-1])
                             chk_otensor = oh.make_tensor_value_info(
