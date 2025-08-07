@@ -18,7 +18,6 @@ class IODMAHLS(Kernel):
     depth:int
     folded_shape:list[int]
     normal_shape:list[int]
-    dataType:str
     ram_style:str
     depth_monitor:int
     inFIFODepths:list[int]

@@ -195,7 +195,7 @@ class Kernel:
     def rtlsim_multi_io(self, sim, io_dict, node):
         inst = getCustomOp(node)
         "Run rtlsim for this node, supports multiple i/o streams."
-        num_out_values = inst.get_number_output_values()
+        num_out_values = self.get_number_output_values()
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
@@ -229,12 +229,13 @@ class Kernel:
             self.name, [str(file) for file in verilog_files], str(single_src_dir), debug
         )
 
+        return ret
+
     def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
-        inst = getCustomOp(node)
         inputs = {}
         for i, inp in enumerate(node.input):
             exp_ishape = tuple(self.get_normal_input_shape(i))
-            folded_ishape = inst.get_folded_input_shape(i)
+            folded_ishape = self.get_folded_input_shape(i)
             inp_val = context[inp]
 
             if self.impl_style == 'rtl':
@@ -252,7 +253,7 @@ class Kernel:
                     inp_val = inp_val.astype(np.float32)
 
             assert inp_val.shape == exp_ishape, "Input shape doesn't match expected shape."
-            export_idt = inst.get_input_datatype(i)
+            export_idt = self.get_input_datatype(i)
 
             if self.impl_style == 'hls':
                 if export_idt == DataType["BIPOLAR"]:
@@ -262,7 +263,7 @@ class Kernel:
 
             reshaped_input = inp_val.reshape(folded_ishape)
             np.save(os.path.join(code_gen_dir, "input_%s.npy" % i), reshaped_input)
-            nbits = inst.get_instream_width(i)
+            nbits = self.get_instream_width(i)
 
             if self.impl_style == 'hls':
                 # if the stream is not exposed, it has 0 width and no npy file will be created
@@ -285,16 +286,16 @@ class Kernel:
         self.close_rtlsim(sim)
         for o, outp in enumerate(node.output):
             rtlsim_output = io_dict["outputs"]["out%s" % o]
-            odt = inst.get_output_datatype(o)
+            odt = self.get_output_datatype(o)
             target_bits = odt.bitwidth()
-            packed_bits = inst.get_outstream_width(o)
+            packed_bits = self.get_outstream_width(o)
 
             if self.impl_style == 'rtl':
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
             elif self.impl_style == 'hls':
                 out_npy_path = "{}/output_{}.npy".format(code_gen_dir, o)
 
-            out_shape = inst.get_folded_output_shape(o)
+            out_shape = self.get_folded_output_shape(o)
             rtlsim_output_to_npy(
                 rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
             )
@@ -308,7 +309,115 @@ class Kernel:
                 context[outp].shape == exp_oshape
             ), "Output shape doesn't match expected shape."
 
+    def derive_characteristic_fxns(self, period, node, kernel_rtlsim_dir, rtlsim_trace, override_rtlsim_dict=None):
+        """Return the unconstrained characteristic functions for this node."""
+        # ensure rtlsim is ready
+        inst = getCustomOp(node)
+        assert inst.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.name
+        if inst.get_nodeattr("io_chrc_period") > 0:
+            warnings.warn("Skipping node %s: already has FIFO characteristic" % self.name)
+            return
+        exp_cycles = self.get_exp_cycles()
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        n_outs = np.prod(self.get_folded_output_shape()[:-1])
+        if exp_cycles == 0:
+            # try to come up with an optimistic estimate
+            exp_cycles = min(n_inps, n_outs)
+        assert (
+            exp_cycles <= period
+        ), "Period %d too short to characterize %s : expects min %d cycles" % (
+            period,
+            self.name,
+            exp_cycles,
+        )
+        sim = self.get_rtlsim(kernel_rtlsim_dir, rtlsim_trace)
+        # signal name
+        sname = "_V_"
+        if override_rtlsim_dict is not None:
+            io_dict = override_rtlsim_dict
+        else:
+            io_dict = {
+                "inputs": {
+                    "in0": [i for i in range(n_inps)],
+                },
+                "outputs": {"out0": []},
+            }
+
+        # extra dicts to keep track of cycle-by-cycle transaction behavior
+        # note that we restrict key names to filter out weight streams etc
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+        # signal name, note no underscore at the end (new finnxsi behavior)
+        sname = "_V"
+        self.reset_rtlsim(sim)
+        # create stream tracers for all input and output streams
+        for k in txns_in.keys():
+            txns_in[k] = sim.trace_stream(k + sname)
+        for k in txns_out.keys():
+            txns_out[k] = sim.trace_stream(k + sname)
+        self.rtlsim_multi_io(sim, io_dict, node)
+        total_cycle_count = inst.get_nodeattr("cycles_rtlsim")
+        assert (
+            total_cycle_count <= period
+        ), """Total cycle count from rtl simulation is higher than
+            specified period, please set the period higher than {}""".format(
+            total_cycle_count
+        )
+        inst.set_nodeattr("io_chrc_period", period)
+        # call str() on stream tracers to get their outputs, and convert
+        # to list of ints
+        for k in txns_in.keys():
+            txns_in[k] = [int(c) for c in str(txns_in[k])]
+        for k in txns_out.keys():
+            txns_out[k] = [int(c) for c in str(txns_out[k])]
+
+        def accumulate_char_fxn(chrc):
+            p = len(chrc)
+            ret = []
+            for t in range(2 * p):
+                if t == 0:
+                    ret.append(chrc[0])
+                else:
+                    ret.append(ret[-1] + chrc[t % p])
+            return np.asarray(ret, dtype=np.int32)
+
+        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+        all_pad_in = []
+        all_pad_out = []
+        for in_idx, in_strm_nm in enumerate(txns_in.keys()):
+            txn_in = txns_in[in_strm_nm]
+            pad_in = 0
+            if len(txn_in) < period:
+                pad_in = period - len(txn_in)
+                txn_in += [0 for x in range(pad_in)]
+            txn_in = accumulate_char_fxn(txn_in)
+            all_txns_in[in_idx, :] = txn_in
+            all_pad_in.append(pad_in)
+
+        for out_idx, out_strm_nm in enumerate(txns_out.keys()):
+            txn_out = txns_out[out_strm_nm]
+            pad_out = 0
+            if len(txn_out) < period:
+                pad_out = period - len(txn_out)
+                txn_out += [0 for x in range(pad_out)]
+            txn_out = accumulate_char_fxn(txn_out)
+            all_txns_out[out_idx, :] = txn_out
+            all_pad_out.append(pad_out)
+
+        inst.set_nodeattr("io_chrc_in", all_txns_in)
+        inst.set_nodeattr("io_chrc_out", all_txns_out)
+        inst.set_nodeattr("io_chrc_pads_in", all_pad_in)
+        inst.set_nodeattr("io_chrc_pads_out", all_pad_out)
+
     ######################### Other common methods #########################
+    def get_op_and_param_counts(self):
+        """Return a dictionary with number of ops needed per inference for
+        this layer as well as parameter count (weights, thresholds, etc.).
+        Entries should be in the format:
+        {op_<optype> : <count>, param_<paramtype>: <count>}."""
+        return {}
+
     def get_verilog_top_module_intf_names(self) -> Dict[str,List]:
         """Return a dict of names of input and output interfaces.
         The keys reflect the protocols each interface implements:

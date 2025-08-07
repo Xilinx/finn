@@ -32,6 +32,8 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -53,97 +55,14 @@ class StreamingDataWidthConverter(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("dataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("dataType")]
-
-    def get_normal_input_shape(self, ind=0):
-        ishape = self.get_nodeattr("shape")
-        return ishape
-
-    def get_normal_output_shape(self, ind=0):
-        oshape = self.get_nodeattr("shape")
-        return oshape
-
-    def get_iowidth_lcm(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        return int(np.lcm(iwidth, owidth))
-
-    def needs_lcm(self):
-        iwidth = self.get_nodeattr("inWidth")
-        owidth = self.get_nodeattr("outWidth")
-        maxwidth = max(iwidth, owidth)
-        minwidth = min(iwidth, owidth)
-        return maxwidth % minwidth != 0
-
-    def check_divisible_iowidths(self):
-        pass
-
-    def get_folded_input_shape(self, ind=0):
-        self.check_divisible_iowidths()
-        iwidth = self.get_nodeattr("inWidth")
-        ishape = self.get_normal_input_shape()
-        dummy_t = np.random.randn(*ishape)
-        ibits = self.get_input_datatype().bitwidth()
-        assert (
-            iwidth % ibits == 0
-        ), """DWC input width must be divisible by
-        input element bitwidth"""
-        ielems = int(iwidth // ibits)
-        ichannels = ishape[-1]
-        new_shape = []
-        for i in ishape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ichannels // ielems))
-        new_shape.append(ielems)
-        dummy_t = dummy_t.reshape(new_shape)
-        return dummy_t.shape
-
-    def get_folded_output_shape(self, ind=0):
-        self.check_divisible_iowidths()
-        owidth = self.get_nodeattr("outWidth")
-        oshape = self.get_normal_output_shape()
-        dummy_t = np.random.randn(*oshape)
-        obits = self.get_output_datatype().bitwidth()
-        assert (
-            owidth % obits == 0
-        ), """DWC output width must be divisible by
-        input element bitwidth"""
-        oelems = int(owidth // obits)
-        ochannels = oshape[-1]
-        new_shape = []
-        for i in oshape[:-1]:
-            new_shape.append(i)
-        new_shape.append(int(ochannels // oelems))
-        new_shape.append(oelems)
-        dummy_t = dummy_t.reshape(new_shape)
-
-        return dummy_t.shape
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
-
-    def get_instream_width(self, ind=0):
-        in_width = self.get_nodeattr("inWidth")
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        out_width = self.get_nodeattr("outWidth")
-        return out_width
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
+        if idt != kernel.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
+                str(kernel.get_input_datatype()),
                 str(idt),
             )
             warnings.warn(warn_str)
@@ -170,7 +89,8 @@ class StreamingDataWidthConverter(HWCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
-        exp_shape = self.get_normal_input_shape()
+        kernel = gkr.kernel(node.op_type, get_node_attr(node))
+        exp_shape = kernel.get_normal_input_shape()
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
         assert inp.shape == tuple(exp_shape), "Input shape does not match expected shape."
@@ -178,32 +98,3 @@ class StreamingDataWidthConverter(HWCustomOp):
         output = inp
         output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
         context[node.output[0]] = output
-
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs"""
-        inw = self.get_instream_width()
-        outw = self.get_outstream_width()
-
-        minw = min(inw, outw)
-        maxw = max(inw, outw)
-
-        # sometimes widths aren't directly divisible
-        # this requires going up from input width to least common multiple
-        # then down to output width
-        intw = abs(maxw * minw) // math.gcd(maxw, minw)
-
-        # we assume a shift-based implementation
-        # even if we don't use LUTs explicitly, we make some unavailable
-        # to other logic because they're tied into the DWC control sets
-
-        cnt_luts = 0
-        cset_luts = 0
-
-        if inw != intw:
-            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
-            cset_luts += intw
-        if intw != outw:
-            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
-            cset_luts += outw
-
-        return int(cnt_luts + cset_luts)

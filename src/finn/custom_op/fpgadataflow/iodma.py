@@ -32,6 +32,8 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
 # direction "in": pulls data from AXI-MM to AXI stream
@@ -100,101 +102,19 @@ class IODMA(HWCustomOp):
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         return my_attrs
 
-    def get_normal_input_shape(self, ind=0):
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        num_ch = self.get_nodeattr("NumChannels")
-        ishape = tuple(vecs + [num_ch])
-        return ishape
-
-    def get_normal_output_shape(self, ind=0):
-        return self.get_normal_input_shape()
-
-    def get_folded_input_shape(self, ind=0):
-        if self.get_nodeattr("direction") == "in":
-            raise ValueError("Folded input shape not defined for input IODMA")
-        else:
-            shape = list(self.get_normal_input_shape())
-            itype_bits = self.get_input_datatype().bitwidth()
-            intfw = self.get_nodeattr("streamWidth")
-            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
-            elems_per_word = intfw // itype_bits
-            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-            fold_depth = shape[-1] // elems_per_word
-            shape[-1] = fold_depth
-            shape.append(elems_per_word)
-            return tuple(shape)
-
-    def get_folded_output_shape(self, ind=0):
-        if self.get_nodeattr("direction") == "out":
-            raise ValueError("Folded output shape not defined for output IODMA")
-        else:
-            shape = list(self.get_normal_output_shape())
-            itype_bits = self.get_output_datatype().bitwidth()
-            intfw = self.get_nodeattr("streamWidth")
-            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
-            elems_per_word = intfw // itype_bits
-            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-            fold_depth = shape[-1] // elems_per_word
-            shape[-1] = fold_depth
-            shape.append(elems_per_word)
-            return tuple(shape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
+        if idt != kernel.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
+                str(kernel.get_input_datatype()),
                 str(idt),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("dataType", idt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("dataType")]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output. (Same as input datatype)"""
-        return self.get_input_datatype()
-
-    def get_instream_width(self, ind=0):
-        if self.get_nodeattr("direction") == "in":
-            return self.get_nodeattr("intfWidth")
-        elif self.get_nodeattr("direction") == "out":
-            return self.get_nodeattr("streamWidth")
-        else:
-            raise ValueError("Invalid IODMA direction, please set to in or out")
-
-    def get_outstream_width(self, ind=0):
-        if self.get_nodeattr("direction") == "out":
-            return self.get_nodeattr("intfWidth")
-        elif self.get_nodeattr("direction") == "in":
-            return self.get_nodeattr("streamWidth")
-        else:
-            raise ValueError("Invalid IODMA direction, please set to in or out")
-
-    def get_number_output_values(self):
-        oshape = self.get_normal_output_shape()
-        itype_bits = self.get_input_datatype().bitwidth()
-        stream_width = self.get_nodeattr("streamWidth")
-        nelems = np.prod(oshape)
-        nbits = nelems * itype_bits
-        assert nbits % stream_width == 0, "DMA: total transfer size must be word multiple"
-        ovalues = nbits // stream_width
-        return ovalues
-
     def execute_node(self, context, graph):
         pass
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        if self.get_nodeattr("direction") == "out":
-            intf_names["m_axis"] = []
-        else:
-            intf_names["s_axis"] = []
-        intf_names["axilite"] = ["s_axi_control"]
-        intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("intfWidth"))]
-        return intf_names
