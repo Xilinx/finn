@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from finn.kernels import Kernel, KernelProjection
 from finn.kernels.mvau.hls import MVAUHLS
-from finn.kernels.mvau.memstream import MemstreamRTL
+from finn.kernels.memstream.rtl import MemstreamRTL
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from pkgutil import get_data
@@ -13,6 +13,12 @@ from qonnx.core.datatype import DataType
 
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
+
+from finn.util.data_packing import pack_innermost_dim_as_hex_string
 
 
 @dataclass(frozen=True, init=False)
@@ -20,7 +26,6 @@ class MVAUSIP(Kernel):
     """Corresponds to finn-hlslib MatrixVectorActivation_Batch function."""
 
     ######################### Kernel attributes #########################
-    name: str
     PE: int
     SIMD: int
     MW: int
@@ -77,18 +82,18 @@ class MVAUSIP(Kernel):
     # dynamic input
     dynamic_input: bool = False
 
-    ######################### Constraints #########################
-    _constraints: Tuple[Callable[['Kernel'], bool]] = () 
+    def input_init_map(self, input_initializers: list[np.ndarray]) -> dict[str, np.ndarray]:
+        init_map = {}
+        init_map["weights"] = input_initializers[1]
+        if len(input_initializers) > 2:
+            init_map["thresholds"] = input_initializers[2]
+        return init_map
 
     ######################### Implementation style, rtl/hls/sip #########################
     impl_style:str = "sip"
 
-    ######################### Code Generation #########################
-    @property
-    def instanceFiles(self) -> FrozenSet[Tuple[Callable,Path]]:
-        return { 
-            (self.toplevel, Path(f"{self.name}.v"))
-        }
+    ######################### Constraints #########################
+    _constraints: Tuple[Callable[['Kernel'], bool]] = ()
 
     ######################### Stitched kernel things #########################
     def _init_subkernels(self, **kwargs) -> Tuple["Kernel"]:
@@ -101,300 +106,24 @@ class MVAUSIP(Kernel):
 
         for sk in subkernels_uninited:
             kwargs["name"] = self.name + "_" + sk.__name__
+            kwargs["sip_depth"] = self.calc_wmem()
+            kwargs["sip_padded_width"] = self.get_instream_width_padded(1)
             subkernels_inited.append(sk(**kwargs))
 
         return tuple(subkernels_inited)
 
-    ######################### Projections #########################
-    def projection(self, fpgapart: str) -> KernelProjection:
-        return KernelProjection(
-            cycles = self.get_exp_cycles(),
-            LUT = self.lut_estimation(),
-            DSP = self.dsp_estimation(fpgapart),
-            BRAM_18K= self.bram_estimation(),
-            URAM = self.uram_estimation(),
-            BRAM_efficiency = self.bram_efficiency_estimation(),
-            URAM_efficiency = self.uram_efficiency_estimation()
+    ######################### Code Generation #########################
+    @property
+    def instanceFiles(self) -> FrozenSet[Tuple[Callable,Path]]:
 
-        )
+        out = set({
+            (self.toplevel, Path(f"{self.name}.v"))
+        })
 
-    def get_exp_cycles(self):
-        pe = self.PE
-        simd = self.SIMD
-        num_inp_vec = self.numInputVectors
-        mh = self.MH
-        mw = self.MW
-        # since mmv != 1 is not supported yet, we set mmv for now to 1
-        mmv = 1
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
-        return int(exp_cycles)
+        if (not self.dynamic_input) and (self.mem_mode == "internal_decoupled"):
+            out.add((self.generate_params, Path(f"{self.name}_MemstreamRTL/memblock.dat")))
 
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs based on:
-        - FINN-R: An End-to-End Deep-Learning Framework for Fast
-        Exploration of Quantized Neural Networks
-        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
-        Y. Umuroglu, M. Leeser and K. Vissers
-        - 12. Sep 2018
-        """
-        # TODO add in/out FIFO contributions
-        P = self.PE
-        Q = self.SIMD
-        MW = self.MW
-        wdt = self.get_input_datatype(ind=1)
-        W = wdt.bitwidth()
-        # determine tdt with input and weight data types
-        idt = self.get_input_datatype()
-        A = idt.bitwidth()
-        # parameters from experiments in paper mentioned above
-        c0 = 300
-        c1 = 1.1
-        c2 = 0
-        mmode = self.mem_mode
-        mstyle = self.ram_style
-        if (mmode == "internal_decoupled" and mstyle == "distributed") or (
-            mmode == "internal_embedded" and self.calc_wmem() <= 128
-        ):
-            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
-
-        # multiplication
-        res_type = self.resType
-        if res_type == "dsp":
-            mult_luts = 0
-        else:
-            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
-        # adder tree
-        addertree_luts = (W + A) * (2 * Q - 1)
-        # accumulator
-        acc_datatype = self.get_accumulator_datatype()
-        # if accDataType is not set, then it will default to INT32, which would
-        # be a large overestimate in most (if not all) cases. In this scenario,
-        # we would use the minimum accumulator as determined by the data types
-        # bound, derived in https://arxiv.org/abs/2301.13376
-        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
-        acc_bits = min(
-            acc_datatype.bitwidth(),
-            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
-        )
-        acc_luts = acc_bits
-        # thresholds and threshold comparators
-        thr_luts = 0
-        comp_luts = 0
-        noact = self.noActivation
-        tmem_style = self.ram_style_thresholds
-        if (noact == 0) and (tmem_style == "distributed"):
-            odt = self.get_output_datatype()
-            B = odt.bitwidth()
-            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
-            comp_luts = (2**B - 1) * acc_bits
-
-        return int(
-            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
-        )
-
-    def dsp_estimation(self, fpgapart):
-        # multiplication
-        P = self.PE
-        res_type = self.resType
-        Q = self.SIMD
-        wdt = self.get_input_datatype(ind=1)
-        W = wdt.bitwidth()
-        idt = self.get_input_datatype()
-        A = idt.bitwidth()
-        if res_type == "dsp":
-            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
-        else:
-            mult_dsp = 0
-        return int(mult_dsp)
-
-    def uram_estimation(self):
-        P = self.PE
-        Q = self.SIMD
-        wdt = self.get_input_datatype(1)
-        W = wdt.bitwidth()
-        D_in = self.MW
-        D_out = self.MH
-        omega = (D_in * D_out) / (Q * P)
-        mem_width = Q * W * P
-        mmode = self.mem_mode
-        mstyle = self.ram_style
-        if (
-            (mmode == "internal_decoupled" and mstyle != "ultra")
-            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
-            or (mmode == "external")
-        ):
-            return 0
-        width_multiplier = math.ceil(mem_width / 72)
-        depth_multiplier = math.ceil(omega / 4096)
-        return width_multiplier * depth_multiplier
-
-    def bram_estimation(self):
-        """Calculates resource estimation for BRAM based on:
-        - FINN-R: An End-to-End Deep-Learning Framework for Fast
-        Exploration of Quantized Neural Networks
-        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
-        Y. Umuroglu, M. Leeser and K. Vissers
-        - 12. Sep 2018
-        """
-        # TODO add in/out FIFO contributions
-        P = self.PE
-        Q = self.SIMD
-        wdt = self.get_input_datatype(1)
-        W = wdt.bitwidth()
-        D_in = self.MW
-        D_out = self.MH
-        omega = (D_in * D_out) / (Q * P)
-        mem_width = Q * W * P
-        mmode = self.mem_mode
-        mstyle = self.ram_style
-        if (
-            (mmode == "internal_decoupled" and mstyle in ["distributed", "ultra"])
-            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
-            or (mmode == "external")
-        ):
-            return 0
-        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
-        # assuming internal_decoupled (RTL) memory,
-        # which is more efficient than internal_embedded (HLS)
-        if mem_width == 1:
-            return math.ceil(omega / 16384)
-        elif mem_width == 2:
-            return math.ceil(omega / 8192)
-        elif mem_width <= 4:
-            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
-        elif mem_width <= 9:
-            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
-        elif mem_width <= 18 or omega > 512:
-            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
-        else:
-            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
-
-    def bram_efficiency_estimation(self):
-        wdt = self.get_input_datatype(1)
-        W = wdt.bitwidth()
-        D_in = self.MW
-        D_out = self.MH
-        bram16_est = self.bram_estimation()
-        if bram16_est == 0:
-            return 1
-        wbits = W * D_in * D_out
-        bram16_est_capacity = bram16_est * 36 * 512
-        return wbits / bram16_est_capacity
-
-    def uram_efficiency_estimation(self):
-        """Function for URAM efficiency estimation: actual parameter storage
-        needed divided by the allocated URAM storage (from estimation)"""
-        wdt = self.get_input_datatype(1)
-        W = wdt.bitwidth()
-        D_in = self.MW
-        D_out = self.MH
-        uram_est = self.uram_estimation()
-        if uram_est == 0:
-            return 1
-        wbits = W * D_in * D_out
-        uram_est_capacity = uram_est * 72 * 4096
-        return wbits / uram_est_capacity
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        # when performing FIFO insertion on an FC layer with ext weights, the ind
-        # parameter can be > 0 (referring to the weights) so handle that here
-        if ind == 0:
-            return DataType[self.inputDataType]
-        elif ind == 1:
-            return DataType[self.weightDataType]
-        else:
-            raise Exception("Undefined input ind for this layer type")
-
-    def calc_wmem(self):
-        """Calculates and returns WMEM."""
-        mw = self.MW
-        mh = self.MH
-        pe = self.PE
-        simd = self.SIMD
-        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
-        wmem = mw * mh // (pe * simd)
-        return wmem
-
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        if self.noActivation == 1:
-            return 0
-        else:
-            mh = self.MH
-            pe = self.PE
-            return mh // pe
-
-    def get_accumulator_datatype(self):
-        """Returns FINN DataType of accumulator"""
-        return DataType[self.accDataType]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.outputDataType]
-
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
-    ######################### Other methods #########################
-
-    def get_instream_width(self, ind=0):
-        if ind == 0:
-            i_bits = DataType[self.inputDataType].bitwidth()
-            width = i_bits * self.SIMD
-        elif ind == 1:
-            if (
-                self.mem_mode == "internal_decoupled"
-                or self.mem_mode == "external"
-            ):
-                pe = self.PE
-                simd = self.SIMD
-                wp = DataType[self.weightDataType].bitwidth()
-                width = pe * simd * wp
-            else:
-                width = 0
-        elif ind == 2:
-            # check if integrated thresholding and return 0
-            # because threshold values are always embedded
-            # or raise expection if there shouldn't be
-            # a third input to the node
-            act = not self.noActivation
-            if act:
-                width = 0
-            else:
-                raise Exception("Index out of range")
-        else:
-            raise Exception("Index out of range")
-        return width
-
-    def get_outstream_width(self, ind=0):
-        o_bits = DataType[self.outputDataType].bitwidth()
-        out_width = o_bits * self.PE
-        return out_width
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        try:
-            pumped_compute = self.pumpedCompute
-        except AttributeError:
-            pumped_compute = 0
-
-        if pumped_compute or self.pumpedMemory:
-            intf_names["clk2x"] = ["ap_clk2x"]
-
-        mem_mode = self.mem_mode
-        if mem_mode == "external":
-            intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
-        else:
-            intf_names["s_axis"].remove(("in1_V", self.get_instream_width_padded(1)))
-        if mem_mode == "internal_decoupled":
-            # only expose axilite interface if attribute is set
-            runtime_writeable = self.runtime_writeable_weights
-            if runtime_writeable:
-                intf_names["axilite"] = ["s_axilite"]
-        return intf_names
+        return frozenset(out)
 
     def toplevel(self, ctx):
 
@@ -522,22 +251,299 @@ wire [WIDTH-1:0] WSTRM_TDATA;
         with open(node_dir / Path(f'{self.name}.v'), 'w') as f:
             f.write(template)
 
-    def code_generation_ipi(self, node_ctx) -> list[str]:
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+    def generate_params(self, ctx):
+        code_gen_dir = ctx.directory
+        # also save weights as Verilog .dat file
+        # This file will be ignored when synthesizing UltraScale memory.
+        memstream_ipgen_path = Path(f"{code_gen_dir}/{self.name}_MemstreamRTL")
+        memstream_ipgen_path.mkdir(exist_ok=True)
+        weight_filename_rtl = f"{code_gen_dir}/{self.name}_MemstreamRTL/memblock.dat"
+        self.make_weight_file(self.weights, weight_filename_rtl)
 
-        sourcefiles = [
-            f"{self.name}.v",
-        ]
+    def make_weight_file(self, weights, weight_file_name):
+        """Produce a file containing given weights in appropriate format for this
+        layer. This file can be used for synthesis.
 
-        cmd = []
-        for f in sourcefiles:
-            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
-        cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
+        Arguments:
 
-        for subkernel in self.subkernels:
-            cmd += subkernel.code_generation_ipi(node_ctx.get_subcontext(Path(subkernel.name)))
+        * weights : numpy array with weights to be put into the file
+        * weight_file_name : filename for the weight file to be generated
 
-        return cmd
+        """
+        # convert weights into hlslib/rtllib-compatible format
+        weight_tensor = self.get_hw_compatible_weight_tensor(weights)
+        export_wdt = self.get_input_datatype(1)
+        # we have converted bipolar weights to binary for export,
+        # so use it as such for weight generation
+        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
+            export_wdt = DataType["BINARY"]
+        # create a weight stream for various flavors of internal_decoupled mode:
+        # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
+        weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+        # PE flip for saving weights in .dat
+        weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+        # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
+        pe = self.PE
+        simd = self.SIMD
+        # flipped
+        weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
+        weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
+        # convert weight values into hexstring
+        weight_width = self.get_instream_width(1)
+        # pad to nearest 4 bits to get hex strings
+        weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+        weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+            weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+        )
+        # add zeroes to pad out file to 1024 entries
+        weight_stream = weight_tensor_pe_flipped.flatten()
+        weight_stream = weight_stream.copy()
+        if self.pumpedMemory:
+            # if pe = simd = 1, known bug, ask user to increase parallelism
+            if pe == simd == 1:
+                raise Exception(
+                    """Pumped memory with pe=simd=1 is not supported.
+                    Please increase parallelism."""
+                )
+            split_w_stream = np.zeros([weight_stream.shape[0] * 2], dtype=object)
+            k = 0
+            for i in range(len(weight_stream)):
+                weight = weight_stream[i]
+                split_w_stream[k] = weight[len(weight) // 2 :]
+                split_w_stream[k + 1] = weight[: len(weight) // 2]
+                k += 2
+            weight_stream = split_w_stream
+        with open(weight_file_name, "w") as f:
+            for val in weight_stream:
+                f.write(val + "\n")
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        try:
+            pumped_compute = self.pumpedCompute
+        except AttributeError:
+            pumped_compute = 0
+
+        if pumped_compute or self.pumpedMemory:
+            intf_names["clk2x"] = ["ap_clk2x"]
+
+        mem_mode = self.mem_mode
+        if mem_mode == "external":
+            intf_names["s_axis"].append(("in1_V", self.get_instream_width_padded(1)))
+        else:
+            intf_names["s_axis"].remove(("in1_V", self.get_instream_width_padded(1)))
+        if mem_mode == "internal_decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writeable = self.runtime_writeable_weights
+            if runtime_writeable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
+
+    ######################### Projections #########################
+    def projection(self, fpgapart: str) -> KernelProjection:
+        return KernelProjection(
+            cycles = self.get_exp_cycles(),
+            LUT = self.lut_estimation(),
+            DSP = self.dsp_estimation(fpgapart),
+            BRAM_18K= self.bram_estimation(),
+            URAM = self.uram_estimation(),
+            BRAM_efficiency = self.bram_efficiency_estimation(),
+            URAM_efficiency = self.uram_efficiency_estimation()
+
+        )
+
+    def get_exp_cycles(self):
+        pe = self.PE
+        simd = self.SIMD
+        num_inp_vec = self.numInputVectors
+        mh = self.MH
+        mw = self.MW
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        return int(exp_cycles)
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        # TODO add in/out FIFO contributions
+        P = self.PE
+        Q = self.SIMD
+        MW = self.MW
+        wdt = self.get_input_datatype(ind=1)
+        W = wdt.bitwidth()
+        # determine tdt with input and weight data types
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        # parameters from experiments in paper mentioned above
+        c0 = 300
+        c1 = 1.1
+        c2 = 0
+        mmode = self.mem_mode
+        mstyle = self.ram_style
+        if (mmode == "internal_decoupled" and mstyle == "distributed") or (
+            mmode == "internal_embedded" and self.calc_wmem() <= 128
+        ):
+            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
+
+        # multiplication
+        res_type = self.resType
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # adder tree
+        addertree_luts = (W + A) * (2 * Q - 1)
+        # accumulator
+        acc_datatype = self.get_accumulator_datatype()
+        # if accDataType is not set, then it will default to INT32, which would
+        # be a large overestimate in most (if not all) cases. In this scenario,
+        # we would use the minimum accumulator as determined by the data types
+        # bound, derived in https://arxiv.org/abs/2301.13376
+        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
+        acc_bits = min(
+            acc_datatype.bitwidth(),
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
+        )
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.noActivation
+        tmem_style = self.ram_style_thresholds
+        if (noact == 0) and (tmem_style == "distributed"):
+            odt = self.get_output_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2**B - 1) * acc_bits
+
+        return int(
+            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
+        )
+
+    def dsp_estimation(self, fpgapart):
+        # multiplication
+        P = self.PE
+        res_type = self.resType
+        Q = self.SIMD
+        wdt = self.get_input_datatype(ind=1)
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        # TODO add in/out FIFO contributions
+        P = self.PE
+        Q = self.SIMD
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.mem_mode
+        mstyle = self.ram_style
+        if (
+            (mmode == "internal_decoupled" and mstyle in ["distributed", "ultra"])
+            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
+            or (mmode == "external")
+        ):
+            return 0
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # assuming internal_decoupled (RTL) memory,
+        # which is more efficient than internal_embedded (HLS)
+        if mem_width == 1:
+            return math.ceil(omega / 16384)
+        elif mem_width == 2:
+            return math.ceil(omega / 8192)
+        elif mem_width <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
+        elif mem_width <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
+
+    def uram_estimation(self):
+        P = self.PE
+        Q = self.SIMD
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.mem_mode
+        mstyle = self.ram_style
+        if (
+            (mmode == "internal_decoupled" and mstyle != "ultra")
+            or (mmode == "internal_embedded" and self.calc_wmem() <= 128)
+            or (mmode == "external")
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
+    def bram_efficiency_estimation(self):
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
+        wdt = self.get_input_datatype(1)
+        W = wdt.bitwidth()
+        D_in = self.MW
+        D_out = self.MH
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
+
+    ######################### Other Methods #########################
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        # when performing FIFO insertion on an FC layer with ext weights, the ind
+        # parameter can be > 0 (referring to the weights) so handle that here
+        if ind == 0:
+            return DataType[self.inputDataType]
+        elif ind == 1:
+            return DataType[self.weightDataType]
+        else:
+            raise Exception("Undefined input ind for this layer type")
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output."""
+        return DataType[self.outputDataType]
 
     def get_normal_input_shape(self, ind=0):
         mw = self.MW
@@ -591,6 +597,106 @@ wire [WIDTH-1:0] WSTRM_TDATA;
         folded_output_shape = tuple(vecs + [nf, pe])
         return folded_output_shape
 
+    def get_instream_width(self, ind=0):
+        if ind == 0:
+            i_bits = DataType[self.inputDataType].bitwidth()
+            width = i_bits * self.SIMD
+        elif ind == 1:
+            if (
+                self.mem_mode == "internal_decoupled"
+                or self.mem_mode == "external"
+            ):
+                pe = self.PE
+                simd = self.SIMD
+                wp = DataType[self.weightDataType].bitwidth()
+                width = pe * simd * wp
+            else:
+                width = 0
+        elif ind == 2:
+            # check if integrated thresholding and return 0
+            # because threshold values are always embedded
+            # or raise expection if there shouldn't be
+            # a third input to the node
+            act = not self.noActivation
+            if act:
+                width = 0
+            else:
+                raise Exception("Index out of range")
+        else:
+            raise Exception("Index out of range")
+        return width
+
+    def get_outstream_width(self, ind=0):
+        o_bits = DataType[self.outputDataType].bitwidth()
+        out_width = o_bits * self.PE
+        return out_width
+
+    def get_number_output_values(self):
+        nf = np.prod(self.get_folded_output_shape()[:-1])
+        return nf
+
+    def calc_wmem(self):
+        """Calculates and returns WMEM."""
+        mw = self.MW
+        mh = self.MH
+        pe = self.PE
+        simd = self.SIMD
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
+        wmem = mw * mh // (pe * simd)
+        return wmem
+
+    def calc_tmem(self):
+        """Calculates and returns TMEM."""
+        if self.noActivation == 1:
+            return 0
+        else:
+            mh = self.MH
+            pe = self.PE
+            return mh // pe
+
+    def get_accumulator_datatype(self):
+        """Returns FINN DataType of accumulator"""
+        return DataType[self.accDataType]
+
+    def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0 and MW % SIMD == 0
+        * for bipolar {-1,+1} weights, convert to binary {0, 1}
+        * interleave rows between PEs
+        * reshape into (1, PE, WMEM, SIMD) and return
+        """
+        mw = self.MW
+        mh = self.MH
+        pe = self.PE
+        simd = self.SIMD
+        wmem = self.calc_wmem()
+        assert orig_weight_matrix.shape == (
+            mw,
+            mh,
+        ), """Weights matrix doesn't
+        have expected shape (mw, mh)"""
+        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        # start by transposing the original weight matrix, since ONNX and
+        # finn-hlslib use different assumptions
+        # ONNX uses (in_features, out_features) and matmul(x, W)
+        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
+        ret = orig_weight_matrix.T
+        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
+            # convert bipolar to binary
+            ret = (ret + 1) / 2
+        # interleave rows between PEs and reshape
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        # create SIMD as innermost dimension and add a dummy outer dim
+        ret = ret.reshape(1, pe, wmem, simd)
+        # reverse the SIMD dimension
+        ret = np.flip(ret, axis=-1)
+        return ret
+
+    ######################### Simulation #########################
     def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
         dynamic_input = self.dynamic_input
         mem_mode = self.mem_mode
@@ -694,40 +800,3 @@ wire [WIDTH-1:0] WSTRM_TDATA;
         weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
         # save weight stream into npy for cppsim
         np.save(weight_file_name, weight_tensor_simd_flipped)
-
-    def get_hw_compatible_weight_tensor(self, orig_weight_matrix):
-        """Convert the original numpy weight matrix orig_weight_matrix into
-        a form suitable for passing to the hlslib call:
-        * ensure MH % PE == 0 and MW % SIMD == 0
-        * for bipolar {-1,+1} weights, convert to binary {0, 1}
-        * interleave rows between PEs
-        * reshape into (1, PE, WMEM, SIMD) and return
-        """
-        mw = self.MW
-        mh = self.MH
-        pe = self.PE
-        simd = self.SIMD
-        wmem = self.calc_wmem()
-        assert orig_weight_matrix.shape == (
-            mw,
-            mh,
-        ), """Weights matrix doesn't
-        have expected shape (mw, mh)"""
-        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
-        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        # start by transposing the original weight matrix, since ONNX and
-        # finn-hlslib use different assumptions
-        # ONNX uses (in_features, out_features) and matmul(x, W)
-        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
-        ret = orig_weight_matrix.T
-        if self.get_input_datatype(1) == DataType["BIPOLAR"]:
-            # convert bipolar to binary
-            ret = (ret + 1) / 2
-        # interleave rows between PEs and reshape
-        # distribute rows between PEs
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        # create SIMD as innermost dimension and add a dummy outer dim
-        ret = ret.reshape(1, pe, wmem, simd)
-        # reverse the SIMD dimension
-        ret = np.flip(ret, axis=-1)
-        return ret
