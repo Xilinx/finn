@@ -39,19 +39,13 @@ def gen_hls_node(kernel: Kernel, node_ctx: Context):
     kernel.generate_instance_files(node_ctx)
 
     # Generate TCL script for ipgen
-    default_directives = [
-        "set_param hls.enable_hidden_option_error false",
-        "config_compile -disable_unroll_code_size_check -pipeline_style flp",
-        "config_interface -m_axi_addr64",
-        "config_rtl -module_auto_prefix",
-        "config_rtl -deadlock_detection none",
-    ]
     code_gen_dict = {}
     code_gen_dict["$PROJECTNAME$"] = f"project_{kernel.name}"
     code_gen_dict["$FPGAPART$"] = node_ctx.fpga_part
     code_gen_dict["$TOPFXN$"] = kernel.name
     code_gen_dict["$CLKPERIOD$"] = str(node_ctx.clk_hls)
-    code_gen_dict["$DEFAULT_DIRECTIVES$"] = "\n".join(default_directives)
+    code_gen_dict["$DEFAULT_DIRECTIVES$"] = "\n".join(kernel.ipgen_default_directives())
+    code_gen_dict["$EXTRA_DIRECTIVES$"] = "\n".join(kernel.ipgen_extra_directives())
     shared_includes = [node_ctx.resolve_library(shared_dep) for shared_dep in kernel.sharedFiles]
     kernel_includes = [importlib.resources.files("finn") / path for path in kernel.kernelFiles]
     code_gen_dict["$INCLUDE_SOURCES$"] = " \\\n".join(["-I"+str(path) for path in shared_includes])

@@ -67,6 +67,13 @@ class Kernel:
     name: str
     len_node_input: int
     len_node_output: int
+    inFIFODepths:list[int]
+    outFIFODepths:list[int]
+
+    # This needs to be overridden for modules with parameters like weights, thresholds etc.
+    def input_init_map(self, input_initializers: list[np.ndarray]) -> dict[str, np.ndarray]:
+        """ Map initializers for node inputs to parameter attributes like weights. """
+        return {}
 
     # Initialise attributes from kwargs, subkernels can override this for other behaviour.
     def _attribute_init(self, **kwargs) -> None:
@@ -77,11 +84,17 @@ class Kernel:
             if field_name in kwargs:
                 object.__setattr__(self, field_name, kwargs.pop(field_name))
 
-    ######################### Constraints #########################
-    _constraints: Optional[Tuple[Callable[['Kernel'],bool]]]
+        # Input initializers for parameters like weights and thresholds.
+        input_initializers = kwargs.pop("input_initializers")
+        if input_initializers != None:
+            for inp_attr_name, inp_attr_init in self.input_init_map(input_initializers).items():
+                object.__setattr__(self, inp_attr_name, inp_attr_init)
 
     ######################### Implementation style, rtl/hls/sip #########################
     impl_style: str
+
+    ######################### Constraints #########################
+    _constraints: Optional[Tuple[Callable[['Kernel'],bool]]]
 
     ######################### Code Generation #########################
     # Set of library names to resolve and include if HLS
@@ -98,9 +111,9 @@ class Kernel:
         return frozenset()
 
     # This method is called by code builders.
-    def generate_instance_files(self, ctx: Context) -> None:
+    def generate_instance_files(self, node_ctx: Context) -> None:
         for generator, _ in self.instanceFiles:
-            generator(ctx)
+            generator(node_ctx)
 
     def get_abs_verilog_files(self, node_ctx: Context) -> set[Path]:
         """Return list of all Verilog files used for this node, abs paths."""
@@ -150,6 +163,101 @@ class Kernel:
         else:
             raise RuntimeError(f"Instance {self.name} of kernel {type(self).__name__} has unknown impl_style {self.impl_style}.")
 
+    def get_verilog_top_module_intf_names(self) -> Dict[str,List]:
+        """Return a dict of names of input and output interfaces.
+        The keys reflect the protocols each interface implements:
+        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
+        Values are lists of tuples (axis, aximm) or names (axilite):
+        'axis' tuples correspond to the list of node inputs in order,
+        each tuple is (interface_name, interface_width_bits).
+        axilite always assumed to be 32 bits and is not tuple (name only).
+        Each block must have at most one aximm and one axilite."""
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = []
+        for i in range(self.len_node_input):
+            # not every node input will result in an interface of the produced HW
+            # filter out inputs that have no stream width associated with them
+            width = self.get_instream_width_padded(i)
+            if width != 0:
+                intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
+        intf_names["m_axis"] = []
+        for i in range(self.len_node_output):
+            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        return intf_names
+
+    def code_generation_ipi(self, node_ctx: Context, is_subkernel:bool =False) -> list[str]:
+        """ Returns TCL commands for node instanntiation. Only deals with instance files.
+            Kernel files and shared files are added separately in StitchedIPBuilder.
+            Behaviour depends on impl_style and whether this kernel is being instantiated
+            as a subkernel. This is described below:
+
+            impl_style | is_subkernel | Behaviour
+            rtl / hls  | True         | Add RTL files.
+            sip        | True         | Add RTL files and subkernel files.
+            rtl        | False        | Add RTL files, instantiate as RTL block.
+            hls        | False        | Instantiate as IP block.
+            sip        | False        | Add RTL files and subkernel files, instantiate as RTL block.
+            """
+
+        rtl_suffixes = [".v", ".sv", ".vh"]
+
+        if self.impl_style == 'rtl':
+            sourcefiles = [file for _, file in self.instanceFiles if file.suffix in rtl_suffixes]
+            cmd = []
+            for f in sourcefiles:
+                cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
+            if not is_subkernel:
+                cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
+
+        elif self.impl_style == 'hls':
+            if not is_subkernel:
+                ip_vlnv = f"xilinx.com:hls:{self.name}:1.0"
+                cmd = [f"create_bd_cell -type ip -vlnv {ip_vlnv} {self.name}"]
+            else:
+                sourcefiles = self.get_abs_verilog_files(node_ctx)
+                cmd = []
+                for f in sourcefiles:
+                    cmd += [f"add_files -norecurse {'../'+str((Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
+
+        elif self.impl_style == 'sip':
+            sourcefiles = [file for _, file in self.instanceFiles if file.suffix in rtl_suffixes]
+            cmd = []
+            for f in sourcefiles:
+                cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
+
+            for subkernel in self.subkernels:
+                cmd += subkernel.code_generation_ipi(node_ctx.get_subcontext(Path(subkernel.name)), is_subkernel=True)
+
+            if not is_subkernel:
+                cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
+
+        return cmd
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+        return self.name
+
+    def ipgen_default_directives(self):
+        """Return list of default HLS synthesis directives"""
+
+        default_directives = [
+            "set_param hls.enable_hidden_option_error false",
+            "config_compile -disable_unroll_code_size_check -pipeline_style flp",
+            "config_interface -m_axi_addr64",
+            "config_rtl -module_auto_prefix",
+            "config_rtl -deadlock_detection none",
+        ]
+        return default_directives
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return []
+
     ######################### Stitched kernel things #########################
     # Keep a list of kernels that have to be generated as subnodes.
     # The __init__ method calls _init_subkernels and assigns its output to subkernels.
@@ -173,6 +281,53 @@ class Kernel:
 
     def get_exp_cycles(self) -> int:
         return None
+
+    ######################### Other common methods #########################
+    def get_instream_width(self, ind=0) -> int:
+        pass
+
+    def get_outstream_width(self, ind=0) -> int:
+        pass
+
+    def get_op_and_param_counts(self):
+        """Return a dictionary with number of ops needed per inference for
+        this layer as well as parameter count (weights, thresholds, etc.).
+        Entries should be in the format:
+        {op_<optype> : <count>, param_<paramtype>: <count>}."""
+        return {}
+
+    def get_instream_width_padded(self, ind=0) -> int:
+        """Returns input stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        in_width = self.get_instream_width(ind=ind)
+        if in_width != 0:
+            return roundup_to_integer_multiple(in_width, 8)
+        else:
+            return 0
+
+    def get_outstream_width_padded(self, ind=0) -> int:
+        """Returns output stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        out_width = self.get_outstream_width(ind=ind)
+        return roundup_to_integer_multiple(out_width, 8)
+
+    def get_ap_int_max_w(self):
+        """Return the maximum width of any ap_int used in this module. Used to set the
+        AP_INT_MAX_W definition for HLS."""
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        ret = max([instream, outstream])
+        assert ret <= 8191, "AP_INT_MAX_W=%d is larger than allowed maximum of 8191" % ret
+        return ret
+
+    def pragmas(self):
+        """Function to generate the pragma commands in c++,
+        might need to be overwritten depending on custom op."""
+        code_gen_dict = {}
+        code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out0_V")
+        code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        return code_gen_dict
 
     ######################### RTL Simulation #########################
     def get_rtlsim(self, code_gen_dir, rtlsim_trace):
@@ -409,66 +564,3 @@ class Kernel:
         inst.set_nodeattr("io_chrc_out", all_txns_out)
         inst.set_nodeattr("io_chrc_pads_in", all_pad_in)
         inst.set_nodeattr("io_chrc_pads_out", all_pad_out)
-
-    ######################### Other common methods #########################
-    def get_op_and_param_counts(self):
-        """Return a dictionary with number of ops needed per inference for
-        this layer as well as parameter count (weights, thresholds, etc.).
-        Entries should be in the format:
-        {op_<optype> : <count>, param_<paramtype>: <count>}."""
-        return {}
-
-    def get_verilog_top_module_intf_names(self) -> Dict[str,List]:
-        """Return a dict of names of input and output interfaces.
-        The keys reflect the protocols each interface implements:
-        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
-        Values are lists of tuples (axis, aximm) or names (axilite):
-        'axis' tuples correspond to the list of node inputs in order,
-        each tuple is (interface_name, interface_width_bits).
-        axilite always assumed to be 32 bits and is not tuple (name only).
-        Each block must have at most one aximm and one axilite."""
-        intf_names = {}
-        intf_names["clk"] = ["ap_clk"]
-        intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = []
-        for i in range(self.len_node_input):
-            # not every node input will result in an interface of the produced HW
-            # filter out inputs that have no stream width associated with them
-            width = self.get_instream_width_padded(i)
-            if width != 0:
-                intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
-        intf_names["m_axis"] = []
-        for i in range(self.len_node_output):
-            intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
-        intf_names["aximm"] = []
-        intf_names["axilite"] = []
-        intf_names["ap_none"] = []
-        return intf_names
-
-    def get_instream_width_padded(self, ind=0) -> int:
-        """Returns input stream width padded to a multiple of 8. This is required
-        by the AXI Stream spec."""
-        in_width = self.get_instream_width(ind=ind)
-        if in_width != 0:
-            return roundup_to_integer_multiple(in_width, 8)
-        else:
-            return 0
-
-    def get_outstream_width_padded(self, ind=0) -> int:
-        """Returns output stream width padded to a multiple of 8. This is required
-        by the AXI Stream spec."""
-        out_width = self.get_outstream_width(ind=ind)
-        return roundup_to_integer_multiple(out_width, 8)
-
-    def get_instream_width(self, ind=0) -> int:
-        pass
-
-    def get_outstream_width(self, ind=0) -> int:
-        pass
-
-    @property
-    def hls_sname(self) -> str:
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        return "V"

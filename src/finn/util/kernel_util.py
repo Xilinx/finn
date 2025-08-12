@@ -17,10 +17,14 @@ def get_node_attr(node, model=None) -> dict:
     # Convert bytes to str
     attributes = {key : val.decode('utf-8') if type(val)==bytes else val for key,val in attributes.items()}
 
-    if (model != None) and ("MVAU" in node.op_type):
-        attributes["weights"] = model.get_initializer(node.input[1])
-        if len(node.input) > 2:
-            attributes["thresholds"] = model.get_initializer(node.input[2])
+    if model != None:
+        # Get input initializers if model was provided.
+        attributes["input_initializers"] = []
+        for inp in node.input:
+            attributes["input_initializers"].append(model.get_initializer(inp))
+    else:
+        # If model was not provided, set to None rather than empty list.
+        attributes["input_initializers"] = None
 
     attributes["len_node_input"] = len(node.input)
     attributes["len_node_output"] = len(node.output)

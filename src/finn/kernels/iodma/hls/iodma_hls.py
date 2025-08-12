@@ -1,11 +1,10 @@
-from finn.kernels import Kernel
+from finn.kernels import Kernel, KernelProjection
 from finn.util import templates
 from dataclasses import dataclass, field
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from qonnx.core.datatype import DataType
 import numpy as np
-from typing import List
 import math
 
 
@@ -14,14 +13,6 @@ class IODMAHLS(Kernel):
     """ IODMA HLS kernel class """
 
     ######################### Kernel attributes #########################
-    name:str
-    depth:int
-    folded_shape:list[int]
-    normal_shape:list[int]
-    ram_style:str
-    depth_monitor:int
-    inFIFODepths:list[int]
-    outFIFODepths:list[int]
     NumChannels:int
     # FINN input datatype
     dataType:str
@@ -39,11 +30,11 @@ class IODMAHLS(Kernel):
     # name of axi-mm interface
     intfName:str = ""
 
-    ######################### Constraints #########################
-    _constraints: Tuple[Callable[['Kernel'], bool]] = () 
-
     ######################### Implementation style, rtl/hls/sip #########################
     impl_style:str = "hls"
+
+    ######################### Constraints #########################
+    _constraints: Tuple[Callable[['Kernel'], bool]] = ()
 
     ######################### Code Generation #########################
     sharedFiles: FrozenSet[Tuple[str,Path]] = frozenset({
@@ -56,7 +47,6 @@ class IODMAHLS(Kernel):
             (self.code_generation_ipgen, Path(f"{self.name}.cpp"))
         }
 
-    ######################### Instance file generators #########################
     def code_generation_ipgen(self, ctx):
         """Generates c++ code and tcl script for ip generation."""
 
@@ -80,16 +70,6 @@ class IODMAHLS(Kernel):
         with open(node_dir / f"{self.name}.cpp", "w") as f:
             f.write(template)
 
-    ######################### Other methods #########################
-    def code_generation_ipi(self, node_ctx) -> List[str]:
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        ip_vlnv = f"xilinx.com:hls:{self.name}:1.0"
-        cmd = [f"create_bd_cell -type ip -vlnv {ip_vlnv} {self.name}"]
-        return cmd
-
-    def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
-        pass
-
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         if self.direction == "out":
@@ -99,79 +79,6 @@ class IODMAHLS(Kernel):
         intf_names["axilite"] = ["s_axi_control"]
         intf_names["aximm"] = [("m_axi_gmem", self.intfWidth)]
         return intf_names
-
-    def get_normal_input_shape(self, ind=0):
-        vecs = list(self.numInputVectors)
-        num_ch = self.NumChannels
-        ishape = tuple(vecs + [num_ch])
-        return ishape
-
-    def get_normal_output_shape(self, ind=0):
-        return self.get_normal_input_shape()
-
-    def get_folded_input_shape(self, ind=0):
-        if self.direction == "in":
-            raise ValueError("Folded input shape not defined for input IODMA")
-        else:
-            shape = list(self.get_normal_input_shape())
-            itype_bits = self.get_input_datatype().bitwidth()
-            intfw = self.streamWidth
-            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
-            elems_per_word = intfw // itype_bits
-            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-            fold_depth = shape[-1] // elems_per_word
-            shape[-1] = fold_depth
-            shape.append(elems_per_word)
-            return tuple(shape)
-
-    def get_folded_output_shape(self, ind=0):
-        if self.direction == "out":
-            raise ValueError("Folded output shape not defined for output IODMA")
-        else:
-            shape = list(self.get_normal_output_shape())
-            itype_bits = self.get_output_datatype().bitwidth()
-            intfw = self.streamWidth
-            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
-            elems_per_word = intfw // itype_bits
-            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-            fold_depth = shape[-1] // elems_per_word
-            shape[-1] = fold_depth
-            shape.append(elems_per_word)
-            return tuple(shape)
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.dataType]
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output. (Same as input datatype)"""
-        return self.get_input_datatype()
-
-    def get_instream_width(self, ind=0):
-        if self.direction == "in":
-            return self.intfWidth
-        elif self.direction == "out":
-            return self.streamWidth
-        else:
-            raise ValueError("Invalid IODMA direction, please set to in or out")
-
-    def get_outstream_width(self, ind=0):
-        if self.direction == "out":
-            return self.intfWidth
-        elif self.direction == "in":
-            return self.streamWidth
-        else:
-            raise ValueError("Invalid IODMA direction, please set to in or out")
-
-    def get_number_output_values(self):
-        oshape = self.get_normal_output_shape()
-        itype_bits = self.get_input_datatype().bitwidth()
-        stream_width = self.streamWidth
-        nelems = np.prod(oshape)
-        nbits = nelems * itype_bits
-        assert nbits % stream_width == 0, "DMA: total transfer size must be word multiple"
-        ovalues = nbits // stream_width
-        return ovalues
 
     def global_includes(self):
         code_gen_dict = {}
@@ -382,5 +289,96 @@ class IODMAHLS(Kernel):
 
         return code_gen_dict
 
+    ######################### Projections #########################
+    def projection(self, fpgapart: str) -> KernelProjection:
+        return KernelProjection(
+            cycles = self.get_exp_cycles(),
+            LUT = None,
+            DSP = None,
+            BRAM_18K= None,
+            URAM = None,
+            BRAM_efficiency = None,
+            URAM_efficiency = None
+
+        )
+
     def get_exp_cycles(self) -> int:
         return 0
+
+    ######################### Other methods #########################
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        return DataType[self.dataType]
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output. (Same as input datatype)"""
+        return self.get_input_datatype()
+
+    def get_normal_input_shape(self, ind=0):
+        vecs = list(self.numInputVectors)
+        num_ch = self.NumChannels
+        ishape = tuple(vecs + [num_ch])
+        return ishape
+
+    def get_normal_output_shape(self, ind=0):
+        return self.get_normal_input_shape()
+
+    def get_folded_input_shape(self, ind=0):
+        if self.direction == "in":
+            raise ValueError("Folded input shape not defined for input IODMA")
+        else:
+            shape = list(self.get_normal_input_shape())
+            itype_bits = self.get_input_datatype().bitwidth()
+            intfw = self.streamWidth
+            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
+            elems_per_word = intfw // itype_bits
+            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
+            fold_depth = shape[-1] // elems_per_word
+            shape[-1] = fold_depth
+            shape.append(elems_per_word)
+            return tuple(shape)
+
+    def get_folded_output_shape(self, ind=0):
+        if self.direction == "out":
+            raise ValueError("Folded output shape not defined for output IODMA")
+        else:
+            shape = list(self.get_normal_output_shape())
+            itype_bits = self.get_output_datatype().bitwidth()
+            intfw = self.streamWidth
+            assert intfw % itype_bits == 0, "Input stream width must be a multiple of datatype bits"
+            elems_per_word = intfw // itype_bits
+            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
+            fold_depth = shape[-1] // elems_per_word
+            shape[-1] = fold_depth
+            shape.append(elems_per_word)
+            return tuple(shape)
+
+    def get_instream_width(self, ind=0):
+        if self.direction == "in":
+            return self.intfWidth
+        elif self.direction == "out":
+            return self.streamWidth
+        else:
+            raise ValueError("Invalid IODMA direction, please set to in or out")
+
+    def get_outstream_width(self, ind=0):
+        if self.direction == "out":
+            return self.intfWidth
+        elif self.direction == "in":
+            return self.streamWidth
+        else:
+            raise ValueError("Invalid IODMA direction, please set to in or out")
+
+    def get_number_output_values(self):
+        oshape = self.get_normal_output_shape()
+        itype_bits = self.get_input_datatype().bitwidth()
+        stream_width = self.streamWidth
+        nelems = np.prod(oshape)
+        nbits = nelems * itype_bits
+        assert nbits % stream_width == 0, "DMA: total transfer size must be word multiple"
+        ovalues = nbits // stream_width
+        return ovalues
+
+    ######################### Simulation #########################
+    def execute_rtlsim(self, context, graph, code_gen_dir, node, rtlsim_trace):
+        pass

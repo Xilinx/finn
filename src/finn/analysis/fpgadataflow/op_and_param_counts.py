@@ -29,6 +29,9 @@
 import qonnx.custom_op.registry as registry
 from qonnx.util.basic import is_finn_op
 
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
+
 
 def aggregate_dict_keys(res_dict):
     total_dict = {}
@@ -38,6 +41,9 @@ def aggregate_dict_keys(res_dict):
             if "efficiency" in r_type:
                 continue
             r_amount = layer_res_dict[r_type]
+            # Kernel.projection sets values to None if estimates are unavailable.
+            if r_amount == None:
+                continue
             r_amount = float(r_amount)
             if r_type in total_dict.keys():
                 total_dict[r_type] += r_amount
@@ -52,9 +58,9 @@ def op_and_param_counts(model):
     ret_dict = {}
     for node in model.graph.node:
         if is_finn_op(node.domain):
-            inst = registry.getCustomOp(node)
-            if hasattr(inst, "get_op_and_param_counts"):
-                node_op_and_param_counts = inst.get_op_and_param_counts()
+            kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+            if hasattr(kernel, "get_op_and_param_counts"):
+                node_op_and_param_counts = kernel.get_op_and_param_counts()
                 ret_dict[node.name] = node_op_and_param_counts
     ret_dict["total"] = aggregate_dict_keys(ret_dict)
     return ret_dict

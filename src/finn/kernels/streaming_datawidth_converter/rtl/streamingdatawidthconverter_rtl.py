@@ -1,4 +1,4 @@
-from finn.kernels import Kernel
+from finn.kernels import Kernel, KernelProjection
 from dataclasses import dataclass
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
@@ -11,16 +11,20 @@ import numpy as np
 @dataclass(frozen=True, init=False)
 class StreamingDataWidthConverterRTL(Kernel):
     """ Class that corresponds to finn-rtllib datawidth converter module. """
-    name:str
+
+    ######################### Kernel attributes #########################
     shape:list[int]
     inWidth:int
     outWidth:int
     dataType:str
 
+    ######################### Implementation style, rtl/hls/sip #########################
     impl_style: str = "rtl"
 
+    ######################### Constraints #########################
     _constraints: Tuple[Callable[['Kernel'], bool]] = () 
 
+    ######################### Code Generation #########################
     kernelFiles: FrozenSet[Path] = frozenset({Path("kernels/streaming_datawidth_converter/rtl/hdl/shared")})
 
     @property
@@ -29,26 +33,85 @@ class StreamingDataWidthConverterRTL(Kernel):
             (self.toplevel, Path(f"{self.name}.v"))
         }
 
-    def code_generation_ipi(self, node_ctx):
-        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+    def toplevel(self, ctx):
+        node_dir = ctx.directory
+        template_path = "streaming_datawidth_converter/rtl/hdl/dwc_template.v"
 
-        sourcefiles = [
-            f"{self.name}.v",
-        ]
+        code_gen_dict = self.get_template_values()
 
-        cmd = []
-        for f in sourcefiles:
-            cmd += [f"add_files -norecurse {'../'+str((node_ctx.directory / Path(f)).relative_to(node_ctx.top_ctx.directory))}"]
-        cmd += [f"create_bd_cell -type module -reference {self.name} {self.name}"]
-        return cmd
+        # Find and replace parameters in template, then return
+        template = get_data('finn.kernels', template_path).decode('utf-8')
+        for key_name in code_gen_dict:
+            key = "$%s$" % key_name
+            template = template.replace(key, str(code_gen_dict[key_name]))
 
-    def get_instream_width(self, ind=0):
-        in_width = self.inWidth
-        return in_width
+        with open(node_dir / Path(f'{self.name}.v'), 'w') as f:
+            f.write(template)
 
-    def get_outstream_width(self, ind=0):
-        out_width = self.outWidth
-        return out_width
+    def get_template_values(self):
+        topname = self.name
+        ibits = self.get_instream_width()
+        obits = self.get_outstream_width()
+        code_gen_dict = {
+            "IBITS": int(ibits),
+            "OBITS": int(obits),
+            "TOP_MODULE_NAME": topname,
+        }
+        return code_gen_dict
+
+    ######################### Projections #########################
+    def projection(self, fpgapart: str) -> KernelProjection:
+        return KernelProjection(
+            cycles = self.get_exp_cycles(),
+            LUT = self.lut_estimation(),
+            DSP = None,
+            BRAM_18K= None,
+            URAM = None,
+            BRAM_efficiency = None,
+            URAM_efficiency = None
+
+        )
+
+    def get_exp_cycles(self) -> int:
+        return 0
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+
+        minw = min(inw, outw)
+        maxw = max(inw, outw)
+
+        # sometimes widths aren't directly divisible
+        # this requires going up from input width to least common multiple
+        # then down to output width
+        intw = abs(maxw * minw) // math.gcd(maxw, minw)
+
+        # we assume a shift-based implementation
+        # even if we don't use LUTs explicitly, we make some unavailable
+        # to other logic because they're tied into the DWC control sets
+
+        cnt_luts = 0
+        cset_luts = 0
+
+        if inw != intw:
+            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
+            cset_luts += intw
+        if intw != outw:
+            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
+            cset_luts += outw
+
+        return int(cnt_luts + cset_luts)
+
+    ######################### Other Methods #########################
+    def get_input_datatype(self, ind=0):
+        """Returns FINN DataType of input."""
+        return DataType[self.dataType]
+
+    def get_output_datatype(self, ind=0):
+        """Returns FINN DataType of output."""
+        return DataType[self.dataType]
 
     def get_normal_input_shape(self, ind=0):
         ishape = self.shape
@@ -99,75 +162,17 @@ class StreamingDataWidthConverterRTL(Kernel):
 
         return dummy_t.shape
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        return DataType[self.dataType]
+    def get_instream_width(self, ind=0):
+        in_width = self.inWidth
+        return in_width
 
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.dataType]
-
-    def check_divisible_iowidths(self):
-        pass
+    def get_outstream_width(self, ind=0):
+        out_width = self.outWidth
+        return out_width
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_template_values(self):
-        topname = self.name
-        ibits = self.get_instream_width()
-        obits = self.get_outstream_width()
-        code_gen_dict = {
-            "IBITS": int(ibits),
-            "OBITS": int(obits),
-            "TOP_MODULE_NAME": topname,
-        }
-        return code_gen_dict
-
-    def toplevel(self, ctx):
-        node_dir = ctx.directory
-        template_path = "streaming_datawidth_converter/rtl/hdl/dwc_template.v"
-
-        code_gen_dict = self.get_template_values()
-
-        # Find and replace parameters in template, then return
-        template = get_data('finn.kernels', template_path).decode('utf-8')
-        for key_name in code_gen_dict:
-            key = "$%s$" % key_name
-            template = template.replace(key, str(code_gen_dict[key_name]))
-
-        with open(node_dir / Path(f'{self.name}.v'), 'w') as f:
-            f.write(template)
-
-    def get_exp_cycles(self) -> int:
-        return 0
-
-    def lut_estimation(self):
-        """Calculates resource estimations for LUTs"""
-        inw = self.get_instream_width()
-        outw = self.get_outstream_width()
-
-        minw = min(inw, outw)
-        maxw = max(inw, outw)
-
-        # sometimes widths aren't directly divisible
-        # this requires going up from input width to least common multiple
-        # then down to output width
-        intw = abs(maxw * minw) // math.gcd(maxw, minw)
-
-        # we assume a shift-based implementation
-        # even if we don't use LUTs explicitly, we make some unavailable
-        # to other logic because they're tied into the DWC control sets
-
-        cnt_luts = 0
-        cset_luts = 0
-
-        if inw != intw:
-            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
-            cset_luts += intw
-        if intw != outw:
-            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
-            cset_luts += outw
-
-        return int(cnt_luts + cset_luts)
+    def check_divisible_iowidths(self):
+        pass

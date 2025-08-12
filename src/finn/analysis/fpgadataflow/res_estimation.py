@@ -89,6 +89,7 @@ def res_estimation_complete(model, fpgapart):
                 res_dict[node.name].append(asdict(kernel.projection(fpgapart)))
                 inst.set_nodeattr("ram_style", orig_ramstyle)
             else:
+                kernel = gkr.kernel(op_type, get_node_attr(node, model))
                 res_dict[node.name] = [asdict(kernel.projection(fpgapart))]
 
     return res_dict

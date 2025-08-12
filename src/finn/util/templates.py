@@ -48,7 +48,7 @@ open_solution sol1
 set_part $config_proj_part
 
 $DEFAULT_DIRECTIVES$
-
+$EXTRA_DIRECTIVES$
 
 create_clock -period $config_clkperiod -name default
 csynth_design

@@ -399,6 +399,7 @@ class DataflowBuildConfig:
         # Default HDL/HLS libraries
         libs = {
             "finn" : importlib.resources.files("finn"),
+            "finn-rtllib" : Path(os.environ["FINN_ROOT"]) / Path("finn-rtllib"),
             "finn-hlslib" : Path(os.environ["FINN_ROOT"]) / Path('deps/finn-hlslib')
         }
         if self.custom_kernel_libs is None:
