@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -58,18 +57,27 @@ class Deconvolution(HWCustomOp):
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
+        if ind == 0:
+            ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
+        else:
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            ofm_ch = self.get_nodeattr("OFMChannels")
+            k_h, k_w = self.get_nodeattr("KernelDim")
+            ishape = (ofm_ch, k_h, k_w, ifm_ch)
         return ishape
 
     def get_folded_input_shape(self, ind=0):
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        fold = int(ifm_ch / simd)
-        folded_ishape = (1, ifm_dim_h, ifm_dim_w, fold, simd)
+        if ind == 0:
+            ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            simd = self.get_nodeattr("SIMD")
+            assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+            fold = int(ifm_ch / simd)
+            folded_ishape = (1, ifm_dim_h, ifm_dim_w, fold, simd)
+        else:
+            folded_ishape = self.get_normal_input_shape(ind)
         return folded_ishape
 
     def get_normal_output_shape(self, ind=0):
@@ -134,22 +142,20 @@ class Deconvolution(HWCustomOp):
     def get_instream_width(self, ind=0):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
-        ibits = self.get_input_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        in_width = simd * ibits
+        if ind == 0:
+            ibits = self.get_input_datatype().bitwidth()
+            simd = self.get_nodeattr("SIMD")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+            in_width = simd * ibits
+        else:
+            in_width = 0
         return in_width
 
     def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        num_output_elems = np.prod(folded_oshape[:-1])
-        return num_output_elems
 
     def get_exp_cycles(self):
         return 0
