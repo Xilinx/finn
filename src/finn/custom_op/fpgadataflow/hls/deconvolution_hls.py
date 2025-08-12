@@ -31,7 +31,7 @@ from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.deconvolution import Deconvolution
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.util.data_packing import numpy_to_hls_code1
+from finn.util.data_packing import numpy_to_hls_code
 
 
 class Deconvolution_hls(Deconvolution, HLSBackend):
@@ -83,7 +83,9 @@ class Deconvolution_hls(Deconvolution, HLSBackend):
         weight_tensor = self.get_hw_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
         if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code1(weight_tensor, export_wdt, "weights", False, True)
+            weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", False, True)
+            # remove framing {}
+            weight_hls_code = weight_hls_code[1:-2] + ";"
             # write weights into C++ header file as dictated by finn-hlslib
             f_weights = open(weight_file_name, "w")
             f_weights.write(
