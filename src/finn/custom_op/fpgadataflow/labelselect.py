@@ -32,6 +32,8 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 class LabelSelect(HWCustomOp):
@@ -68,65 +70,15 @@ class LabelSelect(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self, ind=0):
-        nlabels = self.get_nodeattr("Labels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        ishape = tuple(vecs + [nlabels])
-        return ishape
-
-    def get_folded_input_shape(self, ind=0):
-        nlabels = self.get_nodeattr("Labels")
-        pe = self.get_nodeattr("PE")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        assert nlabels % pe == 0, "PE must divide Labels"
-        folds = int(nlabels / pe)
-        folded_ishape = tuple(vecs + [folds, pe])
-        return folded_ishape
-
-    def get_normal_output_shape(self, ind=0):
-        k = self.get_nodeattr("K")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        oshape = tuple(vecs + [k])
-        return oshape
-
-    def get_folded_output_shape(self, ind=0):
-        k = self.get_nodeattr("K")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        oshape = tuple(vecs + [k, 1])
-        return oshape
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node))
         # check input datatype against property
         idt = model.get_tensor_datatype(node.input[0])
         self.set_nodeattr("inputDataType", idt.name)
 
-        odt = self.get_output_datatype()
+        odt = kernel.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        ret = DataType[self.get_nodeattr("inputDataType")]
-        return ret
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        ret = DataType[self.get_nodeattr("outputDataType")]
-        return ret
-
-    def get_instream_width(self, ind=0):
-        """Returns input stream width."""
-        ibits = self.get_input_datatype().bitwidth()
-        pe = self.get_nodeattr("PE")
-        in_width = pe * ibits
-        return in_width
-
-    def get_outstream_width(self, ind=0):
-        """Returns output stream width."""
-        return self.get_output_datatype().bitwidth()
-
-    def get_number_output_values(self):
-        return self.get_nodeattr("K")
 
     def execute_node(self, context, graph):
         # create a standard add node to help calculate the result
@@ -160,9 +112,3 @@ class LabelSelect(HWCustomOp):
         sess = rt.InferenceSession(model_topk.SerializeToString())
         result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result[1], dtype=np.float32).reshape(oshape)
-
-    def get_exp_cycles(self):
-        nlabels = self.get_nodeattr("Labels")
-        pe = self.get_nodeattr("PE")
-        exp_cycles = nlabels / pe
-        return int(exp_cycles)

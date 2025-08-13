@@ -33,6 +33,8 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.kernels.kernel_registry import gkr
+from finn.util.kernel_util import get_node_attr
 
 
 class Thresholding(HWCustomOp):
@@ -70,17 +72,18 @@ class Thresholding(HWCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype(0):
+        if idt != kernel.get_input_datatype(0):
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype(0).name),
+                str(kernel.get_input_datatype(0).name),
                 str(idt.name),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
-        odt = self.get_output_datatype()
+        odt = kernel.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
@@ -107,28 +110,17 @@ class Thresholding(HWCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self, ind=0):
-        """Returns FINN DataType of input."""
-        if ind == 0:
-            dt = DataType[self.get_nodeattr("inputDataType")]
-        elif ind == 1:
-            dt = DataType[self.get_nodeattr("weightDataType")]
-        else:
-            raise Exception("Index out of range")
-        return dt
-
-    def get_output_datatype(self, ind=0):
-        """Returns FINN DataType of output."""
-        return DataType[self.get_nodeattr("outputDataType")]
-
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
+        node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node, model))
+
         thresholds = model.get_initializer(self.onnx_node.input[1])
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         min_threshold = thresholds.min()
         max_threshold = thresholds.max()
-        min_input = self.get_input_datatype(0).min()
-        max_input = self.get_input_datatype(0).max()
+        min_input = kernel.get_input_datatype(0).min()
+        max_input = kernel.get_input_datatype(0).max()
         # get range required by threshold values
         tdt_min = min(min_input, min_threshold)
         tdt_max = max(max_input, max_threshold)
@@ -147,60 +139,6 @@ class Thresholding(HWCustomOp):
         model.set_tensor_datatype(self.onnx_node.input[1], tdt)
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_instream_width(self, ind=0):
-        if ind == 0:
-            i_bits = self.get_input_datatype(0).bitwidth()
-            width = i_bits * self.get_nodeattr("PE")
-        elif ind == 1:
-            # try to access mem_mode attribute, doesn't exist for RTL Thresholding
-            try:
-                mem_mode = self.get_nodeattr("mem_mode")
-            except AttributeError:
-                mem_mode = 0
-            if mem_mode == "internal_decoupled":
-                pe = self.get_nodeattr("PE")
-                wp = self.get_input_datatype(1).bitwidth()
-                n_thres_steps = self.get_nodeattr("numSteps")
-                width = pe * wp * n_thres_steps
-            else:
-                width = 0
-        else:
-            raise Exception("Index out of range")
-        return width
-
-    def get_outstream_width(self, ind=0):
-        o_bits = self.get_output_datatype().bitwidth()
-        return o_bits * self.get_nodeattr("PE")
-
-    def get_folded_input_shape(self, ind=0):
-        pe = self.get_nodeattr("PE")
-        fold = self.calc_tmem()
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_input_shape = tuple(vecs + [fold, pe])
-        return folded_input_shape
-
-    def get_folded_output_shape(self, ind=0):
-        # same shape as input
-        return self.get_folded_input_shape()
-
-    def get_normal_input_shape(self, ind=0):
-        ich = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-        normal_input_shape = tuple(vecs + [ich])
-        return normal_input_shape
-
-    def get_normal_output_shape(self, ind=0):
-        # same shape as input
-        return self.get_normal_input_shape()
-
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
-    def get_exp_cycles(self):
-        # Channels/PE * batch size * fmdim * fmdim
-        return np.prod(self.get_folded_output_shape()[:-1])
-
     def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
@@ -209,6 +147,9 @@ class Thresholding(HWCustomOp):
         * interleave rows between PEs
         * reshape into (PE, TMEM, n_thres_steps) and return
         """
+        node = self.onnx_node
+        kernel = gkr.kernel(node.op_type, get_node_attr(node))
+
         mh = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         tmem = mh // pe
@@ -219,7 +160,7 @@ class Thresholding(HWCustomOp):
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
-        if not self.get_input_datatype(0).signed():
+        if not kernel.get_input_datatype(0).signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
@@ -265,9 +206,3 @@ class Thresholding(HWCustomOp):
             # binary to bipolar
             y = 2 * y - 1
         context[node.output[0]] = y
-
-    def calc_tmem(self):
-        """Calculates and returns TMEM."""
-        num_channels = self.get_nodeattr("NumChannels")
-        pe = self.get_nodeattr("PE")
-        return num_channels // pe
