@@ -1,8 +1,6 @@
 import os
 from qonnx.transformation.base import Transformation
 
-from finn.util.context import Context
-
 from pathlib import Path
 import re
 
@@ -33,7 +31,7 @@ class ChangeDATPaths(Transformation):
                                 s = f.read()
 
                             # Regular expression to find paths ending with .dat enclosed in quotes
-                            pattern = r'["\'](.*?\.dat)["\']'
+                            pattern = r'"([^"]*\.dat|\.\/[^./"]+/.*)?"'
                             paths = re.findall(pattern, s)
 
                             # Change paths between relative and absolute
@@ -46,6 +44,10 @@ class ChangeDATPaths(Transformation):
                                         if (Path(dname) / path_obj).is_file():
                                             path_obj = (Path(dname) / path_obj).resolve()
                                         elif (Path(self.ipgen_dir).resolve() / path_obj).is_file():
+                                            path_obj = (Path(self.ipgen_dir).resolve() / path_obj)
+                                        elif (Path(dname) / path_obj).is_dir():
+                                            path_obj = (Path(dname) / path_obj).resolve()
+                                        elif (Path(self.ipgen_dir).resolve() / path_obj).is_dir():
                                             path_obj = (Path(self.ipgen_dir).resolve() / path_obj)
                                         else:
                                             raise RuntimeError(f"Path {path_obj} did not exist in {dname} or {Path(self.ipgen_dir).resolve()}.")

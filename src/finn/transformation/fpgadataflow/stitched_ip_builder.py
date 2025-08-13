@@ -3,6 +3,7 @@ from finn.util.kernel_util import get_node_attr
 from finn.util import templates
 from finn.kernels import Kernel
 from finn.kernels import gkr
+from finn.transformation.fpgadataflow.change_dat_paths import ChangeDATPaths
 
 from qonnx.util.basic import get_num_default_workers
 from qonnx.transformation.base import Transformation
@@ -510,8 +511,10 @@ class StitchedIPBuilder(Transformation):
             f.write("vivado -mode batch -source make_project.tcl\n")
             f.write("popd\n")
         bash_command = ["bash", make_project_sh]
+        model.transform(ChangeDATPaths(ipgen_dir=self.ctx.directory, abs=True))
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        model.transform(ChangeDATPaths(ipgen_dir=self.ctx.directory, abs=False))
         # wrapper may be created in different location depending on Vivado version
         if not os.path.isfile(wrapper_filename):
             # check in alternative location (.gen instead of .srcs)
