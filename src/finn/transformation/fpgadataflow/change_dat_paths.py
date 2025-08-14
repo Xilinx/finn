@@ -31,7 +31,13 @@ class ChangeDATPaths(Transformation):
                                 s = f.read()
 
                             # Regular expression to find paths ending with .dat enclosed in quotes
-                            pattern = r'"([^"]*\.dat|\.\/[^./"]+/.*)?"'
+                            pattern = re.compile(
+                                r'"('
+                                r'(?:\./(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+(?:\.dat)?)'   # starts with ./, .dat optional
+                                r'|'
+                                r'(?:(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.dat)'           # no ./, must end with .dat
+                                r')"'
+                            )
                             paths = re.findall(pattern, s)
 
                             # Change paths between relative and absolute
