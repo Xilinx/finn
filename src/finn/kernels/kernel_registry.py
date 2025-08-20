@@ -17,7 +17,7 @@ class KernelBucket:
 
     _bucket : Dict[int, list[Kernel]] = field(default_factory=dict)
 
-    """Allows inserting kernels based on priority, but also allows handling of special cases with extra logic."""
+    """ Allows inserting kernels based on priority, but also allows handling of special cases with extra logic. """
     def _put(self, k: Kernel, priority: int) -> None:
 
         if k in self._priority_list():
@@ -32,7 +32,7 @@ class KernelBucket:
 
         self._bucket[priority].append(k) # Add kernel to bucket.
 
-    """Return all kernels in bucket, sorted on priority first, reverse insertion order second."""
+    """ Return all kernels in bucket, sorted on priority first, reverse insertion order second. """
     def _priority_list(self) -> list[Kernel]:
         # Sort buckets based on priority first, reverse insertion order second.
         sorted_buckets = [list(reversed(self._bucket[i])) for i in sorted(self._bucket.keys())]
@@ -41,7 +41,7 @@ class KernelBucket:
 
 
 class KernelRegistryMeta(type):
-    """ Meta class for ensuring the KernelRegistry is a Singleton """
+    """ Meta class for ensuring the KernelRegistry is a Singleton. """
     _instances = {}
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
@@ -50,11 +50,13 @@ class KernelRegistryMeta(type):
 
 class KernelRegistry(metaclass=KernelRegistryMeta):
     """
-    This is a custom dict class for the kernel registry.
+    This is a class for the kernel registry.
 
-    It is a singleton and ensures that is created on module instantiation.
+    It is a singleton and ensures that it is created on module instantiation.
     Any subsequent calls to new to create a new registry will be a reference to the original object.
     It uses the KernelRegistryMeta class to ensure this behaviour.
+
+    Care should be taken when using this singleton with multiprocessing.
     """    
 
     def __init__(self):
@@ -65,23 +67,27 @@ class KernelRegistry(metaclass=KernelRegistryMeta):
         return self
 
     def kernel_exists(self, op_type: str) -> bool:
-        # Check if a customop has any kernels registered. No constraints checking.
+        """ Check if a customop has any kernels registered. No constraints checking. """
         return self._mapping.get(op_type) != None
 
     def register(self, op_type: str, k: Kernel, priority: int = -2) -> None:
-        """Register a kernel at a particular priority"""  
-        if not (op_type in self._mapping.keys()): # No previous customop was registered so we need to add one
+        """ Register a kernel at a particular priority. """  
+        if not (op_type in self._mapping.keys()):
+            # First time this customop is seen, make a new bucket for it.
             self._mapping[op_type] = KernelBucket()
 
-        # Append with priority. p=0 is default, p<0 is high priority, p>0 is low priority.
+        # Append kernel with priority. p=0 is default, p<0 is high priority, p>0 is low priority.
         self._mapping[op_type]._put(k, priority)
 
     def kernel(self, op_type: str, config: dict, cost_fn: Callable[[List[Kernel]],Kernel] = None) -> Kernel:
-        """ For a given set of attributes find a suitable kernel that satistfies the 
-        attributes according to the kernel priority list and user define cost function.
-        
+        """
+        For a given set of attributes find a suitable kernel that satistfies the 
+        attributes according to the kernel priority list and user defined cost function.
+
         All viable candidates are found in priority order, the best fit is chosen by cost_fn. If no viable candidate
-        was found then None is returned."""
+        was found then None is returned.
+        """
+
         candidates : list[Kernel] = self._mapping[op_type]._priority_list()
         candidates_viable: List[Kernel] = []
         for candidate in candidates:
