@@ -1,4 +1,4 @@
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, field, MISSING
 from pathlib import Path
 from typing import Tuple, FrozenSet, Callable, Dict, List, Optional
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -67,8 +67,8 @@ class Kernel:
     name: str
     len_node_input: int
     len_node_output: int
-    inFIFODepths:list[int]
-    outFIFODepths:list[int]
+    inFIFODepths:list[int] = field(default_factory=lambda: [2])
+    outFIFODepths:list[int] = field(default_factory=lambda: [2])
 
     # This needs to be overridden for modules with parameters like weights, thresholds etc.
     def input_init_map(self, input_initializers: list[np.ndarray]) -> dict[str, np.ndarray]:
@@ -79,10 +79,15 @@ class Kernel:
     def _attribute_init(self, **kwargs) -> None:
         """ Discard extra keyword arguments. """
         ignore_fields = {'_constraints', 'impl_style', 'sharedFiles', 'kernelFiles', 'subkernels'}
-        valid_fields = {f.name for f in fields(self.__class__)} - ignore_fields
-        for field_name in valid_fields:
-            if field_name in kwargs:
-                object.__setattr__(self, field_name, kwargs.pop(field_name))
+        for f in fields(self.__class__):
+            if f.name in ignore_fields:
+                continue
+            elif f.name in kwargs:
+                object.__setattr__(self, f.name, kwargs.pop(f.name))
+            elif f.default is not MISSING:
+                object.__setattr__(self, f.name, f.default)
+            elif f.default_factory is not MISSING:
+                object.__setattr__(self, f.name, f.default_factory())
 
         # Input initializers for parameters like weights and thresholds.
         input_initializers = kwargs.pop("input_initializers")

@@ -76,11 +76,11 @@ class FMPaddingHLS_Rect(Kernel):
         #include "mmv.hpp"
         #include "streamtools.h"
 
-        void {self.name}(hls::stream<ap_uint<{self.get_instream_width()}>> &in0_{self.hls_sname},
-                        hls::stream<ap_uint<{self.get_instream_width()}>> &out0_{self.hls_sname}) {{
+        void {self.name}(hls::stream<ap_uint<{self.get_instream_width()}>> &in0_V,
+                        hls::stream<ap_uint<{self.get_instream_width()}>> &out0_V) {{
 
-            #pragma HLS INTERFACE axis port=in0_{self.hls_sname}
-            #pragma HLS INTERFACE axis port=out0_{self.hls_sname}
+            #pragma HLS INTERFACE axis port=in0_V
+            #pragma HLS INTERFACE axis port=out0_V
             #pragma HLS INTERFACE ap_ctrl_none port=return
 
             FMPadding_nonsquare_Batch<{self.padded_odim[1]},
@@ -92,7 +92,7 @@ class FMPaddingHLS_Rect(Kernel):
                                 {self.NumChannels},
                                 {self.SIMD},
                                 {DataType[self.inputDataType].get_hls_datatype_str()}>
-            (in0_{self.hls_sname}, out0_{self.hls_sname}, {self.numInputVectors});
+            (in0_V, out0_V, {self.numInputVectors});
         }} 
         """
 

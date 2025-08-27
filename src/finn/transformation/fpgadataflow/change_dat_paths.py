@@ -1,9 +1,18 @@
 import os
-from qonnx.transformation.base import Transformation
-
 from pathlib import Path
 import re
 
+from qonnx.transformation.base import Transformation
+
+
+# Regular expression to find filepaths in RTL files.
+filepath_pattern = re.compile(
+    r'"('
+    r'(?:\./(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+(?:\.dat)?)'   # starts with ./, .dat optional
+    r'|'
+    r'(?:(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.dat)'           # no ./, must end with .dat
+    r')"'
+)
 
 class ChangeDATPaths(Transformation):
     """Convert DAT file paths between being relative to the output directory
@@ -30,15 +39,7 @@ class ChangeDATPaths(Transformation):
                             with open(fpath, 'r') as f:
                                 s = f.read()
 
-                            # Regular expression to find paths ending with .dat enclosed in quotes
-                            pattern = re.compile(
-                                r'"('
-                                r'(?:\./(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+(?:\.dat)?)'   # starts with ./, .dat optional
-                                r'|'
-                                r'(?:(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+\.dat)'           # no ./, must end with .dat
-                                r')"'
-                            )
-                            paths = re.findall(pattern, s)
+                            paths = re.findall(filepath_pattern, s)
 
                             # Change paths between relative and absolute
                             changed_paths = []

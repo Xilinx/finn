@@ -52,7 +52,7 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
     assert os.path.isfile(output_dir + "/template_specialize_layers_config.json")
-    assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
+    assert os.path.isfile(output_dir + "/ipgen/vivado_stitch_proj/ip/component.xml") # Moved with new kernel flow
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
@@ -73,7 +73,7 @@ def test_end2end_build_dataflow_directory():
         verify_out_dir = output_dir + "/verification_output"
         assert os.path.isfile(verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy")
-        assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
+        # assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy") # cppsim removed with new kernel flow
         assert os.path.isfile(verify_out_dir + f"/verify_node_by_node_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_rtlsim_{i}.wdb")
