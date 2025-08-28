@@ -150,3 +150,30 @@ while { [eof $ifile] != 1 } {
 close $ifile
 close $ofile
 """
+
+verilog_wrapper_template = """
+module $TOP_MODULE_NAME$ #(
+$PARAMS$
+)(
+//- Global Control ------------------
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF $TOP_PORT_NAMES$, ASSOCIATED_RESET = $RST_NAME$" *)
+$CLKS$
+(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
+input   $RST_NAME$,
+
+//- AXI Lite ------------------------
+$AXILITE$
+//- AXI Stream - Input --------------
+$S_AXIS$
+//- AXI Stream - Output -------------
+$M_AXIS$
+);
+
+// Declare internal signals
+$WIRES$
+
+// Instantiate subkernels
+$BODY$
+
+endmodule
+"""

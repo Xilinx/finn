@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from typing import Callable, Tuple, FrozenSet
 from pathlib import Path
 from pkgutil import get_data
+from math import ceil, log2
 
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.kernels import Kernel
 from finn.util.basic import is_versal
@@ -102,6 +104,18 @@ class MemstreamRTL(Kernel):
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(node_dir / Path(self.name + ".v"), "w") as f:
                 f.write(template_wrapper)
+
+    def get_verilog_top_module_intf_names(self) -> dict[str,list]:
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["clk2x"] = ["ap_clk2x"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = []
+        intf_names["m_axis"] = ["m_axis_0", self.sip_padded_width]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = ["s_axilite"]
+        intf_names["ap_none"] = []
+        return intf_names
 
     ######################### Other Methods #########################
     def get_input_datatype(self, ind=0):
