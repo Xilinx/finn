@@ -3,5 +3,5 @@
 
 # Import all sub-modules to register kernels
 from . import rtl
-# from . import hls
-# from . import sip
+from . import hls
+from . import sip
