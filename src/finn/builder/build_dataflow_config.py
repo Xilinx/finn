@@ -40,9 +40,28 @@ from finn.util.basic import alveo_default_platform, part_map
 
 class AutoFIFOSizingMethod(str, Enum):
     "Select the type of automatic FIFO sizing strategy."
-
-    CHARACTERIZE = "characterize"
+    ANALYTIC = "analytical"
     LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
+class TAVGenerationMethod(str, Enum):
+    "Select the strategy for constructing token access vectors of an operator."
+    RTLSIM = "rtlsim"
+    TREE_MODEL = "tree_model"
+
+
+class TAVUtilizationMethod(str, Enum):
+    """Select the strategy for utilizing token access vectors of an operator
+    for buffer sizing."""
+
+    # worst-case ratio of data rates between a consumer and producer
+    CONSERVATIVE_RELAXATION = "conservative_relaxation"
+
+    # average-case ratio of data rates between a consumer and producer
+    AGGRESSIVE_RELAXATION = "aggressive_relaxation"
+
+    # no relaxation, use the token access vectors as-is
+    NO_RELAXATION = "no_relaxation"
 
 
 class ShellFlowType(str, Enum):
@@ -117,9 +136,9 @@ default_build_dataflow_steps = [
     "step_apply_folding_config",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
+    "step_set_fifo_depths",
     "step_hw_codegen",
     "step_hw_ipgen",
-    "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
@@ -266,6 +285,10 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
+    #: Whether synthesis should be performed in the fifo sizing step
+    #: in case a node does not have an rtlsim prepared to generate TAVs
+    just_in_time_synthesis: Optional[bool] = True
+
     #: Whether FIFO nodes with depth larger than 32768 will be split.
     #: Allow to configure very large FIFOs in the folding_config_file.
     split_large_fifos: Optional[bool] = False
@@ -273,6 +296,26 @@ class DataflowBuildConfig:
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+
+    #: Which strategy will be used for token access vector generation for FIFO sizing.
+    #: RTLSIM will result in performing RTLSIM for each node
+    #: to deduce the token access vectors empirically
+    #: TREE_MODEL will use the tree mode of an operator if available, avoiding the generation
+    #: of IP cores.
+    tav_generation_strategy: Optional[TAVGenerationMethod] = TAVGenerationMethod.RTLSIM
+
+    #: Which strategy will be used for token access vector generation for FIFO sizing.
+    #: RTLSIM will result in performing RTLSIM for each node
+    #: to deduce the token access vectors empirically
+    #: TREE_MODEL will use the tree mode of an operator if available, avoiding the generation
+    #: of IP cores.
+    tav_utilization_strategy: Optional[
+        TAVUtilizationMethod
+    ] = TAVUtilizationMethod.CONSERVATIVE_RELAXATION
+
+    #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
+    #: if set to True, always using Python instead
+    force_python_rtlsim: Optional[bool] = False
 
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`

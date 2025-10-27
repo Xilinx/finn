@@ -34,6 +34,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
@@ -243,3 +244,13 @@ class ChannelwiseOp(HWCustomOp):
         sess = rt.InferenceSession(model_func.SerializeToString())
         result = sess.run(None, idict)
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+    def get_tree_model(self):
+        # key parameters
+
+        dim = np.prod(self.get_folded_output_shape()[1:-1])
+
+        pass_channelwise = Characteristic_Node("passing channelwise layer", [(dim, [1, 1])], True)
+        channelwise_top = Characteristic_Node("compute pool", [(1, pass_channelwise)], False)
+
+        return channelwise_top  # top level phase of this node

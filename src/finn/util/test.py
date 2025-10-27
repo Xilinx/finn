@@ -28,22 +28,42 @@
 
 import pytest
 
+import copy
 import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import qonnx.custom_op.registry as registry
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
 
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveTokenAccessVectors,
+)
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import (
+    alveo_default_platform,
+    alveo_part_map,
+    decompress_string_to_numpy,
+    make_build_dir,
+    pynq_part_map,
+)
+from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -184,3 +204,243 @@ def resize_smaller_side(target_pixels, img):
 def crop_center(size, img):
     """Crop central size*size window out of a PIL image."""
     return torchvision_util.center_crop(img, size)
+
+
+def compare_two_chr_funcs(a, b, max_allowed_volume_delta):
+    # relaxation determines how much leeway we allow for the
+    # analytical implementation to be off from RTL ground truth
+    # this leeway may produce larger fifos.
+    # Output delays due to long pipelines generally do not effect
+    # fifo sizes and so large relaxation factors for them are expected.
+
+    lower_len = min(len(a), len(b))
+    if len(a) != len(b):
+        len_dif = abs(len(a) - len(b))
+        print(f"TAV length delta: {len_dif}")
+        if len_dif > max_allowed_volume_delta:
+            return False
+
+    peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len]))
+    print(f"TAV peak volume delta: {peak_volume_delta}")
+    if peak_volume_delta > max_allowed_volume_delta:
+        return False
+    return True
+
+
+def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False):
+    """
+    This helper performs FINN node characterization using either rtlsim
+    or characteristic functions. If chacteristic function strategy is
+    requested, but the node does not support it, a fallback to rtlsim
+    is performed. The primary purpose of this helper is for testing purposes
+    to evaluate characteristic function final dump equivalence between rtlsim
+    and characteristic functions.
+    The CACHING flag controls storing the .onnx model in the build dir to reuse,
+    which is useful for vastly speeding up debugging of characterization trees"""
+
+    model_cache = None
+    if caching:
+        # search for prepared model
+        build_dir = os.environ["FINN_BUILD_DIR"]
+        for x in os.listdir(build_dir):
+            if x.startswith(str(node0)):
+                model_cache = f"{build_dir}/{x}/model_{strategy}.onnx"
+                if os.path.exists(model_cache):
+                    model = ModelWrapper(model_cache)
+                else:
+                    model_cache = None
+
+    if model_cache is None:
+        model = model.transform(SpecializeLayers(part))
+        model = model.transform(GiveUniqueNodeNames())
+
+        for node in model.graph.node:
+            inst = registry.getCustomOp(node)
+            if (is_hls_node(node) or is_rtl_node(node)) and (
+                inst.get_tree_model() is None or strategy == "rtlsim"
+            ):
+                _codegen_single_node(node, model, part, target_clk_ns)
+
+                op_type = node.op_type
+                if is_hls_node(node):
+                    try:
+                        # lookup op_type in registry of CustomOps
+
+                        # ensure that code is generated
+                        assert (
+                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                        ), """Node
+                        attribute "code_gen_dir_ipgen" is empty. Please run
+                        transformation PrepareIP first."""
+                        if not os.path.isdir(
+                            inst.get_nodeattr("ipgen_path")
+                        ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
+                            "ipgen_path"
+                        ):
+                            # call the compilation function for this node
+                            inst.ipgen_singlenode_code()
+                        else:
+                            warnings.warn("Using pre-existing IP for %s" % node.name)
+                        # ensure that executable path is now set
+                        assert (
+                            inst.get_nodeattr("ipgen_path") != ""
+                        ), """Transformation
+                        HLSSynthIP was not successful. Node attribute "ipgen_path"
+                        is empty."""
+                    except KeyError:
+                        # exception if op_type is not supported
+                        raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        model = model.transform(ReplaceVerilogRelPaths())
+
+        for node in model.graph.node:
+            inst = registry.getCustomOp(node)
+            if (is_hls_node(node) or is_rtl_node(node)) and (
+                inst.get_tree_model() is None or strategy == "rtlsim"
+            ):
+                try:
+                    # lookup op_type in registry of CustomOps
+                    # inst = registry.getCustomOp(node)
+                    inst.prepare_rtlsim()
+                    # ensure that executable path is now set
+                    assert (
+                        inst.get_nodeattr("rtlsim_so") != ""
+                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        model = model.transform(AnnotateCycles())
+
+        period = int(model.analysis(dataflow_performance)["max_cycles"] + 12)
+
+        model = model.transform(
+            DeriveTokenAccessVectors(
+                model,
+                period,
+                strategy,
+                part,
+                target_clk_ns,
+            )
+        )
+        if caching:
+            tmp_caching_output_dir = make_build_dir(str(node0))
+            model.save(tmp_caching_output_dir + f"/model_{strategy}.onnx")
+
+    return getCustomOp(model.graph.node[0])
+
+
+def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
+    """This helper prints out characteristic functions for a clean comparison
+    between the rtlsim-based and characteristic-function-based flows to find bugs
+    """
+
+    DEBUG_RAW_FUNCS = True
+    DEBUG_CONCAT_FUNCS = True
+
+    if DEBUG_RAW_FUNCS or DEBUG_CONCAT_FUNCS:
+
+        def concat_list(a):
+            b = []
+            current = a[0]
+            b.append(1)
+            for i in a[1:]:
+                if i == current:
+                    b[-1] += 1
+                else:
+                    b.append(1)
+                    current = i
+            return b
+
+        chr_in_concat = concat_list(chr_in[0])
+        chr_out_concat = concat_list(chr_out[0])
+        rtlsim_in_concat = concat_list(rtlsim_in[0])
+        rtlsim_out_concat = concat_list(rtlsim_out[0])
+
+        np.set_printoptions(threshold=np.inf)
+
+        # input port
+        if DEBUG_RAW_FUNCS:
+            print(f"\nchr IN:    {chr_in[0][:printout_limit]}, {len(chr_in[0])}")
+            print(f"rtlsim IN: {rtlsim_in[0][:printout_limit]}, {len(rtlsim_in[0])}")
+
+        if DEBUG_CONCAT_FUNCS:
+            print(f"chr IN CONCAT:    {chr_in_concat[:printout_limit]}, {len(chr_in_concat)}")
+            print(f"rtlsim IN CONCAT: {rtlsim_in_concat[:printout_limit]}, {len(rtlsim_in_concat)}")
+
+        # output port
+        if DEBUG_RAW_FUNCS:
+            print(f"\nchr OUT:    {chr_out[0][:printout_limit]}, {len(chr_out[0])}")
+            print(f"rtlsim OUT: {rtlsim_out[0][:printout_limit]}, {len(rtlsim_out[0])}")
+
+        if DEBUG_CONCAT_FUNCS:
+            print(f"chr OUT CONCAT:    {chr_out_concat[:printout_limit]}, {len(chr_out_concat)}")
+            print(
+                f"rtlsim OUT CONCAT: {rtlsim_out_concat[:printout_limit]}, {len(rtlsim_out_concat)}"
+            )
+    else:
+        return True
+
+
+def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume_delta):
+    # should generated models be cached for faster debugging?
+    # caching means to run RTLSIM only once and store the model
+    # so we can reuse the token access vector whenever we
+    # update the tree model and want to test correctness
+    CACHING = True
+
+    # should the token access vectors and
+    # concatenated token access vectors be printed out?
+    # useful for debugging
+    DEBUGGING = False
+
+    # ground truth model to rtlsim
+    model_rtl = copy.deepcopy(model)
+    import time
+
+    t0 = time.time()
+    node_analytical = get_characteristic_fnc(
+        model,
+        (*node_details, "tree_model"),
+        part,
+        target_clk_ns,
+        "tree_model",
+        CACHING,
+    )
+
+    t1 = time.time()
+    print(f"analytical model prepared in {t1-t0}s")
+    t0 = time.time()
+    node_rtlsim = get_characteristic_fnc(
+        model_rtl,
+        (*node_details, "rtlsim"),
+        part,
+        target_clk_ns,
+        "rtlsim",
+        CACHING,
+    )
+    t1 = time.time()
+    print(f"rtlsim model prepared in {t1-t0}s")
+
+    chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
+    chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
+
+    rtlsim_in = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_in"))
+    rtlsim_out = decompress_string_to_numpy(node_rtlsim.get_nodeattr("io_chrc_out"))
+
+    if DEBUGGING:
+        debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
+
+    # test input port
+    assert compare_two_chr_funcs(
+        chr_in[0],
+        rtlsim_in[0],
+        max_allowed_volume_delta,
+    )
+
+    # test output port
+    assert compare_two_chr_funcs(
+        chr_out[0],
+        rtlsim_out[0],
+        max_allowed_volume_delta,
+    )

@@ -33,12 +33,20 @@ except ModuleNotFoundError:
 
 import numpy as np
 import os
-import warnings
 from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.util.basic import get_liveness_threshold_cycles, is_versal
+from finn.util.basic import (
+    compress_numpy_to_string,
+    get_liveness_threshold_cycles,
+    is_versal,
+)
+
+try:
+    import pyxsi_utils
+except ModuleNotFoundError:
+    pyxsi_utils = None
 
 
 class HWCustomOp(CustomOp):
@@ -87,14 +95,19 @@ class HWCustomOp(CustomOp):
             "inFIFODepths": ("ints", False, [2]),
             "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
-            # accumulated characteristic function over two periods
-            "io_chrc_in": ("t", False, np.asarray([], dtype=np.int32)),
-            "io_chrc_out": ("t", False, np.asarray([], dtype=np.int32)),
+            # token access vectors used for analytical FIFO sizing
+            "io_chrc_in": ("s", False, ""),
+            "io_chrc_out": ("s", False, ""),
+            "io_chrc_in_stretch": ("s", False, ""),
+            "io_chrc_out_stretch": ("s", False, ""),
+            "io_chrc_in_original": ("s", False, ""),
+            "io_chrc_out_original": ("s", False, ""),
             # the period for which the characterization was run
             "io_chrc_period": ("i", False, 0),
-            # amount of zero padding inserted during chrc.
-            "io_chrc_pads_in": ("ints", False, []),
-            "io_chrc_pads_out": ("ints", False, []),
+            # extra buffers added to a branch, needed for coupling
+            # token access vectors at the end of
+            # branches during analytical FIFO sizing
+            "extra_branch_fifos": ("ints", False, [0, 0]),
         }
 
     def make_shape_compatible_op(self, model):
@@ -219,6 +232,19 @@ class HWCustomOp(CustomOp):
         back to one"""
         finnxsi.reset_rtlsim(sim)
 
+    def rtlsim_multi_io_custom(self, sim, io_dict, sname="_V", batch_size=1):
+        "Run rtlsim for this node, supports multiple i/o streams."
+        num_out_values = self.get_number_output_values() * batch_size
+        total_cycle_count = finnxsi.rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values,
+            sname=sname,
+            liveness_threshold=get_liveness_threshold_cycles(),
+        )
+
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
+
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
@@ -297,11 +323,166 @@ class HWCustomOp(CustomOp):
         out_width = self.get_outstream_width(ind=ind)
         return roundup_to_integer_multiple(out_width, 8)
 
+    def get_tree_model(self):
+        """Returns the characteristic function of a node, default is None and forces
+        to skip the analytical characterization of the node and fallback to rtlsim.
+        Implemented in each node, potentially overriding between rtl and hls"""
+        return None
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
+        if override_dict is None:
+            n_inps = np.prod(self.get_folded_input_shape()[:-1])
+            io_dict = {
+                "inputs": {
+                    "in0": [i for i in range(n_inps)],
+                },
+                "outputs": {"out0": []},
+            }
+        else:
+            io_dict = override_dict
+        print(":strategy:", strategy)
+        if strategy == "tree_model":
+            # check for override function
+            if self.get_tree_model() is not None:
+                self.derive_token_access_vectors_using_tree_model(period, io_dict=io_dict)
+                return
+
+        # RTL-based flow
+        # there is a 20 clock marging added for when get_exp_cycles()
+        # is underestimating the real operator runtime.
+        period = self.get_exp_cycles() + 20
+        self.derive_token_access_vectors_using_rtlsim(model, period, fpga_part, clk_period, io_dict)
+
+    def derive_token_access_vectors_using_tree_model(self, period, io_dict):
+        # Analytical flow
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in0" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out0" in key}
+
+        chr_node = self.get_tree_model()
+        period, in_clocks, _ = chr_node.get_total_cycles(0)
+
+        self.set_nodeattr("io_chrc_period", period)
+
+        txn_in = []
+        txn_out = []
+        counter = 0
+
+        top_level_phase = self.get_tree_model()
+        # first period
+        cycles = 0
+
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
+
+        def apply_micro_buffer_correction(start, txn_in, period):
+            """There are cases where a node can buffer up the very first 1-2 inputs
+            immediately, even if it has not started properly consuming inputs yet
+            This behavior is extremely difficult to model in a characterization tree
+            and so we perform a manual correction by incrementing the number of
+            inputs read by 1 and detracting 1 read from the tail of the period
+
+            Which node types & configurations this applies for is yet to be
+            fully determined, but the corrections should happen here.
+            This correction is not critical for buffer sizing, as it will only
+            lead to two extra fifos in the absolute worst case, which should be very
+            rare regardless. However it is necessary if attempting to perfectly model
+            the rtlsim result."""
+
+            buffer = 0
+
+            if "FMPadding" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if "StreamingDataWidthConverter" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if "StreamingMaxPool" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if "MVAU" in self.onnx_node.name:
+                if "_rtl" in (self.__class__.__name__):
+                    buffer = 1
+                else:
+                    buffer = 2
+
+            if buffer > 0:
+                # buffering does not happen in nodes with short wind-ups
+                if period < 14:
+                    return txn_in
+
+                # main routine
+                if buffer == 2:
+                    if txn_in[start + 1] - txn_in[start] >= 1:
+                        buffer = 1
+                    else:
+                        txn_in[start + 1] += 1
+
+                idx = start + buffer
+                while idx < len(txn_in):
+                    if txn_in[idx] - txn_in[idx - 1] < buffer:
+                        txn_in[idx] += buffer
+                    idx += 1
+
+                idx = len(txn_in) - 1
+                last = txn_in[idx]
+
+                # deduct 1 read from the tail
+                while last == txn_in[idx]:
+                    txn_in[idx] -= buffer
+                    idx -= 1
+
+                # one extra element to deduct in case of 2 buffers
+                if buffer == 2:
+                    txn_in[idx] -= 1
+
+            return txn_in
+
+        txn_in = apply_micro_buffer_correction(0, txn_in, period)
+
+        # second period
+        cycles = len(txn_in)
+
+        counter, cycles, txn_in = top_level_phase.traverse_phase_tree(0, counter, cycles, txn_in)
+        txn_in = apply_micro_buffer_correction(period, txn_in, period)
+
+        # final assignments
+
+        all_txns_in = np.empty((len(txns_in.keys()), cycles), dtype=np.int32)
+        all_txns_in[0, :] = np.array(txn_in[:])
+        compressed_np_array = compress_numpy_to_string(all_txns_in)
+        self.set_nodeattr("io_chrc_in", compressed_np_array)
+        self.set_nodeattr("io_chrc_in_original", compressed_np_array)
+
+        counter = 0
+        cycles = 0
+
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
+
+        cycles = period
+
+        counter, cycles, txn_out = top_level_phase.traverse_phase_tree(1, counter, cycles, txn_out)
+
+        all_txns_out = np.empty((len(txns_out.keys()), cycles), dtype=np.int32)
+        all_txns_out[0, :] = np.array(txn_out[:])
+        compressed_np_array = compress_numpy_to_string(all_txns_out)
+        self.set_nodeattr("io_chrc_out", compressed_np_array)
+        self.set_nodeattr("io_chrc_out_original", compressed_np_array)
+
     def generate_hdl_memstream(self, fpgapart, pumped_memory=0):
         """Helper function to generate verilog code for memstream component.
         Currently utilized by MVAU, VVAU and HLS Thresholding layer."""
         ops = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl", "Thresholding_hls"]
-        if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
+        if self.onnx_node.op_type in ops:
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
             )
@@ -374,21 +555,28 @@ class HWCustomOp(CustomOp):
         ) as f:
             f.write(template_wrapper)
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
-        """Return the unconstrained characteristic functions for this node."""
+    def derive_token_access_vectors_using_rtlsim(
+        self, model, period, fpga_part, clk_period, override_rtlsim_dict=None
+    ):
+        """Return the token access vectors for this node using rtlsim."""
         # ensure rtlsim is ready
+
+        periods_to_simulate = 5
+        periods_to_store = 2
+
+        if self.get_nodeattr("rtlsim_so") == "":
+            self.prepare_rtlsim()
+
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
-        if self.get_nodeattr("io_chrc_period") > 0:
-            warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
-            return
-        exp_cycles = self.get_exp_cycles()
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        n_outs = np.prod(self.get_folded_output_shape()[:-1])
+
+        exp_cycles = (self.get_exp_cycles() + 20) * periods_to_simulate
+        n_inps = np.prod(self.get_folded_input_shape()[:-1]) * periods_to_simulate
+        n_outs = np.prod(self.get_folded_output_shape()[:-1]) * periods_to_simulate
         if exp_cycles == 0:
             # try to come up with an optimistic estimate
             exp_cycles = min(n_inps, n_outs)
         assert (
-            exp_cycles <= period
+            exp_cycles <= period * periods_to_simulate
         ), "Period %d too short to characterize %s : expects min %d cycles" % (
             period,
             self.onnx_node.name,
@@ -397,6 +585,10 @@ class HWCustomOp(CustomOp):
         sim = self.get_rtlsim()
         if override_rtlsim_dict is not None:
             io_dict = override_rtlsim_dict
+
+            for input_key in io_dict["inputs"]:
+                io_dict["inputs"][input_key] = io_dict["inputs"][input_key] * periods_to_simulate
+
         else:
             io_dict = {
                 "inputs": {
@@ -407,25 +599,23 @@ class HWCustomOp(CustomOp):
 
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
-        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
-        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in0" in key}
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out0" in key}
         # signal name, note no underscore at the end (new finnxsi behavior)
         sname = "_V"
         self.reset_rtlsim(sim)
+
         # create stream tracers for all input and output streams
         for k in txns_in.keys():
             txns_in[k] = sim.trace_stream(k + sname)
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
-        self.rtlsim_multi_io(sim, io_dict)
+
+        self.rtlsim_multi_io_custom(sim, io_dict, sname="_V", batch_size=periods_to_simulate)
+
         total_cycle_count = self.get_nodeattr("cycles_rtlsim")
-        assert (
-            total_cycle_count <= period
-        ), """Total cycle count from rtl simulation is higher than
-            specified period, please set the period higher than {}""".format(
-            total_cycle_count
-        )
-        self.set_nodeattr("io_chrc_period", period)
+
+        self.set_nodeattr("io_chrc_period", total_cycle_count)
         # call str() on stream tracers to get their outputs, and convert
         # to list of ints
         for k in txns_in.keys():
@@ -433,27 +623,33 @@ class HWCustomOp(CustomOp):
         for k in txns_out.keys():
             txns_out[k] = [int(c) for c in str(txns_out[k])]
 
-        def accumulate_char_fxn(chrc):
-            p = len(chrc)
+        period = total_cycle_count // periods_to_simulate
+
+        def accumulate_char_fxn(chrc, period_to_simulate, periods_to_store, period):
+            mid_point = period * 2
             ret = []
-            for t in range(2 * p):
-                if t == 0:
-                    ret.append(chrc[0])
+            for t in range(
+                mid_point, mid_point + period * 2
+            ):  # *2 when running 1 sim and replicating
+                if t == mid_point:
+                    ret.append(chrc[t])
                 else:
-                    ret.append(ret[-1] + chrc[t % p])
+                    ret.append(ret[-1] + chrc[t])
             return np.asarray(ret, dtype=np.int32)
 
-        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
-        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+        all_txns_in = np.empty((len(txns_in.keys()), period * periods_to_store), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), period * periods_to_store), dtype=np.int32)
         all_pad_in = []
         all_pad_out = []
+        pad_in = 0
+        pad_out = 0
         for in_idx, in_strm_nm in enumerate(txns_in.keys()):
             txn_in = txns_in[in_strm_nm]
             pad_in = 0
             if len(txn_in) < period:
                 pad_in = period - len(txn_in)
                 txn_in += [0 for x in range(pad_in)]
-            txn_in = accumulate_char_fxn(txn_in)
+            txn_in = accumulate_char_fxn(txn_in, periods_to_simulate, periods_to_store, period)
             all_txns_in[in_idx, :] = txn_in
             all_pad_in.append(pad_in)
 
@@ -463,11 +659,14 @@ class HWCustomOp(CustomOp):
             if len(txn_out) < period:
                 pad_out = period - len(txn_out)
                 txn_out += [0 for x in range(pad_out)]
-            txn_out = accumulate_char_fxn(txn_out)
+            txn_out = accumulate_char_fxn(txn_out, periods_to_simulate, periods_to_store, period)
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        self.set_nodeattr("io_chrc_in", all_txns_in)
-        self.set_nodeattr("io_chrc_out", all_txns_out)
-        self.set_nodeattr("io_chrc_pads_in", all_pad_in)
-        self.set_nodeattr("io_chrc_pads_out", all_pad_out)
+        compressed_np_array_in = compress_numpy_to_string(all_txns_in)
+        self.set_nodeattr("io_chrc_in", compressed_np_array_in)
+        self.set_nodeattr("io_chrc_in_original", compressed_np_array_in)
+
+        compressed_np_array_out = compress_numpy_to_string(all_txns_out)
+        self.set_nodeattr("io_chrc_out", compressed_np_array_out)
+        self.set_nodeattr("io_chrc_out_original", compressed_np_array_out)

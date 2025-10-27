@@ -26,6 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import base64
+import gzip
+import json
+import numpy as np
 import os
 import subprocess
 import sys
@@ -311,3 +315,117 @@ def get_dsp_block(fpgapart):
         return "DSP48E1"
     else:
         return "DSP48E2"
+
+
+def stretch(a, new_length):
+    n = len(a)
+    x_old = np.arange(n)
+    x_new = np.linspace(0, n - 1, new_length)
+    stretched = np.interp(x_new, x_old, a).round().astype(a.dtype)
+    return stretched
+
+
+class Characteristic_Node:
+    def __init__(self, name, sub_phases, leaf):
+        self.name = name
+        self.sub_phases = sub_phases
+        self.cycles_eval = None
+        self.cycles_inputs = None
+        self.cycles_outputs = None
+        self.leaf = leaf
+        self.debug = False
+
+    def sum(self, op):
+        if self.leaf:
+            if op == 2:
+                return sum([x[0] for x in self.sub_phases])
+            else:
+                return sum([x[0] * x[1][op] for x in self.sub_phases])
+        else:
+            return sum([x[0] * x[1].sum(op) for x in self.sub_phases])
+
+    def traverse_phase_tree(self, op, counter, cycles, ch_fnc):
+        """
+        The tree traversal function to get the token access vector.
+        We call it multiple times to get input, output and cycle count vectors.
+
+
+        op: 0 input, 1 output, 2 cycle count
+        counter: current count of op
+        cycles: current cycle count
+        ch_fnc: list of counter values at each cycle (the token access vector)
+        """
+
+        if (
+            self.leaf
+        ):  # immediate write out of the counter state to the array due to being a leaf node
+            for phase in self.sub_phases:
+                for _ in range(phase[0]):
+                    if op == 2:
+                        counter += 1
+                    else:
+                        counter += phase[1][op]
+                    cycles += 1
+                    ch_fnc.append(counter)
+            return counter, cycles, ch_fnc
+        else:  # recursive call to the next sub-node
+            for phase in self.sub_phases:
+                for _ in range(phase[0]):
+                    counter, cycles, ch_fnc = phase[1].traverse_phase_tree(
+                        op, counter, cycles, ch_fnc
+                    )
+            return counter, cycles, ch_fnc
+
+    def get_total_cycles(self, op):
+        """
+        Returns the total length of a characterized node period with the final
+        timesample being either the final input our output transaction.
+        op ["in", "out"]
+        """
+
+        # import pdb
+
+        counter = 0
+        cycles = 0
+        ch_fnc = []
+        counter, cycles, ch_fnc = self.traverse_phase_tree(op, counter, cycles, ch_fnc)
+        last_update = 0
+        last_val = ch_fnc[op]
+        for i in range(1, len(ch_fnc[1:]) + 1):
+            # print(i, ch_fnc[i],last_val, last_update)
+            if ch_fnc[i] > last_val:
+                last_update = i
+                last_val = ch_fnc[i]
+
+        # breakpoint()
+        # print("returning: ", cycles,last_update)
+        return cycles, last_update, ch_fnc
+
+
+def compress_numpy_to_string(arr: np.ndarray) -> str:
+    metadata = {
+        "dtype": str(arr.dtype),  # Store dtype as string
+        "shape": arr.shape,  # Store shape as a tuple
+    }
+    metadata_str = json.dumps(metadata)  # Convert metadata to JSON string
+    metadata_bytes = metadata_str.encode("utf-8")  # Convert metadata to bytes
+
+    compressed_data = gzip.compress(arr.tobytes())  # Compress array data
+    combined_data = (
+        metadata_bytes + b"||" + compressed_data
+    )  # Concatenate metadata & compressed data
+    s = base64.b64encode(combined_data).decode("utf-8")
+    return s  # Encode to string
+
+
+def decompress_string_to_numpy(s: str) -> np.ndarray:
+    # print("reading:", s)
+    combined_data = base64.b64decode(s.encode("utf-8"))  # Decode from base64
+    metadata_bytes, compressed_data = combined_data.split(b"||", 1)  # Split metadata & data
+
+    metadata = json.loads(metadata_bytes.decode("utf-8"))  # Decode metadata
+    dtype = np.dtype(metadata["dtype"])  # Convert dtype back
+    shape = tuple(metadata["shape"])  # Convert shape back
+
+    decompressed_data = gzip.decompress(compressed_data)  # Decompress data
+    return np.frombuffer(decompressed_data, dtype=dtype).reshape(shape)  # Reshape into array

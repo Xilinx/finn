@@ -32,6 +32,7 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import qonnx_make_model, roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class LabelSelect(HWCustomOp):
@@ -95,6 +96,21 @@ class LabelSelect(HWCustomOp):
         oshape = tuple(vecs + [k, 1])
         return oshape
 
+    def make_shape_compatible_op(self, model):
+        exp_ishape = self.get_normal_input_shape()
+        oshape = self.get_normal_output_shape()
+        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
+        assert ishape == exp_ishape, "Unexpected input shape."
+        return helper.make_node(
+            "RandomNormal",
+            inputs=[],
+            outputs=[self.onnx_node.output[0]],
+            mean=0.0,
+            scale=1.0,
+            dtype=TensorProto.INT64,
+            shape=list(oshape),
+        )
+
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # check input datatype against property
@@ -103,6 +119,9 @@ class LabelSelect(HWCustomOp):
 
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
+
+    def verify_node(self):
+        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -164,5 +183,31 @@ class LabelSelect(HWCustomOp):
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
-        exp_cycles = nlabels / pe
+        K = self.get_nodeattr("K")
+        exp_cycles = nlabels // pe + K
         return int(exp_cycles)
+
+    def get_tree_model(self):
+        # key parameters
+        # this depends on the kernel type, hls or rtl etc
+
+        # extract node attr
+        num_in_words = self.get_nodeattr("Labels")
+        PE = self.get_nodeattr("PE")
+        K = self.get_nodeattr("K")
+
+        NF = num_in_words // PE
+
+        output_delay = int(np.log2(num_in_words)) + 1
+
+        read_k = Characteristic_Node("read only", [(NF, [1, 0])], True)
+
+        compute_k = Characteristic_Node("compute k", [(output_delay, [0, 0])], True)
+
+        write_k = Characteristic_Node("write k", [(K, [0, 1])], True)
+
+        labelselect_top = Characteristic_Node(
+            "Fill feature map", [(1, read_k), (1, compute_k), (1, write_k)], False
+        )
+
+        return labelselect_top  # top level phase of this node

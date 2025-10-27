@@ -52,6 +52,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.test import test_tree_model
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -381,3 +382,133 @@ def test_fpgadataflow_thresholding_stitched_ip(
     assert (
         y_expected == y_produced
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.parametrize("num_input_channels", [6, 16])
+@pytest.mark.parametrize(
+    "num_input_vecs",
+    [
+        [1],
+        [1, 2, 2],
+    ],
+)
+@pytest.mark.parametrize("activation", [DataType["BIPOLAR"]])
+@pytest.mark.parametrize(
+    "idt_tdt_cfg",
+    [
+        (DataType["INT8"], DataType["INT8"]),
+    ],
+)
+@pytest.mark.parametrize("fold", [-1, 1, 2])
+@pytest.mark.parametrize("narrow", [True, False])
+@pytest.mark.parametrize("per_tensor", [True, False])
+@pytest.mark.parametrize("impl_style", ["rtl"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_thresholding(
+    num_input_channels,
+    num_input_vecs,
+    activation,
+    idt_tdt_cfg,
+    fold,
+    narrow,
+    per_tensor,
+    impl_style,
+    mem_mode,
+):
+    # the mem_mode parameter can only be used for the hls thresholding
+    # so the test will only be executed once for impl_style=rtl and once skipped
+    # when the mem_mode is varied. Otherwise, the same test configuration would always
+    # run twice.
+    if impl_style == "rtl" and mem_mode == "internal_decoupled":
+        pytest.skip(
+            "Skip, because test is identical to impl_style=rtl and mem_mode=internal_embedded"
+        )
+    if narrow and activation == DataType["BIPOLAR"]:
+        pytest.skip("Narrow needs to be false with biploar activation.")
+    input_data_type, threshold_data_type = idt_tdt_cfg
+    num_steps = activation.get_num_possible_values() - 1
+
+    if fold == -1:
+        fold = num_input_channels
+    pe = num_input_channels // fold
+    if num_input_channels % pe != 0:
+        pytest.skip("Invalid folding configuration. Skipping test.")
+
+    output_data_type = activation
+    if activation == DataType["BIPOLAR"]:
+        activation_bias = 0
+    else:
+        activation_bias = activation.min()
+        if narrow and activation.signed():
+            activation_bias += 1
+
+    # Generate random thresholds and sort in ascending order
+    thresholds = generate_random_threshold_values(
+        threshold_data_type, num_input_channels, num_steps, narrow, per_tensor
+    )
+
+    # provide non-decreasing/ascending thresholds
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    # Make a Multithreshold graph and convert to thresholding binary search node
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    # calculate reference output
+    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+
+    input_dict = {model.graph.input[0].name: x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    if output_data_type == DataType["BIPOLAR"]:
+        # binary to bipolar
+        y_expected = 2 * y_expected - 1
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Transform to the specified implementation style, either the
+    # RTL or HLS according to test parameters
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", impl_style)
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(InferShapes())
+    assert model.graph.node[0].op_type == "Thresholding_" + str(impl_style)
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    if impl_style == "hls":
+        inst.set_nodeattr("mem_mode", mem_mode)
+
+    node_details = (
+        "Thr",
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+        pe,
+        narrow,
+        per_tensor,
+        activation,
+        mem_mode,
+        impl_style,
+    )
+
+    max_allowed_volume_delta = 8
+
+    test_tree_model(model, node_details, test_fpga_part, target_clk_ns, max_allowed_volume_delta)

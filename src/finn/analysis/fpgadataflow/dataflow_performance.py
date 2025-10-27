@@ -29,6 +29,7 @@
 
 from qonnx.custom_op.registry import getCustomOp
 
+from finn.util.basic import decompress_string_to_numpy
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -75,4 +76,85 @@ def dataflow_performance(model):
         "critical_path_cycles": int(critical_path_cycles),
         "max_cycles": int(max_cycles),
         "max_cycles_node_name": max_node_name,
+    }
+
+
+def max_period(model):
+    """Extract maximum period among all nodes in the graph
+
+    Preconditions:
+    - model consists of HLS/RTL nodes
+    - model has cycle estimates annotated (see AnnotateCycles transformation)
+    - nodes have unique names (see GiveUniqueNodeNames)
+    - model has been characteristically derived and contains specific chr periods
+
+    Returns:
+    - max_cycles : number of cycles for slowest node
+    - max_cycles_node_name : name of slowest node
+    - critical_path_cycles : pessimistic expected latency from input to output
+    """
+    max_cycles = 0
+
+    for node in model.graph.node:
+        if node is not None and node.op_type not in [
+            "AddStreams_hls",
+            "DuplicateStreams_hls",
+            "StreamingFIFO_hls",
+            "StreamingFIFO_rtl",
+        ]:
+            if is_hls_node(node) or is_rtl_node(node):
+                inst = getCustomOp(node)
+                node_cycles_in = (
+                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_in"))[0]) // 2
+                )
+                node_cycles_out = (
+                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_out"))[0]) // 2
+                )
+                node_cycles = max(node_cycles_in, node_cycles_out)
+
+                if node_cycles > max_cycles:
+                    max_cycles = node_cycles
+
+    return {
+        "max_cycles": int(max_cycles),
+    }
+
+
+def max_remaining_period(model, node):
+    """Extract maximum period among all nodes in the graph
+
+    Preconditions:
+    - model consists of HLS/RTL nodes
+    - model has cycle estimates annotated (see AnnotateCycles transformation)
+    - nodes have unique names (see GiveUniqueNodeNames)
+    - model has been characteristically derived and contains specific chr periods
+
+    Returns:
+    - max_cycles : number of cycles for slowest node
+    - max_cycles_node_name : name of slowest node
+    - critical_path_cycles : pessimistic expected latency from input to output
+    """
+    max_cycles = 0
+    node_index = list(model.graph.node).index(node)
+    for node in model.graph.node[node_index:]:
+        if node is not None and node.op_type not in [
+            "AddStreams_hls",
+            "DuplicateStreams_hls",
+            "StreamingFIFO_hls",
+            "StreamingFIFO_rtl",
+        ]:
+            if is_hls_node(node) or is_rtl_node(node):
+                inst = getCustomOp(node)
+                node_cycles = int(inst.get_nodeattr("io_chrc_period"))
+                node_cycles_in = (
+                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_in"))[0]) // 2
+                )
+                node_cycles_out = (
+                    len(decompress_string_to_numpy(inst.get_nodeattr("io_chrc_out"))[0]) // 2
+                )
+                node_cycles = max(node_cycles_in, node_cycles_out)
+                if node_cycles > max_cycles:
+                    max_cycles = node_cycles
+    return {
+        "max_cycles": int(max_cycles),
     }

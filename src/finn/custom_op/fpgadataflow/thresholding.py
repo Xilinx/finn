@@ -33,6 +33,7 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Thresholding(HWCustomOp):
@@ -271,3 +272,52 @@ class Thresholding(HWCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
+
+    def get_tree_model(self):
+        reps = list(self.get_nodeattr("numInputVectors"))[0]
+
+        NumChannels = self.get_nodeattr("NumChannels")
+        PE = self.get_nodeattr("PE")
+        ImgDim = np.prod(list(self.get_nodeattr("numInputVectors"))) // reps
+
+        act = DataType[self.get_nodeattr("outputDataType")]
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        # print(f"THR STATS: {reps}, {ImgDim}")
+        # print(list(self.get_nodeattr("numInputVectors")))
+        NF = NumChannels // PE
+        total_iterations = ImgDim * NF
+
+        if IMPL_STYLE == "hls":
+            output_delay = 4
+        else:
+            if act == DataType["BIPOLAR"]:
+                output_delay = 4
+            else:
+                output_delay = 0
+
+        if total_iterations > output_delay:
+            read = Characteristic_Node("read", [(output_delay, [1, 0])], True)
+
+            read_write = Characteristic_Node(
+                "Compute", [(total_iterations - output_delay, [1, 1])], True
+            )
+
+            write = Characteristic_Node("write", [(output_delay, [0, 1])], True)
+
+            threshold_top = Characteristic_Node(
+                "Thresholding Top", [(1, read), (1, read_write), (1, write)], False
+            )
+
+        else:
+            read = Characteristic_Node("Rush-in", [(total_iterations, [1, 0])], True)
+            idle = Characteristic_Node("Idle", [(output_delay - total_iterations, [0, 0])], True)
+
+            write = Characteristic_Node("Compute", [(total_iterations, [0, 1])], True)
+
+            threshold_top = Characteristic_Node(
+                "Thresholding Top", [(1, read), (1, idle), (1, write)], False
+            )
+
+        return threshold_top  # top level phase of this node

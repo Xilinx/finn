@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -35,6 +36,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import qonnx_make_model
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
 # input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
@@ -260,3 +262,301 @@ class ConvolutionInputGenerator(HWCustomOp):
         # this automatically updates the execution context
         inst = getCustomOp(im2col_node)
         inst.execute_node(context, model_im2col.graph)
+
+    def get_tree_model(self):
+        def distribute_outputs_uniform(
+            out_total, in_total, stride_y=1, stride_x=1, feature_map_x=1, kernel_x=1, kernel_y=1
+        ):
+            if in_total == 0:
+                return [out_total]
+
+            # if kernel_y > 1:
+            # stride_y = stride_y - (kernel_y-1) // 2
+            # if kernel_x > 1:
+            # stride_x = stride_x - (kernel_x-1) // 2
+
+            spacing_y = max(feature_map_x * (stride_y - 1), 1)
+            spacing_x = max((stride_x - 1 + (kernel_x - 1) // 2), 1)
+
+            weights = []
+            for i in range(in_total):
+                weight = 1
+                if stride_y > 1:
+                    if i % spacing_y == 0:
+                        weight += spacing_y
+                if stride_x > 1:
+                    if i % spacing_x == 0:
+                        weight += spacing_x
+                weights.append(weight)
+
+            # Normalize weights to match out_total
+            total_weight = sum(weights)
+            raw_counts = [w * out_total / total_weight for w in weights]
+
+            # Round to nearest integers
+            int_counts = [int(round(x)) for x in raw_counts]
+
+            # Adjust rounding error
+            diff = sum(int_counts) - out_total
+            if diff != 0:
+                adjustments = sorted(
+                    enumerate(raw_counts), key=lambda x: x[1] - int_counts[x[0]], reverse=(diff > 0)
+                )
+                for i, _ in adjustments:
+                    if diff == 0:
+                        break
+                    int_counts[i] -= int(diff / abs(diff))
+                    diff -= int(diff / abs(diff))
+
+            return int_counts
+
+        IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
+        assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
+
+        # Extract node attributes
+        ifm_dim_y, ifm_dim_x = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        simd = self.get_nodeattr("SIMD")
+        k_h, k_w = self.get_nodeattr("ConvKernelDim")
+        stride_y, stride_x = self.get_nodeattr("Stride")
+        dilation_y, dilation_x = self.get_nodeattr("Dilation")
+        is1d = self.get_nodeattr("is1D")
+        parallel_window = self.get_nodeattr("parallel_window")
+        # numReps = 1
+
+        assert ifm_ch % simd == 0
+        factor = ifm_ch // simd
+        ofm_dim_y = compute_conv_output_dim(ifm_dim_y, k_h, stride_y, 0, dilation_y)
+        ofm_dim_x = compute_conv_output_dim(ifm_dim_x, k_w, stride_x, 0, dilation_x)
+        total_outputs = ofm_dim_y * ofm_dim_x
+        total_inputs = ifm_dim_y * ifm_dim_x
+        if parallel_window:
+            k_h = 1
+            k_w = 1
+        # if not is1d:
+        #     # 2D convolution
+        #     output_tokens = total_outputs * (k_h * k_w)
+        # else:
+        #     # 1D convolution
+        #     output_tokens = total_outputs * (k_h)
+
+        # key parameters
+        # IFMDim_x = self.get_nodeattr("IFMDim")[0]
+        # OFMDim_x = self.get_nodeattr("OFMDim")[0]
+        ConvKernelDim_x = self.get_nodeattr("ConvKernelDim")[0]
+        # Stride_x = self.get_nodeattr("Stride")[0]
+
+        # OFMDim_y = self.get_nodeattr("OFMDim")[1]
+        ConvKernelDim_y = self.get_nodeattr("ConvKernelDim")[1]
+        # Stride_y = self.get_nodeattr("Stride")[1]
+
+        # SIMD = self.get_nodeattr("SIMD")
+
+        # IFMChannels = self.get_nodeattr("IFMChannels")
+
+        DEPTHWISE = self.get_nodeattr("depthwise")
+        is1d = self.get_nodeattr("is1D")
+
+        # SF = IFMChannels // SIMD
+        # OUTPUT_SIZE = OFMDim_x * ConvKernelDim_x * SF
+        # INPUT_SIZE = IFMDim_x * SF
+        # WINDOW_SIZE = ConvKernelDim_x * SF
+        # if DEPTHWISE:
+        #     BUFFER_SIZE = ConvKernelDim_x * SF
+        #     READ_CYCLES = SF * (ConvKernelDim_x - 1) - (ConvKernelDim_x - 1)
+        #     FINISH = IFMDim_x - ConvKernelDim_x - 2
+        # else:
+        #     BUFFER_SIZE = (ConvKernelDim_x - 1) * SF
+        #     READ_CYCLES = 0
+        #     FINISH = 0
+
+        assert ifm_ch % simd == 0
+        factor = ifm_ch // simd
+
+        # OCNT_INITIAL = BUFFER_SIZE + (Stride_x - 1)
+
+        # DEFAULT_FIFO_DEPTH = 2
+
+        ofm_dim_y = compute_conv_output_dim(ifm_dim_y, k_h, stride_y, 0, dilation_y)
+        ofm_dim_x = compute_conv_output_dim(ifm_dim_x, k_w, stride_x, 0, dilation_x)
+
+        if DEPTHWISE:
+            ofm_dim_y = ofm_dim_y * ConvKernelDim_y
+            ofm_dim_x = ofm_dim_x * ConvKernelDim_x
+
+        if DEPTHWISE:
+            flip_factor = factor
+        else:
+            flip_factor = 1
+
+        total_outputs = ofm_dim_y * ofm_dim_x * flip_factor
+        total_inputs = ifm_dim_y * ifm_dim_x * flip_factor
+        if parallel_window:
+            k_h = 1
+            k_w = 1
+        # if not is1d:
+        #     # 2D convolution
+        #     output_tokens = total_outputs * (k_h * k_w)
+        # else:
+        #     # 1D convolution
+        #     output_tokens = total_outputs * (k_h)
+
+        ch_write = Characteristic_Node("Output Write", [(factor // flip_factor, [0, 1])], True)
+        ch_read = Characteristic_Node("Streamed Read", [(factor // flip_factor, [1, 0])], True)
+        ch_both = Characteristic_Node("Streamed Read", [(factor // flip_factor, [1, 1])], True)
+
+        out_total = np.prod(self.get_folded_output_shape()[:-1]) // factor * flip_factor
+        in_total = np.prod(self.get_folded_input_shape()[:-1]) // factor * flip_factor
+
+        # Calculate startup and steady reads
+        if not is1d:
+            startup_reads = (k_h - 1) * ifm_dim_x + k_w  # - (ifm_dim_x-k_w)
+            #  startup_writes = ofm_dim_x - (ofm_dim_x-k_w) // (stride_x * stride_y)# *
+            # factor # we can only write the middle in this section!!!
+            if not DEPTHWISE:
+                if k_h > 1:
+                    startup_writes = ofm_dim_x  # k_w*stride_x # // (stride_x)
+                else:
+                    startup_writes = ofm_dim_x  # // (stride_x * stride_y)
+            else:
+                if k_h > 1:
+                    startup_writes = 0
+                else:
+                    startup_writes = 0
+        else:
+            startup_reads = ifm_dim_x
+            startup_writes = ofm_dim_x // stride_x
+
+        startup_reads = startup_reads * flip_factor
+        startup_writes = startup_writes * flip_factor
+
+        # startup_reads = 0
+        steady_reads = total_inputs - startup_reads
+        steady_writes = total_outputs - startup_writes
+
+        total_inputs = total_inputs - startup_reads
+        total_outputs = total_outputs - startup_writes
+        # inputs_read = startup_reads
+
+        if startup_writes == 0:
+            offset_writing = 1
+        else:
+            offset_writing = 0
+
+        # Steady-state reads > 0, normal case
+        # Spread steady reads evenly across output_tokens cycles
+        in_total = in_total - startup_reads
+        out_total = out_total - startup_writes
+
+        if startup_writes > startup_reads:
+            schedule = distribute_outputs_uniform(
+                startup_writes, startup_reads, stride_x, stride_y, k_w, k_h, ifm_dim_x
+            )
+            per_cycle_nodes = []
+
+            for tokens_this_cycle in schedule:
+                cycle = Characteristic_Node(
+                    "Cycle",
+                    [
+                        (1 - offset_writing, ch_both),
+                        (
+                            1,
+                            Characteristic_Node(
+                                "Output Write",
+                                [(tokens_this_cycle - 1 + offset_writing, ch_write)],
+                                False,
+                            ),
+                        ),
+                    ],
+                    False,
+                )
+                per_cycle_nodes.append((1, cycle))
+
+            startup = Characteristic_Node("Processing Loop", per_cycle_nodes, False)
+        else:
+            schedule = distribute_outputs_uniform(
+                startup_reads, startup_writes, stride_x, stride_y, k_w, k_h, ifm_dim_x
+            )
+            per_cycle_nodes = []
+
+            for tokens_this_cycle in schedule:
+                cycle = Characteristic_Node(
+                    "Cycle",
+                    [
+                        (1 - offset_writing, ch_both),
+                        (
+                            1,
+                            Characteristic_Node(
+                                "Input Read",
+                                [(tokens_this_cycle - 1 + offset_writing, ch_read)],
+                                False,
+                            ),
+                        ),
+                    ],
+                    False,
+                )
+                per_cycle_nodes.append((1, cycle))
+
+            startup = Characteristic_Node("Processing Loop", per_cycle_nodes, False)
+
+        if out_total > in_total:
+            if steady_reads <= 0:
+                return Characteristic_Node(
+                    "SlidingWindow_2D", [(1, startup), (steady_writes, ch_write)], False
+                )
+
+            schedule = distribute_outputs_uniform(
+                out_total, in_total, stride_x, stride_y, k_w, k_h, ifm_dim_x
+            )
+            per_cycle_nodes = []
+
+            for tokens_this_cycle in schedule:
+                cycle = Characteristic_Node(
+                    "Cycle",
+                    [
+                        (1, ch_both),
+                        (
+                            1,
+                            Characteristic_Node(
+                                "Output Write", [(tokens_this_cycle - 1, ch_write)], False
+                            ),
+                        ),
+                    ],
+                    False,
+                )
+                per_cycle_nodes.append((1, cycle))
+
+            steady = Characteristic_Node("Processing Loop", per_cycle_nodes, False)
+
+            return Characteristic_Node("SlidingWindow_2D", [(1, startup), (1, steady)], False)
+
+        else:
+            if steady_reads <= 0:
+                return Characteristic_Node(
+                    "SlidingWindow_2D", [(1, startup), (steady_writes, ch_write)], False
+                )
+
+            schedule = distribute_outputs_uniform(
+                in_total, out_total, stride_x, stride_y, k_w, k_h, ifm_dim_x
+            )
+            per_cycle_nodes = []
+
+            for tokens_this_cycle in schedule:
+                cycle = Characteristic_Node(
+                    "Cycle",
+                    [
+                        (1, ch_both),
+                        (
+                            1,
+                            Characteristic_Node(
+                                "Output Write", [(tokens_this_cycle - 1, ch_read)], False
+                            ),
+                        ),
+                    ],
+                    False,
+                )
+                per_cycle_nodes.append((1, cycle))
+
+            steady = Characteristic_Node("Processing Loop", per_cycle_nodes, False)
+
+            return Characteristic_Node("SlidingWindow_2D", [(1, startup), (1, steady)], False)
