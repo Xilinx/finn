@@ -562,29 +562,28 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
 
+        print(f"sizing fifos with strategy: {cfg.auto_fifo_strategy}")
         if cfg.auto_fifo_strategy == "analytical":
-            if cfg.just_in_time_synthesis:
-                if cfg.tav_generation_strategy == "tree_model":
-                    only_jit_nodes_without_tree = True
-                else:
-                    only_jit_nodes_without_tree = False
-                model = model.transform(
-                    JustInTimeSynthesize(
-                        cfg._resolve_fpga_part(),
-                        cfg._resolve_hls_clk_period(),
-                        only_jit_nodes_without_tree,
-                    )
+            if cfg.tav_generation_strategy == "tree_model":
+                # if we have tree models, only rtlsim nodes for which we dont
+                only_jit_nodes_without_tree = True
+            else:
+                # rtlsim everything by force if not using trees
+                only_jit_nodes_without_tree = False
+            model = model.transform(
+                JustInTimeSynthesize(
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                    only_jit_nodes_without_tree,
                 )
-            # model.save(f"{cfg.output_dir}/intermediate_models/step_rtl_generated_unsized.onnx")
-
+            )
+            print("starting derivation")
             period = int(model.analysis(dataflow_performance)["max_cycles"])
             model = model.transform(
                 DeriveTokenAccessVectors(
                     model, period, cfg.tav_generation_strategy, cfg._resolve_fpga_part(), 10.0
                 )
             )
-
-            # model.save("rtlsim-derived_model.onnx")
 
             period = int(model.analysis(dataflow_performance)["max_cycles"])
             model = model.transform(

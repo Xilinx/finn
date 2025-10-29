@@ -432,15 +432,17 @@ def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume
         debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
 
     # test input port
-    assert compare_two_chr_funcs(
+    input_check = compare_two_chr_funcs(
         chr_in[0],
         rtlsim_in[0],
         max_allowed_volume_delta,
     )
 
     # test output port
-    assert compare_two_chr_funcs(
+    output_check = compare_two_chr_funcs(
         chr_out[0],
         rtlsim_out[0],
         max_allowed_volume_delta,
     )
+
+    return input_check and output_check

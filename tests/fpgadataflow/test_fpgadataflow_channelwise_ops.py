@@ -214,4 +214,6 @@ def test_fpgadataflow_analytical_characterization_channelwise_ops(
 
     max_allowed_volume_delta = 12
 
-    test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume_delta)
+    assert test_tree_model(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"

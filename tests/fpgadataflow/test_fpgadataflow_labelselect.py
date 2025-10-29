@@ -169,4 +169,6 @@ def test_fpgadataflow_analytical_characterization_labelselect(idt, labels, fold,
     target_clk_ns = 4
     max_allowed_volume_delta = 384  # hls-1-1-100-idt0 volume delta only 2, but length is 384
 
-    test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume_delta)
+    assert test_tree_model(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"

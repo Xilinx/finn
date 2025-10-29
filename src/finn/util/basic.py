@@ -34,6 +34,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
 # test boards used for bnn pynq tests
@@ -382,9 +383,6 @@ class Characteristic_Node:
         timesample being either the final input our output transaction.
         op ["in", "out"]
         """
-
-        # import pdb
-
         counter = 0
         cycles = 0
         ch_fnc = []
@@ -392,17 +390,14 @@ class Characteristic_Node:
         last_update = 0
         last_val = ch_fnc[op]
         for i in range(1, len(ch_fnc[1:]) + 1):
-            # print(i, ch_fnc[i],last_val, last_update)
             if ch_fnc[i] > last_val:
                 last_update = i
                 last_val = ch_fnc[i]
 
-        # breakpoint()
-        # print("returning: ", cycles,last_update)
         return cycles, last_update, ch_fnc
 
 
-def compress_numpy_to_string(arr: np.ndarray) -> str:
+def compress_numpy_to_string(arr):
     metadata = {
         "dtype": str(arr.dtype),  # Store dtype as string
         "shape": arr.shape,  # Store shape as a tuple
@@ -418,7 +413,7 @@ def compress_numpy_to_string(arr: np.ndarray) -> str:
     return s  # Encode to string
 
 
-def decompress_string_to_numpy(s: str) -> np.ndarray:
+def decompress_string_to_numpy(s):
     # print("reading:", s)
     combined_data = base64.b64decode(s.encode("utf-8"))  # Decode from base64
     metadata_bytes, compressed_data = combined_data.split(b"||", 1)  # Split metadata & data
@@ -429,3 +424,15 @@ def decompress_string_to_numpy(s: str) -> np.ndarray:
 
     decompressed_data = gzip.decompress(compressed_data)  # Decompress data
     return np.frombuffer(decompressed_data, dtype=dtype).reshape(shape)  # Reshape into array
+
+
+def compute_total_model_fifo_size(model):
+    size = 0
+    depth = 0
+
+    for node in model.graph.node:
+        if node.op_type in ["StreamingFIFO", "StreamingFIFO_hls", "StreamingFIFO_rtl"]:
+            depth += getCustomOp(node).get_nodeattr("depth")
+            width = getCustomOp(node).get_instream_width()
+            size += width * depth
+    return size, depth

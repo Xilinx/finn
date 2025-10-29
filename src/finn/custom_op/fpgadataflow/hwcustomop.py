@@ -342,13 +342,13 @@ class HWCustomOp(CustomOp):
             }
         else:
             io_dict = override_dict
-        print(":strategy:", strategy)
         if strategy == "tree_model":
             # check for override function
             if self.get_tree_model() is not None:
+                print(f"using tree model for node {self}")
                 self.derive_token_access_vectors_using_tree_model(period, io_dict=io_dict)
                 return
-
+        print(f"using rtlsim for node {self}")
         # RTL-based flow
         # there is a 20 clock marging added for when get_exp_cycles()
         # is underestimating the real operator runtime.

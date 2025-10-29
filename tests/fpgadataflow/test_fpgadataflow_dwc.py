@@ -204,4 +204,6 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
 
     max_allowed_volume_delta = 10
 
-    test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume_delta)
+    assert test_tree_model(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"

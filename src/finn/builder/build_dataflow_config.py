@@ -285,10 +285,6 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
-    #: Whether synthesis should be performed in the fifo sizing step
-    #: in case a node does not have an rtlsim prepared to generate TAVs
-    just_in_time_synthesis: Optional[bool] = True
-
     #: Whether FIFO nodes with depth larger than 32768 will be split.
     #: Allow to configure very large FIFOs in the folding_config_file.
     split_large_fifos: Optional[bool] = False
