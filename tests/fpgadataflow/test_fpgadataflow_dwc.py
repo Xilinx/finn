@@ -45,7 +45,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import test_tree_model
+from finn.util.test import tree_model_test
 
 
 def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
@@ -204,6 +204,6 @@ def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
 
     max_allowed_volume_delta = 10
 
-    assert test_tree_model(
+    assert tree_model_test(
         model, node_details, part, target_clk_ns, max_allowed_volume_delta
     ), "characterized TAV does not match RTLsim'd one!"

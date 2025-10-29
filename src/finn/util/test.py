@@ -35,6 +35,8 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 import qonnx.custom_op.registry as registry
+
+# import time
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
@@ -382,7 +384,7 @@ def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
         return True
 
 
-def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume_delta):
+def tree_model_test(model, node_details, part, target_clk_ns, max_allowed_volume_delta):
     # should generated models be cached for faster debugging?
     # caching means to run RTLSIM only once and store the model
     # so we can reuse the token access vector whenever we
@@ -396,9 +398,8 @@ def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume
 
     # ground truth model to rtlsim
     model_rtl = copy.deepcopy(model)
-    import time
 
-    t0 = time.time()
+    # t0 = time.time()
     node_analytical = get_characteristic_fnc(
         model,
         (*node_details, "tree_model"),
@@ -408,9 +409,9 @@ def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume
         CACHING,
     )
 
-    t1 = time.time()
-    print(f"analytical model prepared in {t1-t0}s")
-    t0 = time.time()
+    # t1 = time.time()
+    # print(f"analytical model prepared in {t1-t0}s")
+    # t0 = time.time()
     node_rtlsim = get_characteristic_fnc(
         model_rtl,
         (*node_details, "rtlsim"),
@@ -419,8 +420,8 @@ def test_tree_model(model, node_details, part, target_clk_ns, max_allowed_volume
         "rtlsim",
         CACHING,
     )
-    t1 = time.time()
-    print(f"rtlsim model prepared in {t1-t0}s")
+    # t1 = time.time()
+    # print(f"rtlsim model prepared in {t1-t0}s")
 
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))

@@ -69,7 +69,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import is_versal
-from finn.util.test import test_tree_model
+from finn.util.test import tree_model_test
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -956,7 +956,9 @@ def test_fpgadataflow_analytical_characterization_rtl_mvau(
 
     max_allowed_volume_delta = 5
 
-    test_tree_model(model, node_details, part, clk_ns, max_allowed_volume_delta)
+    assert tree_model_test(
+        model, node_details, part, clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"
 
 
 # mem_mode: internal_embedded or internal_decoupled
@@ -1019,6 +1021,6 @@ def test_fpgadataflow_analytical_characterization_mvau(
     target_clk_ns = 4
     max_allowed_volume_delta = 20
 
-    assert test_tree_model(
+    assert tree_model_test(
         model, node_details, part, target_clk_ns, max_allowed_volume_delta
     ), "characterized TAV does not match RTLsim'd one!"

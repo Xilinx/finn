@@ -52,7 +52,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.test import test_tree_model
+from finn.util.test import tree_model_test
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -511,6 +511,6 @@ def test_fpgadataflow_analytical_characterization_thresholding(
 
     max_allowed_volume_delta = 8
 
-    assert test_tree_model(
+    assert tree_model_test(
         model, node_details, test_fpga_part, target_clk_ns, max_allowed_volume_delta
     ), "characterized TAV does not match RTLsim'd one!"

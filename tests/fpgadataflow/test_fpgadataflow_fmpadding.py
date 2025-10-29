@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import pynq_part_map
-from finn.util.test import test_tree_model
+from finn.util.test import tree_model_test
 
 test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -195,6 +195,6 @@ def test_fpgadataflow_analytical_characterization_fmpadding(
 
     max_allowed_volume_delta = 5
 
-    assert test_tree_model(
+    assert tree_model_test(
         model, node_details, part, target_clk_ns, max_allowed_volume_delta
     ), "characterized TAV does not match RTLsim'd one!"

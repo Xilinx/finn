@@ -44,7 +44,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import soft_verify_topk, test_tree_model
+from finn.util.test import soft_verify_topk, tree_model_test
 
 
 def make_labelselect_modelwrapper(labels, pe, k, idt, impl_style):
@@ -169,6 +169,6 @@ def test_fpgadataflow_analytical_characterization_labelselect(idt, labels, fold,
     target_clk_ns = 4
     max_allowed_volume_delta = 384  # hls-1-1-100-idt0 volume delta only 2, but length is 384
 
-    assert test_tree_model(
+    assert tree_model_test(
         model, node_details, part, target_clk_ns, max_allowed_volume_delta
     ), "characterized TAV does not match RTLsim'd one!"
