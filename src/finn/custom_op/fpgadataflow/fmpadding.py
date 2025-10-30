@@ -172,7 +172,7 @@ class FMPadding(HWCustomOp):
         )
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def prepare_kwargs_for_characteristic_fx(self):
+    def get_tree_model(self):
         # key parameters
         # this depends on the kernel type, hls or rtl etc
 
