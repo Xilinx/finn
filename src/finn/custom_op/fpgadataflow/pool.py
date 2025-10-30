@@ -30,6 +30,7 @@ import numpy as np
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class Pool(HWCustomOp):
@@ -211,3 +212,38 @@ class Pool(HWCustomOp):
             result = np.right_shift(result.astype(int), shift_bits)
         oshape = context[node.output[0]].shape
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
+
+    def get_tree_model(self):
+        # extract node attr
+
+        PE = self.get_nodeattr("PE")
+        Channels = self.get_nodeattr("Channels")
+        KernelSize = self.get_nodeattr("KernelSize")
+        OutImgDims = self.get_nodeattr("OutImgDims")
+        BatchSize = self.get_nodeattr("BatchSize")
+
+        # Derived parameters
+        NF = Channels // PE  # neuron folding
+        SF = np.prod(KernelSize)  # spatial folding per pooling window
+        reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
+
+        # One input read per SF iteration
+        read_pooling_input = Characteristic_Node("Read Pool Input", [(1, [1, 0])], True)
+
+        readwrite_pooling_input = Characteristic_Node("Read Write Pool Input", [(1, [1, 1])], True)
+        # SF - 1 reads + 1 read that overlaps with write
+        compute_pool_window = Characteristic_Node(
+            "Compute Pool Window",
+            [(SF - 1, read_pooling_input), (1, readwrite_pooling_input)],  # overlap with output
+            False,
+        )
+
+        # For each NF tile per pooling window
+        compute_all_tiles = Characteristic_Node(
+            "Compute All Tiles", [(NF, compute_pool_window)], False
+        )
+
+        # For each image region (spatial + batch)
+        pool_top = Characteristic_Node("Top Pool Loop", [(reps, compute_all_tiles)], False)
+
+        return pool_top

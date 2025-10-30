@@ -47,6 +47,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False):
@@ -242,3 +243,98 @@ def test_convert_to_hw_pool(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mod
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["UINT4"]])
+# output datatype
+@pytest.mark.parametrize("odt", [DataType["UINT4"]])
+# pool configuration:                   ( k,stride, pad, ifm_dim )
+@pytest.mark.parametrize("pool_config", [(7, 7, 0, 7), (3, 2, 1, 5)])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [1, 4])
+# number of out channel computed in parallel
+@pytest.mark.parametrize("pe", [1, 2, 4])
+# pool type
+@pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool", "MaxPool1D"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_type):
+    k, stride, pad, ifm_dim = pool_config
+
+    if ifm_ch % pe != 0:
+        pytest.skip("ifm_ch%pe != 0. Skipping")
+
+    if pad != 0 and idt.signed():
+        pytest.skip("No support for pal_val != 0. Skipping")
+
+    np.random.seed(0)
+
+    part = "xc7z020clg400-1"
+
+    ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
+
+    ishape = (1, ifm_ch, ifm_dim, ifm_dim)
+    use_1d = False
+    if op_type == "MaxPool1D":
+        use_1d = True
+        ishape = (1, ifm_ch, 1, ifm_dim)
+        op_type = "MaxPool"
+
+    if op_type == "MaxPool":
+        if idt != odt:
+            pytest.skip("Skipping Maxpool with idt != odt")
+
+        model = make_single_maxpool_modelwrapper(
+            k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d
+        )
+    elif op_type == "QuantAvgPool2d":
+        if pad != 0:
+            pytest.skip("No padding support for QuantAvgPool2d. Skipping")
+
+        if idt.signed() != odt.signed():
+            pytest.skip("Skipping QuantAvgPool2d with idt.signed() != odt.signed()")
+        model = make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, idt, odt)
+    else:
+        assert False, "{} is not a supported op_type".format(op_type)
+
+    # import pdb
+    # breakpoint()
+    model = model.transform(to_hw.InferPool())
+
+    # Folding
+    for n in model.graph.node:
+        if n.op_type.startswith("Pool"):
+            inst = getCustomOp(n)
+
+            ishape = inst.get_folded_input_shape()
+            oshape = inst.get_folded_output_shape()
+
+            inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+            outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, oshape)
+
+            graph = helper.make_graph(nodes=[n], name="mp_graph", inputs=[inp], outputs=[outp])
+            model = qonnx_make_model(graph, producer_name="mp-model")
+            model = ModelWrapper(model)
+            model.set_tensor_datatype("inp", idt)
+            model.set_tensor_datatype("outp", odt)
+            model = model.transform(InferShapes())
+
+            inst.set_nodeattr("PE", pe)
+            model = model.transform(SpecializeLayers(part))
+            # now create a new model
+
+            # import pdb
+            # breakpoint()
+
+    # node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style)
+    node_details = ("Pool", op_type, k, ifm_ch, ifm_dim, ofm_dim, pe, idt)
+
+    target_clk_ns = 4
+    max_allowed_volume_delta = 20
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"

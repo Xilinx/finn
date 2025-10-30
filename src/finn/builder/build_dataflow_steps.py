@@ -703,8 +703,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    # model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    # model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    model = model.transform(HLSSynthIP())
 
     return model
 

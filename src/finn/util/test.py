@@ -229,7 +229,7 @@ def compare_two_chr_funcs(a, b, max_allowed_volume_delta):
     return True
 
 
-def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False):
+def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False, node_idx=0):
     """
     This helper performs FINN node characterization using either rtlsim
     or characteristic functions. If chacteristic function strategy is
@@ -256,61 +256,59 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         model = model.transform(SpecializeLayers(part))
         model = model.transform(GiveUniqueNodeNames())
 
-        for node in model.graph.node:
-            inst = registry.getCustomOp(node)
-            if (is_hls_node(node) or is_rtl_node(node)) and (
-                inst.get_tree_model() is None or strategy == "rtlsim"
-            ):
-                _codegen_single_node(node, model, part, target_clk_ns)
+        node = model.graph.node[node_idx]
+        inst = registry.getCustomOp(node)
+        if (is_hls_node(node) or is_rtl_node(node)) and (
+            inst.get_tree_model() is None or strategy == "rtlsim"
+        ):
+            _codegen_single_node(node, model, part, target_clk_ns)
 
-                op_type = node.op_type
-                if is_hls_node(node):
-                    try:
-                        # lookup op_type in registry of CustomOps
-
-                        # ensure that code is generated
-                        assert (
-                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                        ), """Node
-                        attribute "code_gen_dir_ipgen" is empty. Please run
-                        transformation PrepareIP first."""
-                        if not os.path.isdir(
-                            inst.get_nodeattr("ipgen_path")
-                        ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
-                            "ipgen_path"
-                        ):
-                            # call the compilation function for this node
-                            inst.ipgen_singlenode_code()
-                        else:
-                            warnings.warn("Using pre-existing IP for %s" % node.name)
-                        # ensure that executable path is now set
-                        assert (
-                            inst.get_nodeattr("ipgen_path") != ""
-                        ), """Transformation
-                        HLSSynthIP was not successful. Node attribute "ipgen_path"
-                        is empty."""
-                    except KeyError:
-                        # exception if op_type is not supported
-                        raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-        model = model.transform(ReplaceVerilogRelPaths())
-
-        for node in model.graph.node:
-            inst = registry.getCustomOp(node)
-            if (is_hls_node(node) or is_rtl_node(node)) and (
-                inst.get_tree_model() is None or strategy == "rtlsim"
-            ):
+            op_type = node.op_type
+            if is_hls_node(node):
                 try:
                     # lookup op_type in registry of CustomOps
-                    # inst = registry.getCustomOp(node)
-                    inst.prepare_rtlsim()
+
+                    # ensure that code is generated
+                    assert (
+                        inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                    ), """Node
+                    attribute "code_gen_dir_ipgen" is empty. Please run
+                    transformation PrepareIP first."""
+                    if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
+                        "code_gen_dir_ipgen"
+                    ) in inst.get_nodeattr("ipgen_path"):
+                        # call the compilation function for this node
+                        inst.ipgen_singlenode_code()
+                    else:
+                        warnings.warn("Using pre-existing IP for %s" % node.name)
                     # ensure that executable path is now set
                     assert (
-                        inst.get_nodeattr("rtlsim_so") != ""
-                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+                        inst.get_nodeattr("ipgen_path") != ""
+                    ), """Transformation
+                    HLSSynthIP was not successful. Node attribute "ipgen_path"
+                    is empty."""
                 except KeyError:
                     # exception if op_type is not supported
                     raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        model = model.transform(ReplaceVerilogRelPaths())
+
+        node = model.graph.node[node_idx]
+        inst = registry.getCustomOp(node)
+        if (is_hls_node(node) or is_rtl_node(node)) and (
+            inst.get_tree_model() is None or strategy == "rtlsim"
+        ):
+            try:
+                # lookup op_type in registry of CustomOps
+                # inst = registry.getCustomOp(node)
+                inst.prepare_rtlsim()
+                # ensure that executable path is now set
+                assert (
+                    inst.get_nodeattr("rtlsim_so") != ""
+                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
 
         model = model.transform(AnnotateCycles())
 
@@ -329,7 +327,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
             tmp_caching_output_dir = make_build_dir(str(node0))
             model.save(tmp_caching_output_dir + f"/model_{strategy}.onnx")
 
-    return getCustomOp(model.graph.node[0])
+    return getCustomOp(model.graph.node[node_idx])
 
 
 def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
@@ -384,17 +382,26 @@ def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
         return True
 
 
-def tree_model_test(model, node_details, part, target_clk_ns, max_allowed_volume_delta):
+def tree_model_test(
+    model,
+    node_details,
+    part,
+    target_clk_ns,
+    max_allowed_volume_delta,
+    node_idx=0,
+    CACHING=False,
+    DEBUGGING=False,
+):
     # should generated models be cached for faster debugging?
     # caching means to run RTLSIM only once and store the model
     # so we can reuse the token access vector whenever we
     # update the tree model and want to test correctness
-    CACHING = True
+    # CACHING = True
 
     # should the token access vectors and
     # concatenated token access vectors be printed out?
     # useful for debugging
-    DEBUGGING = False
+    # DEBUGING = False
 
     # ground truth model to rtlsim
     model_rtl = copy.deepcopy(model)
@@ -407,6 +414,7 @@ def tree_model_test(model, node_details, part, target_clk_ns, max_allowed_volume
         target_clk_ns,
         "tree_model",
         CACHING,
+        node_idx,
     )
 
     # t1 = time.time()
@@ -419,6 +427,7 @@ def tree_model_test(model, node_details, part, target_clk_ns, max_allowed_volume
         target_clk_ns,
         "rtlsim",
         CACHING,
+        node_idx,
     )
     # t1 = time.time()
     # print(f"rtlsim model prepared in {t1-t0}s")
