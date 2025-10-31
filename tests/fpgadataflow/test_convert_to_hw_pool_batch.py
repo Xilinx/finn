@@ -300,8 +300,6 @@ def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_
     else:
         assert False, "{} is not a supported op_type".format(op_type)
 
-    # import pdb
-    # breakpoint()
     model = model.transform(to_hw.InferPool())
 
     # Folding
@@ -324,12 +322,7 @@ def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_
 
             inst.set_nodeattr("PE", pe)
             model = model.transform(SpecializeLayers(part))
-            # now create a new model
 
-            # import pdb
-            # breakpoint()
-
-    # node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style)
     node_details = ("Pool", op_type, k, ifm_ch, ifm_dim, ofm_dim, pe, idt)
 
     target_clk_ns = 4

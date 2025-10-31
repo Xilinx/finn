@@ -30,6 +30,7 @@ import pytest
 
 import numpy as np
 import onnx.parser as oprs
+from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -37,7 +38,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -49,6 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False):
@@ -160,3 +162,52 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
             exp_cycles = exp_cycles - in_dim
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
         assert exp_cycles != 0
+
+
+@pytest.mark.parametrize("is_1d", [True, False])
+@pytest.mark.parametrize("flip_1d", [True, False])
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_downsampler(is_1d, flip_1d):
+    if flip_1d and not is_1d:
+        pytest.skip("flip_1d only applicable for is_1d")
+    in_dim = 32
+    k = 1
+    stride = 2
+    dt_in = DataType["UINT8"]
+    dt_w = DataType["INT2"]
+    model = build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=flip_1d)
+
+    model = model.transform(to_hw.InferConvInpGen())
+
+    # Folding
+    for n in model.graph.node:
+        if n.op_type.startswith("ConvolutionInputGenerator"):
+            inst = getCustomOp(n)
+
+            ishape = inst.get_normal_input_shape()
+            oshape = inst.get_normal_output_shape()
+
+            inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+            outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, oshape)
+
+            graph = helper.make_graph(nodes=[n], name="mp_graph", inputs=[inp], outputs=[outp])
+            model = qonnx_make_model(graph, producer_name="mp-model")
+            model = ModelWrapper(model)
+            model.set_tensor_datatype("inp", dt_in)
+            model.set_tensor_datatype("outp", dt_in)
+            model = model.transform(InferShapes())
+
+    node_details = ("Downsampler", is_1d, flip_1d, in_dim, k, stride)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+
+    model = model.transform(SpecializeLayers(part))
+
+    max_allowed_volume_delta = 30
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+    ), "characterized TAV does not match RTLsim'd one!"
