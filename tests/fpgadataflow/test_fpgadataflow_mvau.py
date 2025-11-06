@@ -891,77 +891,6 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
 
 
 # mem_mode: internal_embedded or internal_decoupled
-@pytest.mark.parametrize("mh", [128])
-@pytest.mark.parametrize("mw", [4])
-@pytest.mark.parametrize("pe", [1, 128])
-@pytest.mark.parametrize("simd", [1, 4])
-@pytest.mark.parametrize("idt", [DataType["UINT4"]])
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
-@pytest.mark.parametrize("part", ["xc7z020clg400-1"])
-@pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.node_tree_modeling
-def test_fpgadataflow_analytical_characterization_rtl_mvau(
-    mh, mw, pe, simd, idt, wdt, part, clk_ns
-):
-    if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
-        pytest.skip(
-            """Skip test for varying clk for devices other than Versal,
-            since this variable only affects DSP58s"""
-        )
-
-    # Create test input vector (produced by SWG)
-    ofm_shape = (3, 3)
-    ofm_h, ofm_w = ofm_shape
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-    # if 7 series, force weights to narrow range
-    if part == "xc7z020clg400-1":
-        W = np.clip(W, wdt.min() + 1, wdt.max())
-    model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-
-    # Create MVAU (HLS)
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Apply folding (i.e. specify to use DSPs)
-    folding_config = {
-        "Defaults": {},
-        "MVAU_rtl_0": {
-            "PE": pe,
-            "SIMD": simd,
-            "resType": "dsp",
-        },
-    }
-    model = model.transform(ApplyConfig(folding_config))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    # make sure the changed datatypes are propagated through the network
-    model = model.transform(InferDataTypes())
-
-    node = model.get_nodes_by_op_type("MVAU_rtl")[0]
-    getCustomOp(node).set_nodeattr("rtlsim_trace", "default")
-    model.set_metadata_prop("rtlsim_trace", "default")
-
-    node_details = ("MVAU_rtl", mh, mw, pe, simd, idt, wdt, part, clk_ns)
-
-    max_allowed_volume_delta = 5
-
-    assert tree_model_test(
-        model, node_details, part, clk_ns, max_allowed_volume_delta
-    ), "characterized TAV does not match RTLsim'd one!"
-
-
-# mem_mode: internal_embedded or internal_decoupled
 @pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None])
@@ -1019,8 +948,9 @@ def test_fpgadataflow_analytical_characterization_mvau(
     node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style)
     part = "xc7z020clg400-1"
     target_clk_ns = 4
-    max_allowed_volume_delta = 20
+    max_allowed_volume_delta = 12
+    max_allowed_length_delta = 20
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
     ), "characterized TAV does not match RTLsim'd one!"

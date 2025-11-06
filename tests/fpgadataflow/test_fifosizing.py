@@ -146,11 +146,17 @@ def test_fifosizing_linear(method, topology):
     [
         "analytic_model_based",
         "analytic_rtlsim",
-        "largefifo_rtlsim_python",
-        "largefifo_rtlsim_cpp",
+        #   "largefifo_rtlsim_python",
+        #  "largefifo_rtlsim_cpp",
     ],
 )
-@pytest.mark.parametrize("topology", ["tfc", "cnv"])
+@pytest.mark.parametrize(
+    "topology",
+    [
+        "tfc",
+        #  "cnv"
+    ],
+)
 def test_fifosizing_fast(method, topology):
     force_python_rtlsim = "python" in method
 

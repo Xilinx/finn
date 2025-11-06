@@ -193,8 +193,9 @@ def test_fpgadataflow_analytical_characterization_fmpadding(
     part = "xc7z020clg400-1"
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 5
+    max_allowed_volume_delta = 2
+    max_allowed_length_delta = 2
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
     ), "characterized TAV does not match RTLsim'd one!"

@@ -403,7 +403,7 @@ class HWCustomOp(CustomOp):
                 else:
                     buffer = 2
 
-            if "StreamingMaxPool" in self.onnx_node.name:
+            if "Pool" in self.onnx_node.name:
                 if "_rtl" in (self.__class__.__name__):
                     buffer = 1
                 else:

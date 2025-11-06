@@ -207,7 +207,8 @@ def test_fpgadataflow_analytical_characterization_downsampler(is_1d, flip_1d):
     model = model.transform(SpecializeLayers(part))
 
     max_allowed_volume_delta = 30
+    max_allowed_length_delta = 30
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
     ), "characterized TAV does not match RTLsim'd one!"

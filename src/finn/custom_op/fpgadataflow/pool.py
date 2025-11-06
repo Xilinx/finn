@@ -224,13 +224,16 @@ class Pool(HWCustomOp):
 
         # Derived parameters
         NF = Channels // PE  # neuron folding
-        SF = np.prod(KernelSize)  # spatial folding per pooling window
-        reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
+        SF = KernelSize[1] ** 2  # spatial folding per pooling window
+        reps = BatchSize * OutImgDims[1] ** 2  # number of pooling windows to process
+
+        print(f"param: NF: {NF} SF: {SF}, OutImgDims: {OutImgDims}, Ch: {Channels}, PE: {PE}")
 
         # One input read per SF iteration
         read_pooling_input = Characteristic_Node("Read Pool Input", [(1, [1, 0])], True)
 
         readwrite_pooling_input = Characteristic_Node("Read Write Pool Input", [(1, [1, 1])], True)
+
         # SF - 1 reads + 1 read that overlaps with write
         compute_pool_window = Characteristic_Node(
             "Compute Pool Window",

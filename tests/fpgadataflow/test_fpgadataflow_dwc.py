@@ -193,17 +193,20 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
 def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
     shape, inWidth, outWidth, finn_dtype = config
 
+    part = "xc7z020clg400-1"
     model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
-    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(SpecializeLayers(part))
     # model = model.transform(InferShapes())
     # model = model.transform(SetExecMode(mode))
 
     node_details = ("DWC", config, impl_style)
-    part = "xc7z020clg400-1"
+    # part = "xc7z020clg400-1"
+
     target_clk_ns = 4
 
-    max_allowed_volume_delta = 10
+    max_allowed_volume_delta = 5
+    max_allowed_length_delta = 20
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
     ), "characterized TAV does not match RTLsim'd one!"

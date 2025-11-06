@@ -30,6 +30,7 @@ import pytest
 
 import copy
 import importlib_resources as importlib
+import matplotlib.pyplot as plt
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
@@ -208,7 +209,7 @@ def crop_center(size, img):
     return torchvision_util.center_crop(img, size)
 
 
-def compare_two_chr_funcs(a, b, max_allowed_volume_delta):
+def compare_two_chr_funcs(a, b, max_allowed_volume_delta, max_allowed_length_delta):
     # relaxation determines how much leeway we allow for the
     # analytical implementation to be off from RTL ground truth
     # this leeway may produce larger fifos.
@@ -219,7 +220,7 @@ def compare_two_chr_funcs(a, b, max_allowed_volume_delta):
     if len(a) != len(b):
         len_dif = abs(len(a) - len(b))
         print(f"TAV length delta: {len_dif}")
-        if len_dif > max_allowed_volume_delta:
+        if len_dif > max_allowed_length_delta:
             return False
 
     peak_volume_delta = np.max(np.abs(a[:lower_len] - b[:lower_len]))
@@ -229,7 +230,7 @@ def compare_two_chr_funcs(a, b, max_allowed_volume_delta):
     return True
 
 
-def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False, node_idx=0):
+def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=False):
     """
     This helper performs FINN node characterization using either rtlsim
     or characteristic functions. If chacteristic function strategy is
@@ -256,7 +257,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
         model = model.transform(SpecializeLayers(part))
         model = model.transform(GiveUniqueNodeNames())
 
-        node = model.graph.node[node_idx]
+        node = model.graph.node[0]
         inst = registry.getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
             inst.get_tree_model() is None or strategy == "rtlsim"
@@ -293,7 +294,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
 
         model = model.transform(ReplaceVerilogRelPaths())
 
-        node = model.graph.node[node_idx]
+        node = model.graph.node[0]
         inst = registry.getCustomOp(node)
         if (is_hls_node(node) or is_rtl_node(node)) and (
             inst.get_tree_model() is None or strategy == "rtlsim"
@@ -327,7 +328,7 @@ def get_characteristic_fnc(model, node0, part, target_clk_ns, strategy, caching=
             tmp_caching_output_dir = make_build_dir(str(node0))
             model.save(tmp_caching_output_dir + f"/model_{strategy}.onnx")
 
-    return getCustomOp(model.graph.node[node_idx])
+    return getCustomOp(model.graph.node[0])
 
 
 def debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out, printout_limit=100):
@@ -388,11 +389,10 @@ def tree_model_test(
     part,
     target_clk_ns,
     max_allowed_volume_delta,
-    node_idx=0,
-    CACHING=False,
-    DEBUGGING=False,
+    max_allowed_length_delta,
+    CACHING=True,
+    DEBUGGING=True,
 ):
-    # should generated models be cached for faster debugging?
     # caching means to run RTLSIM only once and store the model
     # so we can reuse the token access vector whenever we
     # update the tree model and want to test correctness
@@ -413,8 +413,7 @@ def tree_model_test(
         part,
         target_clk_ns,
         "tree_model",
-        CACHING,
-        node_idx,
+        False,
     )
 
     # t1 = time.time()
@@ -427,7 +426,6 @@ def tree_model_test(
         target_clk_ns,
         "rtlsim",
         CACHING,
-        node_idx,
     )
     # t1 = time.time()
     # print(f"rtlsim model prepared in {t1-t0}s")
@@ -440,12 +438,23 @@ def tree_model_test(
 
     if DEBUGGING:
         debug_chr_funcs(chr_in, chr_out, rtlsim_in, rtlsim_out)
-
+        res = compare_nodes(
+            node_details,
+            node_analytical,
+            node_rtlsim,
+            "derived",
+            subsample=1,
+            start_cycle=0,
+            max_cycle=None,
+            compare_deltas_only=False,
+        )
+        print(res)
     # test input port
     input_check = compare_two_chr_funcs(
         chr_in[0],
         rtlsim_in[0],
         max_allowed_volume_delta,
+        max_allowed_length_delta,
     )
 
     # test output port
@@ -453,6 +462,142 @@ def tree_model_test(
         chr_out[0],
         rtlsim_out[0],
         max_allowed_volume_delta,
+        max_allowed_length_delta,
     )
 
     return input_check and output_check
+
+
+def node_id_finder(m_model, node_id_to_find):
+    i = 0
+    found = False
+    final_id = 0
+    for i in range(len(m_model.graph.node)):
+        if m_model.graph.node[i].name == node_id_to_find:
+            final_id = i
+            found = True
+            break
+    if found:
+        return final_id
+    else:
+        print(f"node by the name {node_id_to_find} not found, using -1")
+        return -1
+
+
+def inter_token_gaps(tav):
+    if tav is None or tav.size == 0:
+        return np.array([1]), np.array([0])  # reasonable defaults
+
+    # Find indices where tokens are added (nonzero diff indicates a new token)
+    token_times = np.flatnonzero(np.diff(tav) > 0) + 1  # +1 to align with time index
+
+    if token_times.size < 2:
+        # Not enough token events to compute gaps
+        return np.array([1]), token_times  # Default gap of 1 between tokens (or 0 if no tokens)
+
+    # Compute gaps between token emissions
+    gaps = np.diff(token_times)
+    return gaps, token_times  # ,gaps_min
+
+
+def compare_nodes(
+    node_details,
+    model_node,
+    ref_node,
+    stage="derived",
+    subsample=100,
+    start_cycle=0,
+    max_cycle=None,
+    compare_deltas_only=False,
+):
+    # Extract and decompress the input/output trace arrays
+    tav_ref_in = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_in"))[0]
+    tav_ref_out = decompress_string_to_numpy(ref_node.get_nodeattr("io_chrc_out"))[0]
+    tav_model_in = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_in"))[0]
+    tav_model_out = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_out"))[0]
+
+    gaps_prod, _ = inter_token_gaps(tav_model_out)
+    gaps_cons, _ = inter_token_gaps(tav_model_in)
+
+    local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
+    local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
+
+    print("top 10 consumption and production data rates of the node:")
+    print("tree-model consumption: ", local_max_delay_cons_list[:10])
+    print("tree-model production: ", local_max_delay_prod_list[:10])
+
+    gaps_prod, _ = inter_token_gaps(tav_ref_out)
+    gaps_cons, _ = inter_token_gaps(tav_ref_in)
+
+    local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
+    local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
+
+    print("reference consumption: ", local_max_delay_cons_list[:10])
+    print("reference production: ", local_max_delay_prod_list[:10])
+
+    # Determine max length for slicing
+    max_len = max(len(tav_ref_in), len(tav_model_in), len(tav_ref_out), len(tav_model_out))
+    if max_cycle is None or max_cycle > max_len:
+        max_cycle = max_len
+
+    # Slice without padding
+    y_ref_in = tav_ref_in[start_cycle:max_cycle]
+    y_model_in = tav_model_in[start_cycle:max_cycle]
+    y_ref_out = tav_ref_out[start_cycle:max_cycle]
+    y_model_out = tav_model_out[start_cycle:max_cycle]
+
+    # Compute differences over common lengths only
+    def max_diff(a, b):
+        common_len = min(len(a), len(b))
+        if common_len == 0:
+            return float("nan")
+        return np.max(np.abs(a[:common_len] - b[:common_len]))
+
+    in_diff = max_diff(y_ref_in, y_model_in)
+    out_diff = max_diff(y_ref_out, y_model_out)
+    if compare_deltas_only:
+        return {"max_in_diff": in_diff, "max_out_diff": out_diff}
+
+    # Plotting
+    plt.figure(figsize=(12, 6))
+
+    def plot_with_subsample(y, label, color, linestyle="-"):
+        y_slice = y[start_cycle:max_cycle]
+        y_sub = y_slice[::subsample]
+        x_sub = np.arange(start_cycle, start_cycle + len(y_sub) * subsample, subsample)
+        plt.plot(x_sub, y_sub, label=label, color=color, linestyle=linestyle)
+        if "ref" in label:
+            y_offset = int(y_sub[-1] * 0.1)
+        else:
+            y_offset = 0
+        if len(x_sub) > 0:
+            plt.text(
+                x_sub[-1],
+                y_sub[-1] + y_offset,
+                f"  {label} {y_sub[-1]:.2f}",
+                color=color,
+                va="center",
+                fontsize=9,
+            )
+
+    plot_with_subsample(tav_ref_in, "in: ref", "blue")
+    plot_with_subsample(tav_model_in, "in: tree model", "blue", linestyle="--")
+    plot_with_subsample(tav_ref_out, "out: ref", "red")
+    plot_with_subsample(tav_model_out, "out: tree model", "red", linestyle="--")
+
+    metrics_ref = f"ref in: {tav_ref_in[-1]}, out: {tav_ref_out[-1]}"
+    metrics_model = f"model in: {tav_model_in[-1]}, out: {tav_model_out[-1]}"
+
+    plt.legend()
+    plt.xlabel("Cycle")
+    plt.ylabel("Accumulated Tokens")
+    plt.title(
+        f"Node {node_details} (Cycles {start_cycle}:{max_cycle})\n{metrics_ref}\n{metrics_model}"
+    )
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+    folder_path = "tree_modeling_plots"
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+    plt.savefig(f"{folder_path}/{node_details}.png")

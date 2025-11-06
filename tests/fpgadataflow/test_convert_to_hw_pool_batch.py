@@ -326,8 +326,10 @@ def test_analytical_characterization_pool(idt, odt, pool_config, ifm_ch, pe, op_
     node_details = ("Pool", op_type, k, ifm_ch, ifm_dim, ofm_dim, pe, idt)
 
     target_clk_ns = 4
-    max_allowed_volume_delta = 20
+
+    max_allowed_volume_delta = 2
+    max_allowed_length_delta = 2
 
     assert tree_model_test(
-        model, node_details, part, target_clk_ns, max_allowed_volume_delta
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
     ), "characterized TAV does not match RTLsim'd one!"
