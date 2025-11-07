@@ -277,6 +277,13 @@ class DataflowBuildConfig:
     #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
 
+    #: During Streamlining it might happen that a channelwise operator gets merged into
+    #: a per-tensor thresholding node, that changes the first dim of the threshold array
+    #: from 1 to number of channels.
+    #: Setting this parameter to True will prevent this but please note that this might
+    #: result in additional standalone floating point operations that need to be implemented
+    preserve_thresh_shape: Optional[bool] = False
+
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
     #: If set to False, the folding_config_file can be used to specify sizes
