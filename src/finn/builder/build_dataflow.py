@@ -43,25 +43,6 @@ from finn.builder.build_dataflow_config import (
 from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
 
 
-# adapted from https://stackoverflow.com/a/39215961
-class StreamToLogger(object):
-    """
-    Fake file-like stream object that redirects writes to a logger instance.
-    """
-
-    def __init__(self, logger, level):
-        self.logger = logger
-        self.level = level
-        self.linebuf = ""
-
-    def write(self, buf):
-        for line in buf.rstrip().splitlines():
-            self.logger.log(self.level, line.rstrip())
-
-    def flush(self):
-        pass
-
-
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
     steps = cfg.steps
     if steps is None:
@@ -108,58 +89,130 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     :param model_filename: ONNX model filename to build
     :param cfg: Build configuration
     """
+    # Set up builder logger for user-facing status messages
+    builder_log = logging.getLogger("finn.builder")
+
     # if start_step is specified, override the input model
     if cfg.start_step is None:
-        print("Building dataflow accelerator from " + model_filename)
+        builder_log.debug("Building dataflow accelerator from " + model_filename)
         model = ModelWrapper(model_filename)
     else:
         intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
-        print(
-            "Building dataflow accelerator from intermediate checkpoint"
+        builder_log.debug(
+            "Building dataflow accelerator from intermediate checkpoint "
             + intermediate_model_filename
         )
         model = ModelWrapper(intermediate_model_filename)
     assert type(model) is ModelWrapper
     finn_build_dir = os.environ["FINN_BUILD_DIR"]
 
-    print("Intermediate outputs will be generated in " + finn_build_dir)
-    print("Final outputs will be generated in " + cfg.output_dir)
-    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
+    builder_log.debug("Intermediate outputs will be generated in " + finn_build_dir)
+    builder_log.debug("Final outputs will be generated in " + cfg.output_dir)
+    builder_log.debug("Build log is at " + cfg.output_dir + "/build_dataflow.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
     step_num = 1
     time_per_step = dict()
     build_dataflow_steps = resolve_build_steps(cfg)
-    # set up logger
+
+    # Set up root logger with file handler for audit trail
     logging.basicConfig(
         level=logging.DEBUG,
-        format="[%(asctime)s] %(message)s",
+        format="[%(asctime)s] [%(name)s] %(levelname)s: %(message)s",
         filename=cfg.output_dir + "/build_dataflow.log",
         filemode="a",
     )
-    log = logging.getLogger("build_dataflow")
-    stdout_logger = StreamToLogger(log, logging.INFO)
-    stderr_logger = StreamToLogger(log, logging.ERROR)
-    stdout_orig = sys.stdout
-    stderr_orig = sys.stderr
+
+    # Configure finn.builder logger (progress messages) - controlled by show_progress
+    builder_logger = logging.getLogger("finn.builder")
+    builder_logger.setLevel(logging.INFO)
+    if cfg.show_progress:
+        # Show progress messages on console with clean formatting
+        builder_console = logging.StreamHandler(sys.stdout)
+        builder_console.setFormatter(logging.Formatter("%(message)s"))
+        builder_logger.addHandler(builder_console)
+    # Add file handler for audit trail (match root logger format for consistency)
+    builder_file = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
+    builder_file.setFormatter(
+        logging.Formatter("[%(asctime)s] [%(name)s] %(levelname)s: %(message)s")
+    )
+    builder_logger.addHandler(builder_file)
+    # Don't propagate to finn parent (we handle both console and file locally)
+    builder_logger.propagate = False
+
+    # Configure finn tool loggers (subprocess output) - controlled by verbose
+    finn_logger = logging.getLogger("finn")
+    finn_logger.setLevel(logging.DEBUG)  # Permissive parent (children can filter)
+
+    # Add console handler if verbose mode
+    if cfg.verbose:
+        finn_console_handler = logging.StreamHandler(sys.stdout)
+        console_formatter = logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+        finn_console_handler.setFormatter(console_formatter)
+        finn_console_handler.setLevel(logging.ERROR)
+        finn_logger.addHandler(finn_console_handler)
+
+    # Always propagate to file (via root logger)
+    finn_logger.propagate = True
+
+    # Apply subprocess log level overrides (console and file independently)
+    # Collect all categories from both configs
+    all_categories = set()
+    if cfg.subprocess_console_levels:
+        all_categories.update(cfg.subprocess_console_levels.keys())
+    if cfg.subprocess_log_levels:
+        all_categories.update(cfg.subprocess_log_levels.keys())
+
+    configured_logger_names = []
+    for category in all_categories:
+        logger_name = f"finn.{category}"
+        configured_logger_names.append(logger_name)
+        subprocess_logger = logging.getLogger(logger_name)
+
+        # Determine console level (default: ERROR - minimize console spam)
+        console_level = (cfg.subprocess_console_levels or {}).get(category, logging.ERROR)
+        # Determine file level (default: DEBUG for comprehensive audit trail)
+        file_level = (cfg.subprocess_log_levels or {}).get(category, logging.DEBUG)
+
+        # Set logger level to minimum needed by active destinations
+        # When verbose=False, console_level is irrelevant (no console handler exists)
+        if cfg.verbose:
+            subprocess_logger.setLevel(min(console_level, file_level))
+        else:
+            subprocess_logger.setLevel(file_level)
+
+        # Add child-specific console handler (when verbose)
+        if cfg.verbose:
+            child_console_handler = logging.StreamHandler(sys.stdout)
+            child_console_handler.setFormatter(console_formatter)
+            child_console_handler.setLevel(console_level)
+            subprocess_logger.addHandler(child_console_handler)
+
+        # Always propagate to root for file logging
+        subprocess_logger.propagate = True
+
+    # Add filter to parent console handler to exclude configured children
+    # (prevents duplication for any children that DO propagate)
+    if cfg.verbose and configured_logger_names:
+
+        class ExcludeConfiguredLoggersFilter(logging.Filter):
+            def filter(self, record):
+                # Block messages from configured subprocess loggers
+                return not any(record.name.startswith(name) for name in configured_logger_names)
+
+        finn_console_handler.addFilter(ExcludeConfiguredLoggersFilter())
+
     for transform_step in build_dataflow_steps:
         try:
             step_name = transform_step.__name__
-            print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
-            # redirect output to logfile
-            if not cfg.verbose and not cfg.no_stdout_redirect:
-                sys.stdout = stdout_logger
-                sys.stderr = stderr_logger
-                # also log current step name to logfile
-                print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
+            builder_log.info(
+                "Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps))
+            )
             # run the step
             step_start = time.time()
             model = transform_step(model, cfg)
             step_end = time.time()
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
             time_per_step[step_name] = step_end - step_start
             chkpt_name = "%s.onnx" % (step_name)
             if cfg.save_intermediate_models:
@@ -169,9 +222,6 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
                 model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
             step_num += 1
         except:  # noqa
-            # restore stdout/stderr
-            sys.stdout = stdout_orig
-            sys.stderr = stderr_orig
             # print exception info and traceback
             extype, value, tb = sys.exc_info()
             traceback.print_exc()
@@ -179,13 +229,13 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             if cfg.enable_build_pdb_debug:
                 pdb.post_mortem(tb)
             else:
-                print("enable_build_pdb_debug not set in build config, exiting...")
-            print("Build failed")
+                builder_log.error("enable_build_pdb_debug not set in build config, exiting...")
+            builder_log.error("Build failed")
             return -1
 
     with open(cfg.output_dir + "/time_per_step.json", "w") as f:
         json.dump(time_per_step, f, indent=2)
-    print("Completed successfully")
+    builder_log.info("Completed successfully")
     return 0
 
 

@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import logging
 import os
 
 from finn.util.basic import launch_process_helper, which
@@ -60,7 +61,18 @@ def out_of_context_synth(
         float(clk_period_ns),
     )
     call_omx = call_omx.split()
-    launch_process_helper(call_omx, proc_env=os.environ.copy(), cwd=verilog_dir)
+    logger = logging.getLogger("finn.vivado.synth")
+    launch_process_helper(
+        call_omx,
+        proc_env=os.environ.copy(),
+        cwd=verilog_dir,
+        logger=logger,
+        stdout_level=logging.DEBUG,
+        stderr_level=logging.WARNING,
+        detect_levels=True,
+        raise_on_error=True,
+        generate_script=os.path.join(verilog_dir, "synth_out_of_context.sh"),
+    )
 
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
     res_counts_path = vivado_proj_folder + "/res.txt"
@@ -71,7 +83,6 @@ def out_of_context_synth(
     ret["vivado_proj_folder"] = vivado_proj_folder
     for res_line in res_data:
         res_fields = res_line.split("=")
-        print(res_fields)
         try:
             ret[res_fields[0]] = float(res_fields[1])
         except ValueError:

@@ -27,11 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import logging
 import os
 import re
-import subprocess
 
-from finn.util.basic import which
+from finn.util.basic import launch_process_helper, which
 
 
 class CallHLS:
@@ -52,28 +52,30 @@ class CallHLS:
         self.ipgen_path = path
 
     def build(self, code_gen_dir):
-        """Builds the bash script with given parameters and saves it in given folder.
-        To guarantee the generation in the correct folder the bash script contains a
-        cd command."""
+        """Runs HLS synthesis using vitis_hls or vitis-run based on Vivado version."""
+        self.code_gen_dir = code_gen_dir
+
+        # Determine command based on Vivado version (renamed in 2024.2)
         vivado_path = os.environ.get("XILINX_VIVADO")
-        # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
         match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
         year, minor = int(match.group(1)), int(match.group(2))
+
         if (year, minor) > (2024, 2):
             assert which("vitis-run") is not None, "vitis-run not found in PATH"
-            vitis_cmd = "vitis-run --mode hls --tcl %s\n" % (self.tcl_script)
+            cmd = ["vitis-run", "--mode", "hls", "--tcl", self.tcl_script]
         else:
             assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
-            vitis_cmd = "vitis_hls %s\n" % (self.tcl_script)
-        self.code_gen_dir = code_gen_dir
-        self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
-        working_dir = os.environ["PWD"]
-        f = open(self.ipgen_script, "w")
-        f.write("#!/bin/bash \n")
-        f.write("cd {}\n".format(code_gen_dir))
-        f.write(vitis_cmd)
-        f.write("cd {}\n".format(working_dir))
-        f.close()
-        bash_command = ["bash", self.ipgen_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+            cmd = ["vitis_hls", self.tcl_script]
+
+        logger = logging.getLogger("finn.vitis.hls")
+        exitcode = launch_process_helper(
+            cmd,
+            cwd=code_gen_dir,
+            logger=logger,
+            stdout_level=logging.INFO,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(code_gen_dir, "ipgen.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("HLS synthesis returned non-zero exit code: %d", exitcode)

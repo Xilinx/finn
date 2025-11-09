@@ -28,9 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import multiprocessing as mp
 import os
-import subprocess
 import warnings
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
@@ -39,7 +39,7 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import getHWCustomOp, make_build_dir
+from finn.util.basic import getHWCustomOp, launch_process_helper, make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -746,17 +746,19 @@ foreach xci_file $xci_files {
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
-        # create a shell script and call Vivado
-        make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
-        working_dir = os.environ["PWD"]
-        with open(make_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_project.tcl\n")
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", make_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # call Vivado to create the stitched IP
+        logger = logging.getLogger("finn.vivado.stitch_ip")
+        exitcode = launch_process_helper(
+            ["vivado", "-mode", "batch", "-source", "make_project.tcl"],
+            cwd=vivado_stitch_proj_dir,
+            logger=logger,
+            stdout_level=logging.INFO,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(vivado_stitch_proj_dir, "make_project.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("Vivado returned non-zero exit code: %d", exitcode)
         # wrapper may be created in different location depending on Vivado version
         if not os.path.isfile(wrapper_filename):
             # check in alternative location (.gen instead of .srcs)

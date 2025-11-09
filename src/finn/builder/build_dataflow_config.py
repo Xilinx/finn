@@ -336,14 +336,23 @@ class DataflowBuildConfig:
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
-    #: When True, all warnings and compiler output will be printed in stdout.
-    #: Otherwise, these will be suppressed and only appear in the build log.
+    #: Show subprocess tool output on console. When False, tools are silent.
+    #: Use subprocess_console_levels to control per-tool verbosity when True.
     verbose: Optional[bool] = False
 
-    #: When True, stdout/stderr will not be redirected even when verbose=False.
-    #: Useful for applications using terminal-aware libraries (e.g., Rich, tqdm)
-    #: that require direct terminal access and break with stream redirection.
-    no_stdout_redirect: Optional[bool] = False
+    #: Show build progress messages on console. When False, console is silent.
+    #: Recommended True for interactive builds, False for library/batch mode.
+    show_progress: Optional[bool] = True
+
+    #: Per-tool console log levels (only when verbose=True, otherwise ignored).
+    #: Dict of {category: level}, e.g. {"hls": logging.ERROR, "vivado": logging.INFO}.
+    #: Unconfigured tools default to WARNING. Supports hierarchical: "vivado.stitch_ip".
+    subprocess_console_levels: Optional[dict] = None
+
+    #: Per-tool log file levels (always applies, independent of verbose).
+    #: Dict of {category: level}, e.g. {"hls": logging.INFO, "vivado": logging.DEBUG}.
+    #: Unconfigured tools default to DEBUG (comprehensive audit trail).
+    subprocess_log_levels: Optional[dict] = None
 
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.

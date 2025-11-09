@@ -28,8 +28,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import os
-import subprocess
 from enum import Enum
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import getHWCustomOp, make_build_dir
+from finn.util.basic import getHWCustomOp, launch_process_helper, make_build_dir
 
 from . import templates
 
@@ -144,17 +144,19 @@ class CreateVitisXO(Transformation):
         with open(vivado_proj_dir + "/gen_xo.tcl", "w") as f:
             f.write(package_xo_string)
 
-        # create a shell script and call Vivado
-        package_xo_sh = vivado_proj_dir + "/gen_xo.sh"
-        working_dir = os.environ["PWD"]
-        with open(package_xo_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_proj_dir))
-            f.write("vivado -mode batch -source gen_xo.tcl\n")
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", package_xo_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # call Vivado to package the XO file
+        logger = logging.getLogger("finn.vitis.package_xo")
+        exitcode = launch_process_helper(
+            ["vivado", "-mode", "batch", "-source", "gen_xo.tcl"],
+            cwd=vivado_proj_dir,
+            logger=logger,
+            stdout_level=logging.INFO,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(vivado_proj_dir, "gen_xo.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("Vivado returned non-zero exit code: %d", exitcode)
         assert os.path.isfile(xo_path), (
             "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
         )
@@ -295,33 +297,39 @@ class VitisLink(Transformation):
         with open(link_dir + "/gen_report_xml.tcl", "w") as f:
             f.write(gen_rep_xml)
 
-        debug_commands = []
+        # build v++ link command
+        v_cmd = (
+            ["v++", "-t", "hw", "--platform", self.platform, "--link"]
+            + object_files
+            + [
+                "--kernel_frequency",
+                str(self.f_mhz),
+                "--config",
+                "config.txt",
+                "--optimize",
+                self.strategy.value,
+                "--save-temps",
+                "-R2",
+            ]
+        )
+        # add debug commands if enabled
         if self.enable_debug:
             for inst in list(instance_names.values()):
-                debug_commands.append("--dk chipscope:%s" % inst)
+                v_cmd.extend(["--dk", "chipscope:%s" % inst])
 
-        # create a shell script and call Vitis
-        script = link_dir + "/run_vitis_link.sh"
-        working_dir = os.environ["PWD"]
-        with open(script, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write(
-                "v++ -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt --optimize %s"
-                " --save-temps -R2 %s\n"
-                % (
-                    self.platform,
-                    " ".join(object_files),
-                    self.f_mhz,
-                    self.strategy.value,
-                    " ".join(debug_commands),
-                )
-            )
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # call Vitis to link the kernels
+        logger = logging.getLogger("finn.vitis.link")
+        exitcode = launch_process_helper(
+            v_cmd,
+            cwd=link_dir,
+            logger=logger,
+            stdout_level=logging.INFO,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(link_dir, "run_vitis_link.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("Vitis v++ returned non-zero exit code: %d", exitcode)
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
         assert os.path.isfile(xclbin), (
@@ -329,17 +337,19 @@ class VitisLink(Transformation):
         )
         model.set_metadata_prop("bitfile", xclbin)
 
-        # run Vivado to gen xml report
-        gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
-        working_dir = os.environ["PWD"]
-        with open(gen_rep_xml_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(link_dir))
-            f.write("vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl"))
-            f.write("cd {}\n".format(working_dir))
-        bash_command = ["bash", gen_rep_xml_sh]
-        process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_genxml.communicate()
+        # run Vivado to generate XML report
+        logger = logging.getLogger("finn.vitis.report")
+        exitcode = launch_process_helper(
+            ["vivado", "-mode", "batch", "-source", link_dir + "/gen_report_xml.tcl"],
+            cwd=link_dir,
+            logger=logger,
+            stdout_level=logging.DEBUG,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(link_dir, "gen_report_xml.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("Vivado XML report generation returned non-zero exit code: %d", exitcode)
         # filename for the synth utilization report
         synth_report_filename = link_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)

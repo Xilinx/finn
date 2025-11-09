@@ -31,8 +31,10 @@ import warnings
 from onnx import helper
 from qonnx.custom_op.registry import hasCustomOp
 from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_by_name
 
 from finn.util.basic import get_dsp_block, getHWCustomOp, is_versal
+from finn.util.fpgadataflow import is_fpgadataflow_node, is_hls_node, is_rtl_node
 
 
 def _determine_impl_style(node, fpgapart, model):
@@ -288,13 +290,9 @@ class SpecializeLayers(Transformation):
         graph_modified = False
         for node in graph.node:
             # Skip nodes that are not hw layers
-            if not (
-                node.domain.endswith(".custom_op.fpgadataflow")
-                or (
-                    node.domain.startswith("brainsmith.kernels")
-                    and not (node.domain.endswith(".hls") or node.domain.endswith(".rtl"))
-                )
-            ):
+            if not is_fpgadataflow_node(node):
+                continue
+            if is_hls_node(node) or is_rtl_node(node):
                 continue
             # For shuffle nodes the specialisation happens after
             # the ShuffleDecomposition transformation with a

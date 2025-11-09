@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import logging
 import numpy as np
 import os
 
@@ -281,22 +282,35 @@ def rtlsim_exec_cppxsi(
         "-ldl",
         "-lrt",
     ]
-    # write compilation command to a file for easy re-running/debugging
-    with open(sim_base + "/compile_rtlsim.sh", "w") as f:
-        f.write(" ".join(build_cmd))
-    launch_process_helper(build_cmd, cwd=sim_base)
-    assert os.path.isfile(sim_base + "/rtlsim_xsi"), "Failed to compile rtlsim executable"
+    logger = logging.getLogger("finn.compile.rtlsim")
+    launch_process_helper(
+        build_cmd,
+        cwd=sim_base,
+        logger=logger,
+        stdout_level=logging.INFO,
+        stderr_level=logging.ERROR,
+        detect_levels=True,
+        raise_on_error=True,
+        generate_script=os.path.join(sim_base, "compile_rtlsim.sh"),
+    )
 
     # launch the rtlsim executable
     # important to specify LD_LIBRARY_PATH here for XSI to work correctly
     runsim_env = os.environ.copy()
     runsim_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
-    runsim_cmd = ["bash", "run_rtlsim.sh"]
-    with open(sim_base + "/run_rtlsim.sh", "w") as f:
-        f.write(
-            f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi > rtlsim_xsi_log.txt"
-        )
-    launch_process_helper(runsim_cmd, cwd=sim_base)
+    runsim_cmd = ["./rtlsim_xsi"]
+    xsim_logger = logging.getLogger("finn.vivado.xsim")
+    launch_process_helper(
+        runsim_cmd,
+        proc_env=runsim_env,
+        cwd=sim_base,
+        logger=xsim_logger,
+        stdout_level=logging.INFO,
+        stderr_level=logging.WARNING,
+        detect_levels=True,
+        raise_on_error=False,
+        generate_script=os.path.join(sim_base, "run_rtlsim.sh"),
+    )
 
     # parse results file and return dict
     results_filename = sim_base + "/results.txt"

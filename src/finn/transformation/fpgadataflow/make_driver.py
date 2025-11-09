@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import numpy as np
 import os
 import qonnx
@@ -109,16 +110,18 @@ class MakeCPPDriver(Transformation):
         header_path = os.path.join(cpp_driver_dir, "AcceleratorDatatypes.h")
 
         # Get the base C++ driver repo
+        logger = logging.getLogger("finn.vitis.driver")
+
         def run_command(command, cwd=None, debug=False):
             try:
                 result = subprocess.run(
                     shlex.split(command), cwd=cwd, check=True, text=True, capture_output=True
                 )
                 if debug:
-                    print(result.stdout)  # Print the output for debugging purposes
+                    logger.debug(result.stdout)
             except subprocess.CalledProcessError as e:
-                print(f"Error running command: {command}")
-                print(f"Output:{e.stdout}; Error:{e.stderr}")
+                logger.error(f"Error running command: {command}")
+                logger.error(f"Output:{e.stdout}; Error:{e.stderr}")
                 raise e
 
         # Step-by-step equivalent of the provided bash script

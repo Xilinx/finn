@@ -27,8 +27,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import logging
 import os
-import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
@@ -48,6 +48,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import (
     getHWCustomOp,
+    launch_process_helper,
     make_build_dir,
     pynq_native_port_width,
     pynq_part_map,
@@ -250,19 +251,19 @@ class MakeZYNQProject(Transformation):
                 )
             )
 
-        # create a TCL recipe for the project
-        synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
-        working_dir = os.environ["PWD"]
-        with open(synth_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode batch -source %s\n" % ipcfg)
-            f.write("cd {}\n".format(working_dir))
-
-        # call the synthesis script
-        bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        # call Vivado to synthesize the project
+        logger = logging.getLogger("finn.vivado.zynq")
+        exitcode = launch_process_helper(
+            ["vivado", "-mode", "batch", "-source", ipcfg],
+            cwd=vivado_pynq_proj_dir,
+            logger=logger,
+            stdout_level=logging.INFO,
+            stderr_level=logging.WARNING,
+            raise_on_error=False,
+            generate_script=os.path.join(vivado_pynq_proj_dir, "synth_project.sh"),
+        )
+        if exitcode != 0:
+            logger.warning("Vivado returned non-zero exit code: %d", exitcode)
         bitfile_name = vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
         if not os.path.isfile(bitfile_name):
             raise Exception(

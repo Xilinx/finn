@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import logging
 import numpy as np
 import os
 import shutil
@@ -143,7 +144,8 @@ def verify_step(
     need_parent: bool,
     rtlsim_pre_hook=None,
 ):
-    print("Running verification for " + step_name)
+    steps_log = logging.getLogger("finn.builder.steps")
+    steps_log.debug("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
     os.makedirs(verify_out_dir, exist_ok=True)
@@ -164,11 +166,11 @@ def verify_step(
             out_tensor_name = parent_model.graph.output[0].name
             exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
             if in_npy.shape != exp_ishape:
-                print(
+                steps_log.warning(
                     "Verification input has shape %s while model expects %s"
                     % (str(in_npy.shape), str(exp_ishape))
                 )
-                print("Attempting to force model shape on verification input")
+                steps_log.warning("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(exp_ishape)
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
@@ -177,11 +179,11 @@ def verify_step(
             out_tensor_name = model.graph.output[0].name
             exp_ishape = model.get_tensor_shape(inp_tensor_name)
             if in_npy.shape != exp_ishape:
-                print(
+                steps_log.warning(
                     "Verification input has shape %s while model expects %s"
                     % (str(in_npy.shape), str(exp_ishape))
                 )
-                print("Attempting to force model shape on verification input")
+                steps_log.warning("Attempting to force model shape on verification input")
                 in_npy = in_npy.reshape(exp_ishape)
             inp_dict = {inp_tensor_name: in_npy}
             if rtlsim_pre_hook is not None:
@@ -192,11 +194,11 @@ def verify_step(
                 out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
-            print(
+            steps_log.warning(
                 "Verification output has shape %s while model produces %s"
                 % (str(exp_oshape), str(out_npy.shape))
             )
-            print("Attempting to force model shape on verification output")
+            steps_log.warning("Attempting to force model shape on verification output")
             out_npy = out_npy.reshape(exp_oshape)
 
         if cfg.verification_atol is None:
@@ -230,10 +232,11 @@ def verify_step(
                 new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
                 shutil.move(wdb_path, new_wdb_path)
 
-    print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
+    steps_log.debug("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
+    steps_log = logging.getLogger("finn.builder.steps")
     if not cfg.rtlsim_use_vivado_comps:
         need_restitch = False
         # switch impl_style=vivado components to rtl
@@ -247,7 +250,7 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
                 need_restitch = True
         # if we've made alterations to the model, need to do some re-prep
         if need_restitch:
-            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+            steps_log.warning("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
             verify_model = verify_model.transform(
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
@@ -260,7 +263,7 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
                 )
             )
     else:
-        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
+        steps_log.warning("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
 
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
@@ -784,6 +787,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""
 
+    steps_log = logging.getLogger("finn.builder.steps")
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
@@ -798,7 +802,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         shutil.copytree(
             model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
         )
-        print("Vivado stitched IP written into " + stitched_ip_dir)
+        steps_log.debug("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -891,12 +895,13 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create a driver that can be used to interface the generated accelerator.
     Use DataflowBuildConfig to select PYNQ Python or C++ driver."""
 
+    steps_log = logging.getLogger("finn.builder.steps")
     driver_dir = os.path.join(cfg.output_dir, "driver")
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         # generate PYNQ driver
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
-        print("PYNQ Python driver written into " + driver_dir)
+        steps_log.debug("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         # generate C++ Driver
         model = model.transform(
@@ -911,7 +916,7 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
             dirs_exist_ok=True,
             copy_function=shutil.copyfile,
         )
-        print("C++ driver written into " + driver_dir)
+        steps_log.debug("C++ driver written into " + driver_dir)
     else:
         warnings.warn(
             "The step step_make_driver is in the build list but will not be executed"
@@ -947,6 +952,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Synthesize a bitfile for the using the specified shell flow, using either
     Vivado or Vitis, to target the specified board."""
 
+    steps_log = logging.getLogger("finn.builder.steps")
     if DataflowOutputType.BITFILE in cfg.generate_outputs:
         bitfile_dir = cfg.output_dir + "/bitfile"
         os.makedirs(bitfile_dir, exist_ok=True)
@@ -1003,7 +1009,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
-        print("Bitfile written into " + bitfile_dir)
+        steps_log.debug("Bitfile written into " + bitfile_dir)
 
     return model
 
