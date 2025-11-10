@@ -224,10 +224,19 @@ class Pool(HWCustomOp):
 
         # Derived parameters
         NF = Channels // PE  # neuron folding
-        SF = KernelSize[1] ** 2  # spatial folding per pooling window
-        reps = BatchSize * OutImgDims[1] ** 2  # number of pooling windows to process
-
-        print(f"param: NF: {NF} SF: {SF}, OutImgDims: {OutImgDims}, Ch: {Channels}, PE: {PE}")
+        func = self.get_nodeattr("Function")
+        if func == "MaxPool":
+            SF = KernelSize[1] ** 2  # spatial folding per pooling window
+            if KernelSize[0] == 1 or KernelSize[1] == 1:
+                if KernelSize[0] == 1:
+                    SF = KernelSize[1] ** 2
+                else:
+                    SF = KernelSize[0] ** 2
+                SF = np.prod(KernelSize)
+            reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
+        else:
+            SF = np.prod(KernelSize)  # spatial folding per pooling window
+            reps = BatchSize * np.prod(OutImgDims)  # number of pooling windows to process
 
         # One input read per SF iteration
         read_pooling_input = Characteristic_Node("Read Pool Input", [(1, [1, 0])], True)

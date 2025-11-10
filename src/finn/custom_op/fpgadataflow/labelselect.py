@@ -200,7 +200,7 @@ class LabelSelect(HWCustomOp):
         NF = num_in_words // PE
 
         output_delay = int(np.log2(num_in_words)) + 1
-        output_delay = NF
+        # output_delay = NF
 
         print("num_in_words,PE,K,NF,output_delay")
         print(num_in_words, PE, K, NF, output_delay)

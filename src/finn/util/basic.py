@@ -414,7 +414,6 @@ def compress_numpy_to_string(arr):
 
 
 def decompress_string_to_numpy(s):
-    # print("reading:", s)
     combined_data = base64.b64decode(s.encode("utf-8"))  # Decode from base64
     metadata_bytes, compressed_data = combined_data.split(b"||", 1)  # Split metadata & data
 
@@ -428,11 +427,11 @@ def decompress_string_to_numpy(s):
 
 def compute_total_model_fifo_size(model):
     size = 0
-    depth = 0
-
+    total_depth = 0
     for node in model.graph.node:
         if node.op_type in ["StreamingFIFO", "StreamingFIFO_hls", "StreamingFIFO_rtl"]:
-            depth += getCustomOp(node).get_nodeattr("depth")
+            depth = getCustomOp(node).get_nodeattr("depth")
             width = getCustomOp(node).get_instream_width()
             size += width * depth
-    return size, depth
+            total_depth += depth
+    return size, total_depth

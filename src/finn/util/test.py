@@ -390,8 +390,8 @@ def tree_model_test(
     target_clk_ns,
     max_allowed_volume_delta,
     max_allowed_length_delta,
-    CACHING=True,
-    DEBUGGING=True,
+    CACHING=False,
+    DEBUGGING=False,
 ):
     # caching means to run RTLSIM only once and store the model
     # so we can reuse the token access vector whenever we
@@ -416,9 +416,6 @@ def tree_model_test(
         False,
     )
 
-    # t1 = time.time()
-    # print(f"analytical model prepared in {t1-t0}s")
-    # t0 = time.time()
     node_rtlsim = get_characteristic_fnc(
         model_rtl,
         (*node_details, "rtlsim"),
@@ -427,8 +424,6 @@ def tree_model_test(
         "rtlsim",
         CACHING,
     )
-    # t1 = time.time()
-    # print(f"rtlsim model prepared in {t1-t0}s")
 
     chr_in = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_in"))
     chr_out = decompress_string_to_numpy(node_analytical.get_nodeattr("io_chrc_out"))
@@ -442,7 +437,6 @@ def tree_model_test(
             node_details,
             node_analytical,
             node_rtlsim,
-            "derived",
             subsample=1,
             start_cycle=0,
             max_cycle=None,
@@ -480,7 +474,6 @@ def node_id_finder(m_model, node_id_to_find):
     if found:
         return final_id
     else:
-        print(f"node by the name {node_id_to_find} not found, using -1")
         return -1
 
 
@@ -504,8 +497,7 @@ def compare_nodes(
     node_details,
     model_node,
     ref_node,
-    stage="derived",
-    subsample=100,
+    subsample=1,
     start_cycle=0,
     max_cycle=None,
     compare_deltas_only=False,
@@ -516,24 +508,24 @@ def compare_nodes(
     tav_model_in = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_in"))[0]
     tav_model_out = decompress_string_to_numpy(model_node.get_nodeattr("io_chrc_out"))[0]
 
-    gaps_prod, _ = inter_token_gaps(tav_model_out)
-    gaps_cons, _ = inter_token_gaps(tav_model_in)
+    # gaps_prod, _ = inter_token_gaps(tav_model_out)
+    # gaps_cons, _ = inter_token_gaps(tav_model_in)
 
-    local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
-    local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
+    # local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
+    # local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
 
-    print("top 10 consumption and production data rates of the node:")
-    print("tree-model consumption: ", local_max_delay_cons_list[:10])
-    print("tree-model production: ", local_max_delay_prod_list[:10])
+    # print("top 10 consumption and production data rates of the node:")
+    # print("tree-model consumption: ", local_max_delay_cons_list[:10])
+    # print("tree-model production: ", local_max_delay_prod_list[:10])
 
-    gaps_prod, _ = inter_token_gaps(tav_ref_out)
-    gaps_cons, _ = inter_token_gaps(tav_ref_in)
+    # gaps_prod, _ = inter_token_gaps(tav_ref_out)
+    # gaps_cons, _ = inter_token_gaps(tav_ref_in)
 
-    local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
-    local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
+    # local_max_delay_prod_list = sorted(gaps_prod, reverse=True)
+    # local_max_delay_cons_list = sorted(gaps_cons, reverse=True)
 
-    print("reference consumption: ", local_max_delay_cons_list[:10])
-    print("reference production: ", local_max_delay_prod_list[:10])
+    # print("reference consumption: ", local_max_delay_cons_list[:10])
+    # print("reference production: ", local_max_delay_prod_list[:10])
 
     # Determine max length for slicing
     max_len = max(len(tav_ref_in), len(tav_model_in), len(tav_ref_out), len(tav_model_out))
@@ -592,7 +584,9 @@ def compare_nodes(
     plt.xlabel("Cycle")
     plt.ylabel("Accumulated Tokens")
     plt.title(
-        f"Node {node_details} (Cycles {start_cycle}:{max_cycle})\n{metrics_ref}\n{metrics_model}"
+        f"Node {node_details} \n max_in_diff:"
+        f"{in_diff} max_out_diff: {out_diff}\n (Cycles "
+        f"{start_cycle}:{max_cycle})\n{metrics_ref}\n{metrics_model}"
     )
     plt.grid(True)
     plt.tight_layout()

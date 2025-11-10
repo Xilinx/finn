@@ -284,16 +284,14 @@ class Thresholding(HWCustomOp):
         IMPL_STYLE = "rtl" if "_rtl" in (self.__class__.__name__) else "hls"
         assert IMPL_STYLE in ["rtl", "hls"], "Implementation style must be 'rtl' or 'hls'"
 
-        # print(f"THR STATS: {reps}, {ImgDim}")
-        # print(list(self.get_nodeattr("numInputVectors")))
         NF = NumChannels // PE
         total_iterations = ImgDim * NF
 
         if IMPL_STYLE == "hls":
-            output_delay = 4
+            output_delay = 0  # 4 if 2023.1 vivado
         else:
             if act == DataType["BIPOLAR"]:
-                output_delay = 4
+                output_delay = 0  # 4 if 2023.1 vivado
             else:
                 output_delay = 0
 

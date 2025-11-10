@@ -309,6 +309,11 @@ class DataflowBuildConfig:
         TAVUtilizationMethod
     ] = TAVUtilizationMethod.CONSERVATIVE_RELAXATION
 
+    #: When True, skips the resynthesis steps after fifo sizing. This makes it
+    #: possible to run the step for rapid fifo size analysis during
+    #: automatic folding optimizations or as a first approximation.
+    skip_resynth_during_fifo_sizing: Optional[bool] = False
+
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
     force_python_rtlsim: Optional[bool] = False

@@ -562,7 +562,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
 
-        print(f"sizing fifos with strategy: {cfg.auto_fifo_strategy}")
         if cfg.auto_fifo_strategy == "analytical":
             if cfg.tav_generation_strategy == "tree_model":
                 # if we have tree models, only rtlsim nodes for which we dont
@@ -577,11 +576,14 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     only_jit_nodes_without_tree,
                 )
             )
-            print("starting derivation")
             period = int(model.analysis(dataflow_performance)["max_cycles"])
             model = model.transform(
                 DeriveTokenAccessVectors(
-                    model, period, cfg.tav_generation_strategy, cfg._resolve_fpga_part(), 10.0
+                    model,
+                    period,
+                    cfg.tav_generation_strategy,
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
                 )
             )
 
@@ -703,8 +705,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP())
+    if not cfg.skip_resynth_during_fifo_sizing:
+        model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+        model = model.transform(HLSSynthIP())
 
     return model
 
