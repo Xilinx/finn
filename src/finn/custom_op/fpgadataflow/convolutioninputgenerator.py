@@ -573,6 +573,9 @@ class ConvolutionInputGenerator(HWCustomOp):
         depthwise = self.get_nodeattr("depthwise")
         SF = ifm_ch // simd
 
+        # hyper parameter for when we stop merging
+        buffering_threshold = 1024
+
         print("simd: ", simd)
         print("ifm y, x: ", ifm_dim_y, ifm_dim_x)
         print("K: ", k_y, k_x)
@@ -580,6 +583,8 @@ class ConvolutionInputGenerator(HWCustomOp):
         print("dilation: ", dilation_y, dilation_x)
         print("parallel_window: ", parallel_window)
         print("dw: ", depthwise)
+        print("buffer depth: ", self.get_buffer_depth())
+        print("buffering threshold: ", buffering_threshold)
 
         stride_y_skips = (stride_y - 1) * ifm_dim_x
 
@@ -669,16 +674,22 @@ class ConvolutionInputGenerator(HWCustomOp):
         # first kernel is a special case, we absorb the buffer reads into it as well
         absolute_first_reads = first_line_kernel_buffer + first_line_buffer
         absolute_first_single_move_dif = writes_per_kernel - absolute_first_reads
-        if absolute_first_single_move_dif > 0:
-            # more writes than reads, dif both, write rest
-            absolute_first_do_both = absolute_first_reads
-            absolute_first_writes_only = absolute_first_single_move_dif
-            absolute_first_reads_only = 0
-        else:
-            # more reads than writes
-            absolute_first_do_both = writes_per_kernel
-            absolute_first_reads_only = -absolute_first_single_move_dif
-            absolute_first_writes_only = 0
+
+        absolute_first_do_both = 0
+        absolute_first_writes_only = writes_per_kernel
+        absolute_first_reads_only = absolute_first_reads
+
+        if depthwise == 0:
+            if absolute_first_single_move_dif > 0:
+                # more writes than reads, dif both, write rest
+                absolute_first_do_both = absolute_first_reads
+                absolute_first_writes_only = absolute_first_single_move_dif
+                absolute_first_reads_only = 0
+            else:
+                # more reads than writes
+                absolute_first_do_both = writes_per_kernel
+                absolute_first_reads_only = -absolute_first_single_move_dif
+                absolute_first_writes_only = 0
 
         ch_idle = Characteristic_Node("Output Write", [(SF, [0, 0])], True)
         ch_write = Characteristic_Node("Output Write", [(SF, [0, 1])], True)

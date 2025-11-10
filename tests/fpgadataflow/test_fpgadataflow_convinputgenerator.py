@@ -460,8 +460,8 @@ def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
     )
     part = "xc7z020clg400-1"
     target_clk_ns = 4
-    max_allowed_volume_delta = 5000
-    max_allowed_length_delta = 5000
+    max_allowed_volume_delta = 2140  # should change to 20% of peak volume
+    max_allowed_length_delta = 2140  # should change to 20% of peak volume
 
     assert tree_model_test(
         model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
