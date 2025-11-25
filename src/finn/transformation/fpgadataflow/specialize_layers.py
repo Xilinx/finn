@@ -263,6 +263,11 @@ class SpecializeLayers(Transformation):
             # Skip nodes that are not hw layers
             if not node.domain == "finn.custom_op.fpgadataflow":
                 continue
+            # For shuffle nodes the specialisation happens after
+            # the ShuffleDecomposition transformation with a
+            # dedicated InferInnerOuterShuffle transformation
+            if node.op_type == "Shuffle":
+                continue
             node_ind += 1
             impl_style = _determine_impl_style(node, self.fpgapart, model)
             optype = node.op_type + "_" + impl_style

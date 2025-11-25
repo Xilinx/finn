@@ -299,6 +299,7 @@ class MakePYNQDriver(Transformation):
         os.makedirs(weights_dir)
         idma_idx = 0
         ext_weight_dma_cnt = 0
+        ext_weight_shapes_dict = {}
 
         for node in model.graph.node:
             assert (
@@ -319,6 +320,15 @@ class MakePYNQDriver(Transformation):
                 assert df_model.graph.node[0].op_type == "IODMA_hls"
                 iodma_node = getCustomOp(df_model.graph.node[0])
                 if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
+                    dma_sdp_output = sdp_inst.onnx_node.output[0]
+                    dma_target_sdp = getCustomOp(model.find_consumer(dma_sdp_output))
+                    dma_target_model = ModelWrapper(dma_target_sdp.get_nodeattr("model"))
+                    iodma_output_tensor = iodma_node.onnx_node.output[0]
+                    dma_consumer = dma_target_model.find_consumer(iodma_output_tensor)
+                    ext_weight_shapes_dict[idma_name] = dma_target_model.get_tensor_shape(
+                        dma_consumer.output[0]
+                    )
+
                     init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
                     ext_weight_dma_cnt += 1
                     w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
@@ -346,6 +356,7 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$NUM_INPUTS$", str(len(driver_shapes["idma_names"])))
         driver = driver.replace("$NUM_OUTPUTS$", str(len(driver_shapes["odma_names"])))
         driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt))
+        driver = driver.replace("$EXT_WEIGHT_INPUT_SHAPES$", str(ext_weight_shapes_dict))
 
         with open(driver_py, "w") as f:
             f.write(driver)

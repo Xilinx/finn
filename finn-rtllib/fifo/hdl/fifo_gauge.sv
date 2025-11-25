@@ -27,62 +27,72 @@
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * @brief	Queue-based unbounded FIFO drop-in for size-gauging simulation.
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *****************************************************************************/
 
-module $TOP_MODULE_NAME$(
-//- Global Control ------------------
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
-(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-input   ap_clk,
-(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
-input   ap_rst_n,
+module fifo_gauge #(
+	int unsigned  WIDTH,
+	int unsigned  COUNT_WIDTH = 32
+)(
+	input	logic  clk,
+	input	logic  rst,
 
-output $COUNT_RANGE$ count,
-output $COUNT_RANGE$ maxcount,
+	input	logic [WIDTH-1:0]  idat,
+	input	logic  ivld,
+	output	logic  irdy,
 
-//- AXI Stream - Input --------------
-output   in0_V_TREADY,
-input   in0_V_TVALID,
-input  $IN_RANGE$ in0_V_TDATA,
+	output	logic [WIDTH-1:0]  odat,
+	output	logic  ovld,
+	input	logic  ordy,
 
-//- AXI Stream - Output --------------
-input   out0_V_TREADY,
-output   out0_V_TVALID,
-output  $OUT_RANGE$ out0_V_TDATA
+	output	logic [COUNT_WIDTH-1:0]  count,
+	output	logic [COUNT_WIDTH-1:0]  maxcount
 );
 
-	localparam fifo_core = "$FIFO_CORE$";
+	// The internal Queue serving as data buffer and an output register
+	logic [WIDTH-1:0]  Q[$] = {};
+	logic [COUNT_WIDTH-1:0]  Count    = 0;
+	logic [COUNT_WIDTH-1:0]  MaxCount = 0;
 
-	case(fifo_core)
-	"sim_fifo_gauge":
-		fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$)) fifo (
-			.clk(ap_clk), .rst(!ap_rst_n),
-			.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
-			.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
-			.count(count), .maxcount(maxcount)
-		);
-	"q_srl":
-		Q_srl #(
-		.depth($DEPTH$),
-		.width($WIDTH$)
-		)
-		impl
-		(
-		.clock(ap_clk),
-		.reset(!ap_rst_n),
-		.count(count),
-		.maxcount(maxcount),
-		.i_d(in0_V_TDATA),
-		.i_v(in0_V_TVALID),
-		.i_r(in0_V_TREADY),
-		.o_d(out0_V_TDATA),
-		.o_v(out0_V_TVALID),
-		.o_r(out0_V_TREADY)
-		);
-	default: initial begin
-			$error("Unrecognized FIFO_CORE '%s'", FIFO_CORE);
-			$finish;
+	logic  OVld = 0;
+	logic [WIDTH-1:0]  ODat = 'x;
+
+	always_ff @(posedge clk) begin
+		if(rst) begin
+			Q        <= {};
+			Count    <= 0;
+			MaxCount <= 0;
+			OVld <= 0;
+			ODat <= 'x;
 		end
-		endcase
+		else begin
+			// Always take input
+			if(ivld)  Q.push_back(idat);
 
-endmodule
+			// Take Count
+			Count <= Q.size;
+			if(Q.size > MaxCount)  MaxCount <= Q.size;
+
+			// Offer output when available
+			if(!OVld || ordy) begin
+				if(Q.size == 0) begin
+					OVld <= 0;
+					ODat <= 'x;
+				end
+				else begin
+					OVld <= 1;
+					ODat <= Q.pop_front();
+				end
+			end
+		end
+	end
+	assign	irdy = 1;
+	assign	ovld = OVld;
+	assign	odat = ODat;
+
+	assign	count = Count;
+	assign	maxcount = MaxCount;
+
+endmodule : fifo_gauge

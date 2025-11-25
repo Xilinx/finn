@@ -36,11 +36,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-)
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
     calculate_signed_dot_prod_range,
@@ -69,6 +65,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.general import ApplyConfig
 from finn.util.basic import is_versal
 
 

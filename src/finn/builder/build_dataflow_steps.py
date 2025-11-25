@@ -39,7 +39,6 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
-    ApplyConfig,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveStaticGraphInputs,
@@ -50,7 +49,6 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
-from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -114,7 +112,12 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.transformation.fpgadataflow.transpose_decomposition import (
+    InferInnerOuterShuffles,
+    ShuffleDecomposition,
+)
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
@@ -124,6 +127,10 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.config import (
+    extract_model_config_consolidate_shuffles,
+    extract_model_config_to_json,
+)
 from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 
@@ -460,6 +467,20 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Decomposes a Shuffle into a chain of InnerShuffle and OuterShuffles that
+    can be specialised into hardware operators.
+    This should be executed after the folding has been configured.
+    """
+    if model.get_nodes_by_op_type("Shuffle"):
+        model = model.transform(ShuffleDecomposition())
+        model = model.transform(InferInnerOuterShuffles())
+        model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+    return model
+
+
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
     parallelization attributes. The auto-generated config will be saved under
@@ -705,7 +726,15 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "depth_trigger_uram",
         "depth_trigger_bram",
     ]
-    extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
+
+    if model.get_nodes_by_op_type("InnerShuffle_rtl") or model.get_nodes_by_op_type(
+        "OuterShuffle_hls"
+    ):
+        extract_model_config_consolidate_shuffles(
+            model, cfg.output_dir + "/final_hw_config.json", hw_attrs
+        )
+    else:
+        extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config.json", hw_attrs)
 
     # perform FIFO splitting and shallow FIFO removal only after the final config
     # json file has been written. otherwise, since these transforms may add/remove
@@ -999,6 +1028,7 @@ build_dataflow_step_lookup = {
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
     "step_minimize_bit_width": step_minimize_bit_width,
+    "step_transpose_decomposition": step_transpose_decomposition,
     "step_generate_estimate_reports": step_generate_estimate_reports,
     "step_hw_codegen": step_hw_codegen,
     "step_hw_ipgen": step_hw_ipgen,
