@@ -443,6 +443,8 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
 @pytest.mark.fpgataflow
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_finnloop(
     dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
