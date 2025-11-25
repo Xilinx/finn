@@ -264,25 +264,32 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     return verify_model
 
 
-def prepare_loop_ops_fifo_sizing(node, fpga_part, clk_ns):
+def prepare_loop_ops_fifo_sizing(node, cfg):
     node_inst = getCustomOp(node)
     loop_model = node_inst.get_nodeattr("body")
     loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
     # go first into subgraph to check if there are other loop ops
     loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
     for loop_node in loop_nodes:
-        prepare_loop_ops_fifo_sizing(loop_node, fpga_part, clk_ns)
-    loop_model = loop_model.transform(PrepareIP(fpga_part, clk_ns))
-    loop_model = loop_model.transform(HLSSynthIP(fpga_part))
+        prepare_loop_ops_fifo_sizing(loop_node, cfg)
+    loop_model = loop_model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+    )
+    loop_model = loop_model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
     loop_model = loop_model.transform(ReplaceVerilogRelPaths())
-    loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
-    loop_model = loop_model.transform(GiveReadableTensorNames())
-    if node_inst.get_nodeattr("rtlsim_trace"):
-        loop_model.set_metadata_prop("rtlsim_trace", f"{node.name}_fifosim_trace.wdb")
+    if cfg.fifosim_save_waveform:
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        loop_model.set_metadata_prop(
+            "rtlsim_trace", os.path.abspath(report_dir) + f"/{node.name}_fifosim_trace.wdb"
+        )
     loop_model = loop_model.transform(
         InsertAndSetFIFODepths(
-            fpga_part,
-            clk_ns,
+            cfg._resolve_fpga_part(),
+            cfg._resolve_hls_clk_period(),
+            swg_exception=cfg.default_swg_exception,
+            vivado_ram_style=cfg.large_fifo_mem_style,
+            fifosim_input_throttle=cfg.fifosim_input_throttle,
         )
     )
     loop_model = loop_model.transform(SplitLargeFIFOs())
@@ -292,18 +299,19 @@ def prepare_loop_ops_fifo_sizing(node, fpga_part, clk_ns):
     node_inst.set_nodeattr("body", loop_model.graph)
 
 
-def prepare_loop_ops_ipgen(node, fpga_part, clk_ns):
+def prepare_loop_ops_ipgen(node, cfg):
     node_inst = getCustomOp(node)
     loop_model = node_inst.get_nodeattr("body")
     # go first into subgraph to check if there are other loop ops
     loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
     for loop_node in loop_nodes:
-        prepare_loop_ops_ipgen(loop_node, fpga_part, clk_ns)
-    loop_model = loop_model.transform(HLSSynthIP(fpga_part))
+        prepare_loop_ops_ipgen(loop_node, cfg)
+    loop_model = loop_model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
     loop_model = loop_model.transform(
         CreateStitchedIP(
-            fpga_part,
-            clk_ns,
+            cfg._resolve_fpga_part(),
+            cfg.synth_clk_period_ns,
+            vitis=False,
         )
     )
     node_inst.set_nodeattr("body", loop_model.graph)
@@ -472,12 +480,20 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
     can be specialised into hardware operators.
     This should be executed after the folding has been configured.
     """
-    if model.get_nodes_by_op_type("Shuffle"):
-        model = model.transform(ShuffleDecomposition())
-        model = model.transform(InferInnerOuterShuffles())
-        model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
+    # check if model contains a Shuffle node
+    has_shuffle = True if model.get_nodes_by_op_type("Shuffle") else False
+    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+    for node in loop_nodes:
+        node_inst = getCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+        has_shuffle = True if loop_model.get_nodes_by_op_type("Shuffle") else False
+
+    if has_shuffle:
+        model = model.transform(ShuffleDecomposition(), apply_to_subgraphs=True)
+        model = model.transform(InferInnerOuterShuffles(), apply_to_subgraphs=True)
+        model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()), apply_to_subgraphs=True)
+        model = model.transform(InferShapes(), apply_to_subgraphs=True)
+        model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     return model
 
 
@@ -494,7 +510,8 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 target_cycles_per_frame,
                 mvau_wwidth_max=cfg.mvau_wwidth_max,
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
-            )
+            ),
+            apply_to_subgraphs=True,
         )
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
@@ -567,7 +584,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
         # need to call AnnotateCycles before dataflow_performance
-        model = model.transform(AnnotateCycles())
+        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True)
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
         n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
@@ -600,7 +617,7 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(GiveUniqueNodeNames())
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
-        prepare_loop_ops_fifo_sizing(node, cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
+        prepare_loop_ops_fifo_sizing(node, cfg)
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
         apply_to_subgraphs=True,
@@ -615,7 +632,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
-        prepare_loop_ops_ipgen(node, cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
+        prepare_loop_ops_ipgen(node, cfg)
     model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     model = model.transform(ReplaceVerilogRelPaths())
     # report_dir = cfg.output_dir + "/report"
@@ -823,7 +840,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
         # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-        model = model.transform(AnnotateCycles())
+        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True)
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 20

@@ -116,6 +116,7 @@ def check_tensor_shape(model_wrapper, name, expected_shape):
 @pytest.mark.parametrize("input_size", [20, 30, 40])
 # num_layers
 @pytest.mark.parametrize("num_layers", [6, 12, 24])
+@pytest.mark.slow
 def test_finn_loop(input_size, num_layers):
     hidden_size = input_size
 
@@ -219,6 +220,7 @@ def test_finn_loop(input_size, num_layers):
     os.remove(onnx_path)
 
 
+@pytest.mark.slow
 def test_inconsistent_initializer_shape():
     # test that if the initializer shape is inconsistent with the value info
     # shape, the transformation fails

@@ -288,7 +288,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         trace_file = self.get_nodeattr("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
-        rtlsim_so = finnxsi.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir, debug)
+        rtlsim_so = finnxsi.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug
+        )
         # save generated lib filename in attribute
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
@@ -487,8 +489,20 @@ class FINNLoop(HWCustomOp, RTLBackend):
                                     path, param_node.name, pe_value, stage, iter
                                 )
                                 with open(iter_file, "r") as infile:
+                                    cnt = 0
                                     for line in infile:
+                                        if cnt == 0:
+                                            hex_len = len(line.strip())
+                                        cnt += 1
                                         outfile.write(line)
+                                    # is power of 2?
+                                    if (cnt & (cnt - 1)) != 0:
+                                        # pad with max value
+                                        next_pow2 = 2 ** math.ceil(math.log2(cnt))
+                                        pad_val = 2**o_bitwidth - 1
+                                        for _ in range(next_pow2 - cnt):
+                                            # write out as hex of len hex_len
+                                            outfile.write(hex(pad_val)[2:].zfill(hex_len) + "\n")
                                 os.remove(iter_file)
 
                 # Replace the path for the dat files in the ipgen files
