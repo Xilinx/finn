@@ -452,30 +452,26 @@ axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) inst_dwc_rd (
 );
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg_wr (
-    .aclk(aclk),
-    .aresetn(aresetn),
-
-    .s_axis_tvalid(s_axis_tvalid),
-    .s_axis_tready(s_axis_tready),
-    .s_axis_tdata (s_axis_tdata),
-
-    .m_axis_tvalid(s_axis_int_tvalid),
-    .m_axis_tready(s_axis_int_tready),
-    .m_axis_tdata (s_axis_int_tdata)
+skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(OLEN_BITS)) inst_reg_wr (
+    .clk(aclk),
+    .rst(~aresetn),
+    .ivld(s_axis_tvalid),
+    .irdy(s_axis_tready),
+    .idat(s_axis_tdata),
+    .ovld(s_axis_int_tvalid),
+    .ordy(s_axis_int_tready),
+    .odat(s_axis_int_tdata)
 );
 
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg_rd (
-    .aclk(aclk),
-    .aresetn(aresetn),
-
-    .s_axis_tvalid(m_axis_int_tvalid),
-    .s_axis_tready(m_axis_int_tready),
-    .s_axis_tdata (m_axis_int_tdata),
-
-    .m_axis_tvalid(m_axis_tvalid),
-    .m_axis_tready(m_axis_tready),
-    .m_axis_tdata (m_axis_tdata)
+skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(ILEN_BITS)) inst_reg_rd (
+    .clk(aclk),
+    .rst(~aresetn),
+    .ivld(m_axis_int_tvalid),
+    .irdy(m_axis_int_tready),
+    .idat(m_axis_int_tdata),
+    .ovld(m_axis_tvalid),
+    .ordy(m_axis_tready),
+    .odat(m_axis_tdata)
 );
 
 endmodule

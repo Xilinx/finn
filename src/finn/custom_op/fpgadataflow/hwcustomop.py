@@ -349,12 +349,12 @@ class HWCustomOp(CustomOp):
         else:
             pass
 
-    def generate_hdl_fetch_weights(self, fpgapart):
+    def generate_hdl_fetch_weights(self):
         """Helper function to generate verilog code for fetch_weights component.
         Currently utilized by MVAU."""
         ops = ["MVAU_hls", "MVAU_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
-            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/fetch_weights_wrapper.v"
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/fetch_weights/fetch_weights_wrapper.v"
             mname = self.onnx_node.name
             wdt = self.get_input_datatype(1)
             if self.onnx_node.op_type in ops:
@@ -363,6 +363,8 @@ class HWCustomOp(CustomOp):
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
                 n_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                theight = self.get_nodeattr("TH")
+                en_mlo = "NO_MLO" # TODO: Check if this is always the case
             else:
                 # Eltwise layers only have one parallelism parameter
                 mw = 1
@@ -371,6 +373,8 @@ class HWCustomOp(CustomOp):
                 simd = 1
                 # TODO use broadcast rhs shape here
                 n_reps = np.prod(self.get_nodeattr("rhs_shape")[:-1])
+                theight = 1
+                en_mlo = "NO_MLO" # TODO: Check if this is always the case
             layer_offs = mw * mh
             # upper bound on how many layers can be supported, set to 64 for now
             n_max_layers = 64
@@ -385,6 +389,8 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_LAYERS$": [str(n_max_layers)],
+                "$TH$": [str(theight)],
+                "$EN_MLO$": [en_mlo],
             }
             # apply code generation to template
             with open(template_path, "r") as f:

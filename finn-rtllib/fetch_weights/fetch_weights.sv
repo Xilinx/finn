@@ -40,6 +40,7 @@
 module fetch_weights #(
     parameter int unsigned              PE,
     parameter int unsigned              SIMD,
+    parameter int unsigned              TH = 1,
     parameter int unsigned              MH,
     parameter int unsigned              MW,
     parameter int unsigned              N_REPS,
@@ -52,15 +53,19 @@ module fetch_weights #(
 
     parameter int unsigned              N_LAYERS,
 
+    parameter int unsigned              EN_MLO = 1,
+
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              EN_OREG = 1,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0,
 
     // Safely deducible parameters
-    parameter                          DS_BITS_BA = (SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	parameter                          WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
+    parameter                           IWSIMD = (TH > 1) ? ((PE*SIMD)/TH) : SIMD,
+    parameter                           OWSIMD = (PE * SIMD) / TH,
+    parameter                           DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
+	parameter                           WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
+    parameter logic[ADDR_BITS-1:0]      LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
@@ -122,24 +127,116 @@ for(genvar i = 0; i < N_LAYERS; i++) begin
     assign l_offsets[i] = (i * LAYER_OFFS);
 end
 
-logic q_idx_out_tvalid, q_idx_out_tready;
-logic [IDX_BITS-1:0] q_idx_out_tdata;
-logic [ADDR_BITS-1:0] q_dma_addr;
-logic [LEN_BITS-1:0] q_dma_len;
+//
+// Indexes and DMA
+//
 
-// Queues
-Q_srl #(
-    .depth(QDEPTH),
-    .width(IDX_BITS)
-) inst_queue_in (
-    .clock(aclk), .reset(!aresetn),
-    .count(), .maxcount(),
-    .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
-    .o_d(q_idx_out_tdata), .o_v(q_idx_out_tvalid), .o_r(q_idx_out_tready)
-);
+logic dma_tvalid;
+logic dma_tready;
+logic [ADDR_BITS-1:0] dma_addr;
+logic [LEN_BITS-1:0] dma_len;
 
-assign q_dma_addr = l_offsets[q_idx_out_tdata];
-assign q_dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+if(TH > 1) begin
+
+    // Consts
+    localparam integer REPS_BITS = (N_REPS == 1) ? 1 : $clog2(N_REPS);
+
+    // Reps
+    typedef enum logic[0:0]  {ST_IDLE, ST_DMA} state_t;
+    state_t state_C = ST_IDLE, state_N;
+
+    logic [REPS_BITS-1:0] cnt_dma_C = '0, cnt_dma_N;
+    logic [IDX_BITS-1:0] idx_C = '0, idx_N;
+
+    logic q_idx_out_tvalid, q_idx_out_tready;
+    logic [IDX_BITS-1:0] q_idx_out_tdata;
+
+    // Idx queue
+    Q_srl #(
+        .depth(QDEPTH),
+        .width(IDX_BITS)
+    ) inst_queue_in (
+        .clock(aclk), .reset(!aresetn),
+        .count(), .maxcount(),
+        .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
+        .o_d(q_idx_out_tdata), .o_v(q_idx_out_tvalid), .o_r(q_idx_out_tready)
+    );
+
+    assign dma_addr = l_offsets[idx_C];
+    assign dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+
+    always_ff @( posedge aclk ) begin: REG
+        if(~aresetn) begin
+            state_C <= ST_IDLE;
+
+            cnt_dma_C <= '0;
+            idx_C <= 'X;
+        end else begin
+            state_C <= state_N;
+
+            cnt_dma_C <= cnt_dma_N;
+            idx_C <= idx_N;
+        end
+    end
+
+    always_comb begin: NSL
+        state_N = state_C;
+
+        case (state_C)
+            ST_IDLE:
+                state_N = q_idx_out_tvalid ? ST_DMA : ST_IDLE;
+
+            ST_DMA:
+                state_N = (cnt_dma_C == N_REPS-1) && dma_tready ? ST_IDLE : ST_DMA;
+        
+        endcase
+    end
+
+    always_comb begin: DP
+        cnt_dma_N = cnt_dma_C;
+        idx_N = idx_C;
+
+        q_idx_out_tready = 1'b0;
+        dma_tvalid = 1'b0;
+
+        case (state_C)
+            ST_IDLE: begin
+                q_idx_out_tready = 1'b1;
+                cnt_dma_N = 0;
+                if(q_idx_out_tvalid) begin
+                    idx_N = q_idx_out_tdata;
+                end
+            end 
+
+            ST_DMA: begin
+                dma_tvalid = 1'b1;
+                if(dma_tready) begin
+                    cnt_dma_N = cnt_dma_C + 1;
+                end
+            end
+            
+        endcase
+    end
+
+end else begin
+
+    // Idx queue
+    logic [IDX_BITS-1:0] q_idx_out_tdata;
+
+    Q_srl #(
+        .depth(QDEPTH),
+        .width(IDX_BITS)
+    ) inst_idx_queue (
+        .clock(aclk), .reset(!aresetn),
+        .count(), .maxcount(),
+        .i_d(s_idx_tdata), .i_v(s_idx_tvalid), .i_r(s_idx_tready),
+        .o_d(q_idx_out_tdata), .o_v(dma_tvalid), .o_r(dma_tready)
+    );
+
+    assign dma_addr = l_offsets[q_idx_out_tdata];
+    assign dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+
+end
 
 // DMA
 logic axis_dma_tvalid;
@@ -155,8 +252,8 @@ cdma_u_rd #(
 ) inst_dma (
     .aclk(aclk), .aresetn(aresetn),
 
-    .rd_valid(q_idx_out_tvalid), .rd_ready(q_idx_out_tready),
-    .rd_paddr(q_dma_addr), .rd_len(q_dma_len),
+    .rd_valid(dma_tvalid), .rd_ready(dma_tready),
+    .rd_paddr(dma_addr), .rd_len(dma_len),
     .rd_done(m_done),
 
     .m_axi_ddr_arvalid(m_axi_ddr_arvalid),
@@ -198,27 +295,34 @@ axis_dwc #(
     .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
 );
 
-// Double buffer
+// Local weight buffer
+// Only for non-tiled nodes
 logic axis_lwb_tvalid;
 logic axis_lwb_tready;
 logic[WS_BITS_BA-1:0] axis_lwb_tdata;
 
-local_weight_buffer #(
-    .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .DBG(DBG)
-) inst_weight_buff (
-    .clk(aclk), .rst(~aresetn),
-    .ivld(axis_dwc_tvalid), .irdy(axis_dwc_tready), .idat(axis_dwc_tdata),
-    .ovld(axis_lwb_tvalid), .ordy(axis_lwb_tready), .odat(axis_lwb_tdata)
-);
+if(TH == 1) begin
+    local_weight_buffer #(
+        .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS), .WEIGHT_WIDTH(WEIGHT_WIDTH), .DBG(DBG)
+    ) inst_weight_buff (
+        .clk(aclk), .rst(~aresetn),
+        .ivld(axis_dwc_tvalid), .irdy(axis_dwc_tready), .idat(axis_dwc_tdata),
+        .ovld(axis_lwb_tvalid), .ordy(axis_lwb_tready), .odat(axis_lwb_tdata)
+    );
+end else begin
+    assign axis_lwb_tvalid = axis_dwc_tvalid;
+    assign axis_dwc_tready = axis_lwb_tready;
+    assign axis_lwb_tdata  = axis_dwc_tdata;
+end
 
 // Reg slice
 if(EN_OREG) begin
-    axis_reg_array_rtl #(
-        .DATA_BITS(WS_BITS_BA), .N_STAGES(N_DCPL_STGS)
+    skid #(
+        .DATA_WIDTH(WS_BITS_BA), .FEED_STAGES(N_DCPL_STGS)
     ) inst_oreg (
-        .aclk(aclk), .aresetn(aresetn),
-        .s_axis_tvalid(axis_lwb_tvalid), .s_axis_tready(axis_lwb_tready), .s_axis_tdata(axis_lwb_tdata),
-        .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready), .m_axis_tdata(m_axis_tdata)
+        .clk(aclk), .rst(!aresetn),
+        .ivld(axis_lwb_tvalid), .irdy(axis_lwb_tready), .idat(axis_lwb_tdata),
+        .ovld(m_axis_tvalid), .ordy(m_axis_tready), .odat(m_axis_tdata)
     );
 end else begin
     assign m_axis_tvalid = axis_lwb_tvalid;

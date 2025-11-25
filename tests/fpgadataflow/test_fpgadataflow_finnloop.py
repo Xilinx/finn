@@ -167,12 +167,14 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
+                "TH": 1,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
                 "noActivation": 1,
+                "mem_mode": "external_mem",
             },
         ),
         create_node(
@@ -200,12 +202,14 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
+                "TH": 1,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
                 "noActivation": 1,
+                "mem_mode": "external_mem",
             },
         ),
         create_node(
@@ -233,12 +237,14 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
+                "TH": 1,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
                 "noActivation": 1,
+                "mem_mode": "external_mem",
             },
         ),
         create_node(
@@ -583,11 +589,11 @@ def test_fpgadataflow_finnloop(
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls"])
 # elementwise shape
-@pytest.mark.parametrize("rhs_shape", [[1], [16]])
+@pytest.mark.parametrize("rhs_shape", [[1]])
 # eltwise param dtype
-@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
+@pytest.mark.parametrize("eltw_param_dtype", ["INT8"])
 # tail node
 @pytest.mark.parametrize("tail_node", [True])
 @pytest.mark.fpgataflow

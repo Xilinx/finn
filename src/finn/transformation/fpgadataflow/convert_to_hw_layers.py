@@ -1571,7 +1571,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "external_mem",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         if hasattr(n, "metadata_props"):
@@ -1605,7 +1605,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "external_mem",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         if hasattr(n, "metadata_props"):

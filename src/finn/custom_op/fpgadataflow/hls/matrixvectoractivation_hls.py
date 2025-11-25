@@ -139,20 +139,7 @@ class MVAU_hls(MVAU, HLSBackend):
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
-        dynamic_input = self.get_nodeattr("dynamic_input")
-        mem_mode = self.get_nodeattr("mem_mode")
-        if dynamic_input:
-            self.generate_hdl_dynload()
-        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
-            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                assert (
-                    runtime_writeable == 1
-                ), """Layer with URAM weights must have runtime_writeable_weights=1
-                    if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        elif self.get_nodeattr("mlo_max_iter"):
-            self.generate_hdl_fetch_weights(fpgapart)
+        super().generate_hdl(fpgapart)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -270,16 +257,10 @@ class MVAU_hls(MVAU, HLSBackend):
         )
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if (
-            mem_mode == "internal_decoupled"
-            or mem_mode == "external"
-            or self.get_nodeattr("mlo_max_iter")
-        ):
+        if mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
             wdt = self.get_input_datatype(1)
             elem_bits = wdt.bitwidth()
             packed_bits = self.get_instream_width(1)
-            if self.get_nodeattr("dynamic_input"):
-                packed_bits = packed_bits * self.get_nodeattr("SIMD")
             packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = wdt.get_hls_datatype_str()
             npy_type = "float"

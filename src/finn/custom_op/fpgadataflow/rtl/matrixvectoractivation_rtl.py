@@ -31,8 +31,8 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_dsp_block, is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.basic import get_dsp_block
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -56,131 +56,273 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
+    # Sim
+    # ------------------------------------------------------------------------------------
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
-        dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
         node = self.onnx_node
 
-        if mode == "cppsim":
-            MVAU.execute_node(self, context, graph)
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            # create a npy file fore each input of the node (in_ind is input index)
-            for in_ind, inputs in enumerate(node.input):
-                # it is assumed that the first input of the node is the data input
-                # the second input are the weights
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
-
-                if in_ind == 0:
+        match mode:
+            case "cppsim":
+                MVAU.execute_node(self, context, graph)
+            case "rtlsim":
+                code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+                # create a npy file fore each input of the node (in_ind is input index)
+                for in_ind, inputs in enumerate(node.input):
+                    # it is assumed that the first input of the node is the data input
+                    # the second input are the weights
                     assert (
                         str(context[inputs].dtype) == "float32"
                     ), """Input datatype is
                     not float32 as expected."""
-                    expected_inp_shape = self.get_folded_input_shape(in_ind)
-                    reshaped_input = context[inputs].reshape(expected_inp_shape)
-                    export_idt = self.get_input_datatype(in_ind)
-                    # make copy before saving the array
-                    reshaped_input = reshaped_input.copy()
-                    np.save(
-                        os.path.join(code_gen_dir, "input_0.npy"),
-                        reshaped_input,
-                    )
 
-                if in_ind == 1:
-                    if dynamic_input or self.get_nodeattr("mlo_max_iter"):
-                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
-                        self.make_weight_file(
-                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                    if in_ind == 0:
+                        assert (
+                            str(context[inputs].dtype) == "float32"
+                        ), """Input datatype is
+                        not float32 as expected."""
+                        expected_inp_shape = self.get_folded_input_shape(in_ind)
+                        reshaped_input = context[inputs].reshape(expected_inp_shape)
+                        export_idt = self.get_input_datatype(in_ind)
+                        # make copy before saving the array
+                        reshaped_input = reshaped_input.copy()
+                        np.save(
+                            os.path.join(code_gen_dir, "input_0.npy"),
+                            reshaped_input,
                         )
 
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            if (
-                dynamic_input
-                or mem_mode in ["external", "internal_decoupled"]
-                or self.get_nodeattr("mlo_max_iter")
-            ):
-                wnbits = self.get_instream_width(1)
-                if dynamic_input:
-                    wnbits = wnbits * self.get_nodeattr("SIMD")
-                export_wdt = self.get_input_datatype(1)
+                    if in_ind == 1:
+                        if mem_mode in ["external", "dynamic"]:
+                            reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
+                            self.make_weight_file(
+                                reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
+                            )
 
-                wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
-                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                sim = self.get_rtlsim()
+                super().reset_rtlsim(sim)
 
-                io_dict = {
-                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
-                    "outputs": {"out0": []},
-                }
-            else:
-                io_dict = {
-                    "inputs": {"in0": inp},
-                    "outputs": {"out0": []},
-                }
-            self.rtlsim_multi_io(sim, io_dict)
-            super().close_rtlsim(sim)
-            output = io_dict["outputs"]["out0"]
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+                # Input 0
+                nbits = self.get_instream_width()
+                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
 
-            # load and reshape output
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
+                # Input 1
+                if mem_mode in ["internal_decoupled", "external", "external_mem", "dynamic"]:
+                    wnbits = self.get_instream_width(1)
+                    if mem_mode == "dynamic":
+                        wnbits *= self.get_nodeattr("SIMD")
+                    export_wdt = self.get_input_datatype(1)
+
+                    wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
+                    num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                    num_w_reps = num_w_reps // self.get_nodeattr("TH")
+
+                    io_dict = {
+                        "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                        "outputs": {"out0": []},
+                    }
+                else:
+                    io_dict = {
+                        "inputs": {"in0": inp},
+                        "outputs": {"out0": []},
+                    }
+                self.rtlsim_multi_io(sim, io_dict)
+                super().close_rtlsim(sim)
+                output = io_dict["outputs"]["out0"]
+                odt = self.get_output_datatype()
+                target_bits = odt.bitwidth()
+                packed_bits = self.get_outstream_width()
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
+                out_shape = self.get_folded_output_shape()
+                rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
+
+                # load and reshape output
+                output = np.load(out_npy_path)
+                oshape = self.get_normal_output_shape()
+                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+                context[node.output[0]] = output
+            case _:
+                raise Exception(
+                    """Invalid value for attribute exec_mode! Is currently set to: {}
+                has to be set to one of the following value ("cppsim", "rtlsim")""".format(
+                        mode
+                    )
                 )
+            
+    # Code gen
+    # ------------------------------------------------------------------------------------
+    def generate_hdl(self, model, fpgapart, clk):
+        # Generate params as part of IP preparation
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        if not self.get_nodeattr("mlo_max_iter"):
+            self.generate_params(model, code_gen_dir)
+
+        if self.get_nodeattr("TH") > 1:
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled/mvu_tiled_axi_wrapper.v"
+        else:    
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
+
+        # check if settings are valid
+        pumped_compute = self.get_nodeattr("pumpedCompute")
+        simd = self.get_nodeattr("SIMD")
+        if pumped_compute and simd == 1:
+            raise Exception(
+                "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
-
-    def lut_estimation(self):
-        return 0
-
-    def dsp_estimation(self, fpgapart):
-        # multiplication
-        P = self.get_nodeattr("PE")
-        Q = self.get_nodeattr("SIMD")
         dsp_block = get_dsp_block(fpgapart)
-        if dsp_block == "DSP58":
-            mult_dsp = P * np.ceil(Q / 3)
-        else:
-            mult_dsp = np.ceil(P / 4) * Q
-        return int(mult_dsp)
+        code_gen_dict = {}
+        code_gen_dict["$IS_MVU$"] = [str(1)]
+        code_gen_dict["$VERSION$"] = [str(self._resolve_dsp_version(dsp_block))]
+        code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
+        code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
+        code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
+        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
+        code_gen_dict["$SIMD$"] = [str(simd)]
+        code_gen_dict["$TH$"] = [str(self.get_nodeattr("TH"))]
+        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
+        code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
+        code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
+        code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
+            [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
+        )
+        code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        # determine if weights are narrow range and add parameter to code gen dict
+        weights = model.get_initializer(self.onnx_node.input[1])
+        wdt = self.get_input_datatype(1)
+        narrow_weights = (
+            0
+            if np.min(weights) == wdt.min()
+            or self.get_nodeattr("mem_mode") in ["dynamic, external_mem"] 
+            or (self.get_nodeattr("mlo_max_iter") > 1) 
+            else 1
+        )
+        code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
+        # add general parameters to dictionary
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
+        # save top module name so we can refer to it after this node has been renamed
+        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
+        with open(
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
+            "w",
+        ) as f:
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+
+        super().generate_hdl(fpgapart)
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            if self.get_nodeattr("TH") > 1:
+                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
+            else:
+                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
+
+        if self.get_nodeattr("TH") > 1:
+            verilog_files = [
+                "../fifo/hdl/Q_srl.v",
+                "../skid/skid.sv",
+                "../ram/ram_p_c.sv",
+                "acc_stage.sv",
+                "add_tree.sv",
+                "replay_buff_tile.sv",
+                "weights_buff_tile.sv",
+                "reorder_out.sv",
+                "cu_mvau_tiled.sv",
+                "mvu_tiled_axi.sv",
+            ]
+            verilog_files = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
+            ] + [rtllib_dir + _ for _ in verilog_files]
+        else:
+            verilog_files = [
+                "mvu_pkg.sv",
+                "mvu_vvu_axi.sv",
+                "replay_buffer.sv",
+                "mvu.sv",
+                "mvu_vvu_8sx9_dsp58.sv",
+                "add_multi.sv",
+            ]
+            verilog_files = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
+            ] + [rtllib_dir + _ for _ in verilog_files]
+
+        return verilog_files
+
+    def get_verilog_paths(self):
+        verilog_paths = super().get_verilog_paths()
+        if self.get_nodeattr("TH") > 1:
+            verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled")
+        else:
+            verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
+        return verilog_paths
+
+    # IP gen
+    # ------------------------------------------------------------------------------------
     def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        sourcefiles = [
-            "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
-            "replay_buffer.sv",
-            "mvu.sv",
-            "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
-        ]
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+        
+        if self.get_nodeattr("TH") > 1:
+            # Tiled
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
+            sourcefiles = [
+                "../fifo/hdl/Q_srl.v",
+                "../skid/skid.sv",
+                "../ram/ram_p_c.sv",
+                "acc_stage.sv",
+                "add_tree.sv",
+                "replay_buff_tile.sv",
+                "weights_buff_tile.sv",
+                "reorder_out.sv",
+                "cu_mvau_tiled.sv",
+                "mvu_tiled_axi.sv",
+            ]
+            sourcefiles = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
+            ] + [rtllib_dir + _ for _ in sourcefiles]
+
+        else:
+            # Non-tiled
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            sourcefiles = [
+                "mvu_pkg.sv",
+                "mvu_vvu_axi.sv",
+                "replay_buffer.sv",
+                "mvu.sv",
+                "mvu_vvu_8sx9_dsp58.sv",
+                "add_multi.sv",
+            ]
+            sourcefiles = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
+            ] + [rtllib_dir + _ for _ in sourcefiles]
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
+        
+        if self.get_nodeattr("mem_mode") in ["internal_decoupled", "dynamic", "external_mem"] or self.get_nodeattr("mlo_max_iter"):
             cmd.append(
                 "create_bd_cell -type hier -reference %s /%s/%s"
                 % (
@@ -227,6 +369,9 @@ class MVAU_rtl(MVAU, RTLBackend):
                     % (node_name, clk_name, node_name)
                 )
 
+    # TODO: Not critical ... (mostly)
+    # ------------------------------------------------------------------------------------
+
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP58 chain to meet target clock frequency
         # ~0.741 ns seems the worst-case delay through first DSP
@@ -267,121 +412,17 @@ class MVAU_rtl(MVAU, RTLBackend):
                 return 2
             case _:
                 return 1
+            
+    def lut_estimation(self):
+        return 0
 
-    def generate_hdl(self, model, fpgapart, clk):
-        # Generate params as part of IP preparation
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        if not self.get_nodeattr("mlo_max_iter"):
-            self.generate_params(model, code_gen_dir)
-
-        template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
-        # determine if weights are narrow range and add parameter to code gen dict
-        weights = model.get_initializer(self.onnx_node.input[1])
-        wdt = self.get_input_datatype(1)
-        narrow_weights = (
-            0
-            if np.min(weights) == wdt.min()
-            or self.get_nodeattr("dynamic_input")
-            or (self.get_nodeattr("mlo_max_iter") > 1)
-            else 1
-        )
-        code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
-        # add general parameters to dictionary
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
-        # save top module name so we can refer to it after this node has been renamed
-        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
-        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
-
-        # apply code generation to template
-        with open(template_path, "r") as f:
-            template_wrapper = f.read()
-        for key in code_gen_dict:
-            # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
-            template_wrapper = template_wrapper.replace(key, code_gen_line)
-        with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
-        with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
-
-        dynamic_input = self.get_nodeattr("dynamic_input")
-        mem_mode = self.get_nodeattr("mem_mode")
-
-        if dynamic_input:
-            self.generate_hdl_dynload()
-        elif mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
-            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                assert (
-                    runtime_writeable == 1
-                ), """Layer with URAM weights must have runtime_writeable_weights=1
-                    if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        elif self.get_nodeattr("mlo_max_iter"):
-            self.generate_hdl_fetch_weights(fpgapart)
-        # set ipgen_path and ip_path so that HLS-Synth transformation
-        # and stich_ip transformation do not complain
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
-
-    def prepare_codegen_default(self, fpgapart, clk):
-        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_vvu_axi_wrapper.v"
-
-        # check if settings are valid
-        pumped_compute = self.get_nodeattr("pumpedCompute")
-        simd = self.get_nodeattr("SIMD")
-        if pumped_compute and simd == 1:
-            raise Exception(
-                "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
-            )
+    def dsp_estimation(self, fpgapart):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
         dsp_block = get_dsp_block(fpgapart)
-        code_gen_dict = {}
-        code_gen_dict["$IS_MVU$"] = [str(1)]
-        code_gen_dict["$VERSION$"] = [str(self._resolve_dsp_version(dsp_block))]
-        code_gen_dict["$PUMPED_COMPUTE$"] = [str(pumped_compute)]
-        code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
-        code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
-        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
-        code_gen_dict["$SIMD$"] = [str(simd)]
-        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
-        code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
-        code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
-        code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
-            [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
-        )
-        code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
-
-        return template_path, code_gen_dict
-
-    def get_rtl_file_list(self, abspath=False):
-        if abspath:
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
-            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        if dsp_block == "DSP58":
+            mult_dsp = P * np.ceil(Q / 3)
         else:
-            code_gen_dir = ""
-            rtllib_dir = ""
-
-        verilog_files = [
-            "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
-            "replay_buffer.sv",
-            "mvu.sv",
-            "mvu_vvu_8sx9_dsp58.sv",
-            "add_multi.sv",
-        ]
-        verilog_files = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in verilog_files]
-
-        return verilog_files
-
-    def get_verilog_paths(self):
-        verilog_paths = super().get_verilog_paths()
-        verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")
-        return verilog_paths
+            mult_dsp = np.ceil(P / 4) * Q
+        return int(mult_dsp)

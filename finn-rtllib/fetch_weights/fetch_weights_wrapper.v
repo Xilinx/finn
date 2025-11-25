@@ -31,11 +31,14 @@
  * @brief	Verilog AXI-lite wrapper for MVU & VVU.
  *****************************************************************************/
 
+`define $EN_MLO$
+
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
 	parameter	PE = $PE$,
 	parameter	SIMD = $SIMD$,
+    parameter   TH = $TH$,
     parameter   N_REPS = $N_REPS$,
 	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
     parameter   N_LAYERS = $N_LAYERS$,
@@ -46,7 +49,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter   IDX_BITS = 16,
 
 	// Safely deducible parameters
-	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
+    parameter   WSIMD = (PE * SIMD) / TH,
+	parameter	WS_BITS_BA = (WSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF axi_mm:in_idx0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
@@ -107,12 +111,17 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     output wire[WS_BITS_BA-1:0]                out0_V_tdata
 );
 
-
 fetch_weights #(
-    .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS),
+    .PE(PE), .SIMD(SIMD), .TH(TH),
+    .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
-    .N_LAYERS(N_LAYERS)
+    .N_LAYERS(N_LAYERS),
+`ifdef EN_MLO
+    .EN_MLO(1)
+`else
+    .EN_MLO(0)
+`endif
 ) inst (
     .aclk               (ap_clk),
     .aresetn            (ap_rst_n),

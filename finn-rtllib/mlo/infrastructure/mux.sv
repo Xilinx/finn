@@ -334,20 +334,16 @@ always_comb begin : DP_DATA
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .s_axis_tvalid(m_axis_int_tvalid),
-    .s_axis_tready(m_axis_int_tready),
-    .s_axis_tdata (m_axis_int_tdata),
-    .m_axis_tvalid(m_axis_tvalid),
-    .m_axis_tready(m_axis_tready),
-    .m_axis_tdata (m_axis_tdata)
+skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(ILEN_BITS)) inst_reg (
+    .clk(aclk),
+    .rst(~aresetn),
+    .ivld(m_axis_int_tvalid),
+    .irdy(m_axis_int_tready),
+    .idat(m_axis_int_tdata),
+    .ovld(m_axis_tvalid),
+    .ordy(m_axis_tready),
+    .odat(m_axis_tdata)
 );
-
-//
-// DBG
-//
 
 
 endmodule

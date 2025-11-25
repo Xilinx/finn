@@ -305,6 +305,7 @@ class InsertAndSetFIFODepths(Transformation):
             "ElementwiseMul_hls",
         ]
         modified_mlo_nodes = []
+        original_mem_modes = {}
         for node in model.graph.node:
             # verify assumptions
             assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
@@ -337,6 +338,7 @@ class InsertAndSetFIFODepths(Transformation):
                     modified_mlo_nodes.append(node.onnx_node.name)
                     node.set_nodeattr("mlo_max_iter", 0)
                     if node.onnx_node.op_type.startswith("MVAU"):
+                        original_mem_modes[node.onnx_node.name] = node.get_nodeattr("mem_mode")
                         node.set_nodeattr("mem_mode", "external")
                     elif (
                         node.onnx_node.op_type == "Thresholding_rtl"
@@ -556,6 +558,14 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
                 node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
 
+        # revert back the nodes 
+        import pdb; pdb.set_trace()
+        for node in model.graph.node:
+            if node.name in original_mem_modes:
+                node_inst = getHWCustomOp(node, model)
+                node_inst.set_nodeattr("mem_mode", original_mem_modes[node.name])
+                reset_implementation(node_inst)
+        
         return (model, False)
 
 

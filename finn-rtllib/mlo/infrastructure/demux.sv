@@ -256,15 +256,15 @@ always_comb begin : DP_DATA
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_tvalid),
-    .s_axis_tready(s_axis_tready),
-    .s_axis_tdata (s_axis_tdata),
-    .m_axis_tvalid(s_axis_int_tvalid),
-    .m_axis_tready(s_axis_int_tready),
-    .m_axis_tdata (s_axis_int_tdata)
+skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(OLEN_BITS)) inst_reg (
+    .clk(aclk),
+    .rst(~aresetn),
+    .ivld(s_axis_tvalid),
+    .irdy(s_axis_tready),
+    .idat(s_axis_tdata),
+    .ovld(s_axis_int_tvalid),
+    .ordy(s_axis_int_tready),
+    .odat(s_axis_int_tdata)
 );
 
 endmodule
