@@ -85,7 +85,9 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], behavioral=False
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -93,6 +95,7 @@ class CreateStitchedIP(Transformation):
         self.is_mlo = False
         self.vitis = vitis
         self.signature = signature
+        self.behavioral = behavioral
         self.has_aximm = False
         self.aximm_idx = 0
         self.has_m_axis = False
@@ -427,7 +430,7 @@ class CreateStitchedIP(Transformation):
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            self.create_cmds += node_inst.code_generation_ipi()
+            self.create_cmds += node_inst.code_generation_ipi(self.behavioral)
             self.connect_clk_rst(node, model)
             self.connect_ap_none_external(node, model)
             self.connect_axi(node, model)
@@ -745,7 +748,7 @@ foreach xci_file $xci_files {
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 "
             + "&& (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog "
-            + '|| FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]'
+            + '|| FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI || FILE_TYPE == VHDL)}]'
         )
         # tcl.append("set all_v_files [concat $all_v_files $xci_files]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir

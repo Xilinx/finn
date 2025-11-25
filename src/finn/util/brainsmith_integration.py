@@ -195,6 +195,15 @@ def _register_kernels():
             },
         },
         {
+            "name": "Shuffle",
+            "module": "finn.custom_op.fpgadataflow.shuffle",
+            "class_name": "Shuffle",
+            "infer_transform": {
+                "module": "finn.transformation.fpgadataflow.convert_to_hw_layers",
+                "class_name": "InferShuffle",
+            },
+        },
+        {
             "name": "StreamingSplit",
             "module": "finn.custom_op.fpgadataflow.split",
             "class_name": "StreamingSplit",
@@ -251,6 +260,18 @@ def _register_kernels():
             "module": "finn.custom_op.fpgadataflow.streamingdatawidthconverter",
             "class_name": "StreamingDataWidthConverter",
             "is_infrastructure": True,  # Inserted by InsertDWC (stream width mismatch correction)
+        },
+        {
+            "name": "InnerShuffle",
+            "module": "finn.custom_op.fpgadataflow.inner_shuffle",
+            "class_name": "InnerShuffle",
+            "is_infrastructure": True,  # Inserted by InferInnerOuterShuffles
+        },
+        {
+            "name": "OuterShuffle",
+            "module": "finn.custom_op.fpgadataflow.outer_shuffle",
+            "class_name": "OuterShuffle",
+            "is_infrastructure": True,  # Inserted by InferInnerOuterShuffles
         },
         # Note: CheckSum, TLastMarker, IODMA are legacy FINN backend-only components
         # without base kernel classes, so they cannot be registered here.
@@ -432,6 +453,20 @@ def _register_backends():
             "target_kernel": "finn:StreamingDataWidthConverter",
             "language": "rtl",
         },
+        {
+            "name": "InnerShuffle_rtl",
+            "module": "finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl",
+            "class_name": "InnerShuffle_rtl",
+            "target_kernel": "finn:InnerShuffle",
+            "language": "rtl",
+        },
+        {
+            "name": "OuterShuffle_hls",
+            "module": "finn.custom_op.fpgadataflow.hls.outer_shuffle_hls",
+            "class_name": "OuterShuffle_hls",
+            "target_kernel": "finn:OuterShuffle",
+            "language": "hls",
+        },
         # Note: CheckSum_hls, TLastMarker_hls, IODMA_hls are legacy backend-only
         # components without base kernel classes, so they're not registered.
     ]
@@ -500,6 +535,11 @@ def _discover_steps():
             "name": "minimize_bit_width",
             "module": "finn.builder.build_dataflow_steps",
             "func_name": "step_minimize_bit_width",
+        },
+        {
+            "name": "transpose_decomposition",
+            "module": "finn.builder.build_dataflow_steps",
+            "func_name": "step_transpose_decomposition",
         },
         {
             "name": "hw_codegen",

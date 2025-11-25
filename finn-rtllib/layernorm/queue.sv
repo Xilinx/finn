@@ -57,8 +57,17 @@ module queue #(
 			B <= 'x;
 		end
 		else begin
+			// Make sure Rdy encodes what it's supposed to: space available in queue
+			assert(Rdy == (Ptr < signed'(ELASTICITY-1))) else begin
+				$error("%m: Broken Rdy computation.");
+				$stop;
+			end
+
 			Ptr <= Ptr + ((push == pop)? 0 : push? 1 : -1);
-			Rdy <= bload || (push? ((ELASTICITY-2) & ~Ptr[$left(Ptr)-1:0]) != 0 : Rdy);
+			//  pop ==  push: no change
+			//  pop && !push: new space
+			// !pop &&  push: remaining space if not yet Ptr == ELASTICITY-2
+			Rdy <= (pop == push)? Rdy : pop? 1 : Ptr[$left(Ptr)] || (((ELASTICITY-2) & ~Ptr[$left(Ptr)-1:0]) != 0);
 			if(bload) begin
 				Vld <= !Ptr[$left(Ptr)];
 				B <= A[Ptr[$left(Ptr)-1:0]];

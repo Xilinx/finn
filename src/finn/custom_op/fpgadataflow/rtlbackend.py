@@ -79,7 +79,7 @@ class RTLBackend(ABC):
         pass
 
     @abstractmethod
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         pass
 
     def code_generation_ipgen(self, model, fpgapart, clk):

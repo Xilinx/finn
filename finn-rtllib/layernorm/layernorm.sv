@@ -4,12 +4,36 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * @brief	Implements a streaming LayerNorm across N fp32 inputs.
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
+ * @description
+ *	The implemented LayerNorm processes input at the specfied SIMD data
+ *	parallelism. The main datapath through the bypass buffer and the
+ *	application of the normalization unfold to the corresponding width.
+ *	The statistics branch comprises an additive reduction to derive the
+ *	the appropriate total normalization statistics.
+ *
+ *	The LayerNorm is composed of two consecutive normalization diamonds
+ *	resembling this structure:
+ *
+ *		         <-N+Stat Latency->         «──
+ *		«──      ┌────────────────┐        ┌───┐
+ *		─┬──────►{||||||||||||||||}───────►{-/×}──
+ *		 │       └────────────────┘        └───┘
+ *		 │                                   ▲
+ *		 │  ┌─────┐   ┌─────┐   ┌───────┐    │
+ *		 └─►{[()²]}──►{1/N ∑├──►│[1/√()]├────┘
+ *		    └─────┘   └─────┘   └───────┘
+ *
+ *	The overall flow control forwards backpressure through the data buffer.
+ *	The statistics pipeline is running freely. Input accepted by the buffer
+ *	can always be processed by the statistics pipeline.
  ***************************************************************************/
 
 module layernorm #(
 	int unsigned  N,
-	int unsigned  SIMD
+	int unsigned  SIMD,
+	bit  FORCE_BEHAVIORAL = 0
 )(
 	// Global Control
 	input	logic  clk,
@@ -34,14 +58,6 @@ module layernorm #(
 		end
 		if(NN <= 12) begin
 			$error("%m: N/SIMD must be larger than 12 for rsqrt throughput.");
-			$finish;
-		end
-	end
-
-	// Until paths of reduction trees are balanced out
-	initial begin
-		if(2**$clog2(SIMD) != SIMD) begin
-			$error("%m: SIMD(%0d) must currently be a power of two.", SIMD);
 			$finish;
 		end
 	end
@@ -88,36 +104,83 @@ module layernorm #(
 			.idat(vedge[step].dat), .ivld(vedge[step].vld), .irdy(vedge[step].rdy),
 			.odat(bypass     .dat), .ovld(bypass     .vld), .ordy(bypass     .rdy)
 		);
-		// Input pacing solely by bypass queue
-		uwire  xtxn = vedge[step].vld && vedge[step].rdy;
 
 		//-------------------------------------------------------------------
 		// Free-running Statistics Queue
-		uwire vfp32  xdat = vedge[step].dat;
 		uwire edge_t  norm;
-		if(step == 0) begin : genMean
-			// Reduce parallel Inputs into one partial Sum
-			uwire edge_t  part_sum;
-			if(1) begin : blkInputReduce
+		if(1) begin : blkStatistics
+			//	Input pacing solely by bypass queue
+			uwire  avld = vedge[step].vld && vedge[step].rdy;
+			uwire vfp32  adat = vedge[step].dat;
 
+			//- Input Aggregation -------
+
+			// Cross-SIMD Reduction tree
+			uwire edge_t  part_sum;
+			if(1) begin : blkReduceSIMD
 				uwire edge_t  tree[2*SIMD-1];
+
+				// Input Refinement for Leaf Feed
 				for(genvar  i = 0; i < SIMD; i++) begin : genLeaves
-					assign	tree[SIMD-1+i] = '{ vld: xtxn, dat: xdat[i] };
+					uwire edge_t  leaf;
+					case(step)
+					0: /* Mean: straight to sum */ begin
+						assign	leaf = '{ vld: avld, dat: adat[i] };
+					end
+					1: /* Var: square to sum */ begin
+						binopf #(.OP("MUL"), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) node (
+							.clk, .rst,
+							.a(adat[i]),  .avld(avld),
+							.b(adat[i]),  .bload(1'b1),
+							.r(leaf.dat), .rvld(leaf.vld)
+						);
+					end
+					endcase
+					assign	tree[SIMD-1+i] = leaf;
 				end : genLeaves
+
+				// Balancing edge delays in trees with incomplete leaf level
+				typedef bit edge_delays_t[2*SIMD-1];
+				function edge_delays_t INIT_EDGE_DELAYS();
+					localparam int unsigned  LEVELS = 1+$clog2(SIMD);
+					automatic edge_delays_t  d = '{ default: 0 };
+					// Put delay onto leaves that are not on last level
+					for(int unsigned  i = SIMD-1; i < 2*SIMD-1; i++) begin
+						if($clog2(i+2) == LEVELS)  break;
+						d[i] = 1;
+					end
+					// Move delay shared between children to their parent
+					for(int unsigned  i = SIMD-1; i > 0; i--) begin
+						if(d[2*i+1]) begin
+							d[2*i+1] = 0;
+							d[2*i+2] = 0;
+							d[i] = 1;
+						end
+					end
+					return  d;
+				endfunction : INIT_EDGE_DELAYS
+				localparam edge_delays_t  EDGE_DELAYS = INIT_EDGE_DELAYS();
+
+				// Adder Tree
 				for(genvar  i = 0; i < SIMD-1; i++) begin : genNodes
-					binopf #(.OP("ADD")) node (
+					binopf #(
+						.OP("ADD"),
+						.A_MATCH_OP_DELAY(EDGE_DELAYS[2*i+2]),
+						.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+					) node (
 						.clk, .rst,
 						.r(tree[i]    .dat), .rvld(tree[i]    .vld),
-						.a(tree[2*i+1].dat), .avld(tree[2*i+1].vld),
-						.b(tree[2*i+2].dat), .bload(1'b1)
+						.b(tree[2*i+1].dat), .bload(1'b1),
+						.a(tree[2*i+2].dat), .avld(tree[2*i+2].vld)
 					);
 				end : genNodes
+
 				assign	part_sum = tree[0];
+			end : blkReduceSIMD
 
-			end : blkInputReduce
-
-			// Accumulation of parital Sums
-			if(1) begin : blkAccu
+			// Scaled Accumulation of parital Sums
+			uwire edge_t  total;
+			if(1) begin : blkAccumulate
 
 				// Identify last Input Transaction
 				uwire  alst;
@@ -131,78 +194,37 @@ module layernorm #(
 					assign	alst = Cnt[$left(Cnt)];
 				end
 
-				// Accumulation
-				accuf #(.SCALE(1.0/N)) accu (
+				// Scaled Accumulation
+				accuf #(.SCALE(1.0/N), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) accu (
 					.clk, .rst,
 					.a(part_sum.dat), .avld(part_sum.vld), .alst,
-					.s(norm.dat), .svld(norm.vld)
+					.s(total.dat),    .svld(total.vld)
 				);
 
-			end : blkAccu
-		end : genMean
-		else begin : genVar
+			end : blkAccumulate
 
-			// SIMD parallel partial Accumulation of Squares
-			uwire edge_t  part_sq[SIMD];
-			if(1) begin : blkSumq
-
-				// Identify last Input Transaction
-				uwire  alst;
-				if(NN == 1)  assign  alst = 1;
-				else begin
-					logic signed [$clog2(NN-1):0]  Cnt = NN-2; // NN-2, ..., 1, 0, -1
-					always_ff @(posedge clk) begin
-						if(rst)  Cnt <= NN-2;
-						else     Cnt <= Cnt + (!xtxn? 0 : !alst? -1 : NN-1);
-					end
-					assign	alst = Cnt[$left(Cnt)];
-				end
-
-				for(genvar  i = 0; i < SIMD; i++) begin : genSumq
-					accuf #(.SCALE(0.0 /*SQR*/)) sumq (
-						.clk, .rst,
-						.a(xdat[i]), .avld(xtxn), .alst,
-						.s(part_sq[i].dat), .svld(part_sq[i].vld)
-					);
-				end : genSumq
-
-			end : blkSumq
-
-			// Reduction to a single total Sum scaled by 1/N
-			uwire edge_t  vari;
-			if(1) begin : blkSqReduce
-				edge_t  tree[2*SIMD-1];
-				assign	tree[SIMD-1+:SIMD] = part_sq;
-				for(genvar  i = 0; i < SIMD-1; i++) begin : genNodes
-					binopf #(.OP("ADD")) node (
-						.clk, .rst,
-						.r(tree[i]    .dat), .rvld(tree[i]    .vld),
-						.a(tree[2*i+1].dat), .avld(tree[2*i+1].vld),
-						.b(tree[2*i+2].dat), .bload(1'b1)
-					);
-				end : genNodes
-				binopf #(.OP("MUL")) node (
+			// Output Refinement for norm Extraction
+			case(step)
+			0: /* Mean: straight out */ begin
+				assign	norm = total;
+			end
+			1: /* Var: inverse square root */ begin
+				uwire  vrdy;
+				rsqrtf #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) vari_rsqurt (
 					.clk, .rst,
-					.a(tree[0].dat), .avld(tree[0].vld),
-					.b($shortrealtobits(1.0/N)), .bload(1'b1),
-					.r(vari.dat), .rvld(vari.vld)
+					.x(total.dat), .xvld(total.vld), .xrdy(vrdy),
+					.r(norm .dat), .rvld(norm .vld)
 				);
-			end : blkSqReduce
-
-			// Inverse Square Root
-			uwire  vrdy;
-			rsqrtf vari_rsqurt (
-				.clk, .rst,
-				.x(vari.dat), .xvld(vari .vld), .xrdy(vrdy),
-				.r(norm.dat), .rvld(norm.vld)
-			);
-			always_ff @(posedge clk) begin
-				assert(rst || !vari.vld || vrdy) else begin
-					$error("%m Overrunning rsqrt computation.");
-					$stop;
+				always_ff @(posedge clk) begin
+					assert(rst || !total.vld || vrdy) else begin
+						$error("%m Overrunning rsqrt computation.");
+						$stop;
+					end
 				end
 			end
-		end : genVar
+			endcase
+
+		end : blkStatistics
 
 		//-------------------------------------------------------------------
 		// Apply Normalization
@@ -257,7 +279,7 @@ module layernorm #(
 			uwire  rvld;
 			for(genvar  i = 0; i < SIMD; i++) begin : genOps
 				uwire  rvld0;
-				binopf #(.OP(step? "MUL" : "SUB")) op (
+				binopf #(.OP(step? "MUL" : "SUB"), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) op (
 					.clk, .rst,
 					.a(bypass.dat[i]), .avld(issue),
 					.b(norm0.dat), .bload,

@@ -17,7 +17,7 @@ from onnxscript.rewriter.pattern import (
     RewriterContext,
     pattern_builder,
 )
-from qonnx.util.basic import is_finn_op
+from qonnx.custom_op.registry import is_custom_op
 from typing import List, Optional
 
 
@@ -323,10 +323,10 @@ def is_fpgadataflow_onnxir_node(node):
     """Returns True if given node is fpgadataflow node. Otherwise False."""
     is_node = False
     if node is not None:
-        if is_finn_op(node.domain):
+        if is_custom_op(node.domain):
             if "backend" in node.attributes:
                 backend_value = node.attributes["backend"].as_string()
-                if backend_value == "fpgadataflow":
+                if backend_value in ["fpgadataflow", "hls", "rtl"]:
                     is_node = True
 
     return is_node

@@ -98,6 +98,10 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         with open(os.path.join(code_gen_dir, f"{self.get_verilog_top_module_name()}.v"), "w") as f:
             f.write(template)
 
+        # save top module name so we can refer to it after this node has been renamed
+        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
+
         sv_files = ["inner_shuffle.sv", "skid.sv"]
         for sv_files in sv_files:
             shutil.copy(f"{rtlsrc}/{sv_files}", code_gen_dir)
@@ -112,23 +116,24 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
+        top_module = self.get_nodeattr("gen_top_module")
         return [
             f"{rtllib_dir}/inner_shuffle.sv",
             f"{rtllib_dir}/skid.sv",
-            f"{code_gen_dir}{self.get_verilog_top_module_name()}.v",
+            f"{code_gen_dir}{top_module}.v",
         ]
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        sourcefiles = ["inner_shuffle.sv", "skid.sv", f"{self.get_verilog_top_module_name()}.v"]
+        top_module = self.get_nodeattr("gen_top_module")
+        sourcefiles = ["inner_shuffle.sv", "skid.sv", f"{top_module}.v"]
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
 
         cmd = []
-        tl_name = self.get_verilog_top_module_name()
         for vf in sourcefiles:
             cmd += [f"add_files -norecurse {vf}"]
-        cmd += [f"create_bd_cell -type module -reference {tl_name} {self.onnx_node.name}"]
+        cmd += [f"create_bd_cell -type module -reference {top_module} {self.onnx_node.name}"]
         return cmd
 
     def execute_node(self, context, graph):

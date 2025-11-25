@@ -813,7 +813,7 @@ class VVAU(HWCustomOp):
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
         # add streamer if needed
@@ -838,7 +838,7 @@ class VVAU(HWCustomOp):
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
             # Instantiate either the HLS or RTL IP depending on operator
-            self.instantiate_ip(cmd)
+            self.instantiate_ip(cmd, behavioral)
 
             # Instantiate a streamer and connect it to the IP
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -916,7 +916,7 @@ class VVAU(HWCustomOp):
             cmd.append("save_bd_design")
         elif mem_mode == "internal_embedded" or mem_mode == "external":
             # base class impl sufficient for internal_embedded/external modes
-            self.instantiate_ip(cmd)
+            self.instantiate_ip(cmd, behavioral)
         else:
             raise Exception("Unrecognized mem_mode for VectorVectorActivation")
         return cmd

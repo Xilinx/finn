@@ -586,7 +586,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         elif self.get_nodeattr("mem_mode") == "internal_decoupled":
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
         # add streamer if needed

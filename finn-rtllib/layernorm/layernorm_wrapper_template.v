@@ -28,7 +28,8 @@ output	[$SIMD$-1:0][31:0]  out0_V_TDATA
 
 layernorm #(
  .N($N$),
- .SIMD($SIMD$)
+ .SIMD($SIMD$),
+ .FORCE_BEHAVIORAL($FORCE_BEHAVIORAL$)
 )
 impl
 (

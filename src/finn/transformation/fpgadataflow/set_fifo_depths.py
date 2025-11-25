@@ -384,7 +384,7 @@ class InsertAndSetFIFODepths(Transformation):
         max_cycles = perf["max_cycles"]
         model = model.transform(PrepareIP(self.fpgapart, self.clk_ns))
         model = model.transform(HLSSynthIP())
-        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
+        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns, behavioral=True))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         # do rtlsim in C++ for FIFO sizing

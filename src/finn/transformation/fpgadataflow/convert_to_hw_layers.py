@@ -1879,6 +1879,8 @@ class InferShuffle(Transformation):
                     NumChannels=in_reshaped[-1],
                 )
                 new_node.attribute.extend([perm])
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
 
                 for i in to_remove:

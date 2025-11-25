@@ -138,7 +138,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         impl_style = self.get_nodeattr("impl_style")
         if impl_style == "rtl":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

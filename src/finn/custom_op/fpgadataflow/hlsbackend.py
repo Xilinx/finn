@@ -68,14 +68,27 @@ class HLSBackend(ABC):
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
-        subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
-            code_gen_dir, self.onnx_node.name
+        subcore_verilog_path = [
+            "{}/project_{}/sol1/impl/ip/hdl/ip/".format(code_gen_dir, self.onnx_node.name)
+        ]
+        subcore_verilog_path.append(
+            """{}/project_{}/sol1/impl/ip/subcore_prj/subcore_prj.gen/sources_1/
+            ip/{}_fmul_32ns_32ns_32_1_primitive_dsp_1_ip/sim/""".format(
+                code_gen_dir, self.onnx_node.name, self.onnx_node.name
+            )
+        )
+        subcore_verilog_path.append(
+            """{}/project_{}/sol1/impl/ip/subcore_prj/subcore_prj.gen/sources_1/
+            ip/{}_fadd_32ns_32ns_32_1_primitive_dsp_1_ip/sim/""".format(
+                code_gen_dir, self.onnx_node.name, self.onnx_node.name
+            )
         )
         # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir
         # if it exists
         ret = [verilog_path]
-        if os.path.isdir(subcore_verilog_path):
-            ret += [subcore_verilog_path]
+        for subcore_path in subcore_verilog_path:
+            if os.path.isdir(subcore_path):
+                ret += [subcore_path]
         return ret
 
     def get_all_verilog_filenames(self, abspath=False):
@@ -85,7 +98,7 @@ class HLSBackend(ABC):
         verilog_paths = self.get_all_verilog_paths()
         for verilog_path in verilog_paths:
             for f in os.listdir(verilog_path):
-                if f.endswith(".v"):
+                if f.endswith(".v") or f.endswith(".vhd"):
                     if abspath:
                         verilog_files += [verilog_path + "/" + f]
                     else:
@@ -95,7 +108,6 @@ class HLSBackend(ABC):
     def prepare_rtlsim(self):
         """Creates a xsi emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path."""
-
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
         trace_file = self.get_nodeattr("rtlsim_trace")
@@ -227,7 +239,7 @@ class HLSBackend(ABC):
         f.close()
         self.code_gen_dict.clear()
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         vlnv = self.get_nodeattr("ip_vlnv")
         cmd = ["create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name)]

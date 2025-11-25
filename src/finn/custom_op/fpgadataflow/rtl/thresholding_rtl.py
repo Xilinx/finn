@@ -376,7 +376,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 )
             )
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
         rtl_file_list = self.get_rtl_file_list()

@@ -35,12 +35,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-)
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
     calculate_signed_dot_prod_range,
@@ -69,7 +64,8 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import is_versal
+from finn.transformation.general import ApplyConfig
+from finn.util.basic import getHWCustomOp, is_versal
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -988,7 +984,7 @@ def test_fpgadataflow_rtl_tiled_mvau(
 
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
-@pytest.mark.parametrize("n_vectors", [32])
+@pytest.mark.parametrize("n_vectors", [[1, 32], [8, 32]])
 @pytest.mark.parametrize("pe", [1, 16, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
@@ -1007,13 +1003,19 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     if part == "xc7z020clg400-1" and impl_style == "rtl":
         pytest.skip("Skip test because narrow range can't be ensured for the second input")
 
+    if impl_style == "hls" and n_vectors[0] != 0:
+        pytest.skip("Skip test because dynamic HLS MVAU only supports 2 dims != 1")
     clk_ns = 4
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+    ifm = helper.make_tensor_value_info(
+        "ifm", TensorProto.FLOAT, [1, n_vectors[0], n_vectors[1], mw]
+    )
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, n_vectors[0], mw, mh])
+    ofm = helper.make_tensor_value_info(
+        "ofm", TensorProto.FLOAT, (1, n_vectors[0], n_vectors[1], mh)
+    )
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())

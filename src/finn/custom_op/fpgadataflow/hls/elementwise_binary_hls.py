@@ -650,7 +650,7 @@ class ElementwiseBinaryOperation_hls(
         # Return the interface name dictionary
         return intf_names
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
         # add streamer if needed

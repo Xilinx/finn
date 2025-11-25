@@ -285,7 +285,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         top_module_file_name = os.path.basename(os.path.realpath(self.get_nodeattr("ipgen_path")))
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
-        rtlsim_so = finnxsi.compile_sim_obj(top_module_name, all_verilog_srcs, single_src_dir)
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        debug = not (trace_file is None or trace_file == "")
+        rtlsim_so = finnxsi.compile_sim_obj(
+            top_module_name, all_verilog_srcs, single_src_dir, debug
+        )
         # save generated lib filename in attribute
         sim_base, sim_rel = rtlsim_so
         self.set_nodeattr("rtlsim_so", sim_base + "/" + sim_rel)
@@ -1119,7 +1123,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         return intf_names
 
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         vlnv = self.get_nodeattr("ip_vlnv")
         cmd = []
         # add all the generated IP dirs to ip_repo_paths

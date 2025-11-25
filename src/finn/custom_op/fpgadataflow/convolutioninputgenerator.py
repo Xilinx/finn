@@ -251,8 +251,7 @@ class ConvolutionInputGenerator(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = self.onnx_opset_version
-        opset_imports = [helper.make_opsetid("", opset_version)]
+        opset_imports = [helper.make_opsetid("qonnx.custom_op.general", 1)]
         onnx_kwargs = {"opset_imports": opset_imports}
         model_im2col = ModelWrapper(qonnx_make_model(graph_im2col, **onnx_kwargs))
         model_im2col.set_tensor_datatype(node.input[0], self.get_input_datatype())
