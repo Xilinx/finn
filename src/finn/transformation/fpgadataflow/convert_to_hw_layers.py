@@ -46,6 +46,9 @@ from qonnx.util.onnx import nchw_to_nhwc
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 
+# Module containing specializations of elementwise function operations
+import finn.custom_op.fpgadataflow.elementwise_functions as elementwise_functions
+
 
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
@@ -1953,6 +1956,78 @@ class InferElementwiseBinaryOperation(Transformation):
                     out_shape=out_shape,
                     lhs_dtype=str(idt0),
                     rhs_dtype=str(idt1),
+                    out_dtype=str(odt0),
+                )
+                graph.node.insert(index + 1, new_node)
+                graph.node.remove(node)
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
+# Converts supported elementwise function operations to their FINN custom
+# operation
+class InferElementwiseFunctionOperation(Transformation):
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=None):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            # If a custom operation with corresponding name is implemented in
+            # the module, this operator is supported for conversion
+            if f"Elementwise{node.op_type}" in dir(elementwise_functions):
+                inp = node.input[0]
+                # if input is a constant, throw an error and
+                # ask user to run FoldConstants transform first
+                assert (
+                    model.get_initializer(inp) is None
+                ), """Input is a constant,
+                    please run FoldConstants from qonnx.transformation.fold_constants first."""
+                result = node.output[0]
+
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(inp, model)
+
+                inp_shape = model.get_tensor_shape(inp)
+                out_shape = model.get_tensor_shape(result)
+
+                idt0 = model.get_tensor_datatype(inp)
+                odt0 = model.get_tensor_datatype(result)
+
+                new_node = helper.make_node(
+                    f"Elementwise{node.op_type}",
+                    [inp],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    inp_shape=inp_shape,
+                    out_shape=out_shape,
+                    inp_dtype=str(idt0),
                     out_dtype=str(odt0),
                 )
                 graph.node.insert(index + 1, new_node)
