@@ -94,7 +94,7 @@ class HLSBackend(ABC):
                         verilog_files += [f]
         return verilog_files
 
-    def prepare_rtlsim(self):
+    def prepare_rtlsim(self, behav=False):
         """Creates a xsi emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path."""
 
@@ -103,7 +103,7 @@ class HLSBackend(ABC):
         trace_file = self.get_nodeattr("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
         ret = finnxsi.compile_sim_obj(
-            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug
+            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug, behav
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])

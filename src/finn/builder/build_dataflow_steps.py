@@ -675,7 +675,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
             model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
-            model = model.transform(PrepareRTLSim())
+            model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
             model = model.transform(DeriveCharacteristic(period))

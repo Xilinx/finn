@@ -217,12 +217,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
-        with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+            f.write(template_wrapper)
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
