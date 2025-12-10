@@ -6,6 +6,17 @@ pipeline {
     booleanParam(name: 'end2end', defaultValue: false, description: 'Run end2end tests')
   }
   stages {
+    stage('Prune docker') {
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          // Prune old docker containers
+          sh "docker system prune -a -f"
+        }
+      }
+    }
     stage('Run Tests') {
       parallel {
         stage('Sanity - Build Hardware') {
