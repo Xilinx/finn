@@ -74,27 +74,31 @@ build_outputs = [
 
 
 # Configure build
-cfg = build_cfg.DataflowBuildConfig(
-    steps=build_steps,
-    generate_outputs=build_outputs,
-    output_dir=output_dir,
-    folding_config_file=build_flow_folder + "kws/kws_folding_config.json",
-    synth_clk_period_ns=10.0,
-    board="Pynq-Z1",
-    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-    stitched_ip_gen_dcp=True,
-    specialize_layers_config_file=build_flow_folder + "kws/kws_specialize_layers.json",
-    verify_steps=verif_steps,
-    verify_input_npy=verify_input_npy,
-    verify_expected_output_npy=verify_expected_output_npy,
-)
+def configure_build(board):
+    cfg = build_cfg.DataflowBuildConfig(
+        steps=build_steps,
+        generate_outputs=build_outputs,
+        output_dir=output_dir,
+        folding_config_file = f"{build_flow_folder}kws/kws_folding_config_{board}.json",
+        synth_clk_period_ns=10.0,
+        board=board,
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        stitched_ip_gen_dcp=True,
+        specialize_layers_config_file=build_flow_folder + "kws/kws_specialize_layers.json",
+        verify_steps=verif_steps,
+        verify_input_npy=verify_input_npy,
+        verify_expected_output_npy=verify_expected_output_npy,
+    )
+    return cfg
 
 
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-def test_kws():
+@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+def test_kws(board):
     # Run build flow
+    cfg = configure_build(board)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there
