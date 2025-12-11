@@ -106,17 +106,16 @@ build_outputs = [
 def configure_build(board):
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=output_dir,
-        target_fps=3000,
         synth_clk_period_ns=10.0,
         board=board,
         steps=custom_build_steps,
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
-        # folding_config_file=build_flow_folder + "/gtsrb/gtsrb_folding_config.json",
+        folding_config_file=f"{build_flow_folder}gtsrb/gtsrb_folding_config_{board}.json",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=build_outputs,
-        # specialize_layers_config_file=build_flow_folder + "/gtsrb/gtsrb_specialize_layers.json",
+        specialize_layers_config_file=f"{build_flow_folder}gtsrb/gtsrb_specialize_layers.json",
     )
     return cfg
 
@@ -124,7 +123,7 @@ def configure_build(board):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
 def test_gtsrb(board):
     # Run build flow
     cfg = configure_build(board)
