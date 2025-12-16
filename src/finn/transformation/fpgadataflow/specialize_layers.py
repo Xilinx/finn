@@ -72,6 +72,11 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
+            elif optype in ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"]:
+                if _elementwise_rtl_possible(node_inst):
+                    return "rtl"
+                else:
+                    return "hls"
             return "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
@@ -246,6 +251,17 @@ def _vvu_rtl_possible(n, fpgapart):
     signed_weights = wdt.min() < 0
 
     return in_width_in_range and weight_width_in_range and signed_weights
+
+
+def _elementwise_rtl_possible(node_inst):
+    # RTL elementwise operations only support FLOAT32 datatypes
+    from qonnx.core.datatype import DataType
+    
+    lhs_dtype = node_inst.get_input_datatype(0)
+    rhs_dtype = node_inst.get_input_datatype(1)
+    out_dtype = node_inst.get_output_datatype(0)
+    
+    return all([dt == DataType["FLOAT32"] for dt in [lhs_dtype, rhs_dtype, out_dtype]])
 
 
 class SpecializeLayers(Transformation):
