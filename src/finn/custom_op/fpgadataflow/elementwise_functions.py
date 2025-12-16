@@ -28,7 +28,6 @@
 
 import numpy as np
 import warnings
-from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 
@@ -267,6 +266,7 @@ class ElementwiseRelu(ElementwiseFunctionOperation):
     def npy_op(self):
         def relu(x):
             return np.maximum(x, 0)
+
         return relu
 
     @property
@@ -324,6 +324,7 @@ class ElementwiseErf(ElementwiseFunctionOperation):
     @property
     def npy_op(self):
         import scipy.special
+
         return scipy.special.erf
 
     @property
