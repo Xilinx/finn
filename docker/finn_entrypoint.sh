@@ -151,7 +151,7 @@ else
   echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$VITIS_PATH/lnx64/tools/fpo_v7_1"
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$VITIS_PATH/lnx64/tools/fpo_v7_1:$HLS_PATH/lnx64/tools/fpo_v7_1"
 
 export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root

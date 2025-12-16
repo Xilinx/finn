@@ -30,6 +30,7 @@ from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
     ConvolutionInputGenerator_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
+from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
 from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
@@ -49,3 +50,4 @@ custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
 custom_op["MVAU_rtl"] = MVAU_rtl
 custom_op["VVAU_rtl"] = VVAU_rtl
 custom_op["Thresholding_rtl"] = Thresholding_rtl
+custom_op["InnerShuffle_rtl"] = InnerShuffle_rtl

@@ -32,7 +32,7 @@ def locate_glbl() -> Optional[str]:
     return None
 
 
-def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
+def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, behav=False):
     # create a .prj file with the source files
     with open(sim_out_dir + "/rtlsim.prj", "w") as f:
         glbl = locate_glbl()
@@ -94,6 +94,10 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False):
     if debug:
         cmd_xelab.append("-debug")
         cmd_xelab.append("all")
+    # Add behavioural simulation flag if behav is enabled
+    if behav:
+        cmd_xelab.append("-define")
+        cmd_xelab.append("FINN_SIMULATION")
     for lib in xelab_libs:
         cmd_xelab.append("-L")
         cmd_xelab.append(lib)

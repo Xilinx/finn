@@ -177,14 +177,16 @@ class InferThresholdingLayer(Transformation):
                 idt = model.get_tensor_datatype(thl_input)
                 tdt = model.get_tensor_datatype(thl_threshold)
 
-                # only infer layers where input and thresholds are integers or fp32
+                # only infer layers where input and thresholds are integers, floats, or fixed-point
                 idt_int = idt.is_integer()
                 tdt_int = tdt.is_integer()
                 idt_fp = idt in ["FLOAT32", "FLOAT16"]
                 tdt_fp = tdt in ["FLOAT32", "FLOAT16"]
-                if not (idt_int or idt_fp):
+                idt_fxp = idt.is_fixed_point()
+                tdt_fxp = tdt.is_fixed_point()
+                if not (idt_int or idt_fp or idt_fxp):
                     continue
-                if not (tdt_int or tdt_fp):
+                if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
                 # check layout of inputs/outputs, and convert if needed
@@ -1738,6 +1740,173 @@ class InferVectorVectorActivation(Transformation):
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferHWSoftmax(Transformation):
+    """
+    Infers a regular softmax node without merging the multithreshold
+    and setting the softmax to perform the quantisation.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "Softmax":
+                input_shape = model.get_tensor_shape(n.input[0])
+                idt0 = model.get_tensor_datatype(n.input[0])
+                odt0 = model.get_tensor_datatype(n.output[0])
+                new_node = helper.make_node(
+                    "HWSoftmax",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    ifm_dim=input_shape,
+                    input_data_type=idt0.name,
+                    output_data_type=odt0.name,
+                    name=n.name,
+                    SIMD=1,
+                    NumChannels=input_shape[-1],
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+        return (model, graph_modified)
+
+
+class InferShuffle(Transformation):
+    """
+    Find transpose layers with (optionally) reshape layers around them
+    and convert them into a shuffle operator
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def _is_streaming_ptranspose(self, perm, shape):
+        """
+        Check if the permutation represents a streaming InnerShuffle case.
+        A streaming InnerShuffle works when the last two dimensions are swapped,
+        regardless of how many outer dimensions there are.
+        """
+        if len(perm) < 2 or len(shape) < 2:
+            return False
+
+        # Check if last two dimensions are swapped while others stay in order
+        expected_perm = list(range(len(perm) - 2)) + [len(perm) - 1, len(perm) - 2]
+        return perm == expected_perm
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node_ind, n in enumerate(graph.node, start=1):
+            if n.op_type == "Transpose":
+                to_remove = [n]
+
+                new_in_tensor = None
+                new_out_tensor = None
+
+                perm = n.attribute[0]
+
+                new_in_tensor = n.input[0]
+                in_shape = model.get_tensor_shape(n.input[0])
+                in_reshaped = in_shape
+
+                # Detect a reshape at the input and capture it
+                producer = model.find_producer(n.input[0])
+                if producer is not None:
+                    if producer.op_type == "Reshape":
+                        new_in_tensor = producer.input[0]
+                        in_shape = model.get_tensor_shape(new_in_tensor)
+                        in_reshaped = model.get_tensor_shape(n.input[0])
+                        to_remove.append(producer)
+
+                new_out_tensor = n.output[0]
+                out_shape = model.get_tensor_shape(new_out_tensor)
+                out_reshaped = out_shape
+
+                # Detect a reshape at the output and capture it
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None:
+                    if consumer.op_type == "Reshape":
+                        new_out_tensor = consumer.output[0]
+                        out_shape = model.get_tensor_shape(n.output[0])
+                        out_reshaped = model.get_tensor_shape(new_out_tensor)
+                        to_remove.append(consumer)
+
+                # Handle None shapes (shape inference might have failed)
+                assert (
+                    in_reshaped is not None
+                ), f"""Could not infer shape for tensor {n.input[0]}.
+                    Please run InferShapes first"""
+                assert (
+                    out_reshaped is not None
+                ), f"""Could not infer shape for tensor {new_out_tensor}.
+                    Please run InferShapes first"""
+
+                idt = model.get_tensor_datatype(new_in_tensor)
+                odt = model.get_tensor_datatype(new_out_tensor)
+
+                # Some sanity checks for the transformation
+                if idt != odt:
+                    raise RuntimeError(
+                        """
+                    Input datatype and output datatype of the shuffle must be the same,
+                    did something go wrong during transformation?
+                    """
+                    )
+
+                if len(perm.ints) != len(in_reshaped):
+                    raise RuntimeError(
+                        f"""
+                    Permutation list {perm.ints=} does not match the reshaped input dimension
+                    {in_reshaped=}
+                    """
+                    )
+
+                if len(perm.ints) != len(out_shape):
+                    raise RuntimeError(
+                        f"""
+                    Permutation list {perm.ints=} does not match the reshaped out dimension
+                    {out_reshaped=}
+                    """
+                    )
+
+                simd = 1
+
+                new_node = helper.make_node(
+                    "Shuffle",
+                    [new_in_tensor],
+                    [new_out_tensor],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    in_shape=in_shape,
+                    transpose_in_shape=in_reshaped,
+                    out_shape=out_reshaped,
+                    transpose_out_shape=out_shape,
+                    data_type=idt.name,
+                    name=f"Shuffle_{n.name}",
+                    SIMD=simd,
+                    NumChannels=in_reshaped[-1],
+                )
+                new_node.attribute.extend([perm])
+                graph.node.insert(node_ind, new_node)
+
+                for i in to_remove:
+                    graph.node.remove(i)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+
         return (model, graph_modified)
 
 

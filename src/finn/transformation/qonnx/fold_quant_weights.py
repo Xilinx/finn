@@ -34,6 +34,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 from qonnx.transformation.remove import remove_node_and_rewire
+from qonnx.util.basic import get_preferred_qonnx_opset
 
 
 class FoldQuantWeights(Transformation):
@@ -46,6 +47,7 @@ class FoldQuantWeights(Transformation):
         node_ind = 0
         graph_modified = False
         execution_context = model.make_empty_exec_context()
+        opset_imports = model.get_opset_imports()
         for n in graph.node:
             node_ind += 1
             if n.op_type == "Quant" or n.op_type == "BipolarQuant":
@@ -89,7 +91,11 @@ class FoldQuantWeights(Transformation):
                     unity_scale = (scale.flatten() == 1.0).all()
                     # this node has no dynamic inputs, only constant ones -- so we can
                     # do constant folding.
-                    oxe.execute_node(n, execution_context, graph)
+                    if n.domain in opset_imports:
+                        opset_version = opset_imports[n.domain]
+                    else:
+                        opset_version = get_preferred_qonnx_opset()
+                    oxe.execute_node(n, execution_context, graph, opset_version)
                     q_node_output = execution_context[node_out]
                     # Check we can directly constant fold
                     if unity_scale:
