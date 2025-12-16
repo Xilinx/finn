@@ -152,10 +152,7 @@ class LabelSelect(HWCustomOp):
             outputs=[val_outp, outp],
         )
 
-        opset_version = self.onnx_opset_version
-        opset_imports = [helper.make_opsetid("", opset_version)]
-        onnx_kwargs = {"opset_imports": opset_imports}
-        model_topk = qonnx_make_model(graph_topk, **onnx_kwargs)
+        model_topk = qonnx_make_model(graph_topk)
         idict = {node.input[0]: inp_values, "k_inp": [k]}
         sess = rt.InferenceSession(model_topk.SerializeToString())
         result = sess.run(None, idict)

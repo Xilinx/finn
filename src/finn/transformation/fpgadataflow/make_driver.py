@@ -356,6 +356,7 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$NUM_INPUTS$", str(len(driver_shapes["idma_names"])))
         driver = driver.replace("$NUM_OUTPUTS$", str(len(driver_shapes["odma_names"])))
         driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt))
+        driver = driver.replace("$EXT_WEIGHT_INPUT_SHAPES$", str(ext_weight_shapes_dict))
 
         with open(driver_py, "w") as f:
             f.write(driver)

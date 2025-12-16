@@ -235,10 +235,7 @@ class ChannelwiseOp(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = self.onnx_opset_version
-        opset_imports = [helper.make_opsetid("", opset_version)]
-        onnx_kwargs = {"opset_imports": opset_imports}
-        model_func = qonnx_make_model(graph_func, **onnx_kwargs)
+        model_func = qonnx_make_model(graph_func)
         idict = {node.input[0]: inp_values, node.input[1]: param_values}
         sess = rt.InferenceSession(model_func.SerializeToString())
         result = sess.run(None, idict)

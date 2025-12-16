@@ -26,10 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import json
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import get_by_name, is_finn_op
-from qonnx.util.config import extract_model_config_to_json
 
 
 def is_fpgadataflow_node(node):
@@ -72,36 +69,3 @@ def is_rtl_node(node):
                     is_node = True
 
     return is_node
-
-
-def extract_model_config_consolidate_shuffles(model, output_file, hw_attrs):
-    """Export flow that takes into consideration how Shuffle operations have been decomposed"""
-    extract_model_config_to_json(model, output_file, hw_attrs)
-
-    with open(output_file, "r") as f:
-        config = json.load(f)
-
-    shuffle_configs = {}
-    nodes_to_remove = []
-
-    for node in model.graph.node:
-        if node.op_type in ["InnerShuffle_rtl", "OuterShuffle_hls"]:
-            inst = getCustomOp(node)
-            original_name = inst.get_nodeattr("original_node_name")
-            original_simd = inst.get_nodeattr("original_simd")
-
-            if original_name and node.name in config:
-                if original_name not in shuffle_configs:
-                    consolidated_config = config[node.name].copy()
-                    if original_simd is not None:
-                        consolidated_config["SIMD"] = original_simd
-                    shuffle_configs[original_name] = consolidated_config
-                nodes_to_remove.append(node.name)
-
-    for node_name in nodes_to_remove:
-        del config[node_name]
-
-    config.update(shuffle_configs)
-
-    with open(output_file, "w") as f:
-        json.dump(config, f, indent=2)

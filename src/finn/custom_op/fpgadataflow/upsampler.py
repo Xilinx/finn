@@ -152,8 +152,7 @@ class UpsampleNearestNeighbour(HWCustomOp):
             outputs=[outp],
         )
 
-        opset_version = 13
-        opset_imports = [helper.make_opsetid("", opset_version)]
+        opset_imports = [helper.make_opsetid("", 13)]
         onnx_kwargs = {"opset_imports": opset_imports}
         model_resize = qonnx_make_model(graph_resize, **onnx_kwargs)
         idict = {node.input[0]: inp_values, "scales": scales_val}

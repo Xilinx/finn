@@ -39,7 +39,6 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
-    ApplyConfig,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveStaticGraphInputs,
@@ -50,7 +49,6 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
-from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -117,6 +115,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     ShuffleDecomposition,
 )
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
@@ -126,7 +125,10 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
-from finn.util.fpgadataflow import extract_model_config_consolidate_shuffles
+from finn.util.config import (
+    extract_model_config_consolidate_shuffles,
+    extract_model_config_to_json,
+)
 from finn.util.test import execute_parent
 
 
@@ -192,7 +194,11 @@ def verify_step(
             print("Attempting to force model shape on verification output")
             out_npy = out_npy.reshape(exp_oshape)
 
-        res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
+        if cfg.verification_atol is None:
+            res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
+        else:
+            res = np.isclose(exp_out_npy, out_npy, atol=cfg.verification_atol).all()
+
         all_res = all_res and res
         res_to_str = {True: "SUCCESS", False: "FAIL"}
         res_str = res_to_str[res]
@@ -575,7 +581,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
             model = model.transform(HLSSynthIP())
-            model = model.transform(PrepareRTLSim())
+            model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
             model = model.transform(DeriveCharacteristic(period))
@@ -604,6 +610,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     swg_exception=cfg.default_swg_exception,
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
+                    cfg_n_inferences=cfg.fifosim_n_inferences,
                 )
             )
             # InsertAndSetFIFODepths internally removes any shallow FIFOs
@@ -692,7 +699,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         estimate_network_performance = verify_model.analysis(dataflow_performance)
         prev_liveness = get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"] * 1.1)
+            int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
         )
         if cfg.verify_save_rtlsim_waveforms:
             verify_out_dir = cfg.output_dir + "/verification_output"
@@ -729,7 +736,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
-        max_iters = latency * 1.1 + 20
+        max_iters = latency * 1.1 + 50
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]

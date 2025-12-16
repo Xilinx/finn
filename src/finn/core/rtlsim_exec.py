@@ -178,7 +178,7 @@ def rtlsim_exec_cppxsi(
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug, behav=True
         )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])

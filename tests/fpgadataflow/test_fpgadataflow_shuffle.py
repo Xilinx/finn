@@ -41,7 +41,7 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.util.fpgadataflow import extract_model_config_consolidate_shuffles
+from finn.util.config import extract_model_config_consolidate_shuffles
 
 test_fpga_part: str = "xcvc1902-vsva2197-2MP-e-S"
 test_synth_clk_period_ns: int = 10
