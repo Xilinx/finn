@@ -10,44 +10,23 @@ import pytest
 
 import os
 import re
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.insert_topk import InsertTopK
-
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.builder.build_dataflow_config import DataflowBuildConfig
-from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, alveo_default_platform
+
+# custom steps for resnet50v1.5
+from custom_steps_resnet50 import (
+    step_resnet50_tidy,
+    step_resnet50_streamline,
+    step_resnet50_convert_to_hw,
+    step_resnet50_slr_floorplan,
+)
 
 build_flow_folder = "tests/benchmark/"
-output_dir = make_build_dir("build_kws_")
-
-# Add two custom steps, one to add a TopK node at the end and
-# one to remove the Transpose + Flatten between the first and the second layer
-# after converting to hw abstraction layers
-
-
-def step_postprocess(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(InsertTopK(k=1))
-    return model
-
-
-def step_kws_post_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(RemoveCNVtoFCFlatten())
-    model = model.transform(InferShapes())
-    return model
-
-
-build_dataflow_step_lookup["step_postprocess_InsertTopK"] = step_postprocess
-build_dataflow_step_lookup["step_kws_post_convert_to_hw"] = step_kws_post_convert_to_hw
-
-build_steps = ["step_postprocess_InsertTopK"] + build_cfg.default_build_dataflow_steps
-build_steps.insert(5, "step_kws_post_convert_to_hw")
+output_dir = make_build_dir("build_resnet50_")
 
 # model
-model_name = "MLP_W3A3_python_speech_features_pre-processing_QONNX_opset-11"
+model_name = "resnet50_w1a2"
 model_file = build_flow_folder + "models/" + model_name + ".onnx"
 
 # verification parameters
@@ -73,31 +52,49 @@ build_outputs = [
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
 
+resnet50_build_steps = [
+    step_resnet50_tidy,
+    step_resnet50_streamline,
+    step_resnet50_convert_to_hw,
+    "step_create_dataflow_partition",
+    "step_specialize_layers",
+    "step_apply_folding_config",
+    "step_minimize_bit_width",
+    "step_generate_estimate_reports",
+    "step_hw_codegen",
+    "step_hw_ipgen",
+    "step_set_fifo_depths",
+    step_resnet50_slr_floorplan,
+    "step_synthesize_bitfile",
+    "step_make_pynq_driver",
+    "step_deployment_package",
+]
 
-# Configure build
 def configure_build(board):
     cfg = build_cfg.DataflowBuildConfig(
-        steps=build_steps,
+        steps=resnet50_build_steps,
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        folding_config_file = f"{build_flow_folder}kws/folding_config/kws_folding_config_{board}.json",
-        synth_clk_period_ns=10.0,
+        folding_config_file = f"{build_flow_folder}resnet50/folding_config/resnet50_folding_config_{board}.json",
+        auto_fifo_depths=False,
+        synth_clk_period_ns=4.0,
         board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-        stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=build_flow_folder + "kws/specialize_layers_config/kws_specialize_layers.json",
+        shell_flow_type=build_cfg.ShellFlowType.VITIS_ALVEO,
+        vitis_platform=alveo_default_platform[board],
+        vitis_opt_strategy=build_cfg.VitisOptStrategyCfg.PERFORMANCE_BEST,        
+        split_large_fifos=True,
+        specialize_layers_config_file=build_flow_folder + "resnet50/specialize_layers_config/resnet50_specialize_layers_{board}.json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
     return cfg
 
-
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
-def test_kws(board):
+@pytest.mark.parametrize("board", [pytest.param("U250", marks=pytest.mark.xfail(reason="not tested"))])
+def test_resnet50(board):
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)

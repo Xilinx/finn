@@ -10,45 +10,26 @@ import pytest
 
 import os
 import re
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.insert_topk import InsertTopK
-
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.builder.build_dataflow_config import DataflowBuildConfig
-from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.util.basic import make_build_dir
 
+# custom steps for mobilenetv1
+from custom_steps import (
+    step_mobilenet_streamline,
+    step_mobilenet_convert_to_hw_layers,
+    step_mobilenet_convert_to_hw_layers_separate_th,
+    step_mobilenet_lower_convs,
+    step_mobilenet_slr_floorplan,
+)
+
 build_flow_folder = "tests/benchmark/"
-output_dir = make_build_dir("build_kws_")
-
-# Add two custom steps, one to add a TopK node at the end and
-# one to remove the Transpose + Flatten between the first and the second layer
-# after converting to hw abstraction layers
-
-
-def step_postprocess(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(InsertTopK(k=1))
-    return model
-
-
-def step_kws_post_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(RemoveCNVtoFCFlatten())
-    model = model.transform(InferShapes())
-    return model
-
-
-build_dataflow_step_lookup["step_postprocess_InsertTopK"] = step_postprocess
-build_dataflow_step_lookup["step_kws_post_convert_to_hw"] = step_kws_post_convert_to_hw
-
-build_steps = ["step_postprocess_InsertTopK"] + build_cfg.default_build_dataflow_steps
-build_steps.insert(5, "step_kws_post_convert_to_hw")
+output_dir = make_build_dir("build_mobilenet-v1_")
 
 # model
-model_name = "MLP_W3A3_python_speech_features_pre-processing_QONNX_opset-11"
-model_file = build_flow_folder + "models/" + model_name + ".onnx"
+model_name = "mobilenetv1-w4a4"
+model_file = build_flow_folder + "models/%s_pre_post_tidy_opset-11.onnx" % model_name
+
 
 # verification parameters
 verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
@@ -73,19 +54,74 @@ build_outputs = [
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
 
+# select build steps (ZCU104/102 folding config is based on separate thresholding nodes)
+def select_build_steps(platform):
+    if platform in ["ZCU102", "ZCU104"]:
+        return [
+            step_mobilenet_streamline,
+            step_mobilenet_lower_convs,
+            step_mobilenet_convert_to_hw_layers_separate_th,
+            "step_create_dataflow_partition",
+            "step_specialize_layers",
+            "step_apply_folding_config",
+            "step_minimize_bit_width",
+            "step_generate_estimate_reports",
+            "step_hw_codegen",
+            "step_hw_ipgen",
+            "step_set_fifo_depths",
+            "step_create_stitched_ip",
+            "step_synthesize_bitfile",
+            "step_make_pynq_driver",
+            "step_deployment_package",
+        ]
+    elif platform in ["U250"]:
+        return [
+            step_mobilenet_streamline,
+            step_mobilenet_lower_convs,
+            step_mobilenet_convert_to_hw_layers,
+            "step_create_dataflow_partition",
+            "step_specialize_layers",
+            "step_apply_folding_config",
+            "step_minimize_bit_width",
+            "step_generate_estimate_reports",
+            "step_hw_codegen",
+            "step_hw_ipgen",
+            "step_set_fifo_depths",
+            "step_create_stitched_ip",
+            step_mobilenet_slr_floorplan,
+            "step_synthesize_bitfile",
+            "step_make_pynq_driver",
+            "step_deployment_package",
+        ]
+    
+# select target clock frequency
+def select_clk_period(platform):
+    if platform in ["ZCU102", "ZCU104"]:
+        return 5.4
+    elif platform in ["U250"]:
+        return 3.0
 
-# Configure build
+def platform_to_shell(platform):
+    if platform in ["U250"]:
+        return build_cfg.ShellFlowType.VITIS_ALVEO
+    elif platform in ["ZCU102", "ZCU104"]:
+        return build_cfg.ShellFlowType.VIVADO_ZYNQ
+    else:
+        raise Exception("Unknown platform, can't determine ShellFlowType")
+
+
 def configure_build(board):
     cfg = build_cfg.DataflowBuildConfig(
-        steps=build_steps,
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        folding_config_file = f"{build_flow_folder}kws/folding_config/kws_folding_config_{board}.json",
-        synth_clk_period_ns=10.0,
+        steps=select_build_steps(board),
+        folding_config_file = f"{build_flow_folder}mobilenet-v1/folding_config/mobilenet_folding_config_{board}.json",
+        synth_clk_period_ns=select_clk_period(board),
         board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        shell_flow_type=platform_to_shell(board),
+        auto_fifo_depths=False,
         stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=build_flow_folder + "kws/specialize_layers_config/kws_specialize_layers.json",
+        specialize_layers_config_file=f"{build_flow_folder}mobilenet-v1/specialize_layers_config/mobilenet_specialize_layers_{board}.json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
@@ -93,11 +129,12 @@ def configure_build(board):
     return cfg
 
 
+
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB"])
-def test_kws(board):
+@pytest.mark.parametrize("board", [pytest.param("ZCU102", marks=pytest.mark.xfail(reason="not tested")), pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")), pytest.param("U250", marks=pytest.mark.xfail(reason="not tested"))])
+def test_mobilenetv1(board):
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)

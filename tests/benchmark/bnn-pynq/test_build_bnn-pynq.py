@@ -9,10 +9,11 @@
 import pytest
 
 import os
+import re
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, alveo_default_platform
 
 
 build_flow_folder = "tests/benchmark/"
@@ -57,22 +58,51 @@ def get_verify_output_npy(model):
         verify_expected_output_npy = build_flow_folder + "verification_io/cnv_cifar10_output.npy"
     return verify_expected_output_npy
 
+def platform_to_shell(platform):
+    if platform in ["U250"]:
+        return build_cfg.ShellFlowType.VITIS_ALVEO
+    elif platform in ["AUP-ZU3_8GB", "Pynq-Z1", "Ultra96", "ZCU104"]:
+        return build_cfg.ShellFlowType.VIVADO_ZYNQ
+    else:
+        raise Exception("Unknown platform, can't determine ShellFlowType")
 
 
 def configure_build(board, model):
-    cfg = build_cfg.DataflowBuildConfig(
-        generate_outputs=build_outputs,
-        output_dir=output_dir,
-        folding_config_file = f"{build_flow_folder}bnn-pynq/{model}_folding_config_{board}.json",
-        synth_clk_period_ns=10.0,
-        board=board,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-        stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=f"{build_flow_folder}bnn-pynq/{model}_specialize_layers_{board}.json",
-        verify_steps=verif_steps,
-        verify_input_npy=get_verify_input_npy(model),
-        verify_expected_output_npy=get_verify_output_npy(model),
-    )
+    shell_flow_type = platform_to_shell(board)
+    if shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
+        vitis_platform = alveo_default_platform[board]
+    else:
+        vitis_platform = None
+    if board in ["AUP-ZU3_8GB"]:
+        cfg = build_cfg.DataflowBuildConfig(
+            generate_outputs=build_outputs,
+            output_dir=output_dir,
+            folding_config_file = f"{build_flow_folder}bnn-pynq/folding_config/{model}_folding_config_{board}.json",
+            synth_clk_period_ns=10.0,
+            board=board,
+            shell_flow_type=platform_to_shell(board),
+            vitis_platform=vitis_platform,
+            stitched_ip_gen_dcp=True,
+            specialize_layers_config_file=f"{build_flow_folder}bnn-pynq/specialize_layers_config/{model}_specialize_layers_{board}.json",
+            verify_steps=verif_steps,
+            verify_input_npy=get_verify_input_npy(model),
+            verify_expected_output_npy=get_verify_output_npy(model),
+        )
+    else:
+        cfg = build_cfg.DataflowBuildConfig(
+            generate_outputs=build_outputs,
+            output_dir=output_dir,
+            folding_config_file = f"{build_flow_folder}bnn-pynq/folding_config/{model}_folding_config.json",
+            synth_clk_period_ns=10.0,
+            board=board,
+            shell_flow_type=platform_to_shell(board),
+            vitis_platform=vitis_platform,
+            stitched_ip_gen_dcp=True,
+            specialize_layers_config_file=f"{build_flow_folder}bnn-pynq/specialize_layers_config/{model}_specialize_layers.json",
+            verify_steps=verif_steps,
+            verify_input_npy=get_verify_input_npy(model),
+            verify_expected_output_npy=get_verify_output_npy(model),
+        )
     return cfg
 
 
@@ -80,9 +110,22 @@ def configure_build(board, model):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["AUP-ZU3_8GB"])
+@pytest.mark.parametrize("board", ["AUP-ZU3_8GB", "Pynq-Z1", pytest.param("Ultra96", marks=pytest.mark.xfail(reason="not tested")), pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")), pytest.param("U250", marks=pytest.mark.xfail(reason="not tested"))])
 @pytest.mark.parametrize("model", ["tfc-w1a1", "tfc-w1a2", "tfc-w2a2", "cnv-w1a1", "cnv-w1a2", "cnv-w2a2"])
 def test_bnnpynq(board, model):
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
+        pytest.skip(
+            """Vivado version 2024.1 needed for the AUP-ZU3."""
+        )
+    elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
+        pytest.skip(
+            """Vivado version 2022.2 needed."""
+        )
+
     # Run build flow
     cfg = configure_build(board, model)
     model_file = get_model_file(model)
