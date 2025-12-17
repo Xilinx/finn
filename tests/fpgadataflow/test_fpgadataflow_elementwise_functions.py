@@ -181,4 +181,7 @@ def test_elementwise_function_operation(op_type, inp_dtype, inp_shape, pe, exec_
     if op_type.endswith("Relu"):
         assert np.all(o_expected == o_produced)
     else:
-        assert np.allclose(o_expected, o_produced)
+        if inp_dtype == "FLOAT16":
+            assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-13)
+        else:
+            assert np.allclose(o_expected, o_produced)
