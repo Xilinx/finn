@@ -275,7 +275,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         inst = getHWCustomOp(node)  # No model context: read only
         return inst.get_number_output_values()
 
-    def prepare_rtlsim(self):
+    def prepare_rtlsim(self, behav=False):
         """Creates a xsi emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path."""
 
@@ -288,7 +288,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         trace_file = self.get_nodeattr("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug
+            top_module_name, all_verilog_srcs, single_src_dir, debug, behav
         )
         # save generated lib filename in attribute
         sim_base, sim_rel = rtlsim_so
