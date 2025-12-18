@@ -138,7 +138,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def code_generation_ipi(self, behavioral=False):
+    def code_generation_ipi(self):
         impl_style = self.get_nodeattr("impl_style")
         if impl_style == "rtl":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -232,12 +232,12 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         ]
         return verilog_files
 
-    def prepare_rtlsim(self):
+    def prepare_rtlsim(self, behav=False):
         assert self.get_nodeattr("impl_style") != "vivado", (
             "StreamingFIFO impl_style "
             "cannot be vivado for rtlsim. Only impl_style=rtl supported."
         )
-        return super().prepare_rtlsim()
+        return super().prepare_rtlsim(behav)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

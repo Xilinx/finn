@@ -273,7 +273,7 @@ class InsertAndSetFIFODepths(Transformation):
         swg_exception=False,
         vivado_ram_style="auto",
         fifosim_input_throttle=True,
-        cfg_n_inferences=None,
+        cfg_n_inferences=2,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -382,30 +382,12 @@ class InsertAndSetFIFODepths(Transformation):
         max_cycles = perf["max_cycles"]
         model = model.transform(PrepareIP(self.fpgapart, self.clk_ns))
         model = model.transform(HLSSynthIP())
-        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns, behavioral=True))
+        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
         # do rtlsim in C++ for FIFO sizing
-        # determine # inputs for FIFO sizing according to topology type
-        swg_nodes = [
-            x for x in model.graph.node if x.op_type.startswith("ConvolutionInputGenerator")
-        ]
-        if len(swg_nodes) == 0:
-            # MLP, no layer overlap
-            # assuming half the nodes are now FIFOs, use half the # of
-            # nodes as # inputs to drive the simulation
-            n_inferences = int(len(model.graph.node) / 2)
-        else:
-            # convnet, two inputs are typically enough to fill entire
-            # layer pipeline due to overlaps
-            n_inferences = 2
-
-        # Override the number of inferences if cfg_n_inferences is set
-        if self.cfg_n_inferences is not None:
-            n_inferences = self.cfg_n_inferences
-
         # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-        max_iters = latency * 1.1 + 20
+        max_iters = latency * 1.1 + 50
 
         # set up rate limit for input throttling
         if self.fifosim_input_throttle:
@@ -415,7 +397,9 @@ class InsertAndSetFIFODepths(Transformation):
         else:
             throttle_cycles = 0
 
-        sim = xsi_fifosim(model, n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles)
+        sim = xsi_fifosim(
+            model, self.cfg_n_inferences, max_iters=max_iters, throttle_cycles=throttle_cycles
+        )
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

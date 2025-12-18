@@ -144,7 +144,7 @@ class VVAU_rtl(VVAU, RTLBackend):
         Q = self.get_nodeattr("SIMD")
         return int(P * np.ceil(Q / 3))
 
-    def instantiate_ip(self, cmd, behavioral=False):
+    def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -157,10 +157,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
-        if behavioral is True:
-            wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
-        else:
-            wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
+        wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
         sourcefiles = [os.path.join(code_gen_dir, wrapper_file)] + [
             rtllib_dir + _ for _ in sourcefiles
         ]
@@ -221,12 +218,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
-        with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+            f.write(template_wrapper)
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):

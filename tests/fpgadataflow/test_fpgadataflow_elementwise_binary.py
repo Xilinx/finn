@@ -132,7 +132,13 @@ def create_elementwise_binary_operation_onnx(
 # Data type of the left-hand-side and right-hand-side input elements
 @pytest.mark.parametrize(
     "lhs_dtype_rhs_dtype",
-    [("INT8", "INT8"), ("INT8", "FLOAT32"), ("FLOAT32", "FLOAT32"), ("FLOAT16", "FLOAT16")],
+    [
+        ("INT8", "INT8"),
+        ("INT8", "FLOAT32"),
+        ("FLOAT32", "FLOAT32"),
+        ("FLOAT16", "FLOAT16"),
+        ("FIXED<8,4>", "FIXED<10,5>"),
+    ],
 )
 # Shape of the left-hand-side input
 @pytest.mark.parametrize("lhs_shape", [[3, 1, 7, 1], [1]])
@@ -156,12 +162,16 @@ def test_elementwise_binary_operation(
     op_type, lhs_dtype_rhs_dtype, lhs_shape, rhs_shape, pe, initializers, exec_mode
 ):
     lhs_dtype, rhs_dtype = lhs_dtype_rhs_dtype
-    if "Bitwise" in op_type and (lhs_dtype.startswith("FLOAT") or rhs_dtype.startswith("FLOAT")):
-        pytest.skip("Float datatypes are not meaningful for bitwise ops, skipping those tests.")
-    if op_type in ["ElementwiseAnd", "ElementwiseOr", "ElementwiseXor"] and (
-        lhs_dtype.startswith("FLOAT") or rhs_dtype.startswith("FLOAT")
+    if "Bitwise" in op_type and not ("INT" in lhs_dtype and "INT" in rhs_dtype):
+        pytest.skip(
+            "Non-integer datatypes are not meaningful for bitwise ops, skipping those tests."
+        )
+    if op_type in ["ElementwiseAnd", "ElementwiseOr", "ElementwiseXor"] and not (
+        "INT" in lhs_dtype and "INT" in rhs_dtype
     ):
-        pytest.skip("Float datatypes are not meaningful for logical ops, skipping those tests.")
+        pytest.skip(
+            "Non-integer datatypes are not meaningful for logical ops, skipping those tests."
+        )
     out_dtype = "FLOAT16" if lhs_dtype == "FLOAT16" and rhs_dtype == "FLOAT16" else "FLOAT32"
     # Make dummy model for testing
     model = create_elementwise_binary_operation_onnx(
@@ -248,7 +258,13 @@ def test_elementwise_binary_operation(
 # Data type of the left-hand-side and right-hand-side input elements
 @pytest.mark.parametrize(
     "lhs_dtype_rhs_dtype",
-    [("INT8", "INT8"), ("INT8", "FLOAT32"), ("FLOAT32", "FLOAT32"), ("FLOAT16", "FLOAT16")],
+    [
+        ("INT8", "INT8"),
+        ("INT8", "FLOAT32"),
+        ("FLOAT32", "FLOAT32"),
+        ("FLOAT16", "FLOAT16"),
+        ("FIXED<8,4>", "FIXED<10,5>"),
+    ],
 )
 # Shape of the left-hand-side input
 @pytest.mark.parametrize("lhs_shape", [[3, 1, 7, 1]])

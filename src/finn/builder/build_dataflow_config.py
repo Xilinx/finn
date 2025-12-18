@@ -294,7 +294,8 @@ class DataflowBuildConfig:
     fifosim_input_throttle: Optional[bool] = True
 
     #: Manually specify the number of inferences for simulation-based FIFO sizing
-    fifosim_n_inferences: Optional[int] = None
+    #: Default is 2
+    fifosim_n_inferences: Optional[int] = 2
 
     #: Enable saving waveforms from simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM

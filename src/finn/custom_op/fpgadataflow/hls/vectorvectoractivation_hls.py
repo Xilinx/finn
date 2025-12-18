@@ -523,7 +523,7 @@ class VVAU_hls(VVAU, HLSBackend):
                 ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
             )
 
-    def instantiate_ip(self, cmd, behavioral=False):
+    def instantiate_ip(self, cmd):
         # instantiate the HLS IP
         vlnv = self.get_nodeattr("ip_vlnv")
         node_name = self.onnx_node.name

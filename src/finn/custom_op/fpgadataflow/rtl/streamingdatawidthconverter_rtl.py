@@ -127,7 +127,7 @@ class StreamingDataWidthConverter_rtl(StreamingDataWidthConverter, RTLBackend):
 
         return verilog_files
 
-    def code_generation_ipi(self, behavioral=False):
+    def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 

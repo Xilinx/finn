@@ -27,20 +27,22 @@ output	[$SIMD$-1:0][31:0]  out0_V_TDATA
 
 
 layernorm #(
- .N($N$),
- .SIMD($SIMD$),
- .FORCE_BEHAVIORAL($FORCE_BEHAVIORAL$)
+`ifdef FINN_SIMULATION
+	.FORCE_BEHAVIORAL(1),
+`endif
+	.N($N$),
+	.SIMD($SIMD$)
 )
 impl
 (
- .clk(ap_clk),
- .rst(!ap_rst_n),
- .xdat(in0_V_TDATA),
- .xvld(in0_V_TVALID),
- .xrdy(in0_V_TREADY),
- .ydat(out0_V_TDATA),
- .yvld(out0_V_TVALID),
- .yrdy(out0_V_TREADY)
+	.clk(ap_clk),
+	.rst(!ap_rst_n),
+	.xdat(in0_V_TDATA),
+	.xvld(in0_V_TVALID),
+	.xrdy(in0_V_TREADY),
+	.ydat(out0_V_TDATA),
+	.yvld(out0_V_TVALID),
+	.yrdy(out0_V_TREADY)
 );
 
 endmodule

@@ -196,7 +196,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             mult_dsp = np.ceil(P / 4) * Q
         return int(mult_dsp)
 
-    def instantiate_ip(self, cmd, behavioral=False):
+    def instantiate_ip(self, cmd):
         # instantiate the RTL IP
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -209,10 +209,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
-        if behavioral is True:
-            wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
-        else:
-            wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
+        wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
         sourcefiles = [os.path.join(code_gen_dir, wrapper_file)] + [
             rtllib_dir + _ for _ in sourcefiles
         ]
@@ -343,12 +340,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
             "w",
         ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
-        with open(
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"),
-            "w",
-        ) as f:
-            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+            f.write(template_wrapper)
 
         dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")

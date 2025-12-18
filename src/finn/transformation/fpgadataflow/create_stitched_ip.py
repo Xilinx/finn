@@ -85,9 +85,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(
-        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], behavioral=False
-    ):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -95,7 +93,6 @@ class CreateStitchedIP(Transformation):
         self.is_mlo = False
         self.vitis = vitis
         self.signature = signature
-        self.behavioral = behavioral
         self.has_aximm = False
         self.aximm_idx = 0
         self.has_m_axis = False
@@ -419,7 +416,7 @@ class CreateStitchedIP(Transformation):
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            self.create_cmds += node_inst.code_generation_ipi(self.behavioral)
+            self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node, model)
             self.connect_ap_none_external(node, model)
             self.connect_axi(node, model)

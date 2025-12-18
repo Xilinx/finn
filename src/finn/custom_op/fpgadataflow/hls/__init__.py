@@ -58,6 +58,7 @@ from finn.custom_op.fpgadataflow.hls.elementwise_binary_hls import (
 )
 from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
+from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls

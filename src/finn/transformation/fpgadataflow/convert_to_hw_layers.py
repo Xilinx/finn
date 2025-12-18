@@ -181,14 +181,16 @@ class InferThresholdingLayer(Transformation):
                 idt = model.get_tensor_datatype(thl_input)
                 tdt = model.get_tensor_datatype(thl_threshold)
 
-                # only infer layers where input and thresholds are integers or fp32
+                # only infer layers where input and thresholds are integers, floats, or fixed-point
                 idt_int = idt.is_integer()
                 tdt_int = tdt.is_integer()
                 idt_fp = idt in ["FLOAT32", "FLOAT16"]
                 tdt_fp = tdt in ["FLOAT32", "FLOAT16"]
-                if not (idt_int or idt_fp):
+                idt_fxp = idt.is_fixed_point()
+                tdt_fxp = tdt.is_fixed_point()
+                if not (idt_int or idt_fp or idt_fxp):
                     continue
-                if not (tdt_int or tdt_fp):
+                if not (tdt_int or tdt_fp or tdt_fxp):
                     continue
 
                 # check layout of inputs/outputs, and convert if needed
@@ -1763,6 +1765,44 @@ class InferVectorVectorActivation(Transformation):
         return (model, graph_modified)
 
 
+class InferHWSoftmax(Transformation):
+    """
+    Infers a regular softmax node without merging the multithreshold
+    and setting the softmax to perform the quantisation.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "Softmax":
+                input_shape = model.get_tensor_shape(n.input[0])
+                idt0 = model.get_tensor_datatype(n.input[0])
+                odt0 = model.get_tensor_datatype(n.output[0])
+                new_node = helper.make_node(
+                    "HWSoftmax",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    ifm_dim=input_shape,
+                    input_data_type=idt0.name,
+                    output_data_type=odt0.name,
+                    name=n.name,
+                    SIMD=1,
+                    NumChannels=input_shape[-1],
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+        return (model, graph_modified)
+
+
 class InferShuffle(Transformation):
     """
     Find transpose layers with (optionally) reshape layers around them
@@ -1998,3 +2038,88 @@ class InferElementwiseBinaryOperation(Transformation):
         # Return the transformed model and indicate whether the graph actually
         # has been transformed
         return model, graph_modified
+
+
+class InferLayerNorm(Transformation):
+    """Convert LayerNorm into HW, only norming over channel dim.
+    This transform is adapted from Brainsmith InferLayerNorm."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "LayerNormalization":
+                scale = model.get_initializer(node.input[1])
+                if len(node.input) > 2:
+                    bias = model.get_initializer(node.input[2])
+                else:
+                    bias = None
+                scale_is_one = (scale == 1).all()
+                bias_is_zero = not np.any(bias)
+                if not (scale_is_one and (bias_is_zero or bias is not None)):
+                    warnings.warn(
+                        f"""{node.name}: Scale is not one or bias is not zero.
+                        Can't be converted to HWCustomOp. Please run ExtractNormScaleBias first."""
+                    )
+                    continue
+                act_in = node.input[0]
+                act_out = node.output[0]
+                # Get any shape info that needs reuse
+                shape_in = model.get_tensor_shape(act_in)
+                # Get datatypes
+                idt = model.get_tensor_datatype(act_in)
+                odt = model.get_tensor_datatype(act_out)
+                if not idt == odt == DataType["FLOAT32"]:
+                    warnings.warn(
+                        f"""{node.name}: Datatype is not float32,
+                        currently only fp32 layernorm is supported."""
+                    )
+                    continue
+
+                norm_axis = helper.get_node_attr_value(node, "axis")
+                if model.get_tensor_layout(act_in) == DataLayout.NCHW:
+                    act_in = nchw_to_nhwc(act_in, model, node_ind)
+                    node_ind += 1
+                    shape_in = model.get_tensor_shape(act_in)
+                    # shift axis for norm appropriately
+                    norm_axis = (norm_axis + 2) % 4
+                ch = shape_in[-1]
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                if model.get_tensor_layout(act_out) == DataLayout.NCHW:
+                    act_out = nchw_to_nhwc(act_out, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # Check if 1D, norming on channel axis
+                if not (norm_axis == -1 or norm_axis == len(shape_in) - 1):
+                    continue
+
+                # create node with no parallelization first
+                simd = 1
+                assert ch % simd == 0, "Requirement IFC divisable by PE is violated."
+                # create and insert nodes
+                new_node = helper.make_node(
+                    "LayerNorm",
+                    [act_in],
+                    [act_out],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    SIMD=simd,
+                    ifm_dim=shape_in,
+                    epsilon=helper.get_node_attr_value(node, "epsilon"),
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    name="LayerNorm_" + node.name,
+                )
+                graph.node.insert(insert_point, new_node)
+                # remove old node
+                graph.node.remove(node)
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)

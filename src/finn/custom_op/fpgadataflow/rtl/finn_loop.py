@@ -1123,7 +1123,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         return intf_names
 
-    def code_generation_ipi(self, behavioral=False):
+    def code_generation_ipi(self):
         vlnv = self.get_nodeattr("ip_vlnv")
         cmd = []
         # add all the generated IP dirs to ip_repo_paths

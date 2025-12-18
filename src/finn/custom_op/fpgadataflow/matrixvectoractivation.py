@@ -945,7 +945,7 @@ class MVAU(HWCustomOp):
                         intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def code_generation_ipi(self, behavioral=False):
+    def code_generation_ipi(self):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
         dyn_input = self.get_nodeattr("dynamic_input")
@@ -994,7 +994,7 @@ class MVAU(HWCustomOp):
                 )
 
             # Instantiate either the HLS or RTL IP depending on operator
-            self.instantiate_ip(cmd, behavioral)
+            self.instantiate_ip(cmd)
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             if dyn_input:
                 # additional dynamic input
@@ -1172,7 +1172,7 @@ class MVAU(HWCustomOp):
             "mlo_max_iter"
         ):
             # base class impl sufficient for internal_embedded/external modes
-            self.instantiate_ip(cmd, behavioral)
+            self.instantiate_ip(cmd)
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
