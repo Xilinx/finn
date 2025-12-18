@@ -195,6 +195,24 @@ def _register_kernels():
             },
         },
         {
+            "name": "HWSoftmax",
+            "module": "finn.custom_op.fpgadataflow.hwsoftmax",
+            "class_name": "HWSoftmax",
+            "infer_transform": {
+                "module": "finn.transformation.fpgadataflow.convert_to_hw_layers",
+                "class_name": "InferHWSoftmax",
+            },
+        },
+        {
+            "name": "LayerNorm",
+            "module": "finn.custom_op.fpgadataflow.layernorm",
+            "class_name": "LayerNorm",
+            "infer_transform": {
+                "module": "finn.transformation.fpgadataflow.convert_to_hw_layers",
+                "class_name": "InferLayerNorm",
+            },
+        },
+        {
             "name": "Shuffle",
             "module": "finn.custom_op.fpgadataflow.shuffle",
             "class_name": "Shuffle",
@@ -340,6 +358,13 @@ def _register_backends():
             "language": "hls",
         },
         {
+            "name": "HWSoftmax_hls",
+            "module": "finn.custom_op.fpgadataflow.hls.hwsoftmax_hls",
+            "class_name": "HWSoftmax_hls",
+            "target_kernel": "finn:HWSoftmax",
+            "language": "hls",
+        },
+        {
             "name": "LabelSelect_hls",
             "module": "finn.custom_op.fpgadataflow.hls.labelselect_hls",
             "class_name": "LabelSelect_hls",
@@ -408,6 +433,13 @@ def _register_backends():
             "module": "finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl",
             "class_name": "ConvolutionInputGenerator_rtl",
             "target_kernel": "finn:ConvolutionInputGenerator",
+            "language": "rtl",
+        },
+        {
+            "name": "LayerNorm_rtl",
+            "module": "finn.custom_op.fpgadataflow.rtl.layernorm_rtl",
+            "class_name": "LayerNorm_rtl",
+            "target_kernel": "finn:LayerNorm",
             "language": "rtl",
         },
         {
