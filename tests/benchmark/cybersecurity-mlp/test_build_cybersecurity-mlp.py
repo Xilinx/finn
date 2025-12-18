@@ -83,7 +83,7 @@ def configure_build(board):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", ["Ultra96", "Pynq-Z1", "AUP-ZU3_8GB", pytest.param("Ultra96", marks=pytest.mark.xfail(reason="not tested")), pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested"))])
+@pytest.mark.parametrize("board", ["Pynq-Z1", "AUP-ZU3_8GB", "Ultra96", "ZCU104"])
 def test_cybersecuritymlp(board):
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
