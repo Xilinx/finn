@@ -31,6 +31,7 @@ from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
 )
 from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
+from finn.custom_op.fpgadataflow.rtl.layernorm_rtl import LayerNorm_rtl
 from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
 from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
@@ -45,6 +46,7 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["LayerNorm_rtl"] = LayerNorm_rtl
 custom_op["StreamingDataWidthConverter_rtl"] = StreamingDataWidthConverter_rtl
 custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
 custom_op["MVAU_rtl"] = MVAU_rtl
