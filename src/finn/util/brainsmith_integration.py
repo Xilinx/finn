@@ -140,6 +140,15 @@ def _register_kernels():
             },
         },
         {
+            "name": "Crop",
+            "module": "finn.custom_op.fpgadataflow.crop",
+            "class_name": "Crop",
+            "infer_transform": {
+                "module": "finn.transformation.fpgadataflow.convert_to_hw_layers",
+                "class_name": "InferCrop",
+            },
+        },
+        {
             "name": "DuplicateStreams",
             "module": "finn.custom_op.fpgadataflow.duplicatestreams",
             "class_name": "DuplicateStreams",
@@ -334,6 +343,13 @@ def _register_backends():
             "module": "finn.custom_op.fpgadataflow.hls.channelwise_op_hls",
             "class_name": "ChannelwiseOp_hls",
             "target_kernel": "finn:ChannelwiseOp",
+            "language": "hls",
+        },
+        {
+            "name": "Crop_hls",
+            "module": "finn.custom_op.fpgadataflow.hls.crop_hls",
+            "class_name": "Crop_hls",
+            "target_kernel": "finn:Crop",
             "language": "hls",
         },
         {
