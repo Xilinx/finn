@@ -37,6 +37,7 @@ from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
+from finn.custom_op.fpgadataflow.crop import Crop
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 
 # Also import ElementwiseBinary variants

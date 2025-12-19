@@ -35,6 +35,7 @@ from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
+from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 
 # Also import ElementwiseBinary variants
