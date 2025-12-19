@@ -26,6 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
+from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.remove import RemoveIdentityOps
+
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+import finn.transformation.streamline.absorb as absorb
+import finn.transformation.streamline.reorder as reorder
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     ShellFlowType,
@@ -33,23 +49,8 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.builder.build_dataflow_steps import verify_step
 from finn.transformation.streamline import Streamline
-from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
-import finn.transformation.streamline.absorb as absorb
-import finn.transformation.streamline.reorder as reorder
-from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
-from qonnx.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    ApplyConfig,
-)
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
-from qonnx.transformation.infer_datatypes import InferDataTypes
 
 
 def step_mobilenet_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):

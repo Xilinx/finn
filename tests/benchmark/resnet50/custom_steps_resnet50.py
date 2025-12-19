@@ -27,77 +27,65 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-
+from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
+from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
 from qonnx.transformation.fold_constants import FoldConstants
-
 from qonnx.transformation.general import (
-    ConvertSubToAdd,
+    ApplyConfig,
     ConvertDivToMul,
+    ConvertSubToAdd,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
-    SortGraph,
-    RemoveUnusedTensors,
     GiveUniqueParameterTensors,
     RemoveStaticGraphInputs,
-    ApplyConfig,
+    RemoveUnusedTensors,
+    SortGraph,
 )
-
-from finn.transformation.streamline.absorb import (
-    AbsorbScalarMulAddIntoTopK,
-    AbsorbAddIntoMultiThreshold,
-    AbsorbMulIntoMultiThreshold,
-    FactorOutMulSignMagnitude,
-    Absorb1BitMulIntoMatMul,
-    Absorb1BitMulIntoConv,
-    AbsorbConsecutiveTransposes,
-    AbsorbTransposeIntoMultiThreshold,
-)
-
-from finn.transformation.streamline.collapse_repeated import (
-    CollapseRepeatedAdd,
-    CollapseRepeatedMul,
-)
-
-from finn.transformation.streamline.reorder import (
-    MoveAddPastMul,
-    MoveScalarMulPastMatMul,
-    MoveScalarAddPastMatMul,
-    MoveAddPastConv,
-    MoveScalarMulPastConv,
-    MoveScalarLinearPastInvariants,
-    MoveMaxPoolPastMultiThreshold,
-)
-
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
-from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
-
-# just for not linear
-from finn.transformation.streamline.reorder import (
-    MoveTransposePastFork,
-    MoveTransposePastJoinAdd,
-)
-
-from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
-from qonnx.transformation.remove import RemoveIdentityOps
-from qonnx.core.datatype import DataType
-
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.remove import RemoveIdentityOps
 
-from finn.builder.build_dataflow_steps import verify_step
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     ShellFlowType,
     VerificationStepType,
 )
-
+from finn.builder.build_dataflow_steps import verify_step
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.streamline.absorb import (
+    Absorb1BitMulIntoConv,
+    Absorb1BitMulIntoMatMul,
+    AbsorbAddIntoMultiThreshold,
+    AbsorbConsecutiveTransposes,
+    AbsorbMulIntoMultiThreshold,
+    AbsorbScalarMulAddIntoTopK,
+    AbsorbTransposeIntoMultiThreshold,
+    FactorOutMulSignMagnitude,
+)
+from finn.transformation.streamline.collapse_repeated import (
+    CollapseRepeatedAdd,
+    CollapseRepeatedMul,
+)
+
+# just for not linear
+from finn.transformation.streamline.reorder import (
+    MoveAddPastConv,
+    MoveAddPastMul,
+    MoveLinearPastFork,
+    MoveMaxPoolPastMultiThreshold,
+    MoveScalarAddPastMatMul,
+    MoveScalarLinearPastInvariants,
+    MoveScalarMulPastConv,
+    MoveScalarMulPastMatMul,
+)
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 
 def step_resnet50_tidy(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -153,7 +141,7 @@ def step_resnet50_streamline_linear(model: ModelWrapper, cfg: DataflowBuildConfi
 
 def step_resnet50_streamline_nonlinear(model: ModelWrapper, cfg: DataflowBuildConfig):
     streamline_transformations = [
-        #MoveLinearPastEltwiseAdd(),
+        # MoveLinearPastEltwiseAdd(),
         MoveLinearPastFork(),
     ]
     for trn in streamline_transformations:
@@ -165,7 +153,7 @@ def step_resnet50_streamline_nonlinear(model: ModelWrapper, cfg: DataflowBuildCo
 def step_resnet50_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     for iter_id in range(4):
         model = step_resnet50_streamline_linear(model, cfg)
-        #model = step_resnet50_streamline_nonlinear(model, cfg)
+        # model = step_resnet50_streamline_nonlinear(model, cfg)
 
         # big loop tidy up
         model = model.transform(RemoveUnusedTensors())

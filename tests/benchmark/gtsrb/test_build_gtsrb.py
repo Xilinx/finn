@@ -113,10 +113,12 @@ def configure_build(board):
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
-        folding_config_file=f"{build_flow_folder}gtsrb/folding_config/gtsrb_folding_config_{board}.json",
+        folding_config_file=f"""{build_flow_folder}gtsrb/
+            folding_config/gtsrb_folding_config_{board}.json""",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=build_outputs,
-        specialize_layers_config_file=f"{build_flow_folder}gtsrb/specialize_layers_config/gtsrb_specialize_layers.json",
+        specialize_layers_config_file=f"""{build_flow_folder}gtsrb/
+            specialize_layers_config/gtsrb_specialize_layers.json""",
     )
     return cfg
 
@@ -131,13 +133,9 @@ def test_gtsrb(board):
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
     year, minor = int(match.group(1)), int(match.group(2))
     if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip(
-            """Vivado version 2024.1 needed for the AUP-ZU3."""
-        )
+        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip(
-            """Vivado version 2022.2 needed."""
-        )
+        pytest.skip("""Vivado version 2022.2 needed.""")
 
     # Run build flow
     cfg = configure_build(board)

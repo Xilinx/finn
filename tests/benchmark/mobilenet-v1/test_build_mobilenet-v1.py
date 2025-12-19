@@ -10,18 +10,19 @@ import pytest
 
 import os
 import re
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
-from finn.util.basic import make_build_dir
 
 # custom steps for mobilenetv1
 from custom_steps import (
-    step_mobilenet_streamline,
     step_mobilenet_convert_to_hw_layers,
     step_mobilenet_convert_to_hw_layers_separate_th,
     step_mobilenet_lower_convs,
     step_mobilenet_slr_floorplan,
+    step_mobilenet_streamline,
 )
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+from finn.util.basic import make_build_dir
 
 build_flow_folder = "tests/benchmark/"
 output_dir = make_build_dir("build_mobilenet-v1_")
@@ -53,6 +54,7 @@ build_outputs = [
     build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
     build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
 ]
+
 
 # select build steps (ZCU104/102 folding config is based on separate thresholding nodes)
 def select_build_steps(platform):
@@ -93,13 +95,15 @@ def select_build_steps(platform):
             "step_make_pynq_driver",
             "step_deployment_package",
         ]
-    
+
+
 # select target clock frequency
 def select_clk_period(platform):
     if platform in ["ZCU102", "ZCU104"]:
         return 5.4
     elif platform in ["U250"]:
         return 3.0
+
 
 def platform_to_shell(platform):
     if platform in ["U250"]:
@@ -115,13 +119,15 @@ def configure_build(board):
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=select_build_steps(board),
-        folding_config_file = f"{build_flow_folder}mobilenet-v1/folding_config/mobilenet_folding_config_{board}.json",
+        folding_config_file=f"""{build_flow_folder}mobilenet-v1/
+            folding_config/mobilenet_folding_config_{board}.json""",
         synth_clk_period_ns=select_clk_period(board),
         board=board,
         shell_flow_type=platform_to_shell(board),
         auto_fifo_depths=False,
         stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=f"{build_flow_folder}mobilenet-v1/specialize_layers_config/mobilenet_specialize_layers_{board}.json",
+        specialize_layers_config_file=f"""{build_flow_folder}mobilenet-v1/
+            specialize_layers_config/mobilenet_specialize_layers_{board}.json""",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
@@ -129,24 +135,26 @@ def configure_build(board):
     return cfg
 
 
-
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.finn_examples
-@pytest.mark.parametrize("board", [pytest.param("ZCU102", marks=pytest.mark.xfail(reason="not tested")), pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")), pytest.param("U250", marks=pytest.mark.xfail(reason="not tested"))])
+@pytest.mark.parametrize(
+    "board",
+    [
+        pytest.param("ZCU102", marks=pytest.mark.xfail(reason="not tested")),
+        pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")),
+        pytest.param("U250", marks=pytest.mark.xfail(reason="not tested")),
+    ],
+)
 def test_mobilenetv1(board):
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
     year, minor = int(match.group(1)), int(match.group(2))
     if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip(
-            """Vivado version 2024.1 needed for the AUP-ZU3."""
-        )
+        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip(
-            """Vivado version 2022.2 needed."""
-        )
+        pytest.skip("""Vivado version 2022.2 needed.""")
 
     # Run build flow
     cfg = configure_build(board)

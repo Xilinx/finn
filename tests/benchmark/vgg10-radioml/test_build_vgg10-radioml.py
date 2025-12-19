@@ -11,14 +11,16 @@ import pytest
 import os
 import re
 from qonnx.core.modelwrapper import ModelWrapper
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
-from finn.builder.build_dataflow_config import DataflowBuildConfig
-from finn.util.basic import make_build_dir
-import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
-import finn.transformation.streamline.absorb as absorb
 from qonnx.transformation.change_3d_tensors_to_4d import Change3DTo4DTensors
 from qonnx.transformation.general import GiveUniqueNodeNames
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+import finn.transformation.streamline.absorb as absorb
+from finn.builder.build_dataflow_config import DataflowBuildConfig
+from finn.util.basic import make_build_dir
+
 
 # custom steps for vgg10-radioml
 def step_pre_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -66,26 +68,26 @@ build_outputs = [
 ]
 
 build_steps = [
-        "step_tidy_up",
-        step_pre_streamline,
-        "step_streamline",
-        "step_convert_to_hw",
-        step_convert_final_layers,
-        "step_create_dataflow_partition",
-        "step_specialize_layers",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        "step_measure_rtlsim_performance",
-        "step_out_of_context_synthesis",
-        "step_synthesize_bitfile",
-        "step_deployment_package",
-    ]
+    "step_tidy_up",
+    step_pre_streamline,
+    "step_streamline",
+    "step_convert_to_hw",
+    step_convert_final_layers,
+    "step_create_dataflow_partition",
+    "step_specialize_layers",
+    "step_target_fps_parallelization",
+    "step_apply_folding_config",
+    "step_minimize_bit_width",
+    "step_generate_estimate_reports",
+    "step_hw_codegen",
+    "step_hw_ipgen",
+    "step_set_fifo_depths",
+    "step_create_stitched_ip",
+    "step_measure_rtlsim_performance",
+    "step_out_of_context_synthesis",
+    "step_synthesize_bitfile",
+    "step_deployment_package",
+]
 
 
 def configure_build(board):
@@ -93,19 +95,20 @@ def configure_build(board):
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=build_steps,
-        folding_config_file = f"{build_flow_folder}vgg10-radioml/folding_config/vgg10radioml_folding_config.json",
+        folding_config_file=f"""{build_flow_folder}vgg10-radioml/
+            folding_config/vgg10radioml_folding_config.json""",
         synth_clk_period_ns=4.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         split_large_fifos=True,
         standalone_thresholds=True,
-        specialize_layers_config_file=f"{build_flow_folder}vgg10-radioml/specialize_layers_config/vgg10radioml_specialize_layers.json",
+        specialize_layers_config_file=f"""{build_flow_folder}vgg10-radioml/
+            specialize_layers_config/vgg10radioml_specialize_layers.json""",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
     )
     return cfg
-
 
 
 @pytest.mark.slow
@@ -118,13 +121,9 @@ def test_vgg10radioml(board):
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
     year, minor = int(match.group(1)), int(match.group(2))
     if board == "AUP-ZU3_8GB" and (year, minor) != (2024, 1):
-        pytest.skip(
-            """Vivado version 2024.1 needed for the AUP-ZU3."""
-        )
+        pytest.skip("""Vivado version 2024.1 needed for the AUP-ZU3.""")
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
-        pytest.skip(
-            """Vivado version 2022.2 needed."""
-        )
+        pytest.skip("""Vivado version 2022.2 needed.""")
 
     # Run build flow
     cfg = configure_build(board)
