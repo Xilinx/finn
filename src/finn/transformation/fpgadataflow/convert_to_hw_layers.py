@@ -1798,6 +1798,8 @@ class InferHWSoftmax(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
         return (model, graph_modified)
@@ -2115,6 +2117,8 @@ class InferLayerNorm(Transformation):
                     outputDataType=odt.name,
                     name="LayerNorm_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -2246,6 +2250,8 @@ class InferCrop(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
                 graph_modified = True

@@ -100,11 +100,15 @@ class ExtractNormScaleBias(Transformation):
                 insert_point = node_ind
                 if not scale_is_one:
                     insert_point += 1
+                    if hasattr(node, "metadata_props"):
+                        mul_node.metadata_props.extend(node.metadata_props)
                     graph.node.insert(insert_point, mul_node)
                     model.set_initializer(mul_node.input[1], scale)
                     model.set_tensor_datatype(mul_node.input[1], scale_dt)
                 if not bias_is_zero or bias is not None:
                     insert_point += 1
+                    if hasattr(node, "metadata_props"):
+                        add_node.metadata_props.extend(node.metadata_props)
                     graph.node.insert(insert_point, add_node)
                     model.set_initializer(add_node.input[1], bias)
                     model.set_tensor_datatype(add_node.input[1], bias_dt)
