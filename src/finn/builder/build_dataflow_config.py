@@ -365,6 +365,11 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
+    #: A List of strings that specify the PyTorch metadata hierarchy to
+    #: be used for the loop body hierarchy. Each item in the list should
+    #: be a string that represents a level in the hierarchy.
+    loop_body_hierarchy: Optional[List[List[str]]] = None
+
     #: Determine if the C++ driver should be generated instead of the PYNQ driver
     #: If set to latest newest version will be used
     #: If set to commit hash specified version will be used

@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
@@ -38,6 +37,7 @@ from qonnx.transformation.general import (
     GiveUniqueNodeNames,
     SortGraph,
 )
+from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
@@ -103,7 +103,7 @@ class RemoveShallowFIFOs(Transformation):
             if (
                 node.op_type.startswith("StreamingFIFO")
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
-                and (not is_first_node)
+                and (not is_first_node or getCustomOp(node).get_nodeattr("mlo_max_iter"))
             ):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
@@ -284,14 +284,27 @@ class InsertAndSetFIFODepths(Transformation):
         self.vivado_ram_style = vivado_ram_style
         self.fifosim_input_throttle = fifosim_input_throttle
         self.cfg_n_inferences = cfg_n_inferences
+        self.mlo_max_iter = 0
+        self.ind_map = {}
 
     def apply(self, model):
-        # these optypes may potentially use external weights
-        # we'll temporarily change them to use decoupled mode for FIFO sizing
-        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
-        # change external to decoupled and warn user
-        # this way we are sure we have exactly one input/output
-        modified_fc_nodes = []
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        for x in model.graph.node:
+            if x.op_type == "FINNLoop":
+                reset_implementation(getCustomOp(x))
+                return (model, False)
+
+        # these optypes may potentially be param nodes in an mlo
+        # we'll temporarily change them to use external mode for FIFO sizing
+        mlo_optypes = [
+            "MVAU_hls",
+            "MVAU_rtl",
+            "Thresholding_rtl",
+            "ElementwiseAdd_hls",
+            "ElementwiseMul_hls",
+        ]
+        modified_mlo_nodes = []
         for node in model.graph.node:
             # verify assumptions
             assert is_hls_node(node) or is_rtl_node(node), "Found non-fpgadataflow node: " + str(
@@ -318,17 +331,31 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = tensor_size if tensor_size > 1 else 2
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
-            if node.onnx_node.op_type in extw_optypes:
-                mmode = node.get_nodeattr("mem_mode")
-                if mmode == "external":
-                    modified_fc_nodes.append(node.onnx_node.name)
-                    node.set_nodeattr("mem_mode", "internal_decoupled")
+            if node.onnx_node.op_type in mlo_optypes:
+                mlo_max_iter = node.get_nodeattr("mlo_max_iter")
+                if mlo_max_iter:
+                    modified_mlo_nodes.append(node.onnx_node.name)
+                    node.set_nodeattr("mlo_max_iter", 0)
+                    if node.onnx_node.op_type.startswith("MVAU"):
+                        node.set_nodeattr("mem_mode", "external")
+                    elif (
+                        node.onnx_node.op_type == "Thresholding_rtl"
+                        or node.onnx_node.op_type.startswith("Elementwise")
+                    ):
+                        # set thresholding array to a dummy value
+                        param_input = node.onnx_node.input[1]
+                        # remember index of input
+                        inputs = [x.name for x in model.graph.input]
+                        ind = inputs.index(param_input)
+                        tdt = model.get_tensor_datatype(param_input)
+                        tshape = model.get_tensor_shape(param_input)
+                        dummy_threshs = gen_finn_dt_tensor(tdt, tuple(tshape))
+                        if node.onnx_node.op_type == "Thresholding_rtl":
+                            dummy_threshs = np.sort(dummy_threshs, axis=1)
+                        model.set_initializer(param_input, dummy_threshs)
+                        self.ind_map[node.onnx_node.name] = ind
+                    self.mlo_max_iter = mlo_max_iter
                     reset_implementation(node)
-                    warnings.warn(
-                        "Changed mem_mode from external to internal_decoupled for "
-                        + node.onnx_node.name
-                    )
-
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
@@ -411,20 +438,51 @@ class InsertAndSetFIFODepths(Transformation):
                 # (removed setting of node FIFO size attributes to 0 here)
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
-                if node.op_type in extw_optypes:
-                    if node.name in modified_fc_nodes:
+                if node.op_type in mlo_optypes:
+                    if node.name in modified_mlo_nodes and node.op_type.startswith("MVAU"):
                         node_inst = getCustomOp(node)
-                        node_inst.set_nodeattr("mem_mode", "external")
+                        node_inst.set_nodeattr("mlo_max_iter", self.mlo_max_iter)
+                        node_inst.set_nodeattr("mem_mode", "internal_decoupled")
                         reset_implementation(node_inst)
-                        modified_fc_nodes.remove(node.name)
+                        modified_mlo_nodes.remove(node.name)
+
+        sorted_ind_map = dict(sorted(self.ind_map.items(), key=lambda item: item[1]))
+        for k, v in sorted_ind_map.items():
+            node = model.get_node_from_name(k)
+            node_inst = getCustomOp(node)
+            node_inst.set_nodeattr("mlo_max_iter", self.mlo_max_iter)
+            # remove initializer again
+            param_input = node.input[1]
+            param_input_vi = model.get_tensor_valueinfo(param_input)
+            model.del_initializer(param_input)
+            model.graph.input.insert(self.ind_map[node.name], param_input_vi)
+            model.graph.value_info.remove(param_input_vi)
+            if node.op_type.startswith("Elementwise"):
+                node_inst.set_nodeattr("rhs_style", "input")
+            reset_implementation(node_inst)
+            modified_mlo_nodes.remove(node.name)
 
         assert (
-            len(modified_fc_nodes) == 0 and len(fifos.keys()) == 0
+            len(modified_mlo_nodes) == 0 and len(fifos.keys()) == 0
         ), "FIFO/FC nodes left untouched after model reconfiguration"
 
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
             model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
+
+        # remove FIFOs from mlo parameter inputs
+        for op_type in mlo_optypes:
+            nodes = model.get_nodes_by_op_type(op_type)
+            for node in nodes:
+                node_inst = getCustomOp(node)
+                if node_inst.get_nodeattr("mlo_max_iter"):
+                    # Check if there is a FIFO inserted at param input
+                    fifo_node = model.find_producer(node.input[1])
+                    if fifo_node and fifo_node.op_type.startswith("StreamingFIFO"):
+                        fifo_inst = getCustomOp(fifo_node)
+                        fifo_inst.set_nodeattr("depth", 0)
+                        fifo_inst.set_nodeattr("mlo_max_iter", 1)
+
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 

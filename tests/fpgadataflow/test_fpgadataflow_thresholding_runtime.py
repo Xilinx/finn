@@ -26,6 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+try:
+    import finn_xsi.adapter as finnxsi
+except ModuleNotFoundError:
+    finnxsi = None
+
 import pytest
 
 import numpy as np
@@ -323,6 +328,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
             addr += 4
         sim.write_axilite("s_axilite_0", iter(writes))
         sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     T_read_stream = []
 

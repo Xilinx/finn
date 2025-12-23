@@ -146,6 +146,15 @@ finn.transformation.fpgadataflow.insert\_tlastmarker
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.loop\_rolling
+-------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.loop_rolling
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.transformation.fpgadataflow.make\_pynq\_driver
 ----------------------------------------------------------
 
@@ -201,6 +210,14 @@ finn.transformation.fpgadataflow.prepare\_rtlsim
 -------------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.prepare_rtlsim
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.transformation.fpgadataflow.raise\_scalar\_to\_rank1
+-------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.raise_scalar_to_rank1
    :members:
    :undoc-members:
    :show-inheritance:
