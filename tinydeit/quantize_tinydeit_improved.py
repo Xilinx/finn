@@ -34,16 +34,12 @@ import copy
 def load_tinydeit_model(model_path=None):
     """Load the TinyDEIT model - either pre-trained or CIFAR-10 fine-tuned"""
     if model_path and os.path.exists(model_path):
-        print(f"Loading CIFAR-10 fine-tuned TinyDEIT model from {model_path}...")
         processor = AutoImageProcessor.from_pretrained(model_path)
         model = AutoModelForImageClassification.from_pretrained(model_path)
-        print(f"✅ Loaded CIFAR-10 trained model with {model.config.num_labels} classes")
     else:
-        print("Loading pre-trained TinyDEIT model from HuggingFace...")
         model_name = "facebook/deit-tiny-patch16-224"
         processor = AutoImageProcessor.from_pretrained(model_name)
         model = AutoModelForImageClassification.from_pretrained(model_name)
-        print(f"⚠️  Using ImageNet pre-trained model with {model.config.num_labels} classes")
     
     model.eval()
     print(f"Model loaded with {sum(p.numel() for p in model.parameters()):,} parameters")
@@ -79,23 +75,20 @@ def replace_linear_modules_selective(model, skip_sensitive=True, bitwidth=8):
                     print(f"  Skipping sensitive layer: {full_name}")
                     skipped_count += 1
                 else:
-                    # Use better quantization with symmetric quantization
                     quant_linear = qnn.QuantLinear(
                         in_features=child.in_features,
                         out_features=child.out_features,
                         bias=child.bias is not None,
-                        input_quant=Int8ActPerTensorFixedPoint,  # Better than float
+                        input_quant=Int8ActPerTensorFixedPoint, 
                         weight_quant=Int8WeightPerTensorFixedPoint,  # Symmetric quantization
                         weight_bit_width=bitwidth,
                         return_quant_tensor=False
                     )
                     
-                    # Copy weights and bias from original module
                     quant_linear.weight.data.copy_(child.weight.data)
                     if child.bias is not None:
                         quant_linear.bias.data.copy_(child.bias.data)
                     
-                    # Replace the module
                     setattr(module, name, quant_linear)
                     replaced_count += 1
             else:
@@ -118,7 +111,6 @@ def replace_gelu_modules_selective(model, skip_sensitive=True, bitwidth=8):
         print("Could not import GELUActivation")
         return 0, 0
     
-    # Define sensitive activation patterns
     sensitive_patterns = [
         'classifier',  # Skip activations near classifier
     ]
@@ -201,7 +193,6 @@ def load_cifar10_data_augmented(processor, num_samples=1000):
     train_dataset = load_dataset("cifar10", split="train")
     test_dataset = load_dataset("cifar10", split="test")
     
-    # Combine and shuffle for better diversity
     combined_indices = []
     samples_per_class = num_samples // 10  # Ensure balanced classes
     
@@ -412,19 +403,15 @@ def apply_qonnx_cleanup(model_path):
 
 def export_to_qonnx(model, output_path, image_size=224, opset_version=17):
     """Export quantized model to clean QONNX with specified opset"""
-    print(f"Exporting improved quantized model to QONNX with Opset {opset_version}...")
     
     device = next(model.parameters()).device
     model.eval()
     
-    # Wrap model for clean export
     wrapped_model = CleanDeitWrapper(model)
     wrapped_model.eval()
     
-    # Create dummy input with fixed dimensions for consistent export
     dummy_input = torch.randn(1, 3, image_size, image_size, dtype=torch.float32).to(device)
     
-    # Export using Brevitas QONNX export with specified opset
     from brevitas.export import export_qonnx
     export_qonnx(
         wrapped_model, 
@@ -436,20 +423,12 @@ def export_to_qonnx(model, output_path, image_size=224, opset_version=17):
     
     print(f"Quantized QONNX model saved to: {output_path}")
     
-    # Check quantization nodes
     import onnx
     onnx_model = onnx.load(output_path)
     quant_nodes = sum(1 for node in onnx_model.graph.node 
                      if 'quant' in node.op_type.lower())
-    
     print(f"  ONNX model has {len(onnx_model.graph.node)} nodes, {quant_nodes} quantization nodes")
     
-    if quant_nodes > 0:
-        print("  ✅ Quantization successfully preserved in ONNX!")
-    else:
-        print("  ⚠️  Warning: No quantization nodes found in ONNX")
-    
-    # Apply QONNX cleanup to reduce complexity
     cleaned_path = apply_qonnx_cleanup(output_path)
     
     return cleaned_path
@@ -522,21 +501,6 @@ def main():
     model_save_path = args.output.replace('.onnx', '.pth')
     torch.save(quantized_model.state_dict(), model_save_path)
     print(f"Quantized PyTorch model saved to: {model_save_path}")
-    
-    print(f"\n{'='*60}")
-    print(f"Improved TinyDEIT Quantization Complete!")
-    print(f"{'='*60}")
-    print(f"✅ QONNX model: {onnx_path}")
-    if cleaned_onnx_path != onnx_path:
-        print(f"✅ Cleaned QONNX model: {cleaned_onnx_path}")
-    print(f"✅ PyTorch model: {model_save_path}")
-    
-    strategy = "Mixed precision" if mixed_precision else "Full quantization"
-    print(f"📊 Strategy: {strategy}, {args.bitwidth}-bit, {args.calibration_samples} calibration samples")
-    
-    if args.benchmark:
-        print(f"📈 Accuracy: {accuracy:.2f}%, Avg Confidence: {confidence:.3f}")
-
 
 if __name__ == "__main__":
     main()

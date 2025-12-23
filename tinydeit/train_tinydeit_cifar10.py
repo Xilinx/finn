@@ -259,18 +259,5 @@ def main():
     # Save model and metrics
     model_dir = save_model_and_metrics(model, processor, test_accuracy, args.output_dir)
     
-    print(f"\n{'='*60}")
-    print(f"TinyDEIT CIFAR-10 Training Complete!")
-    print(f"{'='*60}")
-    print(f"✅ Model saved to: {model_dir}")
-    print(f"✅ Test accuracy: {test_accuracy:.4f} ({test_accuracy*100:.2f}%)")
-    print(f"✅ Ready for quantization!")
-    
-    # Provide next steps
-    print(f"\nNext steps:")
-    print(f"1. Run quantization: python quantize_tinydeit_cifar10.py --model_path {model_dir}")
-    print(f"2. Demo the model: make demo")
-
-
 if __name__ == "__main__":
     main()
