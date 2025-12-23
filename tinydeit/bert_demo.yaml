@@ -1,0 +1,43 @@
+
+name: "BERT Demo"
+description: "Hugging face BERT model"
+
+extends: "${BSMITH_DIR}/brainsmith/blueprints/bert.yaml"
+
+# Configuration overrides
+clock_ns: 5.0                       # Target clock period in nanoseconds
+output: "bitfile"                   # estimates | rtl | bitfile
+board: "V80"                        # Target FPGA board
+save_intermediate_models: true      # Save intermediate ONNX models
+
+# Direct override FINN configuration options
+finn_config:
+  loop_body_hierarchy: [
+    ['bert', 'bert.encoder', 'bert.encoder.layer.0']
+  ]
+  standalone_thresholds: true
+  folding_config_file: "${BSMITH_DIR}/examples/bert_training/initial_folding.json"
+  split_large_fifos: true
+  auto_fifo_depths: true
+  fifosim_n_inferences: 2         # Speed up FIFO sizing
+  stitched_ip_gen_dcp: true
+  verify_steps:
+    - "stitched_ip_rtlsim"
+  #verify_save_rtlsim_waveforms: true #This is really big
+  verify_save_full_context: true
+  verification_atol: 0.1
+
+design_space:
+  # Inherit kernels from parent blueprint
+
+  # Add pre/post-processing steps to standard BERT blueprint
+  steps:
+    - at_start:
+        insert:
+          - "bert_cleanup"
+          - "remove_head"
+            #- "remove_tail"
+          - "generate_reference_io"
+
+    - at_end:
+        insert: "shell_metadata_handover"

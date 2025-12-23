@@ -20,3 +20,6 @@ sigtools==4.0.1
 toposort==1.7.0
 vcdvcd==1.0.5
 wget==3.2
+transformers==4.57.3
+datasets==4.4.2
+onnxsim==0.4.36
