@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Improved TinyDEIT INT8 Quantization with better techniques
+Improved TinyDEIT INT8 Quantization
 """
 
 import torch
@@ -42,7 +42,6 @@ def load_tinydeit_model(model_path=None):
         model = AutoModelForImageClassification.from_pretrained(model_name)
     
     model.eval()
-    print(f"Model loaded with {sum(p.numel() for p in model.parameters()):,} parameters")
     return model, processor
 
 
@@ -51,7 +50,6 @@ def replace_linear_modules_selective(model, skip_sensitive=True, bitwidth=8):
     replaced_count = 0
     skipped_count = 0
     
-    # Define sensitive layer patterns (classifier, first/last layers)
     sensitive_patterns = [
         'classifier',          # Final classification layer
         'embeddings.patch_embeddings.projection',  # First patch embedding
@@ -100,87 +98,15 @@ def replace_linear_modules_selective(model, skip_sensitive=True, bitwidth=8):
     return replaced_count, skipped_count
 
 
-def replace_gelu_modules_selective(model, skip_sensitive=True, bitwidth=8):
-    """Selectively replace GELUActivation modules with QuantReLU"""
-    replaced_count = 0
-    skipped_count = 0
-    
-    try:
-        from transformers.activations import GELUActivation
-    except ImportError:
-        print("Could not import GELUActivation")
-        return 0, 0
-    
-    sensitive_patterns = [
-        'classifier',  # Skip activations near classifier
-    ]
-    
-    def should_skip_layer(name):
-        if not skip_sensitive:
-            return False
-        return any(pattern in name for pattern in sensitive_patterns)
-    
-    def replace_recursive(module, prefix=""):
-        nonlocal replaced_count, skipped_count
-        
-        for name, child in module.named_children():
-            full_name = f"{prefix}.{name}" if prefix else name
-            
-            if isinstance(child, GELUActivation):
-                if should_skip_layer(full_name):
-                    print(f"  Skipping sensitive activation: {full_name}")
-                    skipped_count += 1
-                else:
-                    # Use better quantization for ReLU
-                    quant_relu = qnn.QuantReLU(
-                        act_quant=Uint8ActPerTensorFloat,  # Keep this as float for ReLU
-                        bit_width=bitwidth,
-                        return_quant_tensor=False
-                    )
-                    
-                    # Replace the module
-                    setattr(module, name, quant_relu)
-                    replaced_count += 1
-            else:
-                # Recursively process children
-                replace_recursive(child, full_name)
-    
-    replace_recursive(model)
-    
-    return replaced_count, skipped_count
-
 
 def quantize_model_improved(model, bitwidth=8, mixed_precision=True):
-    """Apply improved DeiT quantization with mixed precision support"""
-    print(f"Applying improved DeiT quantization with {bitwidth}-bit precision...")
-    if mixed_precision:
-        print("Using mixed precision (keeping sensitive layers in FP32)")
-    
-    # Clone the model
     model = copy.deepcopy(model)
-    dtype = torch.float32
-    model.to(dtype=dtype)
+    model.to(dtype=torch.float32)
     model.eval()
     
-    # Replace Linear layers with QuantLinear (selectively)
-    print("Replacing Linear layers with QuantLinear...")
     linear_count, linear_skipped = replace_linear_modules_selective(
         model, skip_sensitive=mixed_precision, bitwidth=bitwidth
     )
-    print(f"  Replaced {linear_count} Linear layers, skipped {linear_skipped} sensitive layers")
-    
-    # Replace GELUActivation with QuantReLU (selectively)
-    print("Replacing GELUActivation with QuantReLU...")
-    gelu_count, gelu_skipped = replace_gelu_modules_selective(
-        model, skip_sensitive=mixed_precision, bitwidth=bitwidth
-    )
-    print(f"  Replaced {gelu_count} GELUActivation layers, skipped {gelu_skipped} sensitive activations")
-    
-    model.to(dtype=dtype)
-    
-    total_replaced = linear_count + gelu_count
-    total_skipped = linear_skipped + gelu_skipped
-    print(f"Improved quantization completed: {total_replaced} layers quantized, {total_skipped} kept in FP32")
     
     return model
 
@@ -213,11 +139,8 @@ def load_cifar10_data_augmented(processor, num_samples=1000):
         
         combined_indices.extend([(i, 'train') for i in selected_train])
         combined_indices.extend([(i, 'test') for i in selected_test])
-    
-    # Shuffle the combined indices
     random.shuffle(combined_indices)
     
-    # Create the combined dataset
     combined_samples = []
     for idx, split in combined_indices:
         if split == 'train':
@@ -234,55 +157,28 @@ def load_cifar10_data_augmented(processor, num_samples=1000):
             "labels": examples["label"]
         }
     
-    # Convert to HF dataset format and process
     from datasets import Dataset
     combined_dataset = Dataset.from_list(combined_samples)
     processed_dataset = combined_dataset.map(preprocess_function, batched=True, remove_columns=combined_dataset.column_names)
     processed_dataset.set_format(type="torch", columns=["pixel_values", "labels"])
-    
-    print(f"Created diverse calibration dataset with {len(processed_dataset)} samples")
     return processed_dataset
 
 
 def calibrate_model_improved(model, processor, num_samples=2000, batch_size=16):
-    """Improved calibration with more samples and smaller batches"""
-    print(f"Calibrating model with {num_samples} diverse CIFAR-10 samples...")
+    calibration_dataset = load_cifar10_data_augmented(processor, num_samples)
+    calibration_dataloader = DataLoader(calibration_dataset, batch_size=batch_size, shuffle=True)
     
-    try:
-        # Load more diverse calibration data
-        calibration_dataset = load_cifar10_data_augmented(processor, num_samples)
-        calibration_dataloader = DataLoader(calibration_dataset, batch_size=batch_size, shuffle=True)
+    model.eval()
+    device = next(model.parameters()).device
+    
+    with torch.no_grad(), calibration_mode(model):
+        for batch_idx, batch in enumerate(calibration_dataloader):
+            pixel_values = batch["pixel_values"].to(device)
+            _ = model(pixel_values)
+            
+            if batch_idx >= (num_samples // batch_size):
+                break
         
-        model.eval()
-        device = next(model.parameters()).device
-        
-        # Longer calibration with more iterations
-        with torch.no_grad(), calibration_mode(model):
-            for batch_idx, batch in enumerate(tqdm(calibration_dataloader, desc="Calibrating")):
-                pixel_values = batch["pixel_values"].to(device)
-                _ = model(pixel_values)
-                
-                # Process more batches for better calibration
-                if batch_idx >= (num_samples // batch_size):
-                    break
-        
-        print(f"Calibration completed with {batch_idx + 1} batches")
-        
-    except Exception as e:
-        print(f"Dataset calibration failed: {e}")
-        print("Using random data for calibration...")
-        
-        model.eval()
-        device = next(model.parameters()).device
-        
-        with torch.no_grad(), calibration_mode(model):
-            for i in range(min(num_samples // 10, 200)):  # More random samples
-                dummy_input = torch.randn(batch_size, 3, 224, 224).to(device)
-                _ = model(dummy_input)
-                
-                if i % 50 == 0:
-                    print(f"  Calibrated {i * batch_size} samples")
-
 
 def benchmark_accuracy_detailed(model, processor, num_samples=1000):
     """Detailed benchmark with per-class accuracy"""
@@ -356,8 +252,6 @@ def benchmark_accuracy_detailed(model, processor, num_samples=1000):
 
 
 class CleanDeitWrapper(nn.Module):
-    """Wrapper that provides clean input interface for DeiT export"""
-    
     def __init__(self, deit_model):
         super().__init__()
         self.deit = deit_model
@@ -402,8 +296,6 @@ def apply_qonnx_cleanup(model_path):
 
 
 def export_to_qonnx(model, output_path, image_size=224, opset_version=17):
-    """Export quantized model to clean QONNX with specified opset"""
-    
     device = next(model.parameters()).device
     model.eval()
     
@@ -413,21 +305,28 @@ def export_to_qonnx(model, output_path, image_size=224, opset_version=17):
     dummy_input = torch.randn(1, 3, image_size, image_size, dtype=torch.float32).to(device)
     
     from brevitas.export import export_qonnx
+    
+    with torch.no_grad():
+        _ = wrapped_model(dummy_input)
+    
     export_qonnx(
         wrapped_model, 
         dummy_input, 
         output_path, 
         dynamo=True,
-        opset_version=opset_version
+        opset_version=opset_version,
+        input_names=['pixel_values'],
+        output_names=['logits'],
+        dynamic_axes=None,
+        do_constant_folding=True,
+        export_params=True,
+        keep_initializers_as_inputs=False
     )
-    
-    print(f"Quantized QONNX model saved to: {output_path}")
     
     import onnx
     onnx_model = onnx.load(output_path)
     quant_nodes = sum(1 for node in onnx_model.graph.node 
                      if 'quant' in node.op_type.lower())
-    print(f"  ONNX model has {len(onnx_model.graph.node)} nodes, {quant_nodes} quantization nodes")
     
     cleaned_path = apply_qonnx_cleanup(output_path)
     
@@ -474,7 +373,7 @@ def main():
     
     # Count original modules
     original_counts = count_module_types(original_model)
-    print(f"Original model: {original_counts.get('Linear', 0)} Linear, {original_counts.get('GELUActivation', 0)} GELUActivation")
+    print(f"Original model: {original_counts.get('Linear', 0)} Linear layers")
     
     # Apply improved quantization
     print(f"\nApplying improved quantization...")
@@ -484,7 +383,7 @@ def main():
     
     # Count quantized modules
     quantized_counts = count_module_types(quantized_model)
-    print(f"Quantized model: {quantized_counts.get('QuantLinear', 0)} QuantLinear, {quantized_counts.get('QuantReLU', 0)} QuantReLU, {quantized_counts.get('Linear', 0)} Linear (FP32)")
+    print(f"Quantized model: {quantized_counts.get('QuantLinear', 0)} QuantLinear, {quantized_counts.get('Linear', 0)} Linear (FP32)")
     
     # Improved calibration
     calibrate_model_improved(quantized_model, processor, args.calibration_samples)

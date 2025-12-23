@@ -24,18 +24,10 @@ from tqdm import tqdm
 
 
 def load_cifar10_dataset(processor, validation_split=0.1):
-    """Load and preprocess CIFAR-10 dataset"""
-    print("Loading CIFAR-10 dataset...")
-    
-    # Load CIFAR-10
     train_dataset = load_dataset("cifar10", split="train")
     test_dataset = load_dataset("cifar10", split="test")
-    
-    # Get class names
     class_names = train_dataset.features["label"].names
-    print(f"CIFAR-10 classes: {class_names}")
     
-    # Split training data to create validation set
     train_size = int((1 - validation_split) * len(train_dataset))
     val_size = len(train_dataset) - train_size
     
@@ -43,26 +35,18 @@ def load_cifar10_dataset(processor, validation_split=0.1):
     val_dataset = train_dataset.select(range(train_size, train_size + val_size))
     train_dataset = train_dataset.select(range(train_size))
     
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Validation samples: {len(val_dataset)}")
-    print(f"Test samples: {len(test_dataset)}")
-    
     def preprocess_function(examples):
-        # Convert images to RGB and apply processor
         images = [img.convert("RGB") for img in examples["img"]]
         processed = processor(images, return_tensors="pt")
-        
         return {
             "pixel_values": processed["pixel_values"],
             "labels": examples["label"]
         }
     
-    # Apply preprocessing
     train_dataset = train_dataset.map(preprocess_function, batched=True, remove_columns=train_dataset.column_names)
     val_dataset = val_dataset.map(preprocess_function, batched=True, remove_columns=val_dataset.column_names)
     test_dataset = test_dataset.map(preprocess_function, batched=True, remove_columns=test_dataset.column_names)
     
-    # Set format for PyTorch
     train_dataset.set_format("torch")
     val_dataset.set_format("torch")
     test_dataset.set_format("torch")
@@ -70,52 +54,61 @@ def load_cifar10_dataset(processor, validation_split=0.1):
     return train_dataset, val_dataset, test_dataset, class_names
 
 
-def create_cifar10_model(model_name="facebook/deit-tiny-patch16-224", num_classes=10):
-    """Create TinyDEIT model adapted for CIFAR-10"""
-    print(f"Creating TinyDEIT model for CIFAR-10 ({num_classes} classes)...")
+def replace_activations_with_relu(model):
+    try:
+        from transformers.activations import GELUActivation
+    except ImportError:
+        GELUActivation = None
     
-    # Load the processor
+    replaced_count = 0
+    def replace_recursive(module):
+        nonlocal replaced_count
+        for name, child in module.named_children():
+            if ((GELUActivation and isinstance(child, GELUActivation)) or 
+                isinstance(child, (nn.GELU, nn.SiLU)) or
+                child.__class__.__name__ in ['GELU', 'SiLU', 'Swish']):
+                setattr(module, name, nn.ReLU())
+                replaced_count += 1
+            else:
+                replace_recursive(child)
+    
+    replace_recursive(model)
+    return replaced_count
+
+
+def create_cifar10_model(model_name="facebook/deit-tiny-patch16-224", num_classes=10, use_relu=False):
     processor = AutoImageProcessor.from_pretrained(model_name)
-    
-    # Load the model and modify the classifier head
     model = AutoModelForImageClassification.from_pretrained(
         model_name,
         num_labels=num_classes,
-        ignore_mismatched_sizes=True  # Allow different classifier head size
+        ignore_mismatched_sizes=True
     )
     
-    print(f"Model loaded with {sum(p.numel() for p in model.parameters()):,} parameters")
-    print(f"Classifier head updated for {num_classes} classes")
+    if use_relu:
+        replaced_count = replace_activations_with_relu(model)
     
     return model, processor
 
 
 def compute_metrics(eval_pred):
-    """Compute accuracy and other metrics for evaluation"""
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
-    
     accuracy = accuracy_score(labels, predictions)
-    
     return {
         "accuracy": accuracy,
-        "eval_loss": float(np.mean((predictions - labels) ** 2))  # Simple MSE for logging
+        "eval_loss": float(np.mean((predictions - labels) ** 2))
     }
 
 
 def evaluate_model(model, test_dataset, class_names, device):
-    """Evaluate model on test set with detailed metrics"""
-    print("\nEvaluating model on CIFAR-10 test set...")
-    
     model.eval()
     all_predictions = []
     all_labels = []
     
-    # Create test dataloader
     test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=False)
     
     with torch.no_grad():
-        for batch in tqdm(test_dataloader, desc="Evaluating"):
+        for batch in test_dataloader:
             pixel_values = batch["pixel_values"].to(device)
             labels = batch["labels"].to(device)
             
@@ -125,34 +118,46 @@ def evaluate_model(model, test_dataset, class_names, device):
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
     
-    # Calculate metrics
     accuracy = accuracy_score(all_labels, all_predictions)
-    print(f"\nTest Accuracy: {accuracy:.4f} ({accuracy*100:.2f}%)")
-    
-    # Detailed classification report
-    print("\nClassification Report:")
-    print(classification_report(
-        all_labels, 
-        all_predictions, 
-        target_names=class_names,
-        digits=4
-    ))
     
     return accuracy, all_predictions, all_labels
 
 
-def save_model_and_metrics(model, processor, accuracy, output_dir="./tinydeit_cifar10_model"):
-    """Save the trained model and metrics"""
-    print(f"\nSaving model to {output_dir}...")
+def export_model_to_onnx(model, processor, output_dir, device):
+    onnx_path = os.path.join(output_dir, "model.onnx")
     
-    # Create output directory
+    model.eval()
+    dummy_input = torch.randn(1, 3, 224, 224).to(device)
+    
+    with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_math=True, enable_mem_efficient=False):
+        with torch.no_grad():
+            _ = model(dummy_input)
+        
+        torch.onnx.export(
+            model,
+            dummy_input,
+            onnx_path,
+            input_names=['pixel_values'],
+            output_names=['logits'],
+            dynamic_axes=None,
+            do_constant_folding=True,
+            export_params=True,
+            keep_initializers_as_inputs=False,
+            opset_version=17
+        )
+    
+    return onnx_path
+
+
+def save_model_and_metrics(model, processor, accuracy, output_dir="./tinydeit_cifar10_model", device=None):
     os.makedirs(output_dir, exist_ok=True)
     
-    # Save model and processor
     model.save_pretrained(output_dir)
     processor.save_pretrained(output_dir)
     
-    # Save metrics
+    if device is not None:
+        export_model_to_onnx(model, processor, output_dir, device)
+    
     metrics = {
         "test_accuracy": float(accuracy),
         "num_classes": 10,
@@ -162,10 +167,6 @@ def save_model_and_metrics(model, processor, accuracy, output_dir="./tinydeit_ci
     
     with open(os.path.join(output_dir, "metrics.json"), "w") as f:
         json.dump(metrics, f, indent=2)
-    
-    print(f"Model saved successfully!")
-    print(f"  - Model files: {output_dir}/")
-    print(f"  - Test accuracy: {accuracy:.4f}")
     
     return output_dir
 
@@ -192,21 +193,19 @@ def main():
                         help='Fraction of training data for validation')
     parser.add_argument('--no_cuda', action='store_true',
                         help='Disable CUDA even if available')
+    parser.add_argument('--no_relu', action='store_true',
+                        help='Keep GELU/SiLU activations (default: replace with ReLU)')
     
     args = parser.parse_args()
     
-    # Setup device
     if args.no_cuda:
         device = torch.device('cpu')
     else:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
     
-    # Create model and processor
-    model, processor = create_cifar10_model(args.model_name, num_classes=10)
+    model, processor = create_cifar10_model(args.model_name, num_classes=10, use_relu=not args.no_relu)
     model.to(device)
     
-    # Load datasets
     train_dataset, val_dataset, test_dataset, class_names = load_cifar10_dataset(
         processor, args.validation_split
     )
@@ -244,20 +243,13 @@ def main():
         callbacks=[EarlyStoppingCallback(early_stopping_patience=3)]
     )
     
-    # Train the model
-    print(f"\nStarting training for {args.epochs} epochs...")
     train_result = trainer.train()
     
-    print(f"\nTraining completed!")
-    print(f"Training loss: {train_result.training_loss:.4f}")
-    
-    # Evaluate on test set
     test_accuracy, predictions, labels = evaluate_model(
         model, test_dataset, class_names, device
     )
     
-    # Save model and metrics
-    model_dir = save_model_and_metrics(model, processor, test_accuracy, args.output_dir)
+    model_dir = save_model_and_metrics(model, processor, test_accuracy, args.output_dir, device)
     
 if __name__ == "__main__":
     main()
