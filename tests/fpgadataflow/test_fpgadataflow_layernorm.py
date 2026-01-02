@@ -20,6 +20,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
@@ -145,3 +146,42 @@ def test_fpgadataflow_layernorm(idt, ishape, simd, has_scale, has_bias, sim_styl
         exp_cycles = exp_cycles_dict[model.graph.node[0].name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.transform
+@pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("ishape", [[1, 16, 48], [1, 32]])
+@pytest.mark.parametrize("has_scale", [True, False])
+@pytest.mark.parametrize("has_bias", [True, False])
+def test_extract_norm_scale_bias(idt, ishape, has_scale, has_bias):
+    epsilon = 9.999999960041972e-13
+    model1 = create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon)
+    model2 = create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon)
+    model3 = create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon)
+
+    model = model1.transform(MergeONNXModels(model2))
+    model = model.transform(MergeONNXModels(model3))
+
+    assert len(model.get_nodes_by_op_type("LayerNormalization")) == 3
+
+    # reference calculation
+    input = gen_finn_dt_tensor(DataType["FLOAT32"], ishape)
+    input_t = {model.graph.input[0].name: input}
+
+    y_ref = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(ExtractNormScaleBias())
+
+    assert len(model.get_nodes_by_op_type("LayerNormalization")) == 3
+    if has_bias:
+        assert len(model.get_nodes_by_op_type("Add")) == 3
+    if has_scale:
+        assert len(model.get_nodes_by_op_type("Mul")) == 3
+
+    input_t = {model.graph.input[0].name: input}
+
+    y_out = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    assert (y_ref == y_out).all()
