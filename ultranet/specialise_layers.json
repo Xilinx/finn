@@ -1,0 +1,27 @@
+{
+  "Defaults": {},
+  "MVAU_0": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_1": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_2": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_3": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_4": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_5": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_6": {
+	"preferred_impl_style": "hls"
+  },
+  "MVAU_7": {
+	"preferred_impl_style": "hls"
+  }
+}

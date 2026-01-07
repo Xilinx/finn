@@ -133,12 +133,13 @@ generate_test_data(converted_model_file)
 
 cfg = build.DataflowBuildConfig(
     output_dir="output_%s_%s" % (model_name, platform_name),
-    target_fps=1000,
+    target_fps=500,
     mvau_wwidth_max=512,
-    synth_clk_period_ns=5.0,
+    synth_clk_period_ns=2.0,
     board=platform_name,
     #fpga_part="xczu3eg-sbva484-1-e",
     fpga_part="xcv80-lsva4737-2MHP-e-s",
+    specialize_layers_config_file="specialise_layers.json",
     split_large_fifos=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
