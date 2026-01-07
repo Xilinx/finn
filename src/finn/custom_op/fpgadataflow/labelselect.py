@@ -95,21 +95,6 @@ class LabelSelect(HWCustomOp):
         oshape = tuple(vecs + [k, 1])
         return oshape
 
-    def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
-        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape."
-        return helper.make_node(
-            "RandomNormal",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            mean=0.0,
-            scale=1.0,
-            dtype=TensorProto.INT64,
-            shape=list(oshape),
-        )
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # check input datatype against property
@@ -118,9 +103,6 @@ class LabelSelect(HWCustomOp):
 
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -170,10 +152,7 @@ class LabelSelect(HWCustomOp):
             outputs=[val_outp, outp],
         )
 
-        opset_version = self.onnx_opset_version
-        opset_imports = [helper.make_opsetid("", opset_version)]
-        onnx_kwargs = {"opset_imports": opset_imports}
-        model_topk = qonnx_make_model(graph_topk, **onnx_kwargs)
+        model_topk = qonnx_make_model(graph_topk)
         idict = {node.input[0]: inp_values, "k_inp": [k]}
         sess = rt.InferenceSession(model_topk.SerializeToString())
         result = sess.run(None, idict)

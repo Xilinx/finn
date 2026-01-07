@@ -32,7 +32,7 @@ import sys
 import tempfile
 from qonnx.util.basic import roundup_to_integer_multiple
 
-# test boards
+# test boards used for bnn pynq tests
 test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
 
 # mapping from PYNQ board names to FPGA part names
@@ -47,6 +47,7 @@ pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
+pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
 
 
 # native AXI HP port width (in bits) for PYNQ boards
@@ -61,6 +62,7 @@ pynq_native_port_width["ZCU111"] = 128
 pynq_native_port_width["RFSoC2x2"] = 128
 pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
+pynq_native_port_width["AUP-ZU3_8GB"] = 128
 
 # Alveo device and platform mappings
 alveo_part_map = dict()
@@ -81,10 +83,11 @@ alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 part_map = {**pynq_part_map, **alveo_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
 def get_rtlsim_trace_depth():
-    """Return the trace depth for rtlsim via PyVerilator. Controllable
+    """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
     will only show top-level signals and yield smaller .vcd files.
@@ -102,16 +105,6 @@ def get_rtlsim_trace_depth():
         return 1
 
 
-def get_remote_vivado():
-    """Return the address of the remote Vivado synthesis server as set by the,
-    REMOTE_VIVADO environment variable, otherwise return None"""
-
-    try:
-        return os.environ["REMOTE_VIVADO"]
-    except KeyError:
-        return None
-
-
 def get_finn_root():
     "Return the root directory that FINN is cloned into."
 
@@ -125,11 +118,24 @@ def get_finn_root():
         )
 
 
-def pyverilate_get_liveness_threshold_cycles():
+def get_vivado_root():
+    "Return the root directory that Vivado is installed into."
+
+    try:
+        return os.environ["XILINX_VIVADO"]
+    except KeyError:
+        raise Exception(
+            """Environment variable XILINX_VIVADO must be set
+        correctly. Please ensure you have launched the Docker contaier correctly.
+        """
+        )
+
+
+def get_liveness_threshold_cycles():
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""
 
-    return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+    return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
 
 
 def make_build_dir(prefix=""):
@@ -292,10 +298,10 @@ def memutil(req_mem_spec, primitive_spec):
 
 def is_versal(fpgapart):
     """Returns whether board is part of the Versal family"""
-    return (
-        fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
-        or fpgapart[0:5] == "xqrvc"
-    )
+    return fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] in [
+        "xqrvc",
+        "xcv80",
+    ]
 
 
 def get_dsp_block(fpgapart):

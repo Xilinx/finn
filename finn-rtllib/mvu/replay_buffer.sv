@@ -139,7 +139,7 @@ module replay_buffer #(
 		//	  WP-RP > 0         -> reading allowed
 		//		- increments RP, last in sequence rewinds to FP for non-final repetition
 		//		- increments FP in last repetition
-		assign	irdy = !((WP-FP) >> AWIDTH);
+		assign	irdy = (WP ^ FP) != (1 << AWIDTH);
 
 		uwire  wr = irdy && ivld;
 		uwire  rd = !OVld || ordy;

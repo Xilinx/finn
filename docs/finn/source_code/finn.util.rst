@@ -171,15 +171,6 @@ finn.util.pytorch
  :show-inheritance:
 
 
-finn.util.pyverilator
----------------------
-
-.. automodule:: finn.util.pyverilator
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
-
 finn.util.test
 ---------------------
 
@@ -188,13 +179,6 @@ finn.util.test
    :undoc-members:
    :show-inheritance:
 
-finn.util.vcd
-------------------------------
-
-.. automodule:: finn.util.vcd
-  :members:
-  :undoc-members:
-  :show-inheritance:
 
 finn.util.visualization
 ------------------------------

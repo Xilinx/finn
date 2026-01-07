@@ -99,6 +99,7 @@ class CreateStitchedIP(Transformation):
         self.has_s_axis = False
         self.s_axis_idx = 0
         self.clock_reset_are_external = False
+        self.clock2x_is_external = False
         self.create_cmds = []
         self.connect_cmds = []
         # keep track of top-level interface names
@@ -110,6 +111,15 @@ class CreateStitchedIP(Transformation):
             "aximm": [],
             "axilite": [],
         }
+
+    def is_double_pumped(self, node):
+        if node.op_type.startswith("MVAU"):
+            inst = getCustomOp(node)
+            try:
+                pumped_compute = inst.get_nodeattr("pumpedCompute")
+            except AttributeError:
+                pumped_compute = 0
+            return pumped_compute or inst.get_nodeattr("pumpedMemory")
 
     def connect_clk_rst(self, node):
         inst_name = node.name
@@ -139,6 +149,23 @@ class CreateStitchedIP(Transformation):
                 "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/%s]"
                 % (inst_name, clock_intf_name)
             )
+        # make clk2x external, if it isn't already and connect clk2x
+        if self.is_double_pumped(node):
+            clock2x_intf_name = node_inst.get_verilog_top_module_intf_names()["clk2x"][0]
+            if not self.clock2x_is_external:
+                self.connect_cmds.append(
+                    "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, clock2x_intf_name)
+                )
+                self.connect_cmds.append("set_property name ap_clk2x [get_bd_ports ap_clk2x_0]")
+                self.clock2x_is_external = True
+                self.intf_names["clk2x"] = ["ap_clk2x"]
+            # otherwise connect clk2x
+            else:
+                if self.is_double_pumped(node):
+                    self.connect_cmds.append(
+                        "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins %s/%s]"
+                        % (inst_name, clock2x_intf_name)
+                    )
 
     def connect_axi(self, node):
         inst_name = node.name
@@ -378,8 +405,11 @@ class CreateStitchedIP(Transformation):
         tcl.extend(self.connect_cmds)
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
-        model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
+        if self.clock2x_is_external:
+            tcl.append(
+                "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2 * fclk_hz)
+            )
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)

@@ -33,11 +33,19 @@ import json
 import shutil
 import torch
 from brevitas.export import export_qonnx
+from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
 from finn.util.test import get_trained_network_and_ishape
 
@@ -53,24 +61,18 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize(
-    "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
-)
+@pytest.mark.parametrize("method", ["largefifo_rtlsim", "characterize"])
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
-    force_python_rtlsim = "python" in method
-    method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
     tmp_output_dir = fetch_test_model(topology)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
-        auto_fifo_strategy=method_key,
+        auto_fifo_strategy=method,
         target_fps=10000 if topology == "tfc" else 1000,
-        force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         rtlsim_batch_size=100 if topology == "tfc" else 2,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -111,3 +113,68 @@ def test_fifosizing_linear(method, topology):
 
     shutil.rmtree(tmp_output_dir)
     shutil.rmtree(tmp_output_dir_cmp)
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.fpgadataflow
+def test_fifosizing_multi_io():
+    # construct small onnx graph with addstreams, followed by duplicate streams
+    # to have test model with multiple inputs and multiple outputs
+    model = make_multi_io_modelwrapper(2, 2, DataType["INT4"])
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(InsertAndSetFIFODepths("xc7z020clg400-1", 5))
+    fifos = model.get_nodes_by_op_type("StreamingFIFO_rtl")
+    assert len(fifos) > 1, "No FIFOs inserted"
+
+
+def make_multi_io_modelwrapper(ch, pe, idt):
+    in0 = helper.make_tensor_value_info("in0", TensorProto.FLOAT, [1, ch])
+    in1 = helper.make_tensor_value_info("in1", TensorProto.FLOAT, [1, ch])
+    mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, ch])
+    out0 = helper.make_tensor_value_info("out0", TensorProto.FLOAT, [1, ch])
+    out1 = helper.make_tensor_value_info("out1", TensorProto.FLOAT, [1, ch])
+
+    addstreams_node = helper.make_node(
+        "AddStreams",
+        ["in0", "in1"],
+        ["mid"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumChannels=ch,
+        PE=pe,
+        inputDataTypes=[idt.name, idt.name],
+        inFIFODepths=[2, 2],
+    )
+    duplicate_node = helper.make_node(
+        "DuplicateStreams",
+        ["mid"],
+        ["out0", "out1"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumChannels=ch,
+        NumOutputStreams=2,
+        PE=pe,
+        inputDataType=idt.name,
+        numInputVectors=[1],
+        outFIFODepths=[2, 2],
+    )
+    graph = helper.make_graph(
+        nodes=[addstreams_node, duplicate_node],
+        name="graph",
+        inputs=[in0, in1],
+        outputs=[out0, out1],
+        value_info=[mid],
+    )
+
+    model = qonnx_make_model(graph, producer_name="multi-io-model")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("in0", idt)
+    model.set_tensor_datatype("in1", idt)
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    return model

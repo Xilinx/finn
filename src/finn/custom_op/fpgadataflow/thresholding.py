@@ -68,17 +68,13 @@ class Thresholding(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
+        if idt != self.get_input_datatype(0):
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype().name),
+                str(self.get_input_datatype(0).name),
                 str(idt.name),
             )
             warnings.warn(warn_str)
@@ -113,42 +109,42 @@ class Thresholding(HWCustomOp):
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        if ind == 0:
+            dt = DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            dt = DataType[self.get_nodeattr("weightDataType")]
+        else:
+            raise Exception("Index out of range")
+        return dt
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_weight_datatype(self):
-        """Returns FINN DataType of thresholds, here called weights."""
-        return DataType[self.get_nodeattr("weightDataType")]
-
-    def get_weightstream_width(self):
-        """Returns weight stream width"""
-        pe = self.get_nodeattr("PE")
-        wp = self.get_weight_datatype().bitwidth()
-        n_thres_steps = self.get_nodeattr("numSteps")
-        w_width = pe * wp * n_thres_steps
-        return w_width
-
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
         thresholds = model.get_initializer(self.onnx_node.input[1])
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-        min_threshold = thresholds.min()
-        max_threshold = thresholds.max()
-        min_input = self.get_input_datatype().min()
-        max_input = self.get_input_datatype().max()
-        # get range required by threshold values
-        tdt_min = min(min_input, min_threshold)
-        tdt_max = max(max_input, max_threshold)
-        if tdt_min < 0:
-            if abs(tdt_min) > tdt_max:
-                tdt = DataType.get_smallest_possible(tdt_min)
+        # TODO: extend this for fixed point
+        if self.get_input_datatype(0).is_integer():
+            # minimize threshold width only if input is an integer
+            min_threshold = thresholds.min()
+            max_threshold = thresholds.max()
+            min_input = self.get_input_datatype(0).min()
+            max_input = self.get_input_datatype(0).max()
+            # get range required by threshold values
+            tdt_min = min(min_input, min_threshold)
+            tdt_max = max(max_input, max_threshold)
+            if tdt_min < 0:
+                if abs(tdt_min) > tdt_max:
+                    tdt = DataType.get_smallest_possible(tdt_min)
+                else:
+                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
             else:
-                tdt = DataType.get_smallest_possible(-tdt_max - 1)
+                tdt = DataType.get_smallest_possible(tdt_max)
         else:
-            tdt = DataType.get_smallest_possible(tdt_max)
+            # special case: if input is float, we keep thresholds as is
+            tdt = self.get_input_datatype(1)
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
         ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
@@ -158,8 +154,25 @@ class Thresholding(HWCustomOp):
         return DataType[self.get_nodeattr("weightDataType")]
 
     def get_instream_width(self, ind=0):
-        i_bits = self.get_input_datatype().bitwidth()
-        return i_bits * self.get_nodeattr("PE")
+        if ind == 0:
+            i_bits = self.get_input_datatype(0).bitwidth()
+            width = i_bits * self.get_nodeattr("PE")
+        elif ind == 1:
+            # try to access mem_mode attribute, doesn't exist for RTL Thresholding
+            try:
+                mem_mode = self.get_nodeattr("mem_mode")
+            except AttributeError:
+                mem_mode = 0
+            if mem_mode == "internal_decoupled":
+                pe = self.get_nodeattr("PE")
+                wp = self.get_input_datatype(1).bitwidth()
+                n_thres_steps = self.get_nodeattr("numSteps")
+                width = pe * wp * n_thres_steps
+            else:
+                width = 0
+        else:
+            raise Exception("Index out of range")
+        return width
 
     def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
@@ -186,10 +199,6 @@ class Thresholding(HWCustomOp):
         # same shape as input
         return self.get_normal_input_shape()
 
-    def get_number_output_values(self):
-        nf = np.prod(self.get_folded_output_shape()[:-1])
-        return nf
-
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
         return np.prod(self.get_folded_output_shape()[:-1])
@@ -212,11 +221,9 @@ class Thresholding(HWCustomOp):
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
-        if not self.get_input_datatype().signed():
+        if not self.get_input_datatype(0).signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
-        # ensure all thresholds are integer
-        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
@@ -257,7 +264,7 @@ class Thresholding(HWCustomOp):
         if act == DataType["BIPOLAR"]:
             # binary to bipolar
             y = 2 * y - 1
-        context[node.output[0]] = y
+        context[node.output[0]] = y.astype(np.float32)
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""

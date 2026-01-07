@@ -50,8 +50,6 @@ from finn.transformation.streamline import Streamline
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = make_build_dir("test_streamline_cnv_")
-
 
 @pytest.mark.streamline
 # act bits
@@ -64,6 +62,7 @@ def test_streamline_cnv(size, wbits, abits):
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     nname = "%s_%dW%dA" % (size, wbits, abits)
+    export_onnx_path = make_build_dir("test_streamline_cnv_")
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
     export_qonnx(fc, torch.randn(1, 3, 32, 32), finn_onnx)

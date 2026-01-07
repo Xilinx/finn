@@ -7,7 +7,6 @@ IPython
 matplotlib
 netron
 pytest
-pyverilator@git+https://github.com/maltanar/pyverilator@master#egg=pyverilator
 qonnx@git+https://github.com/fastmachinelearning/qonnx@main#egg=qonnx
 sphinx_rtd_theme==2.0.0
 torch

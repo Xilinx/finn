@@ -120,13 +120,43 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert A is not None, "Initializer for add weights is not set."
                     assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
-                    # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                    actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
-                    is_1d = actual_ndims == 1
-                    if is_scalar or is_1d:
+
+                    # Get the shape of the parameter tensor of the add
+                    shape = A.shape
+                    # First try to consider the tensor layout of the input for
+                    # determining the number of output channels
+                    layout = model.get_tensor_layout(add_weight_name)
+                    # If there is no layout annotation, guess based on rank of
+                    # the parameter tensor
+                    # TODO: No support for Rank >= 5
+                    if layout is None and len(shape) < 5:
+                        # Maps tensor rank to layout annotation
+                        rank_to_layout = {0: None, 1: "C", 2: "NC", 3: "NWC", 4: "NCHW"}
+                        # Lookup the layout required by this input shape
+                        layout = rank_to_layout[len(shape)]
+                    # If there is a layout annotation, use this to determine the
+                    # index of the channel dimension
+                    if layout is not None and "C" in layout:
+                        # Lookup the index in list
+                        cdim = layout.index("C")
+                    # If no layout has been annotated or there is no channel
+                    # dimension, fall back to the previous default assumption
+                    else:
+                        # Assume the channels to be in axis 1
+                        cdim = 1
+                        # Issue a warning to the user, so they are aware of this
+                        warnings.warn(
+                            f"No layout annotations for {add_weight_name}:"
+                            f" Assuming channel dimension at index {cdim}"
+                        )
+
+                    # We can only absorb up to per-channel (last dimension)
+                    # granularity
+                    if is_scalar or A.shape[cdim] == A.size:
+                        # Reshape addition parameters to have the elements/PE
+                        # dimension first, aligned with the thresholds.
                         Tnew = T - A.reshape(-1, 1)
-                        # Tnew = T - A.reshape(-1, T.shape[1])
                         # compute new thresholds and set initializer
                         model.set_initializer(threshold_name, Tnew)
                         # wire add input directly to MultiThreshold
@@ -134,7 +164,7 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                         # remove the add node
                         graph.node.remove(n)
                         graph_modified = True
-        return (model, graph_modified)
+        return model, graph_modified
 
 
 class AbsorbMulIntoMultiThreshold(Transformation):
@@ -186,7 +216,7 @@ class FactorOutMulSignMagnitude(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if n.op_type == "Mul" and not model.is_join_node(n):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."
@@ -215,7 +245,7 @@ class FactorOutMulSignMagnitude(Transformation):
 
 
 class Absorb1BitMulIntoMatMul(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding matrix
+    """Absorb bipolar or binary multiplications into the preceding matrix
     multiply."""
 
     def apply(self, model):
@@ -224,16 +254,22 @@ class Absorb1BitMulIntoMatMul(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "MatMul":
+            # TODO: Fork-nodes could be handled if the muls are the same in all
+            #  branches, but this is not checked nor rewired at all right now.
+            if n.op_type == "MatMul" and not model.is_fork_node(n):
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
                 Wdt = model.get_tensor_datatype(matmul_weight_name)
-                assert W is not None, "Initializer for matmul weights is not set."
+                # Skip matmuls with no initializers
+                if W is None:
+                    continue
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    # Skip muls with no initializers
+                    if A is None:
+                        continue
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     if is_1bit:
                         Wnew = A * W
@@ -252,7 +288,7 @@ class Absorb1BitMulIntoMatMul(Transformation):
 
 
 class Absorb1BitMulIntoConv(Transformation):
-    """Absorb bipolar or binary multiplications into the preciding convolution."""
+    """Absorb bipolar or binary multiplications into the preceding convolution."""
 
     def apply(self, model):
         graph = model.graph
@@ -260,16 +296,20 @@ class Absorb1BitMulIntoConv(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Conv":
+            if n.op_type == "Conv" and not model.is_fork_node(n):
                 conv_weight_name = n.input[1]
                 W = model.get_initializer(conv_weight_name)
                 Wdt = model.get_tensor_datatype(conv_weight_name)
-                assert W is not None, "Initializer for conv weights is not set."
+                # Skip convs with no initializers
+                if W is None:
+                    continue
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    # Skip muls with no initializers
+                    if A is None:
+                        continue
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     is_scalar = np.prod(A.shape) == 1
                     actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))

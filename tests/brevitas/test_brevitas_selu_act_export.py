@@ -40,6 +40,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -47,7 +48,8 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 @pytest.mark.parametrize("ishape", [(1, 15), (1, 32, 1, 1)])
 @pytest.mark.parametrize("narrow", [True, False])
 def test_brevitas_act_export_selu(abits, ishape, narrow):
-    export_path = "test_brevitas_selu_act_export_%s.onnx" % str(abits)
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_selu")
+    export_path = os.path.join(build_dir, "test_brevitas_selu_act_export_%s.onnx" % str(abits))
     b_act = torch.nn.Sequential(torch.nn.SELU(), QuantIdentity(bit_width=abits, narrow=narrow))
 
     export_qonnx(
@@ -69,4 +71,3 @@ def test_brevitas_act_export_selu(abits, ishape, narrow):
     expected = b_act.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_path)

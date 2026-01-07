@@ -197,7 +197,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
     new_model = new_model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     new_model = new_model.transform(to_hw.InferThresholdingLayer())
     new_model = new_model.transform(to_hw.InferConvInpGen())
-    new_model = new_model.transform(to_hw.InferStreamingMaxPool())
+    new_model = new_model.transform(to_hw.InferPool())
     new_model = new_model.transform(RemoveCNVtoFCFlatten())
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
     for node in new_model.graph.node:

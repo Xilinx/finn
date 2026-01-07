@@ -65,19 +65,16 @@ RUN apt-get update && \
     python-is-python3 \
     python3-pip \
     python3-setuptools-scm \
-    python3-venv
+    python3-venv \
+    pybind11-dev \
+    libfmt-dev \
+    libboost-dev \
+    libjansson-dev \
+    libgetdata-dev \
+    libtinfo5 \
+    g++-10
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
-
-# install Verilator from source to get the right version
-RUN apt-get install -y git perl make autoconf g++ flex bison ccache libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlib1g zlib1g-dev
-RUN git clone https://github.com/verilator/verilator
-RUN cd verilator && \
-    git checkout v4.224 && \
-    autoconf && \
-    ./configure && \
-    make -j4 && \
-    make install
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
@@ -95,7 +92,7 @@ RUN pip install -r /tmp/requirements.txt
 RUN rm /tmp/requirements.txt
 
 # install PyTorch
-RUN pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
+RUN pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --extra-index-url https://download.pytorch.org/whl/cu128
 
 # extra Python package dependencies (for testing and interaction)
 RUN pip install pygments==2.14.0
@@ -106,7 +103,8 @@ RUN pip install matplotlib==3.7.0  --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install pytest-xdist[setproctitle]==3.2.0
 RUN pip install pytest-parallel==0.1.1
-RUN pip install "netron>=5.0.0"
+# Beyond version 8.5.0, subsequent Netron calls in a Jupyter notebook cause "Address already in use" errors
+RUN pip install "netron>=5.0.0,<=8.5.0"
 RUN pip install pandas==1.5.3
 RUN pip install scikit-learn==1.2.1
 RUN pip install tqdm==4.64.1
@@ -118,6 +116,7 @@ RUN pip install pytest-metadata==1.7.0
 RUN pip install pytest-html==3.0.0
 RUN pip install pytest-html-merger==0.0.8
 RUN pip install pytest-cov==4.1.0
+RUN pip install pyyaml==6.0.1
 
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster
@@ -129,8 +128,6 @@ RUN pip install networkx==2.8
 RUN pip install future-annotations==1.0.0
 RUN pip install dependencies==2.0.1
 RUN pip install tokenize-rt==4.2.1
-# pyverilator
-RUN pip install tclwrapper==0.0.1
 
 # assure that we have the right setuptools version
 RUN pip install setuptools==68.2.2

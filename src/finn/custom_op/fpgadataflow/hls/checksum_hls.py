@@ -28,13 +28,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class CheckSum_hls(HWCustomOp, HLSBackend):
@@ -58,10 +56,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def make_shape_compatible_op(self, model):
-        oshape = self.get_normal_output_shape()
-        return super().make_const_shape_op(oshape)
-
     def infer_node_datatype(self, model):
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
@@ -76,9 +70,6 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
-
-    def verify_node(self):
-        pass
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
@@ -131,89 +122,24 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         return max(super().get_ap_int_max_w(), 32)
 
     def get_normal_output_shape(self, ind=0):
-        # same shape as input
-        return self.get_normal_input_shape()
-
-    def get_number_output_values(self):
-        folded_oshape = self.get_folded_output_shape()
-        return np.prod(folded_oshape[:-1])
+        if ind == 0:
+            # same shape as input
+            return self.get_normal_input_shape()
+        # second output is scalar checksum output
+        elif ind == 1:
+            return tuple([1])
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def npy_to_dynamic_output(self, context):
         super().npy_to_dynamic_output(context)
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        output_checksum = np.load("{}/output_checksum.npy".format(code_gen_dir))
+        output_checksum = np.load("{}/output_1.npy".format(code_gen_dir))
         context[node.output[1]] = output_checksum
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        inp = context[node.input[0]]
-
-        # TODO ensure codegen dir exists
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        if mode == "cppsim":
-            self.dynamic_input_to_npy(context, 1)
-            self.exec_precompiled_singlenode_model()
-            self.npy_to_dynamic_output(context)
-        elif mode == "rtlsim":
-            # create a npy file for the input of the node
-            assert (
-                str(inp.dtype) == "float32"
-            ), """Input datatype is
-                not float32 as expected."""
-            expected_inp_shape = self.get_folded_input_shape()
-            reshaped_input = inp.reshape(expected_inp_shape)
-            if DataType[self.get_nodeattr("inputDataType")] == DataType["BIPOLAR"]:
-                # store bipolar activations as binary
-                reshaped_input = (reshaped_input + 1) / 2
-                export_idt = DataType["BINARY"]
-            else:
-                export_idt = DataType[self.get_nodeattr("inputDataType")]
-            # make copy before saving the array
-            reshaped_input = reshaped_input.copy()
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            io_dict = {
-                "inputs": {"in0": inp},
-                "outputs": {"out": []},
-            }
-            self.rtlsim_multi_io(sim, io_dict)
-            output = io_dict["outputs"]["out"]
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
-
-            # load and reshape output
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
+        HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "checksum.hpp"']
@@ -240,28 +166,23 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
                 npy_in,
-                self.hls_sname(),
             )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
-                self.get_instream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
-                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
-            )
+            'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
         # set drain = false for cppsim
@@ -269,8 +190,7 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_%s, out_%s, chk, drain);"""
-            % (self.hls_sname(), self.hls_sname())
+            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_V, out0_V, chk, drain);"""
         ]
 
     def dataoutstrm(self):
@@ -284,42 +204,37 @@ class CheckSum_hls(HWCustomOp, HLSBackend):
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
+        npy_out = "%s/output_0.npy" % code_gen_dir
         shape = tuple(self.get_folded_output_shape())
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             ),
             "std::vector<unsigned int> checksum(1);",
             "checksum[0] = chk;",
-            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");' % code_gen_dir,
+            'cnpy::npy_save("%s/output_1.npy",&checksum[0],{1},"w");' % code_gen_dir,
         ]
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_{},
-            hls::stream<T> &out_{}, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
-                self.onnx_node.name, self.hls_sname(), self.hls_sname()
+            """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_V,
+            hls::stream<T> &out0_V, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
+                self.onnx_node.name
             )
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS interface axis port=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface axis port=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS interface axis port=in0_V"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface axis port=out0_V")
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=chk bundle=checksum"
         )

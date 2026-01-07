@@ -1,4 +1,4 @@
-# Copyright (C) 2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,6 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import axilite_read, axilite_write
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
@@ -122,13 +121,16 @@ def make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Read back threshold weights during runtime
 
     1. Create random initial weights T
@@ -140,8 +142,8 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     pe = cfg[1]
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
     odt = act
     n_steps = act.get_num_possible_values() - 1
     # Generate random thresholds and sort in ascending order
@@ -151,7 +153,7 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     T = sort_thresholds_increasing(T)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(impl_style, T, idt, odt, actval, n_inp_vecs, ch)
@@ -190,14 +192,20 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx = {"inp": in_tensor}
+    exec_ctx = {model.graph.input[0].name: in_tensor}
     extracted_weight_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            extracted_weight_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
 
@@ -219,13 +227,16 @@ def test_runtime_thresholds_read(impl_style, cfg, narrow, per_tensor):
 
 
 @pytest.mark.parametrize("impl_style", ["rtl", "hls"])
+@pytest.mark.parametrize(
+    "idt_act_cfg", [(DataType["INT16"], DataType["INT4"]), (DataType["UINT8"], DataType["UINT4"])]
+)
 # configuration (ch, pe)
-@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 3)])
+@pytest.mark.parametrize("cfg", [(1, 1), (6, 2), (6, 6)])
 @pytest.mark.parametrize("narrow", [True, False])
 @pytest.mark.parametrize("per_tensor", [True, False])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
+def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tensor):
     """Write threshold weights during runtime
 
     1. Create random initial weights T_init
@@ -241,8 +252,8 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
 
     n_inp_vecs = [1, 2, 2]
     hls_mem_mode = "internal_decoupled"
-    act = DataType["INT4"]
-    idt = DataType["INT16"]
+    act = idt_act_cfg[1]
+    idt = idt_act_cfg[0]
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
@@ -253,7 +264,7 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     T_init = sort_thresholds_increasing(T_init)
 
     actval = act.min()
-    if narrow:
+    if narrow and act.signed():
         actval += 1
 
     model = make_single_thresholding_modelwrapper(
@@ -300,21 +311,32 @@ def test_runtime_thresholds_write(impl_style, cfg, narrow, per_tensor):
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx_write = {"inp": in_tensor}
+    exec_ctx_write = {model.graph.input[0].name: in_tensor}
 
     def write_weights(sim):
         addr = 0
+        writes = []
         for nw in T_write_stream:
-            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            # convert value to hex value and without '0x' prefix
+            hex_val = format(nw, "x")
+            writes.append((addr, hex_val))
             addr += 4
+        sim.write_axilite("s_axilite_0", iter(writes))
+        sim.run()
 
     T_read_stream = []
 
     def read_weights(sim):
         addr = 0
+        read_handles = []
+        addresses = []
         for i in range(len(T_write_stream)):
-            T_read_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
+            addresses.append(addr)
             addr += 4
+        read_handles.append(sim.read_axilite("s_axilite_0", iter(addresses)))
+        sim.run()
+        for addr in addresses:
+            T_read_stream.append(int(read_handles[0][addr], 16))
 
     rtlsim_exec(model, exec_ctx_write, pre_hook=write_weights, post_hook=read_weights)
 

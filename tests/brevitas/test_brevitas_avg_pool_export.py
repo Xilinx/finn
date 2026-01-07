@@ -41,8 +41,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-base_export_onnx_path = "test_brevitas_avg_pool_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -62,7 +61,8 @@ def test_brevitas_avg_pool_export(
     channels,
     idim,
 ):
-    export_onnx_path = base_export_onnx_path.replace(".onnx", "test_QONNX.onnx")
+    build_dir = make_build_dir(prefix="test_brevitas_avg_pool_export")
+    export_onnx_path = os.path.join(build_dir, "test.onnx")
     if signed:
         quant_node = QuantIdentity(
             bit_width=input_bit_width,
@@ -112,5 +112,3 @@ def test_brevitas_avg_pool_export(
     finn_output = odict[model.graph.output[0].name]
     # compare outputs
     assert np.isclose(ref_output_array, finn_output).all()
-    # cleanup
-    os.remove(export_onnx_path)

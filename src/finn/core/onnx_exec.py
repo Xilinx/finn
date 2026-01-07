@@ -48,54 +48,48 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
 
     # check if model has an execution mode set
     # if None, execute model node using the QONNX-provided execute_onnx impl
-    # if set to "rtlsim" execute model using pyverilator
+    # if set to "rtlsim" execute model using xsi
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
         return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
-
-    if not model.check_all_tensor_shapes_specified():
-        raise Exception("Found unspecified tensor shapes, try infer_shapes")
-    ret = model.analysis(ta.nodes_topologically_sorted)
-    assert (
-        ret["nodes_topologically_sorted"] is True
-    ), """Nodes must be
-    topologically sorted."""
-
-    graph = model.graph
-    # first, we need to make sure that every variable required by the graph has
-    # some buffer associated with it. this includes graph inputs (which includes
-    # the input data as well as the trained parameters) and the graph ValueInfo
-    # (intermediate tensors between layers)
-    # this is provided by the execution_context, which is a dict of np.ndarray
-    execution_context = model.make_empty_exec_context()
-    # fill in any inputs provided to this function
-    for inp_name in input_dict.keys():
-        if inp_name in execution_context:
-            if execution_context[inp_name].shape == input_dict[inp_name].shape:
-                execution_context[inp_name] = input_dict[inp_name]
-            else:
-                raise Exception(
-                    "Shape mismatch for provided input %s: found %s expected %s "
-                    % (
-                        inp_name,
-                        str(execution_context[inp_name].shape),
-                        str(input_dict[inp_name].shape),
-                    )
-                )
-
-    # check if model has an execution mode set
-    # if None, execute model node by node using execute_node()
-    # if set to "rtlsim" execute model using pyverilator
-    model_exec_mode = model.get_metadata_prop("exec_mode")
-    if (model_exec_mode is None) or (model_exec_mode == ""):
-        return execute_onnx_base()
     elif model_exec_mode == "rtlsim":
+        # check sanity of model and then use stitched IP for rtlsim
+        if not model.check_all_tensor_shapes_specified():
+            raise Exception("Found unspecified tensor shapes, try infer_shapes")
+        ret = model.analysis(ta.nodes_topologically_sorted)
+        assert (
+            ret["nodes_topologically_sorted"] is True
+        ), """Nodes must be
+        topologically sorted."""
+
+        graph = model.graph
+        # first, we need to make sure that every variable required by the graph has
+        # some buffer associated with it. this includes graph inputs (which includes
+        # the input data as well as the trained parameters) and the graph ValueInfo
+        # (intermediate tensors between layers)
+        # this is provided by the execution_context, which is a dict of np.ndarray
+        execution_context = model.make_empty_exec_context()
+        # fill in any inputs provided to this function
+        for inp_name in input_dict.keys():
+            if inp_name in execution_context:
+                if execution_context[inp_name].shape == input_dict[inp_name].shape:
+                    execution_context[inp_name] = input_dict[inp_name]
+                else:
+                    raise Exception(
+                        "Shape mismatch for provided input %s: found %s expected %s "
+                        % (
+                            inp_name,
+                            str(execution_context[inp_name].shape),
+                            str(input_dict[inp_name].shape),
+                        )
+                    )
+
         # use stitched IP for rtlsim
         rtlsim_exec(model, execution_context)
     else:
         raise Exception(
             """Metadata property "exec_mode" is set to an unknown value. Can be left
-            unset or has to be set to "rtlsim" for execution using pyverilator!"""
+            unset or has to be set to "rtlsim" for execution using xsi!"""
         )
 
     if return_full_exec_context:

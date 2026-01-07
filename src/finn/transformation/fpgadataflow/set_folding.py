@@ -27,12 +27,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import functools
+
+# Inspect information on Python objects like modules
+import inspect
 import numpy as np
 import warnings
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
 
+# Import the elementwise binary operation module to extract names of all
+# specializations (which require PE parallelism to be configured)
+import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls as elementwise_binary_hls
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
@@ -42,6 +49,24 @@ def divisors(num):
     for x in range(1, num + 1):
         if (num % x) == 0:
             yield x
+
+
+def common_divisors(numbers):
+    separate_divisors = []
+    for num in numbers:
+        individual_divisors = list(divisors(num))
+        separate_divisors.append(individual_divisors)
+
+    return functools.reduce(np.intersect1d, separate_divisors)
+
+
+# Find the op-type names for all HLS specializations of elementwise binary
+# operations
+ELEMENTWISE_BINARY_OPS = [
+    op_type
+    for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
+    if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
+]
 
 
 class SetFolding(Transformation):
@@ -106,17 +131,19 @@ class SetFolding(Transformation):
             "GlobalAccPool_hls",
             "Thresholding_hls",
             "Thresholding_rtl",
+            *ELEMENTWISE_BINARY_OPS,
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
-        # ConvolutionInputGenerator* has a special case when depthwise=1
+        # ConvolutionInputGenerator has a special case when depthwise=1
         # ConvolutionInputGenerator_rtl supports additional parallelism by
         # setting parallel_window=1 mode after maxing out SIMD
         simd_ops = [
-            "DownSampler_hls",
-            "FMPadding_hls",
+            "FMPadding_rtl",
             "FMPadding_Pixel_hls",
-            "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
+            "StreamingSplit_hls",
+            "StreamingConcat_hls",
+            "LayerNorm_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -142,7 +169,7 @@ class SetFolding(Transformation):
                         # finish if target met
                         break
                     if (
-                        node_inst.get_weight_datatype().bitwidth() * node_inst.get_nodeattr("SIMD")
+                        node_inst.get_input_datatype(1).bitwidth() * node_inst.get_nodeattr("SIMD")
                         > self.mvau_wwidth_max
                     ):
                         # revert if we've gone above width threshold
@@ -151,7 +178,16 @@ class SetFolding(Transformation):
                 # increase PE until target met or reached max_pe
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in pe_ops:
-                max_pe = node_inst.get_nodeattr("NumChannels")
+                # Note: Keep original behavior for all custom-ops defining the
+                # NumChannels attribute as it is
+                try:
+                    max_pe = node_inst.get_nodeattr("NumChannels")
+                # Note: Some of the recent additions do not define the
+                # NumChannels attribute
+                except AttributeError:
+                    # We can extract the channels from the normal, i.e., not
+                    # folded, shape of the input in these cases
+                    max_pe = node_inst.get_normal_input_shape()[-1]
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type == "LabelSelect_hls":
                 max_pe = node_inst.get_nodeattr("Labels")
@@ -214,6 +250,25 @@ class SetFolding(Transformation):
                     else:
                         # depthwise SWGs are handled separately
                         continue
+                elif op_type == "StreamingConcat_hls" or op_type == "StreamingSplit_hls":
+                    node_inst.set_nodeattr("SIMD", 1)
+                    channels_per_stream = node_inst.get_nodeattr("ChannelsPerStream")
+                    for simd_val in common_divisors(channels_per_stream):
+                        node_inst.set_nodeattr("SIMD", simd_val)
+                        cyc = node_inst.get_exp_cycles()
+                        if cyc < self.target_cycles_per_frame:
+                            break
+                elif op_type == "LayerNorm_rtl":
+                    node_inst.set_nodeattr("SIMD", 1)
+                    dim = int(node_inst.get_normal_input_shape()[-1])
+                    for simd_val in divisors(dim):
+                        if dim // simd_val > 12:
+                            node_inst.set_nodeattr("SIMD", simd_val)
+                            cyc = node_inst.get_exp_cycles()
+                            if cyc < self.target_cycles_per_frame:
+                                break
+                        else:
+                            break
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")

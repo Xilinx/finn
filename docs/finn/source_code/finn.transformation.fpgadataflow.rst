@@ -149,7 +149,7 @@ finn.transformation.fpgadataflow.insert\_tlastmarker
 finn.transformation.fpgadataflow.make\_pynq\_driver
 ----------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.make_pynq_driver
+.. automodule:: finn.transformation.fpgadataflow.make_driver
    :members:
    :undoc-members:
    :show-inheritance:

@@ -43,8 +43,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_scaled_QHardTanh_export.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -85,7 +84,8 @@ tensor_quant.scaling_impl.learned_value": torch.tensor(
             )
         }
         b_act.load_state_dict(checkpoint)
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_act_export_qhardtanh_scaled")
+    m_path = os.path.join(build_dir, "test_brevitas_scaled_QHardTanh_export.onnx")
     export_qonnx(b_act, torch.randn(ishape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
@@ -121,4 +121,3 @@ tensor_quant.scaling_impl.learned_value": torch.tensor(
         print("expec:", ", ".join(["{:8.4f}".format(x) for x in expected[0]]))
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

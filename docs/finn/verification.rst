@@ -23,10 +23,10 @@ Simulation using C++
 This simulation can be used for a model containing several HLS custom operations. Because they are based on finn-hlslib function, C++ code can be generated from this single nodes and they can be executed by compiling the code and running the resulting executables.
 
 
-Emulation using PyVerilator
+Emulation using XSI
 ===========================
 
-The emulation using PyVerilator can be used when IP blocks/RTL modules were generated, either node by node or of a whole (IP-stitched) design. For that purpose PyVerilator gets the generated verilog files.
+The emulation using XSI can be used when IP blocks/RTL modules were generated, either node by node or of a whole (IP-stitched) design. For that purpose XSI gets the generated verilog files.
 
 For debugging purposes, it's possible to generate .vcd trace files that show the value of external & internal signals as the emuation is running. To enable this:
  - for node-by-node rtlsim, set the `rtlsim_trace` attribute of each node of interest to either a file name for the vcd or `default` to use the node name as the filename.

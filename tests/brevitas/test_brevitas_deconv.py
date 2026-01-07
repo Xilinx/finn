@@ -38,8 +38,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_path = "test_brevitas_deconv.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -66,6 +65,8 @@ def test_brevitas_QTransposeConv(ifm_ch, ofm_ch, mh, mw, padding, stride, kw, bi
         padding=padding,
         bias=bias,
     )
+    build_dir = make_build_dir("test_brevitas_QTransposeConv")
+    export_path = os.path.join(build_dir, "test_brevitas_deconv.onnx")
     # outp = el(inp) # expects NCHW data format
     export_qonnx(b_deconv, input_t=inp, export_path=export_path, opset_version=11)
     qonnx_cleanup(export_path, out_file=export_path)
@@ -79,4 +80,3 @@ def test_brevitas_QTransposeConv(ifm_ch, ofm_ch, mh, mw, padding, stride, kw, bi
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_deconv.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_path)

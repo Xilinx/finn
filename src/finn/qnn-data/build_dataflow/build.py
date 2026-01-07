@@ -61,6 +61,7 @@ cfg = build.DataflowBuildConfig(
         build_cfg.VerificationStepType.TIDY_UP_PYTHON,
         build_cfg.VerificationStepType.STREAMLINED_PYTHON,
         build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
+        build_cfg.VerificationStepType.NODE_BY_NODE_RTLSIM,
         build_cfg.VerificationStepType.STITCHED_IP_RTLSIM,
     ],
     save_intermediate_models=True,

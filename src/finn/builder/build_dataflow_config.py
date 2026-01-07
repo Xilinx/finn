@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, part_map
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -62,6 +62,7 @@ class DataflowOutputType(str, Enum):
     RTLSIM_PERFORMANCE = "rtlsim_performance"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
+    CPP_DRIVER = "cpp_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
 
 
@@ -96,6 +97,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hw_ipgen
+    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -113,6 +116,7 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_transpose_decomposition",
     "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
@@ -121,7 +125,7 @@ default_build_dataflow_steps = [
     "step_measure_rtlsim_performance",
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
-    "step_make_pynq_driver",
+    "step_make_driver",
     "step_deployment_package",
 ]
 
@@ -169,7 +173,7 @@ class DataflowBuildConfig:
     #: The SpecializeLayers transformation picks up these settings and if possible
     #: fulfills the desired implementation style for each layer by converting the
     #: node into its HLS or RTL variant.
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     specialize_layers_config_file: Optional[str] = None
 
     #: (Optional) Path to configuration JSON file. May include parallelization,
@@ -177,7 +181,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -214,6 +218,9 @@ class DataflowBuildConfig:
     #: (Optional) Save .vcd waveforms from rtlsim under reports.
     #: By default, waveforms won't be saved.
     verify_save_rtlsim_waveforms: Optional[bool] = False
+
+    #: Manually specify the verification tolerance
+    verification_atol: Optional[float] = 1e-1
 
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
@@ -271,13 +278,21 @@ class DataflowBuildConfig:
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
-    #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
-    #: if set to True, always using Python instead
-    force_python_rtlsim: Optional[bool] = False
-
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
+
+    #: Enable input throttling for simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_input_throttle: Optional[bool] = True
+
+    #: Manually specify the number of inferences for simulation-based FIFO sizing
+    #: Default is 2
+    fifosim_n_inferences: Optional[int] = 2
+
+    #: Enable saving waveforms from simulation-based FIFO sizing
+    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    fifosim_save_waveform: Optional[bool] = False
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -297,7 +312,7 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
@@ -350,6 +365,11 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
+    #: Determine if the C++ driver should be generated instead of the PYNQ driver
+    #: If set to latest newest version will be used
+    #: If set to commit hash specified version will be used
+    cpp_driver_version: Optional[str] = "latest"
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
@@ -368,11 +388,10 @@ class DataflowBuildConfig:
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
-            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-                return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-                return alveo_part_map[self.board]
-            else:
+            try:
+                fpga_part = part_map[self.board]
+                return fpga_part
+            except KeyError:
                 raise Exception("Couldn't resolve fpga_part for " + self.board)
         else:
             # return as-is when explicitly specified

@@ -1,4 +1,4 @@
-bitstring==3.1.7
+bitstring==4.2.3
 clize==5.0.1
 dataclasses-json==0.5.7
 gspread==3.6.0
@@ -8,10 +8,12 @@ numpy==1.24.1
 onnx==1.17.0
 onnxoptimizer
 onnxruntime==1.18.1
+onnxscript==0.5.0
 pre-commit==3.3.2
 protobuf==4.25.8
 psutil==5.9.4
-pyscaffold==4.4
+pyscaffold==4.6
+pytest-forked==1.6.0
 scipy==1.10.1
 setupext-janitor>=1.1.2
 sigtools==4.0.1

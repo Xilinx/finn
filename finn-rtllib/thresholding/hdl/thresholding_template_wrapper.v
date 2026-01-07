@@ -33,15 +33,17 @@
  */
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter  N = $N$,		// output precision
 	parameter  WI = $WI$,	// input precision
 	parameter  WT = $WT$,	// threshold precision
+	parameter  N = $N$,		// number of thresholds
 	parameter  C = $C$,	// Channels
 	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
 	parameter  SIGNED = $SIGNED$,	// signed inputs
-	parameter  FPARG  = 0,			// floating-point inputs: [sign] | exponent | mantissa
+	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+
+	parameter  SETS = 1,  // Number of independent threshold sets
 
 	parameter  THRESHOLDS_PATH = $THRESHOLDS_PATH$,	// Directory with initial threshold data
 	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write
@@ -54,7 +56,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  O_BITS = $O_BITS$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -64,7 +66,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Writing
 	input   s_axilite_AWVALID,
 	output  s_axilite_AWREADY,
-	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
+	input [$clog2(SETS) + $clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
 
 	input         s_axilite_WVALID,
 	output        s_axilite_WREADY,
@@ -78,12 +80,18 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Reading
 	input   s_axilite_ARVALID,
 	output  s_axilite_ARREADY,
-	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_ARADDR,
+	input [$clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
 
 	output         s_axilite_RVALID,
 	input          s_axilite_RREADY,
 	output [31:0]  s_axilite_RDATA,
 	output [ 1:0]  s_axilite_RRESP,
+
+	//- AXI Stream - Set Selection ------
+	// (ignored for SETS < 2)
+	output  in1_V_TREADY,
+	input   in1_V_TVALID,
+	input [(((SETS > 2? $clog2(SETS) : 1)+7)/8)*8-1:0]  in1_V_TDATA,
 
 	//- AXI Stream - Input --------------
 	output  in0_V_TREADY,
@@ -91,9 +99,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	input [((PE*WI+7)/8)*8-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
-	input   out_V_TREADY,
-	output  out_V_TVALID,
-	output [((PE*O_BITS+7)/8)*8-1:0]  out_V_TDATA
+	input   out0_V_TREADY,
+	output  out0_V_TVALID,
+	output [((PE*O_BITS+7)/8)*8-1:0]  out0_V_TDATA
 );
 
 	thresholding_axi #(
@@ -101,6 +109,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
 		.BIAS(BIAS),
+		.SETS(SETS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH),
 		.USE_AXILITE(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM),
@@ -115,8 +124,10 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 
 		.s_axilite_ARVALID(s_axilite_ARVALID), .s_axilite_ARREADY(s_axilite_ARREADY), .s_axilite_ARADDR(s_axilite_ARADDR),
 		.s_axilite_RVALID(s_axilite_RVALID), .s_axilite_RREADY(s_axilite_RREADY), .s_axilite_RDATA(s_axilite_RDATA), .s_axilite_RRESP(s_axilite_RRESP),
+
+		.s_axis_set_tready(in1_V_TREADY), .s_axis_set_tvalid(in1_V_TVALID), .s_axis_set_tdata(in1_V_TDATA),
 		.s_axis_tready(in0_V_TREADY), .s_axis_tvalid(in0_V_TVALID), .s_axis_tdata(in0_V_TDATA),
-		.m_axis_tready(out_V_TREADY), .m_axis_tvalid(out_V_TVALID), .m_axis_tdata(out_V_TDATA)
+		.m_axis_tready(out0_V_TREADY), .m_axis_tvalid(out0_V_TVALID), .m_axis_tdata(out0_V_TDATA)
 	);
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

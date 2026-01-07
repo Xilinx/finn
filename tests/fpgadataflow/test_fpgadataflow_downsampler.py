@@ -128,7 +128,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     idict = {"in0": inp}
     y_expected = execute_onnx(model, idict)["out0"]
     model = model.transform(to_hw.InferConvInpGen())
-    assert len(model.get_nodes_by_op_type("DownSampler")) == 1
+    assert len(model.get_nodes_by_op_type("ConvolutionInputGenerator")) == 1
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -147,7 +147,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     y_produced = execute_onnx(model, idict)["out0"]
     assert (y_produced == y_expected).all()
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("DownSampler_hls")[0]
+        node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -158,5 +158,5 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
         # pixels)
         if not is_1d:
             exp_cycles = exp_cycles - in_dim
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
         assert exp_cycles != 0

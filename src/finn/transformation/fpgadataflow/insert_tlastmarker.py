@@ -118,7 +118,7 @@ class InsertTLastMarker(Transformation):
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
                         if first_node.op_type.startswith("MVAU") and inp_idx == 1:
-                            stream_width = int(custom_op.get_weightstream_width())
+                            stream_width = int(custom_op.get_instream_width(1))
                         elif first_node.op_type.startswith("AddStreams") and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width())
                         else:

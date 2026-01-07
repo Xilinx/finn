@@ -31,6 +31,7 @@ import pytest
 import json
 import numpy as np
 import os
+import re
 import shutil
 import torch
 import torch.nn as nn
@@ -48,7 +49,6 @@ from finn.util.basic import make_build_dir
 from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
@@ -79,6 +79,7 @@ class CybSecMLPForExport(nn.Module):
         return out_final
 
 
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
     assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
@@ -105,7 +106,9 @@ def test_end2end_cybsec_mlp_export():
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth", weights_only=False)[
+        "models_state_dict"
+    ][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
@@ -143,10 +146,20 @@ def test_end2end_cybsec_mlp_export():
     assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
+# board
+@pytest.mark.parametrize("build_board", ["Pynq-Z1", "AUP-ZU3_8GB"])
+@pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_cybsec_mlp_build():
+def test_end2end_cybsec_mlp_build(build_board):
+    # AUP-ZU3 board requires at least Vivado 2024.1
+    # otherwise this test will be skipped
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 1) and build_board == "AUP-ZU3_8GB":
+        pytest.skip("AUP-ZU3 board requires at least vivado 2024.1")
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
