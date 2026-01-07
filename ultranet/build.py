@@ -108,19 +108,43 @@ converted_model_file = convert_qonnx_to_finn()
 # Generate test data using the converted model
 generate_test_data(converted_model_file)
 
+#cfg = build.DataflowBuildConfig(
+#    output_dir="output_%s_%s" % (model_name, platform_name),
+#    target_fps=500,
+#    mvau_wwidth_max=512,
+#    synth_clk_period_ns=2.0,
+#    board=platform_name,
+#    fpga_part="xcv80-lsva4737-2MHP-e-s",
+#    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+#    split_large_fifos=True,
+#    generate_outputs=[
+#        build_cfg.DataflowOutputType.STITCHED_IP,
+#        build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+#        build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+#    ],
+#    verify_steps=[
+#        # build_cfg.VerificationStepType.TIDY_UP_PYTHON,
+#        build_cfg.VerificationStepType.STREAMLINED_PYTHON,
+#        # build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
+#        build_cfg.VerificationStepType.STITCHED_IP_RTLSIM,
+#    ],
+#    save_intermediate_models=True,
+#)
+
 cfg = build.DataflowBuildConfig(
     output_dir="output_%s_%s" % (model_name, platform_name),
-    target_fps=60,
+    target_fps=1000,
     mvau_wwidth_max=512,
-    synth_clk_period_ns=10.0,
+    synth_clk_period_ns=5.0,
     board=platform_name,
-    fpga_part="xczu3eg-sbva484-1-e",
-    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+    #fpga_part="xczu3eg-sbva484-1-e",
+    fpga_part="xcv80-lsva4737-2MHP-e-s",
     split_large_fifos=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
         build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        build_cfg.DataflowOutputType.OOC_SYNTH,
     ],
     verify_steps=[
         # Disable initial verification steps that may have bugs
