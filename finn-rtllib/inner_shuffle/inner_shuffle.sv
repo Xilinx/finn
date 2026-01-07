@@ -56,34 +56,6 @@
  * enabling both the write path and the read path to be active simultaneously.
 ****************************************************************************/
 
-// A memory bank in the inner_shuffle design. Pattern was kept as simple
-// as possible to help with Vivado BRAM inference.
-module mem_bank #(
-	int unsigned WIDTH,
-	int unsigned DEPTH,
-	parameter RAM_STYLE = "auto"
-)(
-	input logic clk,
-
-	input logic [WIDTH-1:0] d_in,
-	input logic [$clog2(DEPTH)-1:0] wr_addr,
-	input logic wr_en,
-
-	output logic [WIDTH-1:0] d_out,
-	input  logic [$clog2(DEPTH)-1:0] rd_addr,
-	input  logic rd_en
-);
-
-	(* ram_style=RAM_STYLE *)
-	logic [WIDTH-1:0] Mem [DEPTH-1:0]; // The Mem for this bank
-	always_ff @(posedge clk) begin
-		if(wr_en)  Mem[wr_addr] <= d_in;
-		if(rd_en)  d_out <= Mem[rd_addr];
-	end
-
-endmodule : mem_bank
-
-
 // ----------------------------------------
 // Parallel Transpose Unit (InnerShuffle)
 // ----------------------------------------
@@ -124,23 +96,37 @@ module inner_shuffle #(
 	localparam int unsigned  PAGE_OFFSET =    I*J / SIMD;
 	uwire  wr_en = irdy && ivld;
 	uwire [$clog2(BANK_DEPTH)-1:0]  wr_addr;
-	uwire  rd_en;
 	uwire [BITS-1:0]                d_in      [SIMD-1:0];
 	uwire [BITS-1:0]                d_out     [SIMD-1:0];
+	uwire  rd_req_en;
+	uwire [SIMD-1:0] rd_req_rdy;
+	uwire  rd_req_rdy_all = &rd_req_rdy;
 	logic [$clog2(BANK_DEPTH)-1:0]  raddr     [SIMD-1:0];
+	uwire rd_dat_vld [SIMD-1:0];
+	uwire rd_dat_rdy;
+	assign rd_dat_rdy = osb_rdy && rd_pattern_sb_ovld;
+	uwire rd_pattern_sb_irdy;
+	uwire rd_pattern_sb_ovld;
 	for(genvar i = 0; i<SIMD; i++) begin : gen_mem_banks
-		mem_bank #(
+		elasticmem #(
 			.WIDTH(BITS),
 			.DEPTH(BANK_DEPTH),
 			.RAM_STYLE(RAM_STYLE)
-		) mem_bank_inst (
-			.clk,
-			.wr_en,
-			.wr_addr,
-			.d_in(d_in[i]),
-			.rd_en,
+		) mem_banks_inst (
+			.clk(clk),
+			.rst(rst),
+
+			.wr_data(d_in[i]),
+			.wr_addr(wr_addr),
+			.wr_en(wr_en),
+
 			.rd_addr(raddr[i]),
-			.d_out(d_out[i])
+			.rd_req_vld(rd_req_en),
+			.rd_req_rdy(rd_req_rdy[i]),
+
+			.rd_dat(d_out[i]),
+			.rd_dat_vld(rd_dat_vld[i]),
+			.rd_dat_rdy(rd_dat_rdy)
 		);
 	end : gen_mem_banks
 
@@ -221,6 +207,7 @@ module inner_shuffle #(
 
 	localparam int unsigned  RD_ROT_PERIOD = I / SIMD; // (I % SIMD == 0) is a constraint
 	typedef logic [$clog2(SIMD)-1:0]  rotidx_vec_t[SIMD-1:0];
+	typedef logic [SIMD*$clog2(SIMD)-1:0] packed_rotidx_vec_t;
 	typedef logic [$clog2(BANK_DEPTH)-1:0]  bank_addr_t [SIMD-1:0];
 
 	// --------------------------------------------------------------------------
@@ -279,7 +266,7 @@ module inner_shuffle #(
 	uwire [$clog2(BANK_DEPTH)-1:0] page_rd_offset;
 	uwire osb_rdy; // output skid buffer ready signal
 	uwire rd_guard = !CurrentPageRd && !WrJobsDone[0] && !WrJobsDone[1];
-	uwire rd_inc = osb_rdy & !rd_guard;
+	uwire rd_inc = rd_req_en && rd_req_rdy_all;
 
 	// Counts reads across the columns
 	logic[$clog2(I)-1 : 0] RdICnt = 0; // 0, ..., I - 1
@@ -349,9 +336,7 @@ module inner_shuffle #(
 	// --------------------------------------------------------------------------
 	//   Page management
 
-	logic OsbVld  = 0; // output skidbuffer valid signal
-	logic OsbVld_D = 0; // output skidbuffer valid signal
-	assign rd_en  = osb_rdy;
+	assign rd_req_en  = !rd_guard && rd_pattern_sb_irdy; // We can read once the guard is not up
 
 	always_ff @(posedge clk) begin
 		if (rst) begin
@@ -363,37 +348,26 @@ module inner_shuffle #(
 			if (wr_addr == 2*PAGE_OFFSET - 1) WrJobsDone[1] <= 1;
 
 			// Clear the relevant job once it is read
-			if (page_boundary && (osb_rdy && OsbVld)) begin
+			if (page_boundary && (rd_req_en && rd_req_rdy_all)) begin
 				WrJobsDone[CurrentPageRd] <= 0;
 		       		CurrentPageRd <= !CurrentPageRd;
 			end
 		end
 	end
 
-	assign page_rd_offset = CurrentPageRd ? 0: PAGE_OFFSET;
+	assign page_rd_offset = CurrentPageRd ? 0 : PAGE_OFFSET;
 	assign irdy = !WrJobsDone[0] || !WrJobsDone[1];
 
 	// Forward the current RD_PATTERN row onto the next pipeline stage
 	rotidx_vec_t RdPat = RD_INIT_PAT;
-	rotidx_vec_t RdPat_D = RD_INIT_PAT; // The fowarded rotation pattern
-	always_ff @(posedge clk) begin : rd_pattern_col_forwarding
-		if (rst) begin
-			OsbVld <= 0;
-			RdPat_D <= RD_INIT_PAT;
-		end
-		else begin
-			OsbVld <= !rd_guard;
-			OsbVld_D <= OsbVld;
-			if (rd_inc) RdPat_D <= RdPat;
-			if(OsbVld & rd_guard & !osb_rdy) OsbVld <= 1;
-		end
-	end : rd_pattern_col_forwarding
+	packed_rotidx_vec_t rd_pat_forwarded_packed;
+	rotidx_vec_t rd_pat_forwarded;
 
 	// Structural remapping using the output of the memory banks
 	// and the Read rotation from the previous clock cycle that was
 	// used to generate the read addresses.
     	uwire [SIMD-1:0][BITS-1:0] remapped_data; // remapped output
-	for(genvar i=0; i<SIMD; i++) assign remapped_data[i] = d_out[RdPat_D[i]];
+	for(genvar i=0; i<SIMD; i++) assign remapped_data[i] = d_out[rd_pat_forwarded[i]];
 
 	// the next permutation of the rd pattern
 	rotidx_vec_t rd_pat_next;
@@ -433,11 +407,32 @@ module inner_shuffle #(
 			end
 		end
 	end : rd_pattern_assignment
+
+
+	//=======================================================================
+	skid #(
+		.DATA_WIDTH($bits(packed_rotidx_vec_t))
+	)
+	rd_pattern_skid (
+		.clk(clk),
+		.rst(rst),
+
+		.idat(packed_rotidx_vec_t'(RdPat)),
+		.ivld(rd_req_en),
+		.irdy(rd_pattern_sb_irdy),
+
+		.odat(rd_pat_forwarded_packed),
+		.ovld(rd_pattern_sb_ovld),
+		.ordy(osb_rdy && rd_dat_vld[0])
+	);
+
+	assign rd_pat_forwarded = rotidx_vec_t'(rd_pat_forwarded_packed);
 	// --------------------------------------------------------------------------
 
 	//=======================================================================
 	// Output SkidBuffer -- Used to decouple control signals for timing
 	// improvements
+	uwire osb_vld = rd_pattern_sb_ovld && rd_dat_vld[0];
 	skid #(
 		.DATA_WIDTH(SIMD*BITS)
 	)
@@ -446,7 +441,7 @@ module inner_shuffle #(
 		.rst(rst),
 
 		.idat(remapped_data),
-		.ivld(OsbVld),
+		.ivld(osb_vld),
 		.irdy(osb_rdy),
 
 		.odat(odat),

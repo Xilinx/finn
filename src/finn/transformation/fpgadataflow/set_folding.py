@@ -143,6 +143,7 @@ class SetFolding(Transformation):
             "ConvolutionInputGenerator_rtl",
             "StreamingSplit_hls",
             "StreamingConcat_hls",
+            "LayerNorm_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -256,6 +257,17 @@ class SetFolding(Transformation):
                         node_inst.set_nodeattr("SIMD", simd_val)
                         cyc = node_inst.get_exp_cycles()
                         if cyc < self.target_cycles_per_frame:
+                            break
+                elif op_type == "LayerNorm_rtl":
+                    node_inst.set_nodeattr("SIMD", 1)
+                    dim = int(node_inst.get_normal_input_shape()[-1])
+                    for simd_val in divisors(dim):
+                        if dim // simd_val > 12:
+                            node_inst.set_nodeattr("SIMD", simd_val)
+                            cyc = node_inst.get_exp_cycles()
+                            if cyc < self.target_cycles_per_frame:
+                                break
+                        else:
                             break
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
