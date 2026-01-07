@@ -62,8 +62,8 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.test import tree_model_test
 from finn.transformation.general import ApplyConfig
+from finn.util.test import tree_model_test
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
