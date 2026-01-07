@@ -141,6 +141,7 @@ cfg = build.DataflowBuildConfig(
     fpga_part="xcv80-lsva4737-2MHP-e-s",
     specialize_layers_config_file="specialise_layers.json",
     split_large_fifos=True,
+    standalone_thresholds=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
         build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
