@@ -33,6 +33,7 @@ except ModuleNotFoundError:
 
 import numpy as np
 import os
+import re
 import subprocess
 import warnings
 from abc import ABC, abstractmethod
@@ -234,6 +235,14 @@ class HLSBackend(ABC):
         """Builds the bash script for compilation using the CppBuilder from
         finn.util.basic and executes the script to produce the executable."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        vivado_path = os.environ.get("XILINX_VIVADO")
+        # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
+        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+        year, minor = int(match.group(1)), int(match.group(2))
+        if (year, minor) < (2024, 2):
+            hls_path = os.environ["HLS_PATH"]
+        else:
+            hls_path = os.environ["VITIS_PATH"]
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
@@ -241,13 +250,18 @@ class HLSBackend(ABC):
         builder.append_includes("-I$FINN_ROOT/deps/cnpy/")
         builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
         builder.append_includes("-I$FINN_ROOT/custom_hls")
-        builder.append_includes("-I{}/include".format(os.environ["HLS_PATH"]))
-        builder.append_includes("-I{}/include".format(os.environ["VITIS_PATH"]))
+        builder.append_includes(f"-I{hls_path}/include")
         builder.append_includes("--std=c++14")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("$FINN_ROOT/deps/cnpy/cnpy.cpp")
         builder.append_includes("-lz")
+        builder.append_includes("-fno-builtin -fno-inline")
+        builder.append_includes(f'-Wl,-rpath,"{hls_path}/lnx64/lib/csim"')
+        builder.append_includes(f"-L{hls_path}/lnx64/lib/csim -lhlsmc++-GCC46")
+        builder.append_includes(f'-Wl,-rpath,"{hls_path}/lnx64/tools/fpo_v7_1"')
+        builder.append_includes(f"-L{hls_path}/lnx64/tools/fpo_v7_1 -lgmp -lmpfr")
+        builder.append_includes("-lIp_floating_point_v7_1_bitacc_cmodel")
         builder.set_executable_path(code_gen_dir + "/node_model")
         builder.build(code_gen_dir)
         self.set_nodeattr("executable_path", builder.executable_path)
