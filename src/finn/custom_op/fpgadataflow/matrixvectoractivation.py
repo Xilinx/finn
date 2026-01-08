@@ -279,12 +279,13 @@ class MVAU(HWCustomOp):
             simd = self.get_nodeattr("SIMD")
             wp = self.get_input_datatype(1).bitwidth()
             mem_mode = self.get_nodeattr("mem_mode")
+            theight = self.get_nodeattr("TH")
 
             match mem_mode:
                 case "dynamic":
                     width = pe * wp
                 case "external" | "external_mem" | "internal_decoupled":
-                    width = ((pe * simd) * wp) // self.get_nodeattr("TH")
+                    width = ((pe * simd) * wp) // theight
                 case _:
                     width = 0
         elif ind == 2:
@@ -315,6 +316,7 @@ class MVAU(HWCustomOp):
         sf = mw // simd
         nf = mh // pe
         vecs = list(self.get_nodeattr("numInputVectors"))
+        theight = self.get_nodeattr("TH")
 
         if ind == 0:
             # calculate shape of input 0
@@ -326,7 +328,7 @@ class MVAU(HWCustomOp):
                     folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
                 case "external"| "external_mem" | "internal_decoupled":
                     # calculate shape of input 1 (weights)
-                    folded_input_shape = tuple(vecs + [sf * nf, (simd * pe)])
+                    folded_input_shape = tuple(vecs + [sf * nf * theight, ((simd * pe) // theight)])
                 case _:
                     raise Exception("Undefined input shape for requested input")
         else:
@@ -704,11 +706,11 @@ class MVAU(HWCustomOp):
                     weight_filename_sim = "{}/input_1.npy".format(code_gen_dir)
                     # save internal_decoupled weights for cppsim
                     self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
-                    if mem_mode == "internal_decoupled":
-                        # also save weights as Verilog .dat file
-                        # This file will be ignored when synthesizing UltraScale memory.
-                        weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-                        self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
+                    #if mem_mode == "internal_decoupled":
+                    # also save weights as Verilog .dat file
+                    # This file will be ignored when synthesizing UltraScale memory.
+                    weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
+                    self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             if not mem_mode in ["external", "dynamic"]:
                 raise Exception(
@@ -824,7 +826,7 @@ class MVAU(HWCustomOp):
 
     # IP gen
     # ------------------------------------------------------------------------------------
-    def code_generation_ipi(self):
+    def code_generation_ipi(self, behavioral=False):
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
 

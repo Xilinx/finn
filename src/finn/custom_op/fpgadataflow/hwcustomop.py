@@ -136,6 +136,7 @@ class HWCustomOp(CustomOp):
                 intf_names["s_axis"].append(("in%d_V" % (i), self.get_instream_width_padded(i)))
         intf_names["m_axis"] = []
         for i in range(len(node.output)):
+            import pdb; pdb.set_trace()
             intf_names["m_axis"].append(("out%d_V" % (i), self.get_outstream_width_padded(i)))
         intf_names["aximm"] = []
         intf_names["axilite"] = []

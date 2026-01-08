@@ -83,7 +83,7 @@ def create_node(node_type, inputs, outputs, name, extra_params={}):
         if "rtl" in node_type
         else "finn.custom_op.fpgadataflow.hls",
         "backend": "fpgadataflow",
-        "numInputVectors": list((1, 3, 3)),
+        "numInputVectors": list((1, 4, 4)),
         "name": name,
     }
     return helper.make_node(node_type, inputs, outputs, **{**base_params, **extra_params})
@@ -131,11 +131,11 @@ def make_loop_modelwrapper(
     EltwParam = gen_finn_dt_tensor(DataType[eltw_param_dtype], rhs_shape)
 
     tensor_shapes = {
-        f"ifm{name_suffix}": [1, 3, 3, mw],
+        f"ifm{name_suffix}": [1, 4, 4, mw],
         f"weights{name_suffix}": [mw, mh],
         f"weights2{name_suffix}": [mh, mh],
     }
-    output_shapes = {f"mm{name_suffix}": [1, 3, 3, mh], f"ofm{name_suffix}": (1, 3, 3, mh)}
+    output_shapes = {f"mm{name_suffix}": [1, 4, 4, mh], f"ofm{name_suffix}": (1, 4, 4, mh)}
 
     tensor_infos = {k: create_tensor_info(k, v) for k, v in tensor_shapes.items()}
     thresholds = [
@@ -167,7 +167,7 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "TH": 1,
+                "TH": 2,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -202,7 +202,7 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "TH": 1,
+                "TH": 2,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -237,7 +237,7 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "TH": 1,
+                "TH": 2,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -275,9 +275,9 @@ def make_loop_modelwrapper(
             [f"ofm_ew{name_suffix}"],
             f"ElementwiseOp_hls_0{name_suffix}",
             {
-                "lhs_shape": [1, 3, 3, mh],
+                "lhs_shape": [1, 4, 4, mh],
                 "rhs_shape": rhs_shape,
-                "out_shape": [1, 3, 3, mh],
+                "out_shape": [1, 4, 4, mh],
                 "lhs_dtype": "INT9",
                 "rhs_dtype": eltw_param_dtype,
                 "out_dtype": elemwise_output_dtype.name,
@@ -462,16 +462,16 @@ def test_fpgadataflow_finnloop(
         model = model.transform(MergeONNXModels(m))
 
     if tail_node:
-        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tail_outp = create_tensor_info("tail_outp", [1, 4, 4, dim])
         tr_node = create_node(
             "ElementwiseAdd_hls",
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
             {
-                "lhs_shape": [1, 3, 3, dim],
+                "lhs_shape": [1, 4, 4, dim],
                 "rhs_shape": [1],
-                "out_shape": [1, 3, 3, dim],
+                "out_shape": [1, 4, 4, dim],
                 "lhs_dtype": "INT8",
                 "rhs_dtype": "INT8",
                 "out_dtype": "INT9",
@@ -495,7 +495,7 @@ def test_fpgadataflow_finnloop(
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
     # generate reference io pair
-    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
+    x = gen_finn_dt_tensor(DataType["INT8"], (1, 4, 4, dim))
     io_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, io_dict)
     y_ref = y_dict[model.graph.output[0].name]
@@ -610,16 +610,16 @@ def test_finnloop_end2end_mlo(
         model = model.transform(MergeONNXModels(m))
 
     if tail_node:
-        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tail_outp = create_tensor_info("tail_outp", [1, 4, 4, dim])
         tr_node = create_node(
             "ElementwiseAdd_hls",
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
             {
-                "lhs_shape": [1, 3, 3, dim],
+                "lhs_shape": [1, 4, 4, dim],
                 "rhs_shape": [1],
-                "out_shape": [1, 3, 3, dim],
+                "out_shape": [1, 4, 4, dim],
                 "lhs_dtype": "INT8",
                 "rhs_dtype": "INT8",
                 "out_dtype": "INT9",
@@ -643,7 +643,7 @@ def test_finnloop_end2end_mlo(
     model_ref = model_ref.transform(CompileCppSim())
     model_ref = model_ref.transform(SetExecMode("cppsim"))
     # generate reference io pair
-    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
+    x = gen_finn_dt_tensor(DataType["INT8"], (1, 4, 4, dim))
     io_dict = {model_ref.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model_ref, io_dict)
     y_ref = y_dict[model_ref.graph.output[0].name]

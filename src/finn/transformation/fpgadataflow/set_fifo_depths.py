@@ -559,7 +559,6 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
 
         # revert back the nodes 
-        import pdb; pdb.set_trace()
         for node in model.graph.node:
             if node.name in original_mem_modes:
                 node_inst = getHWCustomOp(node, model)

@@ -234,7 +234,8 @@ class CreateStitchedIP(Transformation):
                     )
                     # ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
                     # ext_if_name = f"m_axi_{inst_name}"
-                    idx = int(node.name.split("_")[-1])
+                    #idx = inputs.index(node.input[1])
+                    idx = node.name.rsplit("_", 1)[1]
                     ext_if_name = f"m_axi_MVAU_id_{idx}"
                     self.connect_cmds.append(
                         "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
