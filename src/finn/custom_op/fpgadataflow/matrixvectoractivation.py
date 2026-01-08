@@ -1001,7 +1001,8 @@ class MVAU(HWCustomOp):
                     "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, win_name)
                 )
                 # dynamic loader
-                dynld_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
+                ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
+                dyn_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
                 file_suffix = "_dynamic_load_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1010,8 +1011,8 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
-                    dynld_rtllib_dir + "ram_p_c.sv",
-                    dynld_rtllib_dir + "dynamic_load.sv",
+                    ram_rtllib_dir + "ram_p_c.sv",
+                    dyn_rtllib_dir + "dynamic_load.sv",
                 ]
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
@@ -1020,6 +1021,10 @@ class MVAU(HWCustomOp):
             elif self.get_nodeattr("mlo_max_iter"):
                 # instantiate a fetch weights component and connect it to the IP
                 mlo_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mlo/")
+                reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
+                ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
+                dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
+                dma_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/cdma/")
                 file_suffix = "_fetch_weights_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1028,26 +1033,27 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
+                    reg_rtllib_dir + "skid.sv",
+                    ram_rtllib_dir + "ram_p_c.sv",
+                    dwc_rtllib_dir + "axis_adapter.v",
+                    dwc_rtllib_dir + "axis_fifo_adapter.sv",
+                    dwc_rtllib_dir + "axis_fifo.v",
                     mlo_rtllib_dir + "fetch_weights.sv",
                     mlo_rtllib_dir + "local_weight_buffer.sv",
                 ]
-                # add files from common dir
-                for file in os.listdir(mlo_rtllib_dir + "common/"):
-                    if file.endswith(".sv") or file.endswith(".svh") or file.endswith(".v"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "common/", file))
                 # add files from cdma dir
-                for file in os.listdir(mlo_rtllib_dir + "cdma/"):
+                for file in os.listdir(dma_rtllib_dir):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_a/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir, file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_a/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_a", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_u/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_a/", file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_u/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_u/", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_x/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_u/", file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_x/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_x/", file))
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_x/", file))
 
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]

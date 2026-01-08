@@ -30,54 +30,47 @@
  *
  *****************************************************************************/
 
-module $MODULE_NAME$_dynamic_load_wrapper #(
-	parameter	PE = $PE$,
-	parameter	SIMD = $SIMD$,
-	parameter	MW = $MW$,
-	parameter	MH = $MH$,
-
-	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
-	parameter   N_REPS = $N_REPS$,
-
-	// Safely deducible parameters
-	parameter	INPUT_STREAM_WIDTH_BA = (PE*WEIGHT_WIDTH+7)/8 * 8,
-	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
-)(
-	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
-	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-	input	ap_clk,
-	//(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
-	//input	ap_clk2x,
-	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
-	input	ap_rst_n,
-
-	// Input stream
-	input	[INPUT_STREAM_WIDTH_BA-1:0]  s_axis_0_TDATA,
-	input	s_axis_0_TVALID,
-	output	s_axis_0_TREADY,
-	// Output Stream
-	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_0_TDATA,
-	output	m_axis_0_TVALID,
-	input	m_axis_0_TREADY
+module ram_p_c #(
+    int unsigned ADDR_BITS,
+    int unsigned DATA_BITS,
+    string RAM_STYLE = "block"
+) (
+    input  logic                          clk,
+    input  logic                          a_en,
+    input  logic [(DATA_BITS/8)-1:0]      a_we,
+    input  logic [ADDR_BITS-1:0]          a_addr,
+    input  logic                          b_en,
+    input  logic [ADDR_BITS-1:0]          b_addr,
+    input  logic [DATA_BITS-1:0]          a_data_in,
+    output logic [DATA_BITS-1:0]          a_data_out,
+    output logic [DATA_BITS-1:0]          b_data_out
 );
 
-dynamic_load #(
-	.PE(PE),
-	.SIMD(SIMD),
-	.MW(MW),
-	.MH(MH),
-	.WEIGHT_WIDTH(WEIGHT_WIDTH),
-	.N_REPS(N_REPS)
-) inst (
-	.ap_clk(ap_clk),
-	.ap_rst_n(ap_rst_n),
-	.ivld(s_axis_0_TVALID),
-	.irdy(s_axis_0_TREADY),
-	.idat(s_axis_0_TDATA),
-	.ovld(m_axis_0_TVALID),
-	.ordy(m_axis_0_TREADY),
-	.odat(m_axis_0_TDATA)
-);
+  localparam int unsigned DEPTH = 2**ADDR_BITS;
 
-endmodule // $MODULE_NAME$_dynamic_load_wrapper
+  (* ram_style = RAM_STYLE *) logic [DATA_BITS-1:0] ram[DEPTH];
+
+  reg [DATA_BITS-1:0] a_data_reg = 0;
+  reg [DATA_BITS-1:0] b_data_reg = 0;
+
+  reg [DATA_BITS-1:0] a_data_q = 0;
+  reg [DATA_BITS-1:0] b_data_q = 0;
+
+  always_ff @(posedge clk) begin
+    if(a_en) begin
+      for (int i = 0; i < (DATA_BITS/8); i++) begin
+        if(a_we[i]) begin
+          ram[a_addr][(i*8)+:8] <= a_data_in[(i*8)+:8];
+        end
+      end
+      a_data_reg <= ram[a_addr];
+      a_data_out <= a_data_reg;
+    end
+    if(b_en) begin
+      b_data_reg <= ram[b_addr];
+      b_data_out <= b_data_reg;
+    end
+   //end
+   end
+
+endmodule : ram_p_c

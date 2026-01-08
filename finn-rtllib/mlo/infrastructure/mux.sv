@@ -1,50 +1,43 @@
-// Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
-//
-// This file is subject to the Xilinx Design License Agreement located
-// in the LICENSE.md file in the root directory of this repository.
-//
-// This file contains confidential and proprietary information of Xilinx, Inc.
-// and is protected under U.S. and international copyright and other
-// intellectual property laws.
-//
-// DISCLAIMER
-// This disclaimer is not a license and does not grant any rights to the materials
-// distributed herewith. Except as otherwise provided in a valid license issued to
-// you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
-// MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
-// DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
-// INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
-// FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
-// in contract or tort, including negligence, or under any other theory of
-// liability) for any loss or damage of any kind or nature related to, arising
-// under or in connection with these materials, including for any direct, or any
-// indirect, special, incidental, or consequential loss or damage (including loss
-// of data, profits, goodwill, or any type of loss or damage suffered as a result
-// of any action brought by a third party) even if such damage or loss was
-// reasonably foreseeable or Xilinx had been advised of the possibility of the
-// same.
-//
-// CRITICAL APPLICATIONS
-// Xilinx products are not designed or intended to be fail-safe, or for use in
-// any application requiring failsafe performance, such as life-support or safety
-// devices or systems, Class III medical devices, nuclear facilities, applications
-// related to the deployment of airbags, or any other applications that could lead
-// to death, personal injury, or severe property or environmental damage
-// (individually and collectively, "Critical Applications"). Customer assumes the
-// sole risk and liability of any use of Xilinx products in Critical Applications,
-// subject only to applicable laws and regulations governing limitations on product
-// liability.
-//
-// THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+/******************************************************************************
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ *  3. Neither the name of the copyright holder nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *****************************************************************************/
 
 module mux #(
-    parameter int unsigned              IDX_BITS = 16,
-    parameter int unsigned              FM_SIZE,
+    int unsigned              IDX_BITS,
+    int unsigned              FM_SIZE,
 
-    parameter int unsigned              ILEN_BITS = 32,
+    int unsigned              ILEN_BITS,
 
-    parameter int unsigned              QDEPTH = 32,
-    parameter int unsigned              N_DCPL_STGS = 1
+    int unsigned              QDEPTH = 32,
+    int unsigned              N_DCPL_STGS = 1
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -75,8 +68,8 @@ module mux #(
     output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
-localparam integer FM_BEATS = FM_SIZE / (ILEN_BITS/8);
-localparam integer FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
+localparam int unsigned FM_BEATS = FM_SIZE / (ILEN_BITS/8);
+localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //
 // Generate idx from data
@@ -334,20 +327,15 @@ always_comb begin : DP_DATA
 end
 
 // REG
-axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg (
-    .aclk(aclk),
-    .aresetn(aresetn),
-    .s_axis_tvalid(m_axis_int_tvalid),
-    .s_axis_tready(m_axis_int_tready),
-    .s_axis_tdata (m_axis_int_tdata),
-    .m_axis_tvalid(m_axis_tvalid),
-    .m_axis_tready(m_axis_tready),
-    .m_axis_tdata (m_axis_tdata)
+skid #(.FEED_STAGES(N_DCPL_STGS), .DATA_WIDTH(ILEN_BITS)) inst_reg (
+    .clk(aclk),
+    .rst(~aresetn),
+    .ivld(m_axis_int_tvalid),
+    .irdy(m_axis_int_tready),
+    .idat(m_axis_int_tdata),
+    .ovld(m_axis_tvalid),
+    .ordy(m_axis_tready),
+    .odat(m_axis_tdata)
 );
-
-//
-// DBG
-//
-
 
 endmodule

@@ -30,54 +30,68 @@
  *
  *****************************************************************************/
 
-module $MODULE_NAME$_dynamic_load_wrapper #(
-	parameter	PE = $PE$,
-	parameter	SIMD = $SIMD$,
-	parameter	MW = $MW$,
-	parameter	MH = $MH$,
-
-	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
-	parameter   N_REPS = $N_REPS$,
-
-	// Safely deducible parameters
-	parameter	INPUT_STREAM_WIDTH_BA = (PE*WEIGHT_WIDTH+7)/8 * 8,
-	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
-)(
-	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_0:m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
-	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-	input	ap_clk,
-	//(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
-	//input	ap_clk2x,
-	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
-	input	ap_rst_n,
-
-	// Input stream
-	input	[INPUT_STREAM_WIDTH_BA-1:0]  s_axis_0_TDATA,
-	input	s_axis_0_TVALID,
-	output	s_axis_0_TREADY,
-	// Output Stream
-	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_0_TDATA,
-	output	m_axis_0_TVALID,
-	input	m_axis_0_TREADY
+module krnl_counter  #(
+  int unsigned C_WIDTH,
+  logic [C_WIDTH-1:0] C_INIT = '0
+)
+(
+  input  logic               aclk,
+  input  logic               clken,
+  input  logic               aresetn,
+  input  logic               load,
+  input  logic               incr,
+  input  logic               decr,
+  input  logic [C_WIDTH-1:0] load_value,
+  output logic [C_WIDTH-1:0] count,
+  output logic               is_zero
 );
 
-dynamic_load #(
-	.PE(PE),
-	.SIMD(SIMD),
-	.MW(MW),
-	.MH(MH),
-	.WEIGHT_WIDTH(WEIGHT_WIDTH),
-	.N_REPS(N_REPS)
-) inst (
-	.ap_clk(ap_clk),
-	.ap_rst_n(ap_rst_n),
-	.ivld(s_axis_0_TVALID),
-	.irdy(s_axis_0_TREADY),
-	.idat(s_axis_0_TDATA),
-	.ovld(m_axis_0_TVALID),
-	.ordy(m_axis_0_TREADY),
-	.odat(m_axis_0_TDATA)
-);
+  localparam [C_WIDTH-1:0] LP_ZERO = {C_WIDTH{1'b0}};
+  localparam [C_WIDTH-1:0] LP_ONE = {{C_WIDTH-1{1'b0}},1'b1};
+  localparam [C_WIDTH-1:0] LP_MAX = {C_WIDTH{1'b1}};
 
-endmodule // $MODULE_NAME$_dynamic_load_wrapper
+  logic [C_WIDTH-1:0] count_r = C_INIT;
+  logic   is_zero_r = (C_INIT == LP_ZERO);
+
+  assign count = count_r;
+
+  always_ff @(posedge aclk) begin
+    if (~aresetn) begin
+      count_r <= C_INIT;
+    end
+    else if (clken) begin
+      if (load) begin
+        count_r <= load_value;
+      end
+      else if (incr & ~decr) begin
+        count_r <= count_r + 1'b1;
+      end
+      else if (~incr & decr) begin
+        count_r <= count_r - 1'b1;
+      end
+      else
+        count_r <= count_r;
+    end
+  end
+
+  assign is_zero = is_zero_r;
+
+   always_ff @(posedge aclk) begin
+    if (~aresetn) begin
+      is_zero_r <= (C_INIT == LP_ZERO);
+    end
+    else if (clken) begin
+      if (load) begin
+        is_zero_r <= (load_value == LP_ZERO);
+      end
+      else begin
+        is_zero_r <= incr ^ decr ? (decr && (count_r == LP_ONE)) || (incr && (count_r == LP_MAX)) : is_zero_r;
+      end
+    end
+    else begin
+      is_zero_r <= is_zero_r;
+    end
+  end
+
+
+endmodule : krnl_counter
