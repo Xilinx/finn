@@ -54,8 +54,7 @@ import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-
-# from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
@@ -603,19 +602,48 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         )
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
-        # need to call AnnotateCycles before dataflow_performance
-        model = model.transform(AnnotateCycles(), apply_to_subgraphs=True)
-        estimate_network_performance = model.analysis(dataflow_performance)
-        # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
-        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-        estimate_network_performance["estimated_throughput_fps"] = est_fps
-        est_latency_ns = (
-            estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
-        )
-        estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-        with open(report_dir + "/estimate_network_performance.json", "w") as f:
-            json.dump(estimate_network_performance, f, indent=2)
+
+        # generate reports for MLO nodes
+        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+        for node in loop_nodes:
+            node_inst = getCustomOp(node)
+            loop_model = node_inst.get_nodeattr("body")
+            ops_and_params = loop_model.analysis(op_and_param_counts)
+            with open(report_dir + f"/op_and_param_counts_{node.name}.json", "w") as f:
+                json.dump(ops_and_params, f, indent=2)
+            estimate_layer_cycles = loop_model.analysis(exp_cycles_per_layer)
+            with open(report_dir + f"/estimate_layer_cycles_{node.name}.json", "w") as f:
+                json.dump(estimate_layer_cycles, f, indent=2)
+            estimate_layer_resources = loop_model.analysis(
+                partial(res_estimation, fpgapart=cfg._resolve_fpga_part())
+            )
+            estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
+            with open(report_dir + f"/estimate_layer_resources_{node.name}.json", "w") as f:
+                json.dump(estimate_layer_resources, f, indent=2)
+            estimate_layer_resources_complete = loop_model.analysis(
+                partial(res_estimation_complete, fpgapart=cfg._resolve_fpga_part())
+            )
+            with open(
+                report_dir + f"/estimate_layer_config_alternatives_{node.name}.json", "w"
+            ) as f:
+                json.dump(estimate_layer_resources_complete, f, indent=2)
+
+        if not is_mlo(model):
+            # need to call AnnotateCycles before dataflow_performance
+            model = model.transform(AnnotateCycles())
+            estimate_network_performance = model.analysis(dataflow_performance)
+            # add some more metrics to estimated performance
+            n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
+            est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+            estimate_network_performance["estimated_throughput_fps"] = est_fps
+            est_latency_ns = (
+                estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
+            )
+            estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+            with open(report_dir + "/estimate_network_performance.json", "w") as f:
+                json.dump(estimate_network_performance, f, indent=2)
+        else:
+            print("Model contains MLO, currently network performance can't be estimated for this.")
     else:
         print(
             """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
@@ -662,11 +690,18 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         prepare_loop_ops_ipgen(node, cfg)
     model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     model = model.transform(ReplaceVerilogRelPaths())
-    # report_dir = cfg.output_dir + "/report"
-    # os.makedirs(report_dir, exist_ok=True)
-    # estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    # with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-    #    json.dump(estimate_layer_resources_hls, f, indent=2)
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
+    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+        json.dump(estimate_layer_resources_hls, f, indent=2)
+    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+    for node in loop_nodes:
+        node_inst = getCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+        estimate_layer_resources_hls = loop_model.analysis(hls_synth_res_estimation)
+        with open(report_dir + f"/estimate_layer_resources_hls_{node.name}.json", "w") as f:
+            json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
         model = model.transform(PrepareRTLSim())

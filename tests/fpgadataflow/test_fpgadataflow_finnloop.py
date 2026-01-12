@@ -684,7 +684,7 @@ def test_finnloop_end2end_mlo(
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         # stitched_ip_gen_dcp=True,
         generate_outputs=[
-            # build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
             # build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
