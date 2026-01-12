@@ -244,8 +244,6 @@ class InferThresholdingLayer(Transformation):
                     ActVal=actval,
                     name="Thresholding_" + node.name,
                 )
-                if hasattr(node, "metadata_props"):
-                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -1559,8 +1557,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             dynamic_input=W is None,
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
-                        if hasattr(n, "metadata_props"):
-                            new_node.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
                         graph.node.remove(n)
@@ -1593,8 +1589,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             dynamic_input=W is None,
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
-                        if hasattr(n, "metadata_props"):
-                            new_node.metadata_props.extend(n.metadata_props)
                         graph.node.insert(node_ind, new_node)
                         # remove old node
                         graph.node.remove(n)
@@ -2000,8 +1994,6 @@ class InferElementwiseBinaryOperation(Transformation):
                     rhs_dtype=str(idt1),
                     out_dtype=str(odt0),
                 )
-                if hasattr(node, "metadata_props"):
-                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(index + 1, new_node)
                 graph.node.remove(node)
 

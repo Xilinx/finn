@@ -31,7 +31,6 @@ import json
 import numpy as np
 import os
 import shutil
-import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
@@ -49,7 +48,7 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
-from shutil import copy
+from shutil import copy, move
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
@@ -110,6 +109,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.transpose_decomposition import (
@@ -410,6 +410,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hw.InferThresholdingLayer())
+    else:
+        print(
+            """standalone_thresholds are set to False.
+            Please be aware that this means the MVAUs will be implemented in HLS
+            because the RTL variant doesn't support the merge of
+            MatMul + MultiThreshold into one layer. If you would like to have the RTL variant,
+            please set standalone_thresholds to True."""
+        )
     # needed for bipolar MatMul layers
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     # needed for non-bipolar MatMul layers
@@ -498,6 +506,8 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()), apply_to_subgraphs=True)
         model = model.transform(InferShapes(), apply_to_subgraphs=True)
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    else:
+        print("Model doesn't contain any Shuffle nodes, skipping step_transpose_decomposition.")
     return model
 
 
@@ -538,6 +548,9 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         ]
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
 
+    else:
+        print("No target_fps provided, skipping step_target_fps_parallelization.")
+
     return model
 
 
@@ -554,6 +567,9 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
             loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
             node_inst.set_nodeattr("body", loop_model.graph)
         model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
+
+    else:
+        print("No folding config json provided, skipping step_apply_folding_config.")
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
@@ -600,6 +616,11 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
         with open(report_dir + "/estimate_network_performance.json", "w") as f:
             json.dump(estimate_network_performance, f, indent=2)
+    else:
+        print(
+            """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
+            skipping step_generate_estimate_reports."""
+        )
     return model
 
 
@@ -611,6 +632,8 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    else:
+        print("minimize_bit_width set to False, skipping step_minimize_bit_width.")
     return model
 
 
@@ -720,6 +743,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         else:
             assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
+        print("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
         model = model.transform(InsertDWC())
@@ -798,6 +822,12 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
         )
         print("Vivado stitched IP written into " + stitched_ip_dir)
+
+    else:
+        print(
+            """DataflowOutputType.STITCHED_IP not in requested outputs,
+            skipping step_create_stitched_ip."""
+        )
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -881,6 +911,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             # restore original trace depth
             os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
+    else:
+        print(
+            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
+            skipping step_measure_rtlsim_performance."""
+        )
+
     return model
 
 
@@ -910,9 +946,9 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         )
         print("C++ driver written into " + driver_dir)
     else:
-        warnings.warn(
-            "The step step_make_driver is in the build list but will not be executed"
-            + " since no driver is selected in generate_outputs in your build.py file!"
+        print(
+            """Neither DataflowOutputType.PYNQ_DRIVER nor DataflowOutputType.CPP_DRIVER
+            in requested outputs, skipping step_make_driver."""
         )
     return model
 
@@ -937,6 +973,12 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
         ooc_res_dict["estimated_throughput_fps"] = est_fps
         with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
             json.dump(ooc_res_dict, f, indent=2)
+
+    else:
+        print(
+            """DataflowOutputType.OOC_SYNTH not in requested outputs,
+            skipping step_out_of_context_synthesis."""
+        )
     return model
 
 
@@ -1002,6 +1044,11 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
 
+    else:
+        print(
+            "DataflowOutputType.BITFILE not in requested outputs, skipping step_synthesize_bitfile."
+        )
+
     return model
 
 
@@ -1020,6 +1067,11 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
             dirs_exist_ok=True,
             copy_function=shutil.copyfile,
         )
+    else:
+        print(
+            """DataflowOutputType.DEPLOYMENT_PACKAGE not in requested outputs,
+            skipping step_deployment_package."""
+        )
     return model
 
 
@@ -1027,14 +1079,27 @@ def step_loop_rolling(model, cfg):
     """Roll a repeating sequence of layers into a loop. PyTorch metadata node hierarchy
     is used to indicate the loop structure."""
 
-    if cfg.loop_body_hierarchy is not None:
-        print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
-        model = model.transform(FoldConstants())
-        loop_extraction = LoopExtraction(cfg.loop_body_hierarchy)
-        model = model.transform(loop_extraction)
-        model = model.transform(LoopRolling(loop_extraction.loop_body_template))
+    if cfg.mlo:
+        if cfg.loop_body_range is not None:
+            # set node metadata like loop rolling would expect
+            node_metadata = {
+                "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+                "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+            }
+            model = model.transform(SetLoopBoundary(node_metadata, cfg.loop_body_range))
+        else:
+            print(
+                """MLO is selected but no loop range for the subgraph is specified,
+                this might cause an error during loop rolling."""
+            )
+        if cfg.loop_body_hierarchy is not None:
+            print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
+            loop_extraction = LoopExtraction(cfg.loop_body_hierarchy)
+            model = model.transform(loop_extraction)
+            model = model.transform(LoopRolling(loop_extraction.loop_body_template))
+            move("loop-body-template.onnx", cfg.output_dir + "/loop-body-template.onnx")
     else:
-        print("No loop_body_hierarchy specified, skipping Loop Rolling step")
+        print("MLO not selected, skipping step_loop_rolling.")
 
     return model
 

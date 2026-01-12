@@ -211,8 +211,6 @@ class FoldQuantWeights(Transformation):
                             [succ_output_name],
                         )
                         graph.node.insert(node_ind, mul_node)
-                        if hasattr(n, "metadata_props"):
-                            mul_node.metadata_props.extend(n.metadata_props)
 
                         if target_node.op_type in add_like_nodes:
                             # Move the scale factor behind also in-front of
@@ -258,8 +256,6 @@ class FoldQuantWeights(Transformation):
                                 [act_mul_tensor.name],
                             )
                             graph.node.insert(node_ind, div_node)
-                            if hasattr(n, "metadata_props"):
-                                div_node.metadata_props.extend(n.metadata_props)
 
                     # remove old node
                     graph.node.remove(n)

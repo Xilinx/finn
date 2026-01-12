@@ -1,7 +1,6 @@
 import pytest
 
 import numpy as np
-import onnx
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -42,6 +41,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     RemoveShallowFIFOs,
     SplitLargeFIFOs,
 )
+from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -371,18 +371,6 @@ def create_chained_loop_bodies(
             eltw_param_dtype=eltw_param_dtype,
             name_suffix=name_suffix,
         )
-        for node in loop_body_model.graph.node:
-            node.metadata_props.append(
-                onnx.StringStringEntryProto(
-                    key="pkg.torch.onnx.name_scopes", value=f"['', 'layers.{num_copies-(i+1)}']"
-                )
-            )
-            node.metadata_props.append(
-                onnx.StringStringEntryProto(
-                    key="pkg.torch.onnx.class_hierarchy", value=f"['TestModule', '{node.name}']"
-                )
-            )
-
         loop_body_models.append(loop_body_model)
 
     return loop_body_models
@@ -493,6 +481,14 @@ def test_fpgadataflow_finnloop(
     io_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, io_dict)
     y_ref = y_dict[model.graph.output[0].name]
+
+    # set loop boundary
+    node_metadata = {
+        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+    }
+    node_range = (model.graph.node[0], model.graph.node[9])
+    model = model.transform(SetLoopBoundary(node_metadata, node_range))
 
     # loop extraction and rolling
     loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
@@ -680,7 +676,9 @@ def test_finnloop_end2end_mlo(
         board="V80",
         rtlsim_batch_size=100,
         standalone_thresholds=True,
+        mlo=True,
         loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[9]),
         verify_steps=verif_steps,
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",

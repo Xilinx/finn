@@ -1,3 +1,15 @@
+###################################################################################
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
+# All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# Copyright for portions of this file is held by AMD and Microsoft under
+# MIT license as part of project Brainsmith.
+# All other copyright is held by AMD and is provided under BSD-3-Clause license.
+#
+###################################################################################
+
 import copy
 import numpy as np
 import onnx
