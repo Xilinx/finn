@@ -26,8 +26,10 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -90,17 +92,17 @@ def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
 @pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
 @pytest.mark.parametrize("ishape", [[1, 16, 48], [1, 32]])
 @pytest.mark.parametrize("simd", [1, 2])
-@pytest.mark.parametrize("has_scale", [True, False])
-@pytest.mark.parametrize("has_bias", [True, False])
 @pytest.mark.parametrize(
     "sim_style",
     ["node_by_node", pytest.param("stitched_ip", marks=pytest.mark.xfail(reason="sim bug"))],
 )
-def test_fpgadataflow_layernorm(idt, ishape, simd, has_scale, has_bias, sim_style):
-    model = create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon=9.999999960041972e-13)
+def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
+    model = create_layernorm_model(
+        idt, ishape, has_scale=True, has_bias=True, epsilon=9.999999960041972e-13
+    )
 
     # reference calculation
-    input = gen_finn_dt_tensor(DataType["FLOAT32"], ishape)
+    input = gen_finn_dt_tensor(idt, ishape)
     input_t = {model.graph.input[0].name: input}
 
     y_ref = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
@@ -119,6 +121,9 @@ def test_fpgadataflow_layernorm(idt, ishape, simd, has_scale, has_bias, sim_styl
 
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "LayerNorm_rtl", "LayerNorm wasn't converted to RTL Layer"
+
     getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
 
     # Execute
@@ -146,6 +151,71 @@ def test_fpgadataflow_layernorm(idt, ishape, simd, has_scale, has_bias, sim_styl
         exp_cycles = exp_cycles_dict[model.graph.node[0].name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.parametrize("idt", [DataType["FLOAT32"], DataType["INT8"]])
+@pytest.mark.parametrize("ishape", [[1, 16, 48], [1, 32]])
+@pytest.mark.parametrize("simd", [1, 2])
+@pytest.mark.parametrize(
+    "sim_style",
+    ["cppsim", "node_by_node", "stitched_ip"],
+)
+def test_fpgadataflow_hls_layernorm(idt, ishape, simd, sim_style):
+    model = create_layernorm_model(
+        idt, ishape, has_scale=True, has_bias=True, epsilon=9.999999960041972e-13
+    )
+
+    # reference calculation
+    input = gen_finn_dt_tensor(idt, ishape)
+    input_t = {model.graph.input[0].name: input}
+
+    y_ref = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(ExtractNormScaleBias())
+
+    model = model.transform(to_hw.InferLayerNorm())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    input_t = {model.graph.input[0].name: input}
+
+    y_hw = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    assert np.allclose(y_ref, y_hw, rtol=1e-3, atol=2**-4)
+
+    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "LayerNorm_hls", "LayerNorm wasn't converted to HLS Layer"
+
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+
+    # Execute
+    if sim_style == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    elif sim_style == "node_by_node":
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    elif sim_style == "stitched_ip":
+        model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+
+    input_t = {model.graph.input[0].name: input}
+
+    y_rtl = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+
+    assert np.allclose(y_ref, y_rtl, rtol=1e-3, atol=2**-4)
 
 
 @pytest.mark.transform

@@ -2044,12 +2044,6 @@ class InferLayerNorm(Transformation):
                 # Get datatypes
                 idt = model.get_tensor_datatype(act_in)
                 odt = model.get_tensor_datatype(act_out)
-                if not idt == odt == DataType["FLOAT32"]:
-                    warnings.warn(
-                        f"""{node.name}: Datatype is not float32,
-                        currently only fp32 layernorm is supported."""
-                    )
-                    continue
 
                 norm_axis = helper.get_node_attr_value(node, "axis")
                 if model.get_tensor_layout(act_in) == DataLayout.NCHW:

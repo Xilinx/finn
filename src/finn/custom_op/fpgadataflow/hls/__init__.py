@@ -64,6 +64,7 @@ from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
 from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
+from finn.custom_op.fpgadataflow.hls.layernorm_hls import LayerNorm_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
 from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
@@ -89,6 +90,7 @@ custom_op["FMPadding_Pixel_hls"] = FMPadding_Pixel_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
 custom_op["IODMA_hls"] = IODMA_hls
 custom_op["LabelSelect_hls"] = LabelSelect_hls
+custom_op["LayerNorm_hls"] = LayerNorm_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
