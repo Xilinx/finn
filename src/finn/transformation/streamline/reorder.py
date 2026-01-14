@@ -270,7 +270,9 @@ class MoveAddPastConv(Transformation):
                         exec_ctx = model.make_empty_exec_context()
                         exec_ctx[conv_in_name] = conv_in_const
                         # execute the conv node only
-                        execute_node(conv_node, exec_ctx, model.graph)
+                        opset_imports = model.get_opset_imports()
+                        opset_version = opset_imports[conv_node.domain]
+                        execute_node(conv_node, exec_ctx, model.graph, opset_version)
                         # retrieve the conv output
                         Anew = exec_ctx[end_name]
 

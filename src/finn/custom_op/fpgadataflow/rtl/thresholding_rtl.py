@@ -173,7 +173,22 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 "using RoundAndClipThresholds transform before code generation."
             )
         if not idt.is_integer() and wdt.is_integer():
-            raise ValueError("Floating-point inputs and integer thresholds are not supported.")
+            raise ValueError("Non-integer inputs and integer thresholds are not supported.")
+        if idt.is_fixed_point() and not wdt.is_fixed_point():
+            raise ValueError("Fixed-point inputs and floating-point thresholds are not supported.")
+        if wdt.is_fixed_point() and not idt.is_fixed_point():
+            raise ValueError("Floating-point inputs and fixed-point thresholds are not supported.")
+        if wdt.is_fixed_point() and idt.is_fixed_point():
+            if wdt.scale_factor() < idt.scale_factor():
+                raise ValueError(
+                    "Fixed-point thresholds have more fractional bits than input. "
+                    "Run RoundAndClipThresholds to reduce threshold fractional bits."
+                )
+            elif wdt.scale_factor() > idt.scale_factor():
+                raise ValueError(
+                    "Fixed-point inputs and with more fractional bits "
+                    "than thresholds are not supported."
+                )
 
         # If a single threshold value is found, set num_channels to PE
         thresholds = model.get_initializer(self.onnx_node.input[1])

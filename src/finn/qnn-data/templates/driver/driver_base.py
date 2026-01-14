@@ -145,7 +145,13 @@ class FINNExampleOverlay(Overlay):
                 # weight_buf.sync_to_device()
                 weight_buf.flush()
 
-                self.external_weights += [(iwdma, weight_buf, idma_name)]
+                input_shape = self._io_shape_dict["external_weights_input_shapes"][idma_name]
+                # NHWC input?
+                if len(input_shape) == 4:
+                    num_repeats = input_shape[1] * input_shape[2]
+                else:
+                    num_repeats = 1
+                self.external_weights += [(iwdma, weight_buf, idma_name, num_repeats)]
 
         if "number_of_external_weights" in self._io_shape_dict:
             hw_ext_weights = self._io_shape_dict["number_of_external_weights"]
@@ -351,10 +357,10 @@ class FINNExampleOverlay(Overlay):
             for o in range(self.num_outputs):
                 assert self.odma[o].read(0x00) & 0x4 != 0, "Output DMA %d is not idle" % (o)
             # manually launch IODMAs since signatures are missing
-            for iwdma, iwbuf, iwdma_name in self.external_weights:
+            for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
                 iwdma.write(0x10, iwbuf.device_address & 0xFFFFFFFF)
                 iwdma.write(0x14, (iwbuf.device_address >> 32) & 0xFFFFFFFF)
-                iwdma.write(0x1C, batch_size)
+                iwdma.write(0x1C, batch_size * num_repeats)
                 iwdma.write(0x00, 1)
             for o in range(self.num_outputs):
                 self.odma[o].write(0x10, self.obuf_packed_device[o].device_address & 0xFFFFFFFF)
@@ -375,8 +381,8 @@ class FINNExampleOverlay(Overlay):
                 assert self.odma_handle[o] is None, "Output DMA %d is already running" % o
             for i in range(self.num_inputs):
                 self.idma[i].start(self.ibuf_packed_device[i], batch_size)
-            for iwdma, iwbuf, iwdma_name in self.external_weights:
-                iwdma.start(iwbuf, batch_size)
+            for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
+                iwdma.start(iwbuf, batch_size * num_repeats)
             for o in range(self.num_outputs):
                 self.odma_handle[o] = self.odma[o].start(self.obuf_packed_device[o], batch_size)
         else:
@@ -444,9 +450,9 @@ class FINNExampleOverlay(Overlay):
         for o in range(self.num_outputs):
             total_out += np.prod(self.oshape_packed(o))
         res["DRAM_out_bandwidth[MB/s]"] = total_out * 0.000001 / runtime
-        for iwdma, iwbuf, iwdma_name in self.external_weights:
+        for iwdma, iwbuf, iwdma_name, num_repeats in self.external_weights:
             res["DRAM_extw_%s_bandwidth[MB/s]" % iwdma_name] = (
-                self.batch_size * np.prod(iwbuf.shape) * 0.000001 / runtime
+                self.batch_size * np.prod(iwbuf.shape) * num_repeats * 0.000001 / runtime
             )
         if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz

@@ -57,13 +57,17 @@ from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
 from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
+from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
+from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
+from finn.custom_op.fpgadataflow.hls.layernorm_hls import LayerNorm_hls
 from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
+from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
 from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
@@ -80,11 +84,13 @@ from finn.custom_op.fpgadataflow.hls.vectorvectoractivation_hls import VVAU_hls
 custom_op["AddStreams_hls"] = AddStreams_hls
 custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
 custom_op["CheckSum_hls"] = CheckSum_hls
+custom_op["Crop_hls"] = Crop_hls
 custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
 custom_op["FMPadding_Pixel_hls"] = FMPadding_Pixel_hls
 custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
 custom_op["IODMA_hls"] = IODMA_hls
 custom_op["LabelSelect_hls"] = LabelSelect_hls
+custom_op["LayerNorm_hls"] = LayerNorm_hls
 custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
@@ -96,3 +102,5 @@ custom_op["TLastMarker_hls"] = TLastMarker_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
 custom_op["MVAU_hls"] = MVAU_hls
 custom_op["VVAU_hls"] = VVAU_hls
+custom_op["HWSoftmax_hls"] = HWSoftmax_hls
+custom_op["OuterShuffle_hls"] = OuterShuffle_hls

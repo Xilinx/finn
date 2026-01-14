@@ -116,6 +116,7 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_transpose_decomposition",
     "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
@@ -172,7 +173,7 @@ class DataflowBuildConfig:
     #: The SpecializeLayers transformation picks up these settings and if possible
     #: fulfills the desired implementation style for each layer by converting the
     #: node into its HLS or RTL variant.
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     specialize_layers_config_file: Optional[str] = None
 
     #: (Optional) Path to configuration JSON file. May include parallelization,
@@ -180,7 +181,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -217,6 +218,9 @@ class DataflowBuildConfig:
     #: (Optional) Save .vcd waveforms from rtlsim under reports.
     #: By default, waveforms won't be saved.
     verify_save_rtlsim_waveforms: Optional[bool] = False
+
+    #: Manually specify the verification tolerance
+    verification_atol: Optional[float] = 1e-1
 
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
@@ -282,6 +286,10 @@ class DataflowBuildConfig:
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
     fifosim_input_throttle: Optional[bool] = True
 
+    #: Manually specify the number of inferences for simulation-based FIFO sizing
+    #: Default is 2
+    fifosim_n_inferences: Optional[int] = 2
+
     #: Enable saving waveforms from simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
     fifosim_save_waveform: Optional[bool] = False
@@ -304,7 +312,7 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
