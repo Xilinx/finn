@@ -53,7 +53,10 @@ from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.dataflow_performance import (
+    dataflow_performance,
+    max_period,
+)
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -80,8 +83,13 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.derive_characteristic import (
-    DeriveCharacteristic,
+    DelayCharacteristicFunctions,
     DeriveFIFOSizes,
+    DeriveTokenAccessVectors,
+    HandleBranches,
+    JustInTimeSynthesize,
+    LocalStretchCharacteristicFunctions,
+    ProducerDelayCharacteristicFunctions,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
@@ -102,6 +110,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
+    CapConvolutionFIFODepths,
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
     SplitLargeFIFOs,
@@ -573,19 +582,79 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        if cfg.auto_fifo_strategy == "characterize":
-            model = model.transform(InsertDWC())
-            model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
-            model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(InsertDWC())
+        model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(AnnotateCycles())
+
+        if cfg.auto_fifo_strategy == "analytical":
+            if cfg.tav_generation_strategy == "tree_model":
+                # if we have tree models, only rtlsim nodes for which we dont
+                only_jit_nodes_without_tree = True
+            else:
+                # rtlsim everything by force if not using trees
+                only_jit_nodes_without_tree = False
             model = model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+                JustInTimeSynthesize(
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                    only_jit_nodes_without_tree,
+                )
             )
-            model = model.transform(HLSSynthIP())
-            model = model.transform(PrepareRTLSim(behav=True))
-            model = model.transform(AnnotateCycles())
-            period = model.analysis(dataflow_performance)["max_cycles"] + 10
-            model = model.transform(DeriveCharacteristic(period))
-            model = model.transform(DeriveFIFOSizes())
+            period = int(model.analysis(dataflow_performance)["max_cycles"])
+            model = model.transform(
+                DeriveTokenAccessVectors(
+                    model,
+                    period,
+                    cfg.tav_generation_strategy,
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                )
+            )
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"])
+            model = model.transform(
+                LocalStretchCharacteristicFunctions(
+                    1,
+                    period,
+                    nodes_to_ignore=[],
+                )
+            )
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"])
+
+            model = model.transform(HandleBranches(model, period))
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"])
+            model = model.transform(
+                DelayCharacteristicFunctions(
+                    1,
+                    period,
+                    nodes_to_ignore=[],
+                )
+            )
+
+            period = int(model.analysis(dataflow_performance)["max_cycles"])
+
+            model = model.transform(
+                ProducerDelayCharacteristicFunctions(
+                    1,
+                    period,
+                    nodes_to_ignore=[],
+                )
+            )
+
+            period = int(model.analysis(max_period)["max_cycles"])
+
+            model = model.transform(
+                DeriveFIFOSizes(
+                    period=period,
+                    nodes_to_ignore=[],
+                    global_offset_correction=True,
+                    tav_utilization_strategy=cfg.tav_utilization_strategy,
+                )
+            )
+
             model = model.transform(
                 InsertFIFO(
                     vivado_ram_style=cfg.large_fifo_mem_style,
@@ -593,9 +662,13 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
+
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+            if cfg.default_swg_exception:
+                model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=256))
+
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
             if cfg.fifosim_save_waveform:
                 report_dir = cfg.output_dir + "/report"
@@ -665,8 +738,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
-    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
-    model = model.transform(HLSSynthIP())
+    if not cfg.skip_resynth_during_fifo_sizing:
+        model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+        model = model.transform(HLSSynthIP())
+
     return model
 
 

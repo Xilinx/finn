@@ -32,6 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.basic import Characteristic_Node
 
 
 class AddStreams(HWCustomOp):
@@ -149,7 +150,17 @@ class AddStreams(HWCustomOp):
         result = inp0_values + inp1_values
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
-    def derive_characteristic_fxns(self, period):
+    def prepare_tree_model(self):
+        dim = np.prod(self.get_folded_output_shape()[1:-1])
+
+        read_write = Characteristic_Node("passing addstreams layer", [(dim, [1, 1])], True)
+        addstreams_top = Characteristic_Node("compute addstreams", [(1, read_write)], False)
+
+        return addstreams_top  # top level phase of this node
+
+    def derive_token_access_vectors(
+        self, model, period, strategy, fpga_part, clk_period, op_type, override_dict=None
+    ):
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
         io_dict = {
             "inputs": {
@@ -158,4 +169,7 @@ class AddStreams(HWCustomOp):
             },
             "outputs": {"out0": []},
         }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+        super().derive_token_access_vectors(
+            model, period, strategy, fpga_part, clk_period, op_type, override_dict=io_dict
+        )

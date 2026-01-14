@@ -45,6 +45,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
@@ -172,3 +173,40 @@ def test_fpgadataflow_dwc_stitched_rtlsim(config, impl_style):
     ).all(), """The output values are not the same as the
         input values anymore."""
     assert y.shape == tuple(shape), """The output shape is incorrect."""
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        ([1, 24], 8, 4, DataType["INT2"]),
+        ([1, 4], 2, 4, DataType["BIPOLAR"]),
+        ([1, 4], 4, 2, DataType["INT2"]),
+        ([1, 2, 8], 4, 4, DataType["INT2"]),
+        ([1, 2, 8], 8, 16, DataType["INT2"]),
+    ],
+)
+@pytest.mark.parametrize("impl_style", ["hls", "rtl"])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_dwc(config, impl_style):
+    shape, inWidth, outWidth, finn_dtype = config
+
+    part = "xc7z020clg400-1"
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
+    model = model.transform(SpecializeLayers(part))
+    # model = model.transform(InferShapes())
+    # model = model.transform(SetExecMode(mode))
+
+    node_details = ("DWC", config, impl_style)
+    # part = "xc7z020clg400-1"
+
+    target_clk_ns = 4
+
+    max_allowed_volume_delta = 5
+    max_allowed_length_delta = 20
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+    ), "characterized TAV does not match RTLsim'd one!"

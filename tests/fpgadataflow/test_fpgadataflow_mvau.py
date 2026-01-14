@@ -51,7 +51,6 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -67,6 +66,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.util.basic import is_versal
+from finn.util.test import tree_model_test
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -661,84 +661,6 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
-# mem_mode: internal_embedded or internal_decoupled
-@pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
-# activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType["INT4"]])
-# weight datatype
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
-# input datatype
-@pytest.mark.parametrize("idt", [DataType["INT4"]])
-# neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [8])
-# synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [8])
-# HLS matrix width (input features)
-@pytest.mark.parametrize("mw", [32])
-# HLS matrix height (output features)
-@pytest.mark.parametrize("mh", [32])
-# Backend
-@pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_mvau_fifocharacterize_rtlsim(
-    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
-):
-    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
-        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
-    if nf == -1:
-        nf = mh
-    if sf == -1:
-        sf = mw
-    pe = mh // nf
-    simd = mw // sf
-    assert mh % pe == 0
-    assert mw % sf == 0
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-
-    # no activation, produce accumulators
-    T = None
-    tdt = None
-    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
-        odt = DataType["UINT32"]
-    else:
-        odt = DataType["INT32"]
-
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-    for node in model.graph.node:
-        # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
-        inst.set_nodeattr("mem_mode", mem_mode)
-        inst.set_nodeattr("resType", "auto")
-        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
-    total_fold = nf * sf
-    exp_total_cycles = int(np.ceil(total_fold * 1.2))
-    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 5))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    model = model.transform(DeriveCharacteristic(exp_total_cycles))
-    node_inst = getCustomOp(model.graph.node[0])
-    period_attr = node_inst.get_nodeattr("io_chrc_period")
-    assert period_attr == exp_total_cycles
-    chrc_in = node_inst.get_nodeattr("io_chrc_in")
-    chrc_out = node_inst.get_nodeattr("io_chrc_out")
-    if mem_mode == "internal_decoupled":
-        assert chrc_in.shape == (2, 2 * exp_total_cycles)
-    else:
-        assert chrc_in.shape == (1, 2 * exp_total_cycles)
-    assert chrc_out.shape == (1, 2 * exp_total_cycles)
-    # total number of transactions == 2*SF
-    assert chrc_in[0, -1] == 2 * sf
-    # all outputs should be produced within the exp n of cycles
-    assert chrc_out[0, exp_total_cycles] == nf
-
-
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
 @pytest.mark.parametrize("pe", [1, 9, 18])
@@ -963,3 +885,69 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+# mem_mode: internal_embedded or internal_decoupled
+@pytest.mark.parametrize("mem_mode", ["internal_decoupled", "internal_embedded"])
+# activation: None or DataType
+@pytest.mark.parametrize("act", [None])
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType["INT4"]])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1, 2, 8])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [-1, 2, 4])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [32])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [32])
+# Backend
+@pytest.mark.parametrize("preferred_impl_style", ["hls", "rtl"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_mvau(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style
+):
+    if preferred_impl_style == "rtl" and (mem_mode == "internal_embedded" or act is not None):
+        pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+
+    assert mh % pe == 0
+    assert mw % sf == 0
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+
+    # no activation, produce accumulators
+    T = None
+    tdt = None
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+    else:
+        odt = DataType["INT32"]
+
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+        inst.set_nodeattr("numInputVectors", [16])
+        inst.set_nodeattr("resType", "auto")
+        inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
+
+    node_details = ("MVAU", mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style)
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    max_allowed_volume_delta = 20
+    max_allowed_length_delta = 26
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+    ), "characterized TAV does not match RTLsim'd one!"

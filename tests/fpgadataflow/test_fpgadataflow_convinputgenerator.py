@@ -48,6 +48,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.test import tree_model_test
 
 
 def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw):
@@ -225,3 +226,243 @@ def test_fpgadataflow_slidingwindow(
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10, rtol=1.1)
         assert exp_cycles != 0
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
+# kernel size
+# @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
+@pytest.mark.parametrize("k", [[1, 1], [2, 2]])
+# input dimension
+# @pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
+@pytest.mark.parametrize("ifm_dim", [[10, 6]])
+# input channels
+# @pytest.mark.parametrize("ifm_ch", [2, 4])
+@pytest.mark.parametrize("ifm_ch", [1, 10])
+# Stride
+# @pytest.mark.parametrize("stride", [[1, 1]])
+@pytest.mark.parametrize("stride", [[1, 1], [2, 2]])
+# Dilation
+# @pytest.mark.parametrize("dilation", [[1, 1]])
+@pytest.mark.parametrize("dilation", [[1, 1], [2, 2]])
+# input channel parallelism ("SIMD")
+@pytest.mark.parametrize("simd", [1, 10])
+# depthwise
+@pytest.mark.parametrize("dw", [0, 1])
+# parallel_window enable (MMV_out = M*K)
+@pytest.mark.parametrize("parallel_window", [0, 1])
+# in/out MMV ("M")
+@pytest.mark.parametrize("m", [1])
+# Flip dimensions
+@pytest.mark.parametrize("flip", [False])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_slidingwindow(
+    idt,
+    k,
+    ifm_dim,
+    ifm_ch,
+    stride,
+    dilation,
+    simd,
+    dw,
+    parallel_window,
+    m,
+    flip,
+):
+    if flip:
+        if (
+            ifm_dim[0] == ifm_dim[1]
+            and k[0] == k[1]
+            and stride[0] == stride[1]
+            and dilation[0] == dilation[1]
+        ):
+            pytest.skip("Dimension flip would have no effect")
+        k = k[::-1]
+        ifm_dim = ifm_dim[::-1]
+        stride = stride[::-1]
+        dilation = dilation[::-1]
+
+    k_h, k_w = k
+    ifm_dim_h, ifm_dim_w = ifm_dim
+    stride_h, stride_w = stride
+    dilation_h, dilation_w = dilation
+
+    kernel_width = (k_w - 1) * dilation_w + 1  # incl. dilation
+    kernel_height = (k_h - 1) * dilation_h + 1  # incl. dilation
+
+    if simd > ifm_ch:
+        pytest.skip("SIMD cannot be larger than number of input channels")
+    if ifm_ch % simd != 0:
+        pytest.skip("SIMD must divide number of input channels")
+    if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
+        pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
+    if ((stride_h > k_h) or (stride_w > k_w)) and not (parallel_window or (k_h == 1 and k_w == 1)):
+        pytest.skip("Not all combinations for stride > k edge case supported in default mode")
+    if parallel_window and simd != ifm_ch and not (dw or (k_h == 1 and k_w == 1)):
+        pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
+
+    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
+    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
+    ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+    model = make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw)
+
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    # set simd
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("SIMD", simd)
+    optype = model.graph.node[0].op_type
+    if optype == "ConvolutionInputGenerator_rtl":
+        inst.set_nodeattr("parallel_window", parallel_window)
+        inst.set_nodeattr("M", m)
+
+    node_details = (
+        "ConvolutionInputGenerator",
+        ifm_dim,
+        k,
+        stride,
+        dilation,
+        ifm_ch,
+        simd,
+        dw,
+        parallel_window,
+        idt,
+        ofm_dim,
+        "hls",
+    )
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    max_allowed_volume_delta = 5000
+    max_allowed_length_delta = 5000
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+    ), "characterized TAV does not match RTLsim'd one!"
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT2"]])
+# kernel size
+# @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 5]])
+@pytest.mark.parametrize("k", [[7, 7]])
+# input dimension
+# @pytest.mark.parametrize("ifm_dim", [[8, 8], [1, 21]])
+@pytest.mark.parametrize("ifm_dim", [[7, 7]])
+# input channels
+# @pytest.mark.parametrize("ifm_ch", [2, 4])
+@pytest.mark.parametrize("ifm_ch", [1024])
+# Stride
+# @pytest.mark.parametrize("stride", [[1, 1]])
+@pytest.mark.parametrize("stride", [[1, 1]])
+# Dilation
+# @pytest.mark.parametrize("dilation", [[1, 1]])
+@pytest.mark.parametrize("dilation", [[1, 1]])
+# input channel parallelism ("SIMD")
+@pytest.mark.parametrize("simd", [1])
+# depthwise
+@pytest.mark.parametrize("dw", [1])
+# parallel_window enable (MMV_out = M*K)
+@pytest.mark.parametrize("parallel_window", [0])
+# in/out MMV ("M")
+@pytest.mark.parametrize("m", [1])
+# Flip dimensions
+@pytest.mark.parametrize("flip", [False])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.node_tree_modeling
+def test_fpgadataflow_analytical_characterization_slidingwindow_mobilenet(
+    idt,
+    k,
+    ifm_dim,
+    ifm_ch,
+    stride,
+    dilation,
+    simd,
+    dw,
+    parallel_window,
+    m,
+    flip,
+):
+    if flip:
+        if (
+            ifm_dim[0] == ifm_dim[1]
+            and k[0] == k[1]
+            and stride[0] == stride[1]
+            and dilation[0] == dilation[1]
+        ):
+            pytest.skip("Dimension flip would have no effect")
+        k = k[::-1]
+        ifm_dim = ifm_dim[::-1]
+        stride = stride[::-1]
+        dilation = dilation[::-1]
+
+    k_h, k_w = k
+    ifm_dim_h, ifm_dim_w = ifm_dim
+    stride_h, stride_w = stride
+    dilation_h, dilation_w = dilation
+
+    kernel_width = (k_w - 1) * dilation_w + 1  # incl. dilation
+    kernel_height = (k_h - 1) * dilation_h + 1  # incl. dilation
+
+    if simd > ifm_ch:
+        pytest.skip("SIMD cannot be larger than number of input channels")
+    if ifm_ch % simd != 0:
+        pytest.skip("SIMD must divide number of input channels")
+    if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
+        pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
+    if ((stride_h > k_h) or (stride_w > k_w)) and not (parallel_window or (k_h == 1 and k_w == 1)):
+        pytest.skip("Not all combinations for stride > k edge case supported in default mode")
+    if parallel_window and simd != ifm_ch and not (dw or (k_h == 1 and k_w == 1)):
+        pytest.skip("Parallel window requires SIMD=C for non-depthwise case")
+
+    ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
+    ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
+    ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+    model = make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt, dw)
+
+    model = model.transform(to_hw.InferConvInpGen())
+    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    # set simd
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("SIMD", simd)
+    optype = model.graph.node[0].op_type
+    if optype == "ConvolutionInputGenerator_rtl":
+        inst.set_nodeattr("parallel_window", parallel_window)
+        inst.set_nodeattr("M", m)
+
+    node_details = (
+        "ConvolutionInputGenerator",
+        ifm_dim,
+        k,
+        stride,
+        dilation,
+        ifm_ch,
+        simd,
+        dw,
+        parallel_window,
+        idt,
+        ofm_dim,
+        "hls",
+    )
+    part = "xc7z020clg400-1"
+    target_clk_ns = 4
+    max_allowed_volume_delta = 2140  # should change to 20% of peak volume
+    max_allowed_length_delta = 2140  # should change to 20% of peak volume
+
+    assert tree_model_test(
+        model, node_details, part, target_clk_ns, max_allowed_volume_delta, max_allowed_length_delta
+    ), "characterized TAV does not match RTLsim'd one!"
