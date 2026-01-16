@@ -557,16 +557,15 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
 
+    model = model.transform(GiveUniqueNodeNames())
+    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+    for node in loop_nodes:
+        node_inst = getCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+        loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
+        node_inst.set_nodeattr("body", loop_model.graph)
     if cfg.folding_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
-        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-        for node in loop_nodes:
-            node_inst = getCustomOp(node)
-            loop_model = node_inst.get_nodeattr("body")
-            loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
-            node_inst.set_nodeattr("body", loop_model.graph)
         model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
-
     else:
         print("No folding config json provided, skipping step_apply_folding_config.")
 
