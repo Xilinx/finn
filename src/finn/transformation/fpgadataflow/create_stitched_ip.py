@@ -733,7 +733,6 @@ foreach xci_file $xci_files {
             + "&& (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog "
             + '|| FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]'
         )
-        # tcl.append("set all_v_files [concat $all_v_files $xci_files]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
         # write each verilog filename to all_verilog_srcs.txt
