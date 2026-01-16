@@ -10,7 +10,11 @@ from brevitas.nn import QuantLinear
 from brevitas.quant import Int8ActPerTensorFloat, Int8WeightPerTensorFloat
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.general import ConvertDivToMul, ConvertSubToAdd
+from qonnx.transformation.general import (
+    ConvertDivToMul,
+    ConvertSubToAdd,
+    GiveUniqueNodeNames,
+)
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
@@ -19,6 +23,7 @@ import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.raise_scalar_to_rank1 import RaiseScalarToRank1
+from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline.absorb import AbsorbSignBiasIntoMultiThreshold
 from finn.transformation.streamline.collapse_repeated import (
@@ -85,7 +90,7 @@ def export_model_to_qonnx(input_size=10, hidden_size=20, num_layers=4, output_si
     model.eval()
 
     # Export the model to ONNX format
-    onnx_path = f"simple_module_{num_layers}layers.onnx"
+    onnx_path = os.environ["FINN_BUILD_DIR"] + f"/simple_module_{num_layers}layers.onnx"
     with torch.no_grad():
         bo.export_qonnx(
             model,
@@ -116,7 +121,7 @@ def check_tensor_shape(model_wrapper, name, expected_shape):
 @pytest.mark.parametrize("input_size", [20, 30, 40])
 # num_layers
 @pytest.mark.parametrize("num_layers", [6, 12, 24])
-@pytest.mark.slow
+@pytest.mark.transform
 def test_finn_loop(input_size, num_layers):
     hidden_size = input_size
 
@@ -124,9 +129,7 @@ def test_finn_loop(input_size, num_layers):
 
     qonnx_cleanup(onnx_path, out_file=onnx_path)
     model_wrapper = ModelWrapper(onnx_path)
-
     model_wrapper = model_wrapper.transform(ConvertQONNXtoFINN())
-    model_wrapper.save("test1.onnx")
 
     model_wrapper = model_wrapper.transform(RaiseScalarToRank1())
 
@@ -149,7 +152,17 @@ def test_finn_loop(input_size, num_layers):
     m_input_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.input[0].name)
     m_output_dt = model_wrapper.get_tensor_datatype(model_wrapper.model.graph.output[0].name)
 
-    loop_extraction = LoopExtraction(hierarchy_list=["", "layers.0"])
+    model_wrapper = model_wrapper.transform(GiveUniqueNodeNames())
+    # temporarily set loop boundaries manually
+    node_metadata = {
+        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+    }
+    node_range = (model_wrapper.graph.node[0], model_wrapper.graph.node[3])
+    model_wrapper = model_wrapper.transform(SetLoopBoundary(node_metadata, node_range=node_range))
+
+    # Loop extraction
+    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should be one constant node and one loop-body node per layer
@@ -220,7 +233,7 @@ def test_finn_loop(input_size, num_layers):
     os.remove(onnx_path)
 
 
-@pytest.mark.slow
+@pytest.mark.transform
 def test_inconsistent_initializer_shape():
     # test that if the initializer shape is inconsistent with the value info
     # shape, the transformation fails
@@ -239,7 +252,7 @@ def test_inconsistent_initializer_shape():
     param0 = model_wrapper.get_initializer("Mul_0_param0")
     model_wrapper.set_initializer("Mul_0_param0", np.append(param0, param0))
 
-    loop_extraction = LoopExtraction(hierarchy_list=["", "layers.0"])
+    loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
     model_wrapper = model_wrapper.transform(loop_extraction)
 
     # should throw an error because the initializer shape is inconsistent with the value info shape
