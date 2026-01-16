@@ -140,7 +140,10 @@ ARG USER_UID
 ARG GROUP_ID
 ARG GROUPNAME
 RUN useradd $USERNAME -u $USER_UID
-RUN groupadd -g $GROUP_ID $GROUPNAME
+# Check and add group if it doesn't exist
+RUN if ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
+        groupadd -g $GROUP_ID $GROUPNAME; \
+    fi
 
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
