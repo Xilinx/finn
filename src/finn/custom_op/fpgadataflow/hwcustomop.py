@@ -26,11 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
-
 import numpy as np
 import os
 import warnings
@@ -38,7 +33,10 @@ from abc import abstractmethod
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
+from finn import xsi
 from finn.util.basic import get_liveness_threshold_cycles, is_versal
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 class HWCustomOp(CustomOp):
