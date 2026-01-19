@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from brevitas.nn import QuantConv2d, QuantReLU
+from brevitas.nn import QuantConv2d, QuantReLU, QuantIdentity
 from brevitas.quant import Int8WeightPerTensorFloat, Int8ActPerTensorFloat, Int8Bias
 
 
@@ -32,13 +32,19 @@ class UltraNetBrevitasSimple(nn.Module):
         
         # Use proper quantization configuration based on documentation
         self.layers = nn.Sequential(
-            # Input layer (not quantized)
-            nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False),
+            # Input quantization layer - quantize input to 4-bit signed
+            QuantIdentity(act_quant=Int4ActQuantSigned, return_quant_tensor=True),
+            
+            # First layer - now receives quantized 4-bit input
+            QuantConv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False,
+                       weight_quant=Int4WeightQuant,
+                       input_quant=Int4ActQuantSigned,
+                       return_quant_tensor=True),
             nn.BatchNorm2d(16),
-            nn.ReLU(),
+            QuantReLU(act_quant=Int4ActQuantUnsigned, return_quant_tensor=True),
             nn.MaxPool2d(2, stride=2),
 
-            # First quantized block
+            # Second quantized block
             QuantConv2d(16, 32, kernel_size=3, stride=1, padding=1, bias=False,
                        weight_quant=Int4WeightQuant,
                        input_quant=Int4ActQuantSigned,

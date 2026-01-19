@@ -32,6 +32,12 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+def is_shuffle_node(node):
+    """Check if the given node is a Shuffle placeholder node."""
+    return (node.op_type == "Shuffle" and 
+            node.domain == "finn.custom_op.fpgadataflow")
+
+
 def dataflow_performance(model):
     """Extract key performance indicators from given model with dataflow nodes.
     Note that the latency (critical path) analysis is very pessimistic, it
@@ -59,6 +65,20 @@ def dataflow_performance(model):
             if node_cycles > max_cycles:
                 max_cycles = node_cycles
                 max_node_name = node.name
+            if node.name not in latency_at_node_output:
+                # calculate based on input(s)
+                predecessors = model.find_direct_predecessors(node)
+                if predecessors is None:
+                    # no predecessors, node is first node
+                    max_pred_latency = 0
+                else:
+                    # find max of any of predecessors
+                    pred_latencies = map(lambda x: latency_at_node_output[x.name], predecessors)
+                    max_pred_latency = max(pred_latencies)
+                latency_at_node_output[node.name] = node_cycles + max_pred_latency
+        elif is_shuffle_node(node):
+            # Temporary handling for Shuffle placeholder nodes - assume minimal latency
+            node_cycles = 1  # Minimal cycle estimate for placeholder
             if node.name not in latency_at_node_output:
                 # calculate based on input(s)
                 predecessors = model.find_direct_predecessors(node)

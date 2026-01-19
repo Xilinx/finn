@@ -12,6 +12,7 @@ from onnx import helper
 from operator import itemgetter
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from typing import List, Optional, Tuple
@@ -522,5 +523,8 @@ class InferInnerOuterShuffles(Transformation):
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
+            # Ensure all nodes and tensors have unique names after creating new nodes
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
 
         return (model, graph_modified)
