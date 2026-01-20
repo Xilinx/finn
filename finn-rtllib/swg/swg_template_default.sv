@@ -183,7 +183,7 @@ module $TOP_MODULE_NAME$_impl #(
 
             if (read_ok) begin
                 automatic logic  wa_rst = ReadingLast ||
-                    (~Window_buffer_write_addr_reg & (BUF_ELEM_TOTAL-1) == 0); // (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)
+                    ((~Window_buffer_write_addr_reg & (BUF_ELEM_TOTAL-1)) == 0); // (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)
                 Window_buffer_write_addr_reg <= Window_buffer_write_addr_reg - (wa_rst? Window_buffer_write_addr_reg : -1);
 
                 nbe_inc = 1;
@@ -216,7 +216,7 @@ module $TOP_MODULE_NAME$_impl #(
                 Window_buffer_read_addr_reg <= ra + ra_correct;
 
                 //keep track where we are within a window
-                wrap_position = ~Position_in_window & (ELEM_PER_WINDOW - 1) == 0;
+                wrap_position = (~Position_in_window & (ELEM_PER_WINDOW - 1)) == 0;
                 Position_in_window <= Position_in_window + (wrap_position? -ELEM_PER_WINDOW+1 : 1);
                 PositionZero <= wrap_position;
 
@@ -255,7 +255,7 @@ module $TOP_MODULE_NAME$_impl #(
             end
 
             Newest_buffered_elem <= Newest_buffered_elem + (nbe_rst? ~Newest_buffered_elem : nbe_inc);
-            ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast : (~Newest_buffered_elem & (LAST_READ_ELEM-2) == 0) && !ReadingLast;
+            ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast : ((~Newest_buffered_elem & (LAST_READ_ELEM-2)) == 0) && !ReadingLast;
             ReadingDone <= nbe_rst?                   0 : !nbe_inc? ReadingDone : ReadingLast;
         end
     end
