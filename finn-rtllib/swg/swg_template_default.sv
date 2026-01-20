@@ -166,12 +166,13 @@ module $TOP_MODULE_NAME$_impl #(
         end
         else begin
             if (read_ok) begin
-                Window_buffer_write_addr_reg <= (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)? 0 : Window_buffer_write_addr_reg + 1;
+                automatic logic  wa_rst =
+                    (~Window_buffer_write_addr_reg & (BUF_ELEM_TOTAL-1) == 0) || //(Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)
+                    (Newest_buffered_elem == LAST_READ_ELEM-1);
+                Window_buffer_write_addr_reg <= Window_buffer_write_addr_reg - (wa_rst? Window_buffer_write_addr_reg : -1);
+
                 Newest_buffered_elem <= Newest_buffered_elem+1;
 
-                if (Newest_buffered_elem == LAST_READ_ELEM-1) begin
-                    Window_buffer_write_addr_reg <= 0;
-                end
                 //check if this is the last read cycle (reading_done will be true afterwards)
                 if ((Newest_buffered_elem == LAST_READ_ELEM-1) && Writing_done) begin
                     //start processing of next FM if writing is done already (possible due to unused input elements at the tail end)
