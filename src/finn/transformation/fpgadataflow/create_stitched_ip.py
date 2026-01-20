@@ -218,7 +218,7 @@ class CreateStitchedIP(Transformation):
                     self.connect_cmds.append(
                         "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
                     )
-                    self.intf_names["aximm"].append([(mm_intf_name[0], mm_intf_name[1])])
+                    self.intf_names["aximm"].append((mm_intf_name[0], mm_intf_name[1]))
                     self.has_aximm = True
                     self.aximm_idx += 1
 
@@ -240,7 +240,7 @@ class CreateStitchedIP(Transformation):
                 self.connect_cmds.append(
                     "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
                 )
-                self.intf_names["aximm"].append([(ext_if_name, aximm_intf_name[0][1])])
+                self.intf_names["aximm"].append((ext_if_name, aximm_intf_name[0][1]))
                 self.has_aximm = True
                 self.aximm_idx += 1
         else:
@@ -271,7 +271,7 @@ class CreateStitchedIP(Transformation):
                 self.connect_cmds.append(
                     "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
                 )
-                self.intf_names["aximm"].append([(ext_if_name, mm_intf_name[1])])
+                self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
                 self.has_aximm = True
                 self.aximm_idx += 1
 
