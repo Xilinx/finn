@@ -245,7 +245,7 @@ module $TOP_MODULE_NAME$_impl #(
                 end
             end
 
-            Newest_buffered_elem <= Newest_buffered_elem - (nbe_rst? Newest_buffered_elem : nbe_inc? -1 : 0);
+            Newest_buffered_elem <= Newest_buffered_elem + (nbe_rst? ~Newest_buffered_elem : nbe_inc);
             ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast : (~Newest_buffered_elem & (LAST_READ_ELEM-2) == 0) && !ReadingLast;
             ReadingDone <= nbe_rst?                   0 : !nbe_inc? ReadingDone : ReadingLast;
         end
