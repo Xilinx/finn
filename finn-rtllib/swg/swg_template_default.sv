@@ -117,12 +117,15 @@ module $TOP_MODULE_NAME$_impl #(
     logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1; // -1, 0, 1, ..., LAST_READ_ELEM-1, LAST_READ_ELEM
     logic  ReadingLast = LAST_READ_ELEM == 0;
     logic  ReadingDone = 0;
-
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
-    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
+
+    //                                                               v PositionZero
+    logic [$clog2(ELEM_PER_WINDOW)-1:0]  Position_in_window = 0;  // 0, 1, ..., ELEM_PER_WINDOW-1
+    logic  PositionZero = 1;
+
+    logic [$clog2(BUF_ELEM_TOTAL)+1-1:0]  Window_buffer_read_addr_reg = 0;
+    logic [$clog2(BUF_ELEM_TOTAL)  -1:0]  Window_buffer_write_addr_reg = 0;
 
     // Control signals/registers
     logic  Write_cmd    = 0;
@@ -164,7 +167,10 @@ module $TOP_MODULE_NAME$_impl #(
 
             Current_elem <= 0;
             First_elem_next_window <= 0;
+
             Position_in_window <= 0;
+            PositionZero <= 1;
+
             Window_buffer_read_addr_reg <= 0;
             Window_buffer_write_addr_reg <= 0;
             Fetching_done <= 0;
@@ -197,6 +203,8 @@ module $TOP_MODULE_NAME$_impl #(
             end
 
             if (fetch_cmd) begin
+                automatic logic  wrap_position;
+
                 //count up to track which element index is about to be read from the buffer, and where it is located within the buffer
                 //use increment value calculated by controller
 
@@ -208,11 +216,12 @@ module $TOP_MODULE_NAME$_impl #(
                 Window_buffer_read_addr_reg <= ra + ra_correct;
 
                 //keep track where we are within a window
-                Position_in_window <= (Position_in_window != ELEM_PER_WINDOW - 1)? Position_in_window+1 : 0;
+                wrap_position = ~Position_in_window & (ELEM_PER_WINDOW - 1) == 0;
+                Position_in_window <= Position_in_window + (wrap_position? -ELEM_PER_WINDOW+1 : 1);
+                PositionZero <= wrap_position;
 
                 //update first element of next window to allow buffer overwrite up until that point
-                if (Position_in_window == 0)
-                    First_elem_next_window <= First_elem_next_window + tail_incr;
+                First_elem_next_window <= First_elem_next_window + (PositionZero? tail_incr : 0);
 
                 //check if this is the last write cycle (Writing_done will be true afterwards)
                 if (Current_elem == LAST_WRITE_ELEM)
