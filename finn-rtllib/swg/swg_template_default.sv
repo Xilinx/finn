@@ -255,7 +255,9 @@ module $TOP_MODULE_NAME$_impl #(
             end
 
             Newest_buffered_elem <= Newest_buffered_elem + (nbe_rst? ~Newest_buffered_elem : nbe_inc);
-            ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast : ((~Newest_buffered_elem & (LAST_READ_ELEM-2)) == 0) && !ReadingLast;
+            ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast :
+                            // Newest_buffered_elem == LAST_READ_ELEM-1 in the next cycle knowing we only get there by increments
+                            ((~Newest_buffered_elem & (LAST_READ_ELEM-2)) == 0) && !ReadingLast && !Newest_buffered_elem[$left(Newest_buffered_elem)];
             ReadingDone <= nbe_rst?                   0 : !nbe_inc? ReadingDone : ReadingLast;
         end
     end
