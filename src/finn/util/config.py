@@ -16,11 +16,14 @@
 import json
 import onnx
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
+from typing import Any, Dict, List, Optional
 
 
 # update this code to handle export configs from subgraphs
 # where the subgraph is found in a node's attribute as a graph type
-def extract_model_config(model, subgraph_hier, attr_names_to_extract):
+def extract_model_config(
+    model: Any, subgraph_hier: Optional[str], attr_names_to_extract: List[str]
+) -> Dict[str, Dict[str, Any]]:
     """Create a dictionary with layer name -> attribute mappings extracted from the
     model. The created dictionary can be later applied on a model with
     qonnx.transform.general.ApplyConfig.
@@ -29,7 +32,7 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
     For example, a node 'Conv_0' inside a subgraph of node 'IfNode_0' will be exported
     as 'IfNode_0_Conv_0' in the config."""
 
-    cfg = dict()
+    cfg: Dict[str, Dict[str, Any]] = dict()
     cfg["Defaults"] = dict()
     for n in model.graph.node:
         new_hier = n.name if subgraph_hier is None else str(subgraph_hier) + "_" + n.name
@@ -38,7 +41,7 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
         is_custom = is_custom_op(n.domain, n.op_type)
         if is_custom:
             oi = getCustomOp(n)
-            layer_dict = dict()
+            layer_dict: Dict[str, Any] = dict()
             for attr in attr_names_to_extract:
                 try:
                     layer_dict[attr] = oi.get_nodeattr(attr)
@@ -66,7 +69,9 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
     return cfg
 
 
-def extract_model_config_to_json(model, json_filename, attr_names_to_extract):
+def extract_model_config_to_json(
+    model: Any, json_filename: str, attr_names_to_extract: List[str]
+) -> None:
     """Create a json file with layer name -> attribute mappings extracted from the
     model. The created json file can be later applied on a model with
     qonnx.transform.general.ApplyConfig."""
@@ -81,15 +86,17 @@ def extract_model_config_to_json(model, json_filename, attr_names_to_extract):
         )
 
 
-def extract_model_config_consolidate_shuffles(model, output_file, hw_attrs):
+def extract_model_config_consolidate_shuffles(
+    model: Any, output_file: str, hw_attrs: List[str]
+) -> None:
     """Export flow that takes into consideration how Shuffle operations have been decomposed"""
     extract_model_config_to_json(model, output_file, hw_attrs)
 
     with open(output_file, "r") as f:
-        config = json.load(f)
+        config: Dict[str, Any] = json.load(f)
 
-    shuffle_configs = {}
-    nodes_to_remove = []
+    shuffle_configs: Dict[str, Dict[str, Any]] = {}
+    nodes_to_remove: List[str] = []
 
     for node in model.graph.node:
         if node.op_type in ["InnerShuffle_rtl", "OuterShuffle_hls"]:

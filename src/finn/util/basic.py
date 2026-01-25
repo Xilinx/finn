@@ -31,12 +31,13 @@ import subprocess
 import sys
 import tempfile
 from qonnx.util.basic import roundup_to_integer_multiple
+from typing import Dict, List, Optional, Tuple
 
 # test boards used for bnn pynq tests
-test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
+test_board_map: List[str] = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
 
 # mapping from PYNQ board names to FPGA part names
-pynq_part_map = dict()
+pynq_part_map: Dict[str, str] = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
@@ -51,7 +52,7 @@ pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
 
 
 # native AXI HP port width (in bits) for PYNQ boards
-pynq_native_port_width = dict()
+pynq_native_port_width: Dict[str, int] = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
@@ -65,14 +66,14 @@ pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
 
 # Alveo device and platform mappings
-alveo_part_map = dict()
+alveo_part_map: Dict[str, str] = dict()
 alveo_part_map["U50"] = "xcu50-fsvh2104-2L-e"
 alveo_part_map["U200"] = "xcu200-fsgd2104-2-e"
 alveo_part_map["U250"] = "xcu250-figd2104-2L-e"
 alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 alveo_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
-alveo_default_platform = dict()
+alveo_default_platform: Dict[str, str] = dict()
 alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
 alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
 alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
@@ -80,13 +81,13 @@ alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
 alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
 
 # Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **alveo_part_map}
+part_map: Dict[str, str] = {**pynq_part_map, **alveo_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
-def get_rtlsim_trace_depth():
+def get_rtlsim_trace_depth() -> int:
     """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
@@ -105,7 +106,7 @@ def get_rtlsim_trace_depth():
         return 1
 
 
-def get_finn_root():
+def get_finn_root() -> str:
     "Return the root directory that FINN is cloned into."
 
     try:
@@ -118,7 +119,7 @@ def get_finn_root():
         )
 
 
-def get_vivado_root():
+def get_vivado_root() -> str:
     "Return the root directory that Vivado is installed into."
 
     try:
@@ -131,14 +132,14 @@ def get_vivado_root():
         )
 
 
-def get_liveness_threshold_cycles():
+def get_liveness_threshold_cycles() -> int:
     """Return the number of no-output cycles rtlsim will wait before assuming
     the simulation is not finishing and throwing an exception."""
 
     return int(os.getenv("LIVENESS_THRESHOLD", 1000000))
 
 
-def make_build_dir(prefix=""):
+def make_build_dir(prefix: str = "") -> str:
     """Creates a folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
@@ -159,27 +160,27 @@ class CppBuilder:
     """Builds the g++ compiler command to produces the executable of the c++ code
     in code_gen_dir which is passed to the function build() of this class."""
 
-    def __init__(self):
-        self.include_paths = []
-        self.cpp_files = []
-        self.executable_path = ""
-        self.code_gen_dir = ""
-        self.compile_components = []
-        self.compile_script = ""
+    def __init__(self) -> None:
+        self.include_paths: List[str] = []
+        self.cpp_files: List[str] = []
+        self.executable_path: str = ""
+        self.code_gen_dir: str = ""
+        self.compile_components: List[str] = []
+        self.compile_script: str = ""
 
-    def append_includes(self, library_path):
+    def append_includes(self, library_path: str) -> None:
         """Adds given library path to include_paths list."""
         self.include_paths.append(library_path)
 
-    def append_sources(self, cpp_file):
+    def append_sources(self, cpp_file: str) -> None:
         """Adds given c++ file to cpp_files list."""
         self.cpp_files.append(cpp_file)
 
-    def set_executable_path(self, path):
+    def set_executable_path(self, path: str) -> None:
         """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
-    def build(self, code_gen_dir):
+    def build(self, code_gen_dir: str) -> None:
         """Builds the g++ compiler command according to entries in include_paths
         and cpp_files lists. Saves it in bash script in given folder and
         executes it."""
@@ -202,7 +203,9 @@ class CppBuilder:
         process_compile.communicate()
 
 
-def launch_process_helper(args, proc_env=None, cwd=None):
+def launch_process_helper(
+    args: List[str], proc_env: Optional[Dict[str, str]] = None, cwd: Optional[str] = None
+) -> Tuple[str, str]:
     """Helper function to launch a process in a way that facilitates logging
     stdout/stderr with Python loggers.
     Returns (cmd_out, cmd_err)."""
@@ -211,22 +214,26 @@ def launch_process_helper(args, proc_env=None, cwd=None):
     with subprocess.Popen(
         args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=proc_env, cwd=cwd
     ) as proc:
-        (cmd_out, cmd_err) = proc.communicate()
+        (cmd_out_bytes, cmd_err_bytes) = proc.communicate()
+
+    cmd_out = ""
+    cmd_err = ""
+
     if cmd_out is not None:
-        cmd_out = cmd_out.decode("utf-8")
+        cmd_out = cmd_out_bytes.decode("utf-8")
         sys.stdout.write(cmd_out)
     if cmd_err is not None:
-        cmd_err = cmd_err.decode("utf-8")
+        cmd_err = cmd_err_bytes.decode("utf-8")
         sys.stderr.write(cmd_err)
     return (cmd_out, cmd_err)
 
 
-def which(program):
+def which(program: str) -> Optional[str]:
     "Python equivalent of the shell cmd 'which'."
 
     # source:
     # https://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
-    def is_exe(fpath):
+    def is_exe(fpath: str) -> bool:
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
     fpath, fname = os.path.split(program)
@@ -255,8 +262,10 @@ mem_primitives_versal = {
 
 
 def get_memutil_alternatives(
-    req_mem_spec, mem_primitives=mem_primitives_versal, sort_min_waste=True
-):
+    req_mem_spec: Tuple[int, int],
+    mem_primitives: Dict[str, Tuple[int, int]] = mem_primitives_versal,
+    sort_min_waste: bool = True,
+) -> List[Tuple[str, Tuple[int, float, int]]]:
     """Computes how many instances of a memory primitive are necessary to
     implement a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -275,7 +284,9 @@ def get_memutil_alternatives(
     return ret
 
 
-def memutil(req_mem_spec, primitive_spec):
+def memutil(
+    req_mem_spec: Tuple[int, int], primitive_spec: Tuple[int, int]
+) -> Tuple[int, float, int]:
     """Computes how many instances of a memory primitive are necessary to
     implemented a desired memory size, where req_mem_spec is the desired
     size and the primitive_spec is the primitve size. The sizes are expressed
@@ -296,7 +307,7 @@ def memutil(req_mem_spec, primitive_spec):
     return (count, eff, waste)
 
 
-def is_versal(fpgapart):
+def is_versal(fpgapart: str) -> bool:
     """Returns whether board is part of the Versal family"""
     return fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] in [
         "xqrvc",
@@ -304,7 +315,7 @@ def is_versal(fpgapart):
     ]
 
 
-def get_dsp_block(fpgapart):
+def get_dsp_block(fpgapart: str) -> str:
     if is_versal(fpgapart):
         return "DSP58"
     elif fpgapart[2] == "7":

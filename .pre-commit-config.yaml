@@ -69,3 +69,11 @@ repos:
     # black-compatible flake-8 config
     args: ['--max-line-length=100',  # black default
            '--extend-ignore=E203']  # E203 is not PEP8 compliant
+
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.19.1
+  hooks:
+  - id: mypy
+    args: [--config-file=mypy.ini]
+    files: ^src/finn/util/.*\.py$  # Only check util. directory for now
+    exclude: qnn-data              # python doesnt allow hyphens in package names

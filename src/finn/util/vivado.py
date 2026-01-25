@@ -27,18 +27,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from typing import Any, Dict, List
 
 from finn.util.basic import launch_process_helper, which
 
 
 def out_of_context_synth(
-    verilog_dir,
-    top_name,
-    float_ip_tcl,
-    fpga_part="xczu3eg-sbva484-1-e",
-    clk_name="ap_clk_0",
-    clk_period_ns=5.0,
-):
+    verilog_dir: str,
+    top_name: str,
+    float_ip_tcl: List[str],
+    fpga_part: str = "xczu3eg-sbva484-1-e",
+    clk_name: str = "ap_clk_0",
+    clk_period_ns: float = 5.0,
+) -> Dict[str, Any]:
     "Run out-of-context Vivado synthesis, return resources and slack."
 
     # ensure that the OH_MY_XILINX envvar is set
@@ -50,7 +51,7 @@ def out_of_context_synth(
     omx_path = os.environ["OHMYXILINX"]
     script = "vivadocompile.sh"
     # vivadocompile.sh <top-level-entity> <fp0.tcl#fp1.tcl> <clk-name (opt)> <fpga-part (opt)>
-    call_omx = "zsh %s/%s %s %s %s %s %f" % (
+    call_omx_str = "zsh %s/%s %s %s %s %s %f" % (
         omx_path,
         script,
         top_name,
@@ -59,7 +60,7 @@ def out_of_context_synth(
         fpga_part,
         float(clk_period_ns),
     )
-    call_omx = call_omx.split()
+    call_omx = call_omx_str.split()
     launch_process_helper(call_omx, proc_env=os.environ.copy(), cwd=verilog_dir)
 
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
@@ -67,7 +68,7 @@ def out_of_context_synth(
 
     with open(res_counts_path, "r") as myfile:
         res_data = myfile.read().split("\n")
-    ret = {}
+    ret: Dict[str, Any] = {}
     ret["vivado_proj_folder"] = vivado_proj_folder
     for res_line in res_data:
         res_fields = res_line.split("=")
