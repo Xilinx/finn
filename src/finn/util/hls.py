@@ -37,27 +37,29 @@ from finn.util.basic import which
 class CallHLS:
     """Call vitis_hls to run HLS build tcl scripts."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.tcl_script = ""
         self.ipgen_path = ""
         self.code_gen_dir = ""
         self.ipgen_script = ""
 
-    def append_tcl(self, tcl_script):
+    def append_tcl(self, tcl_script: str) -> None:
         """Sets the tcl script to be executed."""
         self.tcl_script = tcl_script
 
-    def set_ipgen_path(self, path):
+    def set_ipgen_path(self, path: str) -> None:
         """Sets member variable ipgen_path to given path."""
         self.ipgen_path = path
 
-    def build(self, code_gen_dir):
+    def build(self, code_gen_dir: str) -> None:
         """Builds the bash script with given parameters and saves it in given folder.
         To guarantee the generation in the correct folder the bash script contains a
         cd command."""
         vivado_path = os.environ.get("XILINX_VIVADO")
         # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
+        assert vivado_path is not None, "XILINX_VIVADO environment variable not set"
         match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+        assert match is not None, "Could not parse Vivado version from XILINX_VIVADO"
         year, minor = int(match.group(1)), int(match.group(2))
         if (year, minor) > (2024, 2):
             assert which("vitis-run") is not None, "vitis-run not found in PATH"

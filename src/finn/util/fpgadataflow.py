@@ -26,10 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from onnx import NodeProto
 from qonnx.util.basic import get_by_name, is_finn_op
+from typing import Optional
 
 
-def is_fpgadataflow_node(node):
+def is_fpgadataflow_node(node: Optional[NodeProto]) -> bool:
     """Returns True if given node is fpgadataflow node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -43,7 +45,7 @@ def is_fpgadataflow_node(node):
     return is_node
 
 
-def is_hls_node(node):
+def is_hls_node(node: Optional[NodeProto]) -> bool:
     """Returns True if given node is hls node. Otherwise False."""
     is_node = False
     if node is not None:
@@ -57,7 +59,7 @@ def is_hls_node(node):
     return is_node
 
 
-def is_rtl_node(node):
+def is_rtl_node(node: Optional[NodeProto]) -> bool:
     """Returns True if given node is rtl node. Otherwise False."""
     is_node = False
     if node is not None:

@@ -36,9 +36,12 @@ import os
 import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
+from numpy.typing import NDArray
+from PIL.Image import Image as PILImage
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from typing import Any, Dict, Tuple, Union, cast
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
@@ -62,7 +65,7 @@ example_map = {
 }
 
 
-def get_test_model(netname, wbits, abits, pretrained):
+def get_test_model(netname: str, wbits: int, abits: int, pretrained: bool) -> Any:
     """Returns the model specified by input arguments from the Brevitas BNN-PYNQ
     test networks. Pretrained weights loaded if pretrained is True."""
     model_cfg = (netname, wbits, abits)
@@ -71,31 +74,32 @@ def get_test_model(netname, wbits, abits, pretrained):
     return fc.eval()
 
 
-def get_test_model_trained(netname, wbits, abits):
+def get_test_model_trained(netname: str, wbits: int, abits: int) -> Any:
     "get_test_model with pretrained=True"
     return get_test_model(netname, wbits, abits, pretrained=True)
 
 
-def get_test_model_untrained(netname, wbits, abits):
+def get_test_model_untrained(netname: str, wbits: int, abits: int) -> Any:
     "get_test_model with pretrained=False"
     return get_test_model(netname, wbits, abits, pretrained=False)
 
 
-def get_topk(vec, k):
+def get_topk(vec: NDArray[Any], k: int) -> NDArray[Any]:
     "Return indices of the top-k values in given array vec (treated as 1D)."
     return np.flip(vec.flatten().argsort())[:k]
 
 
-def soft_verify_topk(invec, idxvec, k):
+def soft_verify_topk(invec: NDArray[Any], idxvec: NDArray[Any], k: int) -> bool:
     """Check that the topK indices provided actually point to the topK largest
     values in the input vector"""
     np_topk = np.flip(invec.flatten().argsort())[:k]
     soft_expected = invec.flatten()[np_topk.astype(np.int_).flatten()]
     soft_produced = invec.flatten()[idxvec.astype(np.int_).flatten()]
-    return (soft_expected == soft_produced).all()
+    result: bool = bool((soft_expected == soft_produced).all())
+    return result
 
 
-def load_test_checkpoint_or_skip(filename):
+def load_test_checkpoint_or_skip(filename: str) -> ModelWrapper:
     "Try to load given .onnx and return ModelWrapper, else skip current test."
     if os.path.isfile(filename):
         model = ModelWrapper(filename)
@@ -105,7 +109,7 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
-def get_build_env(board, target_clk_ns):
+def get_build_env(board: str, target_clk_ns: float) -> Dict[str, Any]:
     """Get board-related build environment for testing.
     - board = any from pynq_part_map or alveo_part_map
     """
@@ -128,23 +132,26 @@ def get_build_env(board, target_clk_ns):
     return ret
 
 
-def get_example_input(topology):
+def get_example_input(topology: str) -> NDArray[Any]:
     "Get example numpy input tensor for given topology."
 
     if "fc" in topology:
         raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        assert raw_i is not None, "Could not load test data"
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
-        return nph.to_array(onnx_tensor)
+        return cast(NDArray[Any], nph.to_array(onnx_tensor))
     elif topology == "cnv":
         ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
         with importlib.as_file(ref) as fn:
             input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-        return input_tensor
+        return cast(NDArray[Any], input_tensor)
     else:
         raise Exception("Unknown topology, can't return example input")
 
 
-def get_trained_network_and_ishape(topology, wbits, abits):
+def get_trained_network_and_ishape(
+    topology: str, wbits: int, abits: int
+) -> Tuple[Any, Tuple[int, int, int, int]]:
     "Return (trained_model, shape) for given BNN-PYNQ test config."
 
     topology_to_ishape = {
@@ -157,7 +164,12 @@ def get_trained_network_and_ishape(topology, wbits, abits):
     return (model, ishape)
 
 
-def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=False):
+def execute_parent(
+    parent_path: str,
+    child_path: str,
+    input_tensor_npy: NDArray[Any],
+    return_full_ctx: bool = False,
+) -> Union[NDArray[Any], Dict[str, Any]]:
     """Execute parent model containing a single StreamingDataflowPartition by
     replacing it with the model at child_path and return result."""
 
@@ -170,17 +182,17 @@ def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=Fa
     sdp_node.set_nodeattr("return_full_exec_context", 1 if return_full_ctx else 0)
     ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
     if return_full_ctx:
-        return ret
+        return cast(Dict[str, Any], ret)
     else:
-        return ret[oname]
+        return cast(NDArray[Any], ret[oname])
 
 
-def resize_smaller_side(target_pixels, img):
+def resize_smaller_side(target_pixels: int, img: PILImage) -> PILImage:
     """Resizes smallest side of image to target pixels and resizes larger side with
     same ratio. Expects a PIL image."""
-    return torchvision_util.resize(img, target_pixels)
+    return cast(PILImage, torchvision_util.resize(img, target_pixels))
 
 
-def crop_center(size, img):
+def crop_center(size: int, img: PILImage) -> PILImage:
     """Crop central size*size window out of a PIL image."""
-    return torchvision_util.center_crop(img, size)
+    return cast(PILImage, torchvision_util.center_crop(img, size))

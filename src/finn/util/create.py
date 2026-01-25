@@ -35,12 +35,13 @@ from qonnx.util.basic import (
     gen_finn_dt_tensor,
     qonnx_make_model,
 )
+from typing import Any, Dict, List, Optional
 
 
-def hls_random_mlp_maker(layer_spec):
+def hls_random_mlp_maker(layer_spec: List[Dict[str, Any]]) -> ModelWrapper:
     """Create an MLP of given specification using HLSCustomOp instances.
     Generate random weights/thresholds of appropriate size."""
-    ret = []
+    ret: List[Dict[str, Any]] = []
     for lyr in layer_spec:
         idt = lyr["idt"]
         wdt = lyr["wdt"]
@@ -50,7 +51,7 @@ def hls_random_mlp_maker(layer_spec):
         lyr["W"] = gen_finn_dt_tensor(wdt, (mw, mh))
         if act is None:
             # no activation, produce accumulators
-            T = None
+            T: Optional[np.ndarray[Any, Any]] = None
             tdt = None
             if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
                 odt = DataType["UINT32"]
@@ -79,12 +80,12 @@ def hls_random_mlp_maker(layer_spec):
     return hls_mlp_maker(ret)
 
 
-def hls_mlp_maker(layer_spec):
+def hls_mlp_maker(layer_spec: List[Dict[str, Any]]) -> ModelWrapper:
     """Create an MLP of given specification using HLSCustomOp instances."""
 
-    current_in_name = ""
-    current_out_name = ""
-    i = 0
+    current_in_name: str = ""
+    current_out_name: str = ""
+    i: int = 0
 
     graph = helper.make_graph(nodes=[], name="mlp", inputs=[], outputs=[])
 

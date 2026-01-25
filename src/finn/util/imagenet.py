@@ -28,13 +28,17 @@
 
 import numpy as np
 import os
+from numpy.typing import NDArray
 from PIL import Image
 from qonnx.core.data_layout import NCHW, NHWC
+from typing import Any, Callable, Generator
 
 from finn.util.test import crop_center, resize_smaller_side
 
 
-def get_val_images(n_images=100, interleave_classes=False):
+def get_val_images(
+    n_images: int = 100, interleave_classes: bool = False
+) -> Generator[tuple[str, int], None, None]:
     """Returns generator over (path_to_jpeg, imagenet_class_id) for the first n_images
     in the ILSVRC2012 validation dataset. The IMAGENET_VAL_PATH environment variable
     must point to the validation dataset folder, containing 1000 folders (one for
@@ -49,35 +53,32 @@ def get_val_images(n_images=100, interleave_classes=False):
     please see:
     https://github.com/Xilinx/brevitas/blob/dev/brevitas_examples/imagenet_classification/README.md
     """
-    try:
-        val_path = os.environ["IMAGENET_VAL_PATH"]
-        val_folders = sorted(os.listdir(val_path))
-        assert len(val_folders) == 1000, "Expected 1000 subfolders in ILSVRC2012 val"
-        assert n_images <= 50000, "ILSVRC2012 validation dataset has 50k images"
-        n_current_folder = 0
-        n_current_file = 0
-        total = 0
-        while total != n_images:
-            current_folder = os.path.join(val_path, val_folders[n_current_folder])
-            current_files = sorted(os.listdir(current_folder))
-            current_file = os.path.join(current_folder, current_files[n_current_file])
-            yield (current_file, n_current_folder)
-            total += 1
-            if interleave_classes:
-                n_current_folder += 1
-                if n_current_folder == 1000:
-                    n_current_file += 1
-                    n_current_folder = 0
-            else:
+    val_path = os.environ["IMAGENET_VAL_PATH"]
+    val_folders = sorted(os.listdir(val_path))
+    assert len(val_folders) == 1000, "Expected 1000 subfolders in ILSVRC2012 val"
+    assert n_images <= 50000, "ILSVRC2012 validation dataset has 50k images"
+    n_current_folder = 0
+    n_current_file = 0
+    total = 0
+    while total != n_images:
+        current_folder = os.path.join(val_path, val_folders[n_current_folder])
+        current_files = sorted(os.listdir(current_folder))
+        current_file = os.path.join(current_folder, current_files[n_current_file])
+        yield (current_file, n_current_folder)
+        total += 1
+        if interleave_classes:
+            n_current_folder += 1
+            if n_current_folder == 1000:
                 n_current_file += 1
-                if n_current_file == 50:
-                    n_current_folder += 1
-                    n_current_file = 0
-    except KeyError:
-        return None
+                n_current_folder = 0
+        else:
+            n_current_file += 1
+            if n_current_file == 50:
+                n_current_folder += 1
+                n_current_file = 0
 
 
-def load_resize_crop(img_path, layout=NCHW, dtype=np.float32):
+def load_resize_crop(img_path: str, layout: Any = NCHW, dtype: Any = np.float32) -> NDArray[Any]:
     """Load, resize and center crop given image for standard ImageNet preprocessing,
     return a numpy array."""
     # get single image as input and prepare image
@@ -90,7 +91,7 @@ def load_resize_crop(img_path, layout=NCHW, dtype=np.float32):
     if layout == NCHW:
         # save image as numpy array and as torch tensor to enable testing in
         # brevitas/pytorch and finn and transpose from (H, W, C) to (C, H, W)
-        img_np = np.asarray(img).copy().astype(dtype).transpose(2, 0, 1)
+        img_np: NDArray[Any] = np.asarray(img).copy().astype(dtype).transpose(2, 0, 1)
         img_np = img_np.reshape(1, 3, 224, 224)
         return img_np
     elif layout == NHWC:
@@ -101,7 +102,14 @@ def load_resize_crop(img_path, layout=NCHW, dtype=np.float32):
         raise Exception("Unknown data layout for load_resize_crop")
 
 
-def measure_topk(n_images, fxn_pre, fxn_exec, fxn_post, verbose=True, k=5):
+def measure_topk(
+    n_images: int,
+    fxn_pre: Callable[[NDArray[Any]], Any],
+    fxn_exec: Callable[[Any], Any],
+    fxn_post: Callable[[Any], NDArray[Any]],
+    verbose: bool = True,
+    k: int = 5,
+) -> tuple[tuple[float, float], tuple[float, float]]:
     "Do top-k accuracy measurement on ILSVRC2012 with given functions."
 
     workload = get_val_images(n_images)
@@ -110,10 +118,10 @@ def measure_topk(n_images, fxn_pre, fxn_exec, fxn_post, verbose=True, k=5):
     topk_ok = 0.0
     topk_nok = 0.0
     for i, (img_path, target_id) in enumerate(workload):
-        img_np = load_resize_crop(img_path)
+        img_np: NDArray[Any] = load_resize_crop(img_path)
         inp = fxn_pre(img_np)
         ret = fxn_exec(inp)
-        res = fxn_post(ret)
+        res: NDArray[Any] = fxn_post(ret)
         res = res.flatten()
         res = np.argsort(res)[-k:]
         res = np.flip(res)
