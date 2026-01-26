@@ -239,8 +239,8 @@ def _mvu_rtl_possible(n, fpgapart, model):
     # we now check if input and weight data types are in range
     # we only use rtl mvau if the dtypes are at least 2 bit
     idt = node_inst.get_input_datatype()
-    inp_width_in_range = (2 <= idt.bitwidth() <= 8) or (idt.bitwidth() == 9 and idt.signed())
-    weight_width_in_range = 2 <= wdt.bitwidth() <= 8
+    inp_width_in_range = 2 <= idt.bitwidth()
+    weight_width_in_range = 2 <= wdt.bitwidth()
 
     return inp_width_in_range and weight_width_in_range
 
