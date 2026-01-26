@@ -141,7 +141,7 @@ ARG GROUP_ID
 ARG GROUPNAME
 RUN useradd $USERNAME -u $USER_UID
 # Check and add group if it doesn't exist
-RUN if ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
+RUN if ! getent group "$GROUP_ID" > /dev/null 2>&1 && ! getent group "$GROUPNAME" > /dev/null 2>&1; then \
         groupadd -g $GROUP_ID $GROUPNAME; \
     fi
 
