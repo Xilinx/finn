@@ -42,8 +42,8 @@ from string import Template
 from typing import Dict, Tuple
 
 import finn.util
-from finn.util.basic import make_build_dir
-from finn.util.data_packing import get_driver_shapes, to_external_tensor
+from finn.util.basic import get_driver_shapes, make_build_dir
+from finn.util.data_packing import to_external_tensor
 
 from . import template_driver
 

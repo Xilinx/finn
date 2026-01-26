@@ -25,7 +25,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
     maxpool_node = oh.make_node(
         "MaxPool",
         inputs=["inp"],
-        outputs=["out_mp"],
+        outputs=["outp_mp"],
         ceil_mode=ceil_mode,
         kernel_shape=kernel_shape,
         pads=pads,
@@ -34,7 +34,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 
     transpose_node = onnx.helper.make_node(
         "Transpose",
-        inputs=["out_mp"],
+        inputs=["outp_mp"],
         outputs=["outp"],
         name="Transpose1",
         perm=[0, 2, 3, 1],

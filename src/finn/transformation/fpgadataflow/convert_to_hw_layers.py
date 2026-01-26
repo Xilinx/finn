@@ -2014,6 +2014,97 @@ class InferElementwiseBinaryOperation(Transformation):
         return model, graph_modified
 
 
+# Converts ReLU into ElementwiseMaximum(in, 0)
+class InferReLUAsElementwiseMax(Transformation):
+    # Filter function to filter out any operation involving any floating-point
+    # tensor
+    @staticmethod
+    def reject_unsupported_dtypes(model: ModelWrapper, node: NodeProto):
+        def dtype_ok(tname):
+            dt = model.get_tensor_datatype(tname)
+            if dt is None:
+                return False
+            if (
+                dt.is_integer()
+                or dt.is_fixed_point()
+                or dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+            ):
+                return True
+            else:
+                return False
+
+        return all([dtype_ok(tname) for tname in list(node.input) + list(node.output)])
+
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=reject_unsupported_dtypes):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            if node.op_type == "Relu":
+                inp = node.input[0]
+                # add a second 0-valued input for ReLU
+                new_tname = model.make_new_valueinfo_name()
+                model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
+                # comparison of fp16 and uint2 is not possible in HLS
+                new_tdtype = (
+                    "FLOAT16"
+                    if model.get_tensor_datatype(inp).get_canonical_name() == "FLOAT16"
+                    else "UINT2"
+                )
+                # for the constant 0 input, use a small-width datatype
+                # (to avoid unnecessarily promoting output type to something larger)
+                model.set_tensor_datatype(new_tname, DataType[new_tdtype])
+                result = node.output[0]
+
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(inp, model)
+                lift_to_rank1(new_tname, model)
+
+                new_node = helper.make_node(
+                    "ElementwiseMax",
+                    [inp, new_tname],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    lhs_shape=model.get_tensor_shape(inp),
+                    rhs_shape=model.get_tensor_shape(new_tname),
+                    out_shape=model.get_tensor_shape(result),
+                    lhs_dtype=str(model.get_tensor_datatype(inp)),
+                    rhs_dtype=str(model.get_tensor_datatype(new_tname)),
+                    out_dtype=str(model.get_tensor_datatype(result)),
+                )
+                graph.node.insert(index + 1, new_node)
+                graph.node.remove(node)
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
+
+
 class InferLayerNorm(Transformation):
     """Convert LayerNorm into HW, only norming over channel dim.
     This transform is adapted from Brainsmith InferLayerNorm."""
