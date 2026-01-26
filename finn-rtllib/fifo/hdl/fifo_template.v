@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2024, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024-2026, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,38 +51,20 @@ output   out0_V_TVALID,
 output  $OUT_RANGE$ out0_V_TDATA
 );
 
-	localparam fifo_core = "$FIFO_CORE$";
-
-	case(fifo_core)
-	"sim_fifo_gauge":
-		fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$)) fifo (
-			.clk(ap_clk), .rst(!ap_rst_n),
-			.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
-			.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
-			.count(count), .maxcount(maxcount)
-		);
-	"q_srl":
-		Q_srl #(
-		.depth($DEPTH$),
-		.width($WIDTH$)
-		)
-		impl
-		(
-		.clock(ap_clk),
-		.reset(!ap_rst_n),
-		.count(count),
-		.maxcount(maxcount),
-		.i_d(in0_V_TDATA),
-		.i_v(in0_V_TVALID),
-		.i_r(in0_V_TREADY),
-		.o_d(out0_V_TDATA),
-		.o_v(out0_V_TVALID),
-		.o_r(out0_V_TREADY)
-		);
-	default: initial begin
-			$error("Unrecognized FIFO_CORE '%s'", FIFO_CORE);
-			$finish;
-		end
-		endcase
+`ifdef FINN_SIMULATION
+	fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$)) fifo (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
+		.count(count), .maxcount(maxcount)
+	);
+`else
+	Q_srl #(.depth($DEPTH$), .width($WIDTH$)) fifo (
+		.clock(ap_clk), .reset(!ap_rst_n),
+		.i_d(in0_V_TDATA), .i_v(in0_V_TVALID), .i_r(in0_V_TREADY),
+		.o_d(out0_V_TDATA), .o_v(out0_V_TVALID), .o_r(out0_V_TREADY),
+		.count(count), .maxcount(maxcount)
+	);
+`endif
 
 endmodule
