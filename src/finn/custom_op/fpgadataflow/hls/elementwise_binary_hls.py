@@ -983,16 +983,44 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
     ElementwiseBinaryOperation_hls,
     elementwise_binary.ElementwiseFloat2Int,
 ):
+    # we need to resolve the attribute types due to multiple inheritence
+    def get_nodeattr_types(self):
+        # TODO ran into problems resolving node attributes during Python exec,
+        # so specifying manually for now - why don't the super() calls work as expected?
+        # start with attributes from ElementwiseBinaryOperation
+        attrs = super(ElementwiseBinaryOperation, self).get_nodeattr_types()
+        # Add the HLSBackend default attributes on top
+        attrs.update(HLSBackend.get_nodeattr_types(self))
+        # Add/Specialize implementation specific attributes here...
+        # Return the updated attributes dictionary
+        # add attributes from ElementwiseFloat2Int
+        attrs_float2int = super(elementwise_binary.ElementwiseFloat2Int, self).get_nodeattr_types()
+        attrs.update(attrs_float2int)
+        attrs.update(
+            {
+                # Bitwidth of output integers
+                "bitwidth": ("i", True, 0),
+                # Whether output integers are signed or unsigned
+                "signed": ("i", True, 0),
+                # Whether output integers use narrow-range
+                "narrow": ("i", True, 0),
+                # The rounding mode, which is used for the quant function
+                "rounding_mode": ("s", True, "ROUND"),
+            }
+        )
+        # Return updated attribute dictionary
+        return attrs
+
     # Generates list of C++ includes to be placed at the top of the generated
     # code
     def global_includes(self):
-        super(ElementwiseBinaryOperation_hls).global_includes()
+        super().global_includes()
         # additional hls_math include to get hls::round()
         self.code_gen_dict["$GLOBALS$"] += ["#include <hls_math.h>"]
 
     # Generates C++ code of type alias, global constant and macro definitions
     def defines(self, var):
-        super(ElementwiseBinaryOperation_hls).defines(var)
+        super().defines(var)
 
         # Define macro for clipping/saturating values
         self.code_gen_dict["$DEFINES$"] += [
