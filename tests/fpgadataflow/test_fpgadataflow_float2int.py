@@ -89,6 +89,9 @@ def make_test_model(ishp, channelwise, bitwidth, need_extraction_scale, need_ext
 
 @pytest.mark.parametrize("channelwise", [True, False])
 @pytest.mark.parametrize("pe", [1, 5, 10])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_float2int(channelwise, pe):
     ishp = (1, 10)
     bitwidth = np.asarray(4.0, dtype=np.float32)
