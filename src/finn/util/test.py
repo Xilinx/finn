@@ -43,7 +43,7 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import vitis_default_platform, vitis_part_map, pynq_part_map, slash_part_map
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -107,22 +107,24 @@ def load_test_checkpoint_or_skip(filename):
 
 def get_build_env(board, target_clk_ns):
     """Get board-related build environment for testing.
-    - board = any from pynq_part_map or alveo_part_map
+    - board = any from pynq_part_map, vitis_part_map, or slash_part_map
     """
     ret = {}
     if board in pynq_part_map:
         ret["kind"] = "zynq"
         ret["part"] = pynq_part_map[board]
         ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
-    elif board in alveo_part_map:
+    elif board in vitis_part_map:
         ret["kind"] = "alveo"
-        ret["part"] = alveo_part_map[board]
+        ret["part"] = vitis_part_map[board]
         ret["build_fxn"] = VitisBuild(
             ret["part"],
             target_clk_ns,
-            alveo_default_platform[board],
+            vitis_default_platform[board],
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
+    elif board in slash_part_map:
+        raise NotImplementedError("Slash build environment not implemented yet")
     else:
         raise Exception("Unknown board specified")
     return ret

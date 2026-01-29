@@ -52,7 +52,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import vitis_default_platform, vitis_part_map, pynq_part_map
 from finn.util.test import load_test_checkpoint_or_skip
 
 test_pynq_board = "Pynq-Z1"
@@ -302,8 +302,8 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
-    platform = alveo_default_platform[board]
-    fpga_part = alveo_part_map[board]
+    platform = vitis_default_platform[board]
+    fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])

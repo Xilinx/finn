@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, part_map
+from finn.util.basic import vitis_default_platform, part_map
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -421,7 +421,7 @@ class DataflowBuildConfig:
         if self.vitis_platform is not None:
             return self.vitis_platform
         elif (self.vitis_platform is None) and (self.board is not None):
-            return alveo_default_platform[self.board]
+            return vitis_default_platform[self.board]
         else:
             raise Exception(
                 "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
