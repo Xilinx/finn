@@ -229,7 +229,7 @@ module thresholding #(
 					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
 					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
-                                (* DONT_TOUCH = "true", RAM_STYLE = RAM_STYLE *)
+				(* DONT_TOUCH = USE_CONFIG? "TRUE" : "FALSE", RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];
 				if(THRESHOLDS_PATH != "") begin
 					initial  $readmemh($sformatf("%sthreshs_%0d_%0d.dat", THRESHOLDS_PATH, pe, stage), Threshs);
