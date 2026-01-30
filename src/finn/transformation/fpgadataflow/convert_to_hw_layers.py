@@ -2131,7 +2131,18 @@ class InferElementwiseFunctionOperation(Transformation):
                 continue
             # If a custom operation with corresponding name is implemented in
             # the module, this operator is supported for conversion
-            if f"Elementwise{node.op_type}" in dir(elementwise_functions):
+            is_supported = f"Elementwise{node.op_type}" in dir(elementwise_functions)
+            
+            # Special case for Pow: only convert if it has a constant exponent and FLOAT32 input
+            if node.op_type == "Pow" and is_supported:
+                if len(node.input) <= 1 or model.get_initializer(node.input[1]) is None:
+                    continue  # Skip non-constant exponent Pow nodes
+                # Check if input is FLOAT32
+                inp_dtype = model.get_tensor_datatype(node.input[0])
+                if inp_dtype.get_canonical_name() != "FLOAT32":
+                    continue  # Skip non-FLOAT32 Pow nodes
+            
+            if is_supported:
                 inp = node.input[0]
                 # if input is a constant, throw an error and
                 # ask user to run FoldConstants transform first
@@ -2150,17 +2161,46 @@ class InferElementwiseFunctionOperation(Transformation):
                 idt0 = model.get_tensor_datatype(inp)
                 odt0 = model.get_tensor_datatype(result)
 
-                new_node = helper.make_node(
-                    f"Elementwise{node.op_type}",
-                    [inp],
-                    [result],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    inp_shape=inp_shape,
-                    out_shape=out_shape,
-                    inp_dtype=str(idt0),
-                    out_dtype=str(odt0),
-                )
+                # Special handling for Pow nodes with constant exponent
+                if node.op_type == "Pow":
+                    # Check if the second input (exponent) is a constant
+                    if len(node.input) > 1:
+                        exp_input = node.input[1]
+                        exp_val = model.get_initializer(exp_input)
+                        if exp_val is not None:
+                            # Extract the exponent value
+                            exp_scalar = float(exp_val.flatten()[0])
+                            new_node = helper.make_node(
+                                f"Elementwise{node.op_type}",
+                                [inp],
+                                [result],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                inp_shape=inp_shape,
+                                out_shape=out_shape,
+                                inp_dtype=str(idt0),
+                                out_dtype=str(odt0),
+                                exponent=exp_scalar,
+                            )
+                        else:
+                            # Skip if exponent is not constant
+                            continue
+                    else:
+                        # Skip if no exponent provided
+                        continue
+                else:
+                    # Normal case for other elementwise functions
+                    new_node = helper.make_node(
+                        f"Elementwise{node.op_type}",
+                        [inp],
+                        [result],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        inp_shape=inp_shape,
+                        out_shape=out_shape,
+                        inp_dtype=str(idt0),
+                        out_dtype=str(odt0),
+                    )
                 graph.node.insert(index + 1, new_node)
                 graph.node.remove(node)
 

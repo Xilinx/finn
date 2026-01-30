@@ -437,3 +437,16 @@ class ElementwiseErf_hls(
     ElementwiseMathFunctionOperation_hls, elementwise_functions.ElementwiseErf
 ):
     pass
+
+
+# Derive a specialization to implement elementwise power with constant exponent
+@register_custom_op
+class ElementwisePow_hls(
+    ElementwiseMathFunctionOperation_hls, elementwise_functions.ElementwisePow
+):
+    def get_nodeattr_types(self):
+        # Start from parent attributes
+        attrs = super().get_nodeattr_types()
+        # Explicitly add the exponent attribute to ensure it's copied during specialization
+        attrs["exponent"] = ("f", True, 1.0)  # float, required, default 1.0
+        return attrs

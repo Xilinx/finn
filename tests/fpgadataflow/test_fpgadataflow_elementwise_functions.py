@@ -64,6 +64,7 @@ NUMPY_REFERENCES = {
     "ElementwiseRelu": lambda x: np.maximum(x, 0),
     "ElementwiseExp": np.exp,
     "ElementwiseErf": scipy.special.erf,
+    "ElementwisePow": lambda x: np.power(x, 2.0),  # Default test with exponent=2
 }
 
 
@@ -73,12 +74,31 @@ def create_elementwise_function_operation_onnx(op_type, inp_dtype, out_dtype, in
     onnx_op_type = op_type[11:]
     # Automatically derive the output shape
     out_shape = inp_shape
-    # Create a node representing the elementwise operation
-    node = oh.make_node(
-        op_type=onnx_op_type,
-        inputs=["inp"],
-        outputs=["out"],
-    )
+    
+    # Special handling for Pow operation
+    if onnx_op_type == "Pow":
+        # Create constant exponent tensor
+        exp_tensor = oh.make_tensor(
+            name="exponent",
+            data_type=TensorProto.FLOAT,
+            dims=[1],
+            vals=[2.0]  # Using exponent=2 for testing
+        )
+        # Create a node representing the elementwise operation
+        node = oh.make_node(
+            op_type=onnx_op_type,
+            inputs=["inp", "exponent"],
+            outputs=["out"],
+        )
+        initializer = [exp_tensor]
+    else:
+        # Create a node representing the elementwise operation
+        node = oh.make_node(
+            op_type=onnx_op_type,
+            inputs=["inp"],
+            outputs=["out"],
+        )
+        initializer = []
     if inp_dtype == "FLOAT16":
         inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT16, inp_shape)
     else:
@@ -88,7 +108,7 @@ def create_elementwise_function_operation_onnx(op_type, inp_dtype, out_dtype, in
     else:
         out = oh.make_tensor_value_info("out", TensorProto.FLOAT, out_shape)
     # Create a graph connecting the node to the inputs and outputs
-    graph = oh.make_graph([node], inputs=[inp], outputs=[out], name="elementwise-function")
+    graph = oh.make_graph([node], inputs=[inp], outputs=[out], initializer=initializer, name="elementwise-function")
     model = ModelWrapper(qonnx_make_model(graph, producer_name="elementwise-function"))
 
     # Add datatype annotation to the value info of input and output tensors

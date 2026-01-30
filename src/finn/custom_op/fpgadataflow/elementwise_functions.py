@@ -346,3 +346,46 @@ class ElementwiseErf(ElementwiseFunctionOperation):
         if self.inp_dtype.get_canonical_name() == "FLOAT16":
             return DataType["FLOAT16"]
         return DataType["FLOAT32"]
+
+
+# Derive a specialization to implement elementwise power with constant exponent
+@register_custom_op
+class ElementwisePow(ElementwiseFunctionOperation):
+    def get_nodeattr_types(self):
+        # Get parent attributes
+        attrs = super().get_nodeattr_types()
+        # Add exponent attribute
+        attrs.update({
+            "exponent": ("f", True, 1.0),  # float, required, default 1.0
+        })
+        return attrs
+    
+    @property
+    def npy_op(self):
+        exponent = self.get_nodeattr("exponent")
+        return lambda x: np.power(x, exponent)
+    
+    @property
+    def cpp_op(self):
+        # Only support FLOAT32 due to precision limitations with FLOAT16
+        assert self.out_dtype.get_canonical_name() == "FLOAT32", \
+            "ElementwisePow only supports FLOAT32 datatype"
+        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        exponent = self.get_nodeattr("exponent")
+        
+        # Optimize for common cases
+        if exponent == 2.0:
+            return "((%s){0} * (%s){0})" % (odt_hls_name, odt_hls_name)
+        elif exponent == 0.5:
+            return "(hls::sqrtf((%s){0}))" % (odt_hls_name)
+        else:
+            # General case using pow
+            return "(hls::powf((%s){0}, %ff))" % (odt_hls_name, exponent)
+    
+    @property
+    def rtl_op(self):
+        return None
+    
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # Only support FLOAT32 due to precision limitations
+        return DataType["FLOAT32"]
