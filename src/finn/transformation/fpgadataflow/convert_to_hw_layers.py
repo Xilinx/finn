@@ -1128,12 +1128,12 @@ class InferConcatLayer(Transformation):
                 if any_static:
                     continue
                 # skip conversion if inputs are not integers
-                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
-                if not all_integer:
-                    warnings.warn(
-                        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
-                    )
-                    continue
+                #all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                #if not all_integer:
+                #    warnings.warn(
+                #        "Inputs with non-integer datatype detected, skipping InferConcatLayer()"
+                #    )
+                #    continue
                 # ready for conversion
                 channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
