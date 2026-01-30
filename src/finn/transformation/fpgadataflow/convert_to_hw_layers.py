@@ -46,6 +46,9 @@ from qonnx.util.onnx import nchw_to_nhwc
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 
+# Module containing specializations of elementwise function operations
+import finn.custom_op.fpgadataflow.elementwise_functions as elementwise_functions
+
 
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
@@ -2013,30 +2016,25 @@ class InferElementwiseBinaryOperation(Transformation):
         # has been transformed
         return model, graph_modified
 
-
-# Converts ReLU into ElementwiseMaximum(in, 0)
-class InferReLUAsElementwiseMax(Transformation):
-    # Filter function to filter out any operation involving any floating-point
-    # tensor
+# Converts supported elementwise binary operations to their FINN custom
+# operation
+class InferElementwiseBinaryOperation(Transformation):
+    # Filter function to filter out the last elementwise Mul operation,
+    # typically corresponding to output de-quantization, which should happen
+    # off-chip
     @staticmethod
-    def reject_unsupported_dtypes(model: ModelWrapper, node: NodeProto):
-        def dtype_ok(tname):
-            dt = model.get_tensor_datatype(tname)
-            if dt is None:
+    def reject_output_dequant(model: ModelWrapper, node: NodeProto):
+        # The operator must be a Mul and have no successor nodes
+        if node.op_type == "Mul" and not model.find_direct_successors(node):
+            # If the output is a floating-point tensors, reject this
+            if model.get_tensor_datatype(node.output[0]) == "FLOAT32":
+                # Filter False rejects this node
                 return False
-            if (
-                dt.is_integer()
-                or dt.is_fixed_point()
-                or dt in [DataType["FLOAT32"], DataType["FLOAT16"]]
-            ):
-                return True
-            else:
-                return False
-
-        return all([dtype_ok(tname) for tname in list(node.input) + list(node.output)])
+        # Filter True accepts this node
+        return True
 
     # Initializes the transformation method with an optional filter function
-    def __init__(self, _filter=reject_unsupported_dtypes):
+    def __init__(self, _filter=None):
         # Initialize the base class Transformation object
         super().__init__()
         # Register the filter function as attribute
@@ -2053,38 +2051,43 @@ class InferReLUAsElementwiseMax(Transformation):
             # Skip transforming nodes rejected by the filter
             if not self._filter(model, node):
                 continue
-            if node.op_type == "Relu":
-                inp = node.input[0]
-                # add a second 0-valued input for ReLU
-                new_tname = model.make_new_valueinfo_name()
-                model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
-                # comparison of fp16 and uint2 is not possible in HLS
-                new_tdtype = (
-                    "FLOAT16"
-                    if model.get_tensor_datatype(inp).get_canonical_name() == "FLOAT16"
-                    else "UINT2"
-                )
-                # for the constant 0 input, use a small-width datatype
-                # (to avoid unnecessarily promoting output type to something larger)
-                model.set_tensor_datatype(new_tname, DataType[new_tdtype])
+            # If a custom operation with corresponding name is implemented in
+            # the module, this operator is supported for conversion
+            if f"Elementwise{node.op_type}" in dir(elementwise_binary):
+                in0 = node.input[0]
+                in1 = node.input[1]
+                # if both inputs are constant, throw an error and
+                # ask user to run FoldConstants transform first
+                assert (
+                    model.get_initializer(in0) is None or model.get_initializer(in1) is None
+                ), """Both inputs are constant,
+                    please run FoldConstants from qonnx.transformation.fold_constants first."""
                 result = node.output[0]
 
                 # Need to "lift" potential scalar inputs to rank-1 tensors
-                lift_to_rank1(inp, model)
-                lift_to_rank1(new_tname, model)
+                lift_to_rank1(in0, model)
+                lift_to_rank1(in1, model)
+
+                in0_shape = model.get_tensor_shape(in0)
+                in1_shape = model.get_tensor_shape(in1)
+                out_shape = model.get_tensor_shape(result)
+
+                idt0 = model.get_tensor_datatype(in0)
+                idt1 = model.get_tensor_datatype(in1)
+                odt0 = model.get_tensor_datatype(result)
 
                 new_node = helper.make_node(
-                    "ElementwiseMax",
-                    [inp, new_tname],
+                    f"Elementwise{node.op_type}",
+                    [in0, in1],
                     [result],
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    lhs_shape=model.get_tensor_shape(inp),
-                    rhs_shape=model.get_tensor_shape(new_tname),
-                    out_shape=model.get_tensor_shape(result),
-                    lhs_dtype=str(model.get_tensor_datatype(inp)),
-                    rhs_dtype=str(model.get_tensor_datatype(new_tname)),
-                    out_dtype=str(model.get_tensor_datatype(result)),
+                    lhs_shape=in0_shape,
+                    rhs_shape=in1_shape,
+                    out_shape=out_shape,
+                    lhs_dtype=str(idt0),
+                    rhs_dtype=str(idt1),
+                    out_dtype=str(odt0),
                 )
                 graph.node.insert(index + 1, new_node)
                 graph.node.remove(node)
@@ -2104,6 +2107,77 @@ class InferReLUAsElementwiseMax(Transformation):
         # has been transformed
         return model, graph_modified
 
+
+# Converts supported elementwise function operations to their FINN custom
+# operation
+class InferElementwiseFunctionOperation(Transformation):
+    # Initializes the transformation method with an optional filter function
+    def __init__(self, _filter=None):
+        # Initialize the base class Transformation object
+        super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter if _filter is not None else lambda *_: True
+
+    # Applies the transform to a whole model graph
+    def apply(self, model: ModelWrapper):  # noqa
+        # Get the model graph out of the model wrapper object
+        graph = model.graph
+        # Keep track of whether the graph has been modified
+        graph_modified = False
+        # Iterate all nodes in the graph keeping track of the index
+        for index, node in enumerate(graph.node):
+            # Skip transforming nodes rejected by the filter
+            if not self._filter(model, node):
+                continue
+            # If a custom operation with corresponding name is implemented in
+            # the module, this operator is supported for conversion
+            if f"Elementwise{node.op_type}" in dir(elementwise_functions):
+                inp = node.input[0]
+                # if input is a constant, throw an error and
+                # ask user to run FoldConstants transform first
+                assert (
+                    model.get_initializer(inp) is None
+                ), """Input is a constant,
+                    please run FoldConstants from qonnx.transformation.fold_constants first."""
+                result = node.output[0]
+
+                # Need to "lift" potential scalar inputs to rank-1 tensors
+                lift_to_rank1(inp, model)
+
+                inp_shape = model.get_tensor_shape(inp)
+                out_shape = model.get_tensor_shape(result)
+
+                idt0 = model.get_tensor_datatype(inp)
+                odt0 = model.get_tensor_datatype(result)
+
+                new_node = helper.make_node(
+                    f"Elementwise{node.op_type}",
+                    [inp],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    inp_shape=inp_shape,
+                    out_shape=out_shape,
+                    inp_dtype=str(idt0),
+                    out_dtype=str(odt0),
+                )
+                graph.node.insert(index + 1, new_node)
+                graph.node.remove(node)
+
+                # Consider the graph to be modified, triggering exhaustive
+                # re-application of this transformation
+                graph_modified = True
+                # Exiting here triggers type and shape inference and cleanup
+                # after each transformed node. This helps QONNX to behave
+                # better / more consistent in certain cases...
+                break
+        # Re-do shape and data type annotations after potential changes to the
+        # model graph
+        model = model.transform(InferShapes())
+        model = model.transform(InferDataTypes())
+        # Return the transformed model and indicate whether the graph actually
+        # has been transformed
+        return model, graph_modified
 
 class InferLayerNorm(Transformation):
     """Convert LayerNorm into HW, only norming over channel dim.
