@@ -113,24 +113,40 @@ class StreamingConcat(HWCustomOp):
 
     def get_output_datatype(self, ind=0):
         # infer output datatype from declared inputDataTypes
-        min_input = 0
-        max_input = 0
+        input_datatypes = []
         for i in range(len(self.get_nodeattr("inputDataTypes"))):
             idt = self.get_input_datatype(i)
-            if idt.min() < min_input:
-                min_input = idt.min()
-            if idt.max() > max_input:
-                max_input = idt.max()
-        # if the input range is always greater than 0, then acc_max <= 2^P - 1
-        if min_input >= 0:
-            out_bit_width = math.ceil(np.log2(max_input + 1))
-            odt = DataType[f"UINT{out_bit_width}"]
-        # if the input range is signed, then acc_min >= -2^{P-1} and acc_max <=
-        # 2^{P - 1} - 1, which means 2^{P - 1} >= max(-acc_min, 1 + acc_max)
+            input_datatypes.append(idt)
+        
+        # Check if all inputs are floating-point types
+        all_float = all(idt.name in ["FLOAT32", "FLOAT16"] for idt in input_datatypes)
+        
+        if all_float:
+            # For floating-point inputs, preserve the float type
+            # If mixed float types, use the higher precision one
+            if any(idt.name == "FLOAT32" for idt in input_datatypes):
+                odt = DataType["FLOAT32"]
+            else:
+                odt = DataType["FLOAT16"]
         else:
-            max_abs_input = max(-min_input, 1 + max_input)
-            out_bit_width = math.ceil(np.log2(max_abs_input) + 1)
-            odt = DataType[f"INT{out_bit_width}"]
+            # Original logic for quantized/integer types
+            min_input = 0
+            max_input = 0
+            for idt in input_datatypes:
+                if idt.min() < min_input:
+                    min_input = idt.min()
+                if idt.max() > max_input:
+                    max_input = idt.max()
+            # if the input range is always greater than 0, then acc_max <= 2^P - 1
+            if min_input >= 0:
+                out_bit_width = math.ceil(np.log2(max_input + 1))
+                odt = DataType[f"UINT{out_bit_width}"]
+            # if the input range is signed, then acc_min >= -2^{P-1} and acc_max <=
+            # 2^{P - 1} - 1, which means 2^{P - 1} >= max(-acc_min, 1 + acc_max)
+            else:
+                max_abs_input = max(-min_input, 1 + max_input)
+                out_bit_width = math.ceil(np.log2(max_abs_input) + 1)
+                odt = DataType[f"INT{out_bit_width}"]
         return odt
 
     def get_instream_width(self, ind=0):
