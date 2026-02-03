@@ -1784,6 +1784,54 @@ class InferHWSoftmax(Transformation):
         return (model, graph_modified)
 
 
+class InferHWReduceMax(Transformation):
+    """
+    Convert ONNX ReduceMax nodes to custom HWReduceMax nodes for floating-point operations.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "ReduceMax":
+                input_shape = model.get_tensor_shape(n.input[0])
+                idt0 = model.get_tensor_datatype(n.input[0])
+                odt0 = model.get_tensor_datatype(n.output[0])
+                
+                # Get axis attribute from ReduceMax node
+                axis = -1  # Default to last axis
+                for attr in n.attribute:
+                    if attr.name == "axes":
+                        if len(attr.ints) > 0:
+                            axis = attr.ints[0]
+                
+                new_node = helper.make_node(
+                    "HWReduceMax",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow", 
+                    ifm_dim=input_shape,
+                    input_data_type=idt0.name,
+                    output_data_type=odt0.name,
+                    name=n.name,
+                    SIMD=1,
+                    NumChannels=input_shape[-1],
+                    axis=axis,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+                graph_modified = True
+            node_ind += 1
+        return (model, graph_modified)
+
+
 class InferShuffle(Transformation):
     """
     Find transpose layers with (optionally) reshape layers around them

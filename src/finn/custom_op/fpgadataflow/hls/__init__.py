@@ -62,6 +62,7 @@ from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
 from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
+from finn.custom_op.fpgadataflow.hls.hwreducemax_hls import HWReduceMax_hls
 from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
 from finn.custom_op.fpgadataflow.hls.iodma_hls import IODMA_hls
 from finn.custom_op.fpgadataflow.hls.labelselect_hls import LabelSelect_hls
@@ -103,5 +104,6 @@ custom_op["TLastMarker_hls"] = TLastMarker_hls
 custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
 custom_op["MVAU_hls"] = MVAU_hls
 custom_op["VVAU_hls"] = VVAU_hls
+custom_op["HWReduceMax_hls"] = HWReduceMax_hls
 custom_op["HWSoftmax_hls"] = HWSoftmax_hls
 custom_op["OuterShuffle_hls"] = OuterShuffle_hls
