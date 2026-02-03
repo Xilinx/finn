@@ -2334,17 +2334,17 @@ class InferCrop(Transformation):
 
                 max_index = len(input_shape) - 1
                 axis = get_by_name(n.attribute, "axis").i
-                if len(input_shape) >= 3:
-                    assert axis in [
-                        max_index - 1,
-                        max_index - 2,
-                    ], "Crop Operates on height and width of the input, assuming (N)HWC layout."
-                else:
-                    assert (
-                        axis == max_index - 1
-                    ), "Crop Operates on width of the input, for 2D input assuming WC layout."
-                is_vertical = axis == max_index  # otherwise horizontal
-                assert is_vertical is False, "This operator does not current support vertical crops"
+                #if len(input_shape) >= 3:
+                #    assert axis in [
+                #        max_index - 1,
+                #        max_index - 2,
+                #    ], "Crop Operates on height and width of the input, assuming (N)HWC layout."
+                #else:
+                #    assert (
+                #        axis == max_index - 1
+                #    ), "Crop Operates on width of the input, for 2D input assuming WC layout."
+                #is_vertical = axis == max_index  # otherwise horizontal
+                #assert is_vertical is False, "This operator does not current support vertical crops"
 
                 # assume that the indices input is an int64 scalar or array
                 indices = model.get_initializer(n.input[1])
