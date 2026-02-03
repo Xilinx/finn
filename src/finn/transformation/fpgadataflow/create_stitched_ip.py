@@ -341,21 +341,50 @@ class CreateStitchedIP(Transformation):
             self.connect_clk_rst(node)
             self.connect_ap_none_external(node)
             self.connect_axi(node)
-            for i in range(len(node.input)):
-                if not is_external_input(model, node, i):
-                    producer = model.find_producer(node.input[i])
-                    if producer is None:
-                        continue
-                    j = list(producer.output).index(node.input[i])
-                    src_intf_name = getCustomOp(producer).get_verilog_top_module_intf_names()[
-                        "m_axis"
-                    ][j][0]
-                    dst_intf_name = node_inst.get_verilog_top_module_intf_names()["s_axis"][i][0]
-                    self.connect_cmds.append(
-                        "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
-                        "[get_bd_intf_pins %s/%s]"
-                        % (producer.name, src_intf_name, node.name, dst_intf_name)
-                    )
+            
+            # Special handling for elementwise binary operations with const inputs
+            if node.op_type.startswith("Elementwise") and hasattr(node_inst, 'lhs_style'):
+                # Track which streaming input index we're at
+                streaming_idx = 0
+                for i in range(len(node.input)):
+                    if not is_external_input(model, node, i):
+                        producer = model.find_producer(node.input[i])
+                        if producer is None:
+                            continue
+                        # Check if this input is actually a streaming input
+                        if i == 0 and node_inst.get_nodeattr("lhs_style") == "const":
+                            continue  # Skip const lhs
+                        elif i == 1 and node_inst.get_nodeattr("rhs_style") == "const":
+                            continue  # Skip const rhs
+                        
+                        j = list(producer.output).index(node.input[i])
+                        src_intf_name = getCustomOp(producer).get_verilog_top_module_intf_names()[
+                            "m_axis"
+                        ][j][0]
+                        dst_intf_name = node_inst.get_verilog_top_module_intf_names()["s_axis"][streaming_idx][0]
+                        self.connect_cmds.append(
+                            "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                            "[get_bd_intf_pins %s/%s]"
+                            % (producer.name, src_intf_name, node.name, dst_intf_name)
+                        )
+                        streaming_idx += 1
+            else:
+                # Original logic for other node types
+                for i in range(len(node.input)):
+                    if not is_external_input(model, node, i):
+                        producer = model.find_producer(node.input[i])
+                        if producer is None:
+                            continue
+                        j = list(producer.output).index(node.input[i])
+                        src_intf_name = getCustomOp(producer).get_verilog_top_module_intf_names()[
+                            "m_axis"
+                        ][j][0]
+                        dst_intf_name = node_inst.get_verilog_top_module_intf_names()["s_axis"][i][0]
+                        self.connect_cmds.append(
+                            "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                            "[get_bd_intf_pins %s/%s]"
+                            % (producer.name, src_intf_name, node.name, dst_intf_name)
+                        )
 
         # process external inputs and outputs in top-level graph input order
         for input in model.graph.input:
