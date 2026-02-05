@@ -1025,10 +1025,10 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
         # Define macro for clipping/saturating values
         self.code_gen_dict["$DEFINES$"].append("""
 template<typename T>
-static inline T clip(T  x, T const  lo, T const  hi) {
+static inline T clip(T const  x, T const  lo, T const  hi) {
 #pragma HLS inline
-    if(x < lo)  x = lo;
-    if(x > hi)  x = hi;
+    if(x < lo)  return  lo;
+    if(x > hi)  return  hi;
     return  x;
 }
         """)
