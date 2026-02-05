@@ -35,7 +35,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import vitis_default_platform, part_map
+from finn.util.basic import part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):

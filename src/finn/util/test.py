@@ -43,7 +43,12 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import vitis_default_platform, vitis_part_map, pynq_part_map, slash_part_map
+from finn.util.basic import (
+    pynq_part_map,
+    slash_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 # map of (wbits,abits) -> model
 example_map = {
