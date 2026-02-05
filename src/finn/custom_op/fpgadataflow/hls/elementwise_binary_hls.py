@@ -1023,12 +1023,15 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
         super().defines(var)
 
         # Define macro for clipping/saturating values
-        self.code_gen_dict["$DEFINES$"] += [
-            "#define clip_min(x, minval) (x >= minval ? x : minval)",
-            "#define clip_max(x, maxval) (x <= maxval ? x : maxval)",
-            "#define clip(x, y, z) clip_max(clip_min(x, y), z)",
-        ]
-
+        self.code_gen_dict["$DEFINES$"].append("""
+template<typename T>
+static inline T clip(T  x, T const  lo, T const  hi) {
+#pragma HLS inline
+    if(x < lo)  x = lo;
+    if(x > hi)  x = hi;
+    return  x;
+}
+        """)
 
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
