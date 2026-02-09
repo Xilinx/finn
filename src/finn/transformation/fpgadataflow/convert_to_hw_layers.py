@@ -2120,12 +2120,6 @@ class InferLayerNorm(Transformation):
                 # Get datatypes
                 idt = model.get_tensor_datatype(act_in)
                 odt = model.get_tensor_datatype(act_out)
-                if not idt == odt == DataType["FLOAT32"]:
-                    warnings.warn(
-                        f"""{node.name}: Datatype is not float32,
-                        currently only fp32 layernorm is supported."""
-                    )
-                    continue
 
                 norm_axis = helper.get_node_attr_value(node, "axis")
                 if model.get_tensor_layout(act_in) == DataLayout.NCHW:
@@ -2167,6 +2161,137 @@ class InferLayerNorm(Transformation):
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+def elements_are_consecutive(indices):
+    if indices.size == 1:
+        return True
+    else:
+        indices.sort()
+        return np.all(np.diff(indices) == 1)
+
+
+class InferCrop(Transformation):
+    """
+    Find gather layers that can be converted into a Crop layer
+    and replace them with a Crop layer
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Gather":
+                # ensure that the indices input is an initializer
+                if model.get_initializer(n.input[1]) is None:
+                    continue
+
+                # ensure that the axis is among the two innermost dimensions
+                input_shape = model.get_tensor_shape(n.input[0])
+                assert (
+                    len(input_shape) > 1
+                ), "Input shape needs to be at least 2D to be converted to Crop."
+
+                max_index = len(input_shape) - 1
+                axis = get_by_name(n.attribute, "axis").i
+                if len(input_shape) >= 3:
+                    assert axis in [
+                        max_index - 1,
+                        max_index - 2,
+                    ], "Crop Operates on height and width of the input, assuming (N)HWC layout."
+                else:
+                    assert (
+                        axis == max_index - 1
+                    ), "Crop Operates on width of the input, for 2D input assuming WC layout."
+                is_vertical = axis == max_index  # otherwise horizontal
+                assert is_vertical is False, "This operator does not current support vertical crops"
+
+                # assume that the indices input is an int64 scalar or array
+                indices = model.get_initializer(n.input[1])
+                assert indices.dtype == np.int64, "Indices must be int64"
+                # Handle both scalar (0-d) and array cases
+                if indices.ndim == 0:
+                    # Single scalar index - always consecutive
+                    indices_to_check = np.array([indices.item()])
+                else:
+                    indices_to_check = indices
+                assert elements_are_consecutive(indices_to_check), "Indices must be consecutive"
+
+                idt0 = model.get_tensor_datatype(n.input[0])
+
+                crop_north = 0
+                crop_east = 0
+                crop_west = 0
+                crop_south = 0
+                num_inp_vec = [0]
+
+                if len(input_shape) >= 3:
+                    height_ind = len(input_shape) - 3
+                    width_ind = len(input_shape) - 2
+                    channels_ind = len(input_shape) - 1
+
+                    height = input_shape[height_ind]
+                    width = input_shape[width_ind]
+                    channels = input_shape[channels_ind]
+                    # save other dimensions in numInpVectors
+                    if len(input_shape) > 3:
+                        num_inp_vec = list(input_shape[:height_ind])
+
+                    crop_min = int(np.min(indices_to_check))
+                    crop_max = input_shape[axis] - int(np.max(indices_to_check)) - 1
+
+                    if axis == height_ind:
+                        crop_north = crop_min
+                        crop_south = crop_max
+                    elif axis == width_ind:
+                        crop_west = crop_min
+                        crop_east = crop_max
+
+                elif len(input_shape) == 2:
+                    # if there are only two dimensions, assume
+                    height = 0
+                    width_ind = len(input_shape) - 2
+                    channels_ind = len(input_shape) - 1
+                    width = input_shape[width_ind]
+                    channels = input_shape[channels_ind]
+
+                    # axis is on width dimension
+                    crop_west = int(np.min(indices_to_check))
+                    crop_east = input_shape[axis] - int(np.max(indices_to_check)) - 1
+
+                # create and insert new node
+                new_node = helper.make_node(
+                    "Crop",
+                    [n.input[0]],  # input tensor(s)
+                    [n.output[0]],  # output tensor(s)
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    DataType=idt0.name,
+                    name="Crop" + n.name,
+                    SIMD=1,
+                    ImgDim=[height, width],
+                    NumChannels=channels,
+                    CropNorth=crop_north,
+                    CropEast=crop_east,
+                    CropWest=crop_west,
+                    CropSouth=crop_south,
+                    numInputVectors=num_inp_vec,
+                    cpp_interface="hls_vector",
+                    hls_style="freerunning",
+                )
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(n)
+                graph_modified = True
 
         if graph_modified:
             model = model.transform(InferShapes())

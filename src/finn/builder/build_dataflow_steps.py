@@ -469,8 +469,8 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
 
+    model = model.transform(GiveUniqueNodeNames())
     if cfg.folding_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(cfg.folding_config_file))
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():

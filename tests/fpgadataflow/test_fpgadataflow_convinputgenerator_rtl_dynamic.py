@@ -28,11 +28,6 @@
 
 import pytest
 
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
-
 import copy
 import numpy as np
 import onnx.parser as oprs
@@ -57,6 +52,7 @@ from qonnx.util.basic import (
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
+from finn import xsi
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -69,6 +65,8 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import get_liveness_threshold_cycles
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):

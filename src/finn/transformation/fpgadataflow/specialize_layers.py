@@ -72,6 +72,11 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
+            elif optype == "LayerNorm":
+                if _layernorm_rtl_possible(node, fpgapart):
+                    return "rtl"
+                else:
+                    return "hls"
             return "rtl"
         # but if no rtl variant, set impl_style to hls
         elif hls_variant:
@@ -138,6 +143,18 @@ def _determine_impl_style(node, fpgapart, model):
                         set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
                         thresholds are implemented as standalone layer. Note that the RTL-variant
                         of this layer is only supported on Versal boards""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+
+        elif optype == "LayerNorm":
+            if _layernorm_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. The RTL Layernorm layer currently only supports
+                        float32 inputs and uses DSP58, so only versal devices supported.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -246,6 +263,19 @@ def _vvu_rtl_possible(n, fpgapart):
     signed_weights = wdt.min() < 0
 
     return in_width_in_range and weight_width_in_range and signed_weights
+
+
+def _layernorm_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based Layernorm is supported
+    # Currently, we only support float32 inputs and versal fabric
+    if not is_versal(fpgapart):
+        return False
+    node_inst = getCustomOp(n)
+    idt = node_inst.get_input_datatype(0)
+    if idt != "FLOAT32":
+        return False
+    else:
+        return True
 
 
 class SpecializeLayers(Transformation):

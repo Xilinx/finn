@@ -985,3 +985,13 @@ class ElementwiseBitShift_hls(
 #     ElementwiseBinaryOperation_hls, elementwise_binary.ElementwisePow
 # ):
 #     pass
+
+
+# Derive a specialization to implement elementwise maximum of two inputs
+@register_custom_op
+class ElementwiseMax_hls(
+    # CapWords convention
+    ElementwiseBinaryOperation_hls,
+    elementwise_binary.ElementwiseMax,
+):
+    pass
