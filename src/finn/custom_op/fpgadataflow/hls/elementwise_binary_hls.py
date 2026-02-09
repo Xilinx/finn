@@ -1023,15 +1023,18 @@ class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
         super().defines(var)
 
         # Define macro for clipping/saturating values
-        self.code_gen_dict["$DEFINES$"].append("""
-template<typename T>
-static inline T clip(T const  x, T const  lo, T const  hi) {
+        self.code_gen_dict["$DEFINES$"].append(
+            """
+template<typename T, typename  TLo, typename  THi>
+static inline T clip(T const  x, TLo const  lo, THi const  hi) {
 #pragma HLS inline
     if(x < lo)  return  lo;
     if(x > hi)  return  hi;
     return  x;
 }
-        """)
+        """
+        )
+
 
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some

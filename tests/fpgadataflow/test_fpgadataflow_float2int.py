@@ -20,6 +20,7 @@ from qonnx.transformation.general import (
     ConvertSubToAdd,
     GiveUniqueNodeNames,
 )
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
@@ -27,6 +28,9 @@ from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -131,6 +135,8 @@ def test_fpgadataflow_float2int(channelwise, pe):
     getCustomOp(float2int_node).set_nodeattr("PE", pe)
 
     model = model.transform(InferShapes())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
 
     # cppsim

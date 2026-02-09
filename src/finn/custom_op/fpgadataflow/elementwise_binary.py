@@ -290,7 +290,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # folded input
         *_, elems = self.get_folded_input_shape(ind)
         # apply parallelism if broadcast
-        if self.broadcast_last_axis:
+        if self.broadcast_last_axis and elems == 1:
             elems = elems * self.pe
         # Width of a stream receiving input elements in parallel
         return elems * i_bits
@@ -310,7 +310,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
     def minimize_accumulator_width(self, model: ModelWrapper):
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
-        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
+        # exception here is the float2int node
+        if "Float2Int" not in self.onnx_node.op_type and not all(
+            [self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]
+        ):
             # Check the annotated tensor data type corresponds to the stored
             # attribute
             assert (
