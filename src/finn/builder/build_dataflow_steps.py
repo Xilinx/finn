@@ -369,6 +369,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+    model = model.transform(to_hw.InferShuffle())
 
     return model
 
@@ -430,6 +431,8 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
         model = model.transform(InferShapes())
         model = model.transform(InferDataTypes())
+        model = model.transform(InferDataTypes())
+        model = model.transform(GiveUniqueNodeNames())
     return model
 
 

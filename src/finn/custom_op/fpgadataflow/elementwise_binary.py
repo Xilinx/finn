@@ -310,7 +310,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
     def minimize_accumulator_width(self, model: ModelWrapper):
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
-        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
+        # exception here is the float2int node
+        if "Float2Int" not in self.onnx_node.op_type and not all(
+            [self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]
+        ):
             # Check the annotated tensor data type corresponds to the stored
             # attribute
             assert (
