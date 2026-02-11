@@ -112,12 +112,12 @@ module $TOP_MODULE_NAME$_impl #(
     // Add a sign bit even to (most) unsigned counters and Window_buffer_read_addr_reg,
     // so we can use automatic sign extension and simplify calculations w/ signed increment.
     // Alternatively, we could manually sign-extend and shave off a bit here or there.
-    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
-    logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
-    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
+    logic signed [$clog2(LAST_READ_ELEM+1)+1:0]  Newest_buffered_elem = -1;
+    logic        [$clog2(LAST_READ_ELEM+1)+1:0]  Current_elem = 0;
+    logic        [$clog2(LAST_READ_ELEM+1)+1:0]  First_elem_next_window = 0;
+    logic        [$clog2(ELEM_PER_WINDOW)   :0]  Position_in_window = 0;
+    logic        [$clog2(BUF_ELEM_TOTAL)+1  :0]  Window_buffer_read_addr_reg = 0;
+    logic        [$clog2(BUF_ELEM_TOTAL):0]      Window_buffer_write_addr_reg = 0;
 
     // Control signals/registers
     logic  Write_cmd    = 0;
