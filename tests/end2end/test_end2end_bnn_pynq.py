@@ -475,6 +475,7 @@ def pytest_generate_tests(metafunc):
 @pytest.mark.bnn_zcu104
 @pytest.mark.bnn_kv260
 @pytest.mark.bnn_u250
+@pytest.mark.bnn_v80
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, board):
         if wbits > abits:
@@ -709,7 +710,7 @@ class TestEnd2End:
     @pytest.mark.vivado
     def test_ipgen(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
+        if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "minimize_bit_width")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -807,7 +808,7 @@ class TestEnd2End:
     @pytest.mark.vitis
     def test_build(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
+        if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -820,15 +821,16 @@ class TestEnd2End:
     @pytest.mark.vitis
     def test_make_driver(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
+        if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        board_to_driver_platform = "alveo" if build_data["kind"] == "alveo" else "zynq-iodma"
-        if build_data["kind"] == "alveo" and topology == "tfc":
-            model = model.transform(MakeCPPDriver(board_to_driver_platform, version="latest"))
+        if build_data["toolchain"] == "vitis" and topology == "tfc":
+            model = model.transform(MakeCPPDriver("alveo", version="latest"))
+        elif build_data["toolchain"] == "pynq":
+            model = model.transform(MakePYNQDriver("zynq-iodma"))
         else:
-            model = model.transform(MakePYNQDriver(board_to_driver_platform))
+            raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))
 
     def test_deploy(self, topology, wbits, abits, board):

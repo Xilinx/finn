@@ -42,6 +42,7 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.slash_build import SlashBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.util.basic import (
     pynq_part_map,
@@ -116,11 +117,11 @@ def get_build_env(board, target_clk_ns):
     """
     ret = {}
     if board in pynq_part_map:
-        ret["kind"] = "zynq"
+        ret["toolchain"] = "pynq"
         ret["part"] = pynq_part_map[board]
         ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
     elif board in vitis_part_map:
-        ret["kind"] = "alveo"
+        ret["toolchain"] = "vitis"
         ret["part"] = vitis_part_map[board]
         ret["build_fxn"] = VitisBuild(
             ret["part"],
@@ -129,7 +130,9 @@ def get_build_env(board, target_clk_ns):
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     elif board in slash_part_map:
-        raise NotImplementedError("Slash build environment not implemented yet")
+        ret["toolchain"] = "slash"
+        ret["part"] = slash_part_map[board]
+        ret["build_fxn"] = SlashBuild(ret["part"], target_clk_ns)
     else:
         raise Exception("Unknown board specified")
     return ret

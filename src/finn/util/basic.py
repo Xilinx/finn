@@ -38,7 +38,7 @@ from typing import Dict
 from finn.util.data_packing import finnpy_to_packed_bytearray
 
 # test boards used for bnn pynq tests
-test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
+test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250", "V80"]
 
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
