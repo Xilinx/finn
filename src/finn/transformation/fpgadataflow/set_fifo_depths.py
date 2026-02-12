@@ -316,8 +316,9 @@ class InsertAndSetFIFODepths(Transformation):
                     # safe guard that for very small tensors depth is not set to 1
                     depth = np.prod(node.get_folded_output_shape(o)[:-1])
                     ofd[o] = tensor_size if tensor_size > 1 else 2
-            node.set_nodeattr("inFIFODepths", ifd)
-            node.set_nodeattr("outFIFODepths", ofd)
+            # set node attribute and ensure that it gets saved as list of integers
+            node.set_nodeattr("inFIFODepths", [int(fifo) for fifo in ifd])
+            node.set_nodeattr("outFIFODepths", [int(fifo) for fifo in ofd])
             if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
@@ -479,8 +480,9 @@ class InsertAndSetFIFODepths(Transformation):
                         else:
                             # explicitly no FIFO on this dynamic output
                             fifodepth_out.append(0)
-                node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
-                node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
+                # set node attribute and ensure that it gets saved as list of integers
+                node_inst.set_nodeattr("inFIFODepths", [int(fifo) for fifo in fifodepth_in])
+                node_inst.set_nodeattr("outFIFODepths", [int(fifo) for fifo in fifodepth_out])
 
         return (model, False)
 
