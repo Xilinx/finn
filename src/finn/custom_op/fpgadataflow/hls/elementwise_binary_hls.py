@@ -489,10 +489,11 @@ class ElementwiseBinaryOperation_hls(
             if self.rhs_style == "input" or rhs_decoupled
             else """""",
             # Apply PE parallel elementwise operations by filling the operation
-            # template
+            # template. Use recursive inline to ensure flushable pipeline is possible.
             f"""
             for(std::size_t pe = 0; pe < {self.pe}; ++pe) {{
             #pragma HLS unroll
+            #pragma HLS INLINE recursive
                 out[pe] = {self.cpp_op.format(
                     f"lhs{lhs_index}[pe]", f"rhs{rhs_index}[pe]"
                 )};
