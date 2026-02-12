@@ -51,6 +51,7 @@ class ShellFlowType(str, Enum):
 
     VIVADO_ZYNQ = "vivado_zynq"
     VITIS_ALVEO = "vitis_alveo"
+    SLASH_ALVEO = "slash_alveo"
 
 
 class DataflowOutputType(str, Enum):
@@ -382,6 +383,8 @@ class DataflowBuildConfig:
             return "zynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "alveo"
+        elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            raise NotImplementedError("SLASH driver platform resolution not implemented yet")
         else:
             raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 

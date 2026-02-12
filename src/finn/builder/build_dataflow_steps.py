@@ -108,6 +108,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.slash_build import SlashBuild
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.transpose_decomposition import (
@@ -786,6 +787,8 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
+        if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            raise NotImplementedError("C++ driver generation not yet implemented for SLASH flow")
         # generate C++ Driver
         model = model.transform(
             MakeCPPDriver(
@@ -889,6 +892,26 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
+        elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            model = model.transform(
+                SlashBuild(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                )
+            )
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.vbin")
+
+            """
+            TODO: Also export resource utilization reports
+            copy(
+                model.get_metadata_prop("slash_report"),
+                report_dir + "/post_synth_resources.xml",
+            )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
+            """
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
