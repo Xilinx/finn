@@ -128,10 +128,10 @@ class Thresholding(HWCustomOp):
         # TODO: extend this for fixed point
         if self.get_input_datatype(0).is_integer():
             # minimize threshold width only if input is an integer
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            min_input = self.get_input_datatype(0).min()
-            max_input = self.get_input_datatype(0).max()
+            min_threshold = int(thresholds.min())
+            max_threshold = int(thresholds.max())
+            min_input = int(self.get_input_datatype(0).min())
+            max_input = int(self.get_input_datatype(0).max())
             # get range required by threshold values
             tdt_min = min(min_input, min_threshold)
             tdt_max = max(max_input, max_threshold)
