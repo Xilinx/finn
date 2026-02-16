@@ -132,6 +132,9 @@ RUN pip install tokenize-rt==4.2.1
 # assure that we have the right setuptools version
 RUN pip install setuptools==68.2.2
 
+# Install opencv
+RUN pip install opencv-python-headless==4.9.0.80 numpy==1.26.4
+
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
 
