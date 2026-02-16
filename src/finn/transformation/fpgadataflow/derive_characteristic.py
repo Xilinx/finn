@@ -1321,7 +1321,7 @@ class DeriveFIFOSizes(Transformation):
                                 cons_loss = (global_period - period_cons) // cycle_loss_of_fifo
                                 pred_loss = (global_period - parent_period) // cycle_loss_of_fifo
 
-                                ignorable_fifos = int(min(prod_loss, cons_loss, pred_loss))
+                                ignorable_fifos = int(max(0, min(prod_loss, cons_loss, pred_loss)))
 
                                 if producer_node is not None:
                                     if producer_node.op_type.startswith("DuplicateStreams"):
