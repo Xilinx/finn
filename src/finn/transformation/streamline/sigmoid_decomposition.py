@@ -70,14 +70,16 @@ class DecomposeSigmoid(Transformation):
             # Step 3: one_plus_exp = 1 + exp_neg_x
             add_node = oh.make_node(
                 "Add",
-                [one_name, exp_neg_x_name],
+                #[one_name, exp_neg_x_name],
+                [exp_neg_x_name, one_name],
                 [one_plus_exp_name]
             )
             
             # Step 4: sigmoid = 1 / one_plus_exp
             div_node = oh.make_node(
                 "Div",
-                [one_name, one_plus_exp_name],
+                #[one_name, one_plus_exp_name],
+                [one_plus_exp_name, one_name],
                 [sigmoid_output]
             )
             
