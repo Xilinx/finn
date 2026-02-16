@@ -39,6 +39,7 @@ from qonnx.transformation.general import (
     SortGraph,
 )
 
+import finn.core  # noqa: F401
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -201,9 +202,9 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     first_node = model.find_consumer(iname)
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     last_node = model.find_producer(oname)
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:

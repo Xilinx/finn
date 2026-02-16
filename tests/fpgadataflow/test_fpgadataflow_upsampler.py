@@ -141,10 +141,10 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
     model = ModelWrapper(export_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
-    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int32)}
-    input_dict = {model.graph.input[0].name: test_in.numpy()}
+    input_dict = {model.get_first_global_in(): test_in.numpy().astype(np.int32)}
+    input_dict = {model.get_first_global_in(): test_in.numpy()}
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
-    golden_result = golden_output_dict[model.graph.output[0].name]
+    golden_result = golden_output_dict[model.get_first_global_out()]
 
     # Make sure PyTorch and ONNX match
     pyTorch_onnx_match = np.isclose(golden_result, golden_torch_float).all()
@@ -170,11 +170,11 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
         inst.set_nodeattr("SIMD", SIMD)
 
     test_in_transposed = test_in.numpy().transpose(_to_chan_last_args)
-    input_dict = {model.graph.input[0].name: test_in_transposed}
+    input_dict = {model.get_first_global_in(): test_in_transposed}
 
     # Run sim
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    test_result = output_dict[model.graph.output[0].name]
+    test_result = output_dict[model.get_first_global_out()]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -195,7 +195,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, SIMD)
 
     # Run sim
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    test_result = output_dict[model.graph.output[0].name]
+    test_result = output_dict[model.get_first_global_out()]
     output_matches = np.isclose(golden_result, test_result, atol=atol).all()
 
     if exec_mode == "cppsim":

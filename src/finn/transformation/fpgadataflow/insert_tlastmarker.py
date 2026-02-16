@@ -33,6 +33,8 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name
 
+import finn.core  # noqa: F401
+
 
 class InsertTLastMarker(Transformation):
     """Ensure that the graph is started/terminated with a TLastMarker_hls node, inserting
@@ -49,7 +51,7 @@ class InsertTLastMarker(Transformation):
 
     def apply(self, model):
         # TODO only makes sense for a pure fpgadataflow graph -- check!
-        graph_out_name = model.graph.output[0].name
+        graph_out_name = model.get_first_global_out()
         final_node = model.find_producer(graph_out_name)
         graph_modified = False
         if final_node.op_type != "TLastMarker_hls" and not (

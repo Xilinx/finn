@@ -221,7 +221,7 @@ def test_move_identical_op_past_join_op(moveop_key):
     model = create_add_model(test_details)
 
     # Create input data
-    input0_tensor_name = model.graph.input[0].name
+    input0_tensor_name = model.get_first_global_in()
     input1_tensor_name = model.graph.input[1].name
 
     input0_shape = model.get_tensor_shape(input0_tensor_name)
@@ -239,16 +239,16 @@ def test_move_identical_op_past_join_op(moveop_key):
     assert oxe.compare_execution(model, model_transformed, input_dict)
 
     # Check if order changed
-    node0_optype_model = model.find_consumers(model.graph.input[0].name)[0].op_type
+    node0_optype_model = model.find_consumers(model.get_first_global_in())[0].op_type
     node1_optype_model = model.find_consumers(model.graph.input[1].name)[0].op_type
     node0_optype_model_transformed = model_transformed.find_consumers(
-        model_transformed.graph.input[0].name
+        model_transformed.get_first_global_in()
     )[0].op_type
     node1_optype_model_transformed = model_transformed.find_consumers(
         model_transformed.graph.input[1].name
     )[0].op_type
     last_node_optype_model_transformed = model_transformed.find_producer(
-        model_transformed.graph.output[0].name
+        model_transformed.get_first_global_out()
     ).op_type
     assert node0_optype_model == last_node_optype_model_transformed
     assert node1_optype_model == last_node_optype_model_transformed
