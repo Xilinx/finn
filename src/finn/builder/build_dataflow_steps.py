@@ -157,8 +157,8 @@ def verify_step(
             child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
             model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
-            out_tensor_name = parent_model.graph.output[0].get_name()
-            exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].get_name())
+            out_tensor_name = parent_model.get_first_global_out()
+            exp_ishape = parent_model.get_tensor_shape(parent_model.get_first_global_in())
             if in_npy.shape != exp_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"

@@ -39,7 +39,6 @@ from qonnx.transformation.general import (
     SortGraph,
 )
 
-import finn.core  # noqa: F401
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.rtlsim_exec import rtlsim_exec_cppxsi
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles

@@ -33,8 +33,6 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name
 
-import finn.core  # noqa: F401
-
 
 class InsertTLastMarker(Transformation):
     """Ensure that the graph is started/terminated with a TLastMarker_hls node, inserting
