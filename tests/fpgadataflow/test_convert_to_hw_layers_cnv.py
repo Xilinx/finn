@@ -95,7 +95,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     # generate expected value from streamlined net
     input_dict = {"global_in": input_tensor}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
-    expected = expected_ctx[model.graph.output[0].name]
+    expected = expected_ctx[model.get_first_global_out()]
 
     # if we infer thresholding first, all MultiThresholds get converted to HW
     # subsequently, the FC inference will generate passthrough MVAUs
@@ -146,7 +146,7 @@ def test_convert_to_hw_layers_cnv_w1a1(fused_activation):
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
-    produced = produced_ctx[model.graph.output[0].name]
+    produced = produced_ctx[model.get_first_global_out()]
     assert np.isclose(expected, produced, atol=1e-3).all()
     assert np.argmax(produced) == 3
     os.remove(export_onnx_path_cnv)

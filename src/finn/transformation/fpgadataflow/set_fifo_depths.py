@@ -201,9 +201,9 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     first_node = model.find_consumer(iname)
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     last_node = model.find_producer(oname)
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:

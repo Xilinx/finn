@@ -92,8 +92,8 @@ def construct_onnx_model(
         qonnx_cleanup(temp_file.name, out_file=temp_file.name)
 
         new_model = ModelWrapper(temp_file.name)
-        new_model.set_tensor_datatype(new_model.graph.input[0].name, dt)
-        new_model.set_tensor_datatype(new_model.graph.output[0].name, dt)
+        new_model.set_tensor_datatype(new_model.get_first_global_in(), dt)
+        new_model.set_tensor_datatype(new_model.get_first_global_out(), dt)
         new_model.transform(InferShapes())
         new_model.transform(InferDataTypes())
         return new_model
@@ -179,8 +179,8 @@ def test_cppsim_shuffle_layer(cpp_shuffle_param, datatype, simd):
     )
 
     input = gen_finn_dt_tensor(dt, in_shape)
-    in_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    in_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     input_t = {in_name: input}
 
     # Get a reference for the shuffle
@@ -442,8 +442,8 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd):
     )
 
     input = gen_finn_dt_tensor(dt, in_shape)
-    in_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    in_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     input_t = {in_name: input}
 
     # Get a reference for the shuffle
@@ -537,8 +537,8 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
     )
 
     input = gen_finn_dt_tensor(dt, in_shape)
-    in_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    in_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     input_t = {in_name: input}
 
     # Get a reference for the shuffle
