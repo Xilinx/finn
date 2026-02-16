@@ -963,7 +963,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for sig in ext_signals:
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
-                % (self.onnx_node.name, sig[0][0], finn_ip_name, sig[0][0])
+                % (self.onnx_node.name, sig[0], finn_ip_name, sig[0])
             )
         # connect components with each other
         # stream tap with finn ip
@@ -1002,7 +1002,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
-            cmd.append(f"set_property name {sig[0][0]} [get_bd_intf_ports {sig[0][0]}_0]")
+            cmd.append(f"set_property name {sig[0]} [get_bd_intf_ports {sig[0]}_0]")
         cmd.append("save_bd_design")
         # cmd.append("validate_bd_design")
         # cmd.append("save_bd_design")
@@ -1119,7 +1119,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
         for intf in loop_body_intf["aximm"]:
-            intf_names["aximm"] += intf
+            intf_names["aximm"].append(intf)
 
         return intf_names
 

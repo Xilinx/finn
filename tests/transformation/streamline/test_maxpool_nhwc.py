@@ -89,7 +89,7 @@ def test_maxpool_nhwc(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, i
     maxpool_model = maxpool_model.transform(MakeMaxPoolNHWC())
 
     # execute transformed model
-    output_node_name = maxpool_model.graph.output[0].name
+    output_node_name = maxpool_model.get_first_global_out()
     output_dict = oxe.execute_onnx(maxpool_model, input_dict, return_full_exec_context=False)
     output = output_dict[output_node_name]
 

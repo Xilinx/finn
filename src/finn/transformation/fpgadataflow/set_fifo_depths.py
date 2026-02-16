@@ -201,9 +201,9 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     first_node = model.find_consumer(iname)
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     last_node = model.find_producer(oname)
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:
@@ -329,8 +329,9 @@ class InsertAndSetFIFODepths(Transformation):
                     # safe guard that for very small tensors depth is not set to 1
                     depth = np.prod(node.get_folded_output_shape(o)[:-1])
                     ofd[o] = tensor_size if tensor_size > 1 else 2
-            node.set_nodeattr("inFIFODepths", ifd)
-            node.set_nodeattr("outFIFODepths", ofd)
+            # set node attribute and ensure that it gets saved as list of integers
+            node.set_nodeattr("inFIFODepths", [int(fifo) for fifo in ifd])
+            node.set_nodeattr("outFIFODepths", [int(fifo) for fifo in ofd])
             if node.onnx_node.op_type in mlo_optypes:
                 mlo_max_iter = node.get_nodeattr("mlo_max_iter")
                 if mlo_max_iter:
@@ -436,7 +437,7 @@ class InsertAndSetFIFODepths(Transformation):
                 del fifos[node.name]
             else:
                 # (removed setting of node FIFO size attributes to 0 here)
-                # for every extw node we changed from external to decoupled,
+                # for every mlo node we changed from external to decoupled,
                 # change back and reset implementation
                 if node.op_type in mlo_optypes:
                     if node.name in modified_mlo_nodes and node.op_type.startswith("MVAU"):
@@ -537,8 +538,9 @@ class InsertAndSetFIFODepths(Transformation):
                         else:
                             # explicitly no FIFO on this dynamic output
                             fifodepth_out.append(0)
-                node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
-                node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
+                # set node attribute and ensure that it gets saved as list of integers
+                node_inst.set_nodeattr("inFIFODepths", [int(fifo) for fifo in fifodepth_in])
+                node_inst.set_nodeattr("outFIFODepths", [int(fifo) for fifo in fifodepth_out])
 
         return (model, False)
 

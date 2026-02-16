@@ -49,7 +49,7 @@ class InsertTLastMarker(Transformation):
 
     def apply(self, model):
         # TODO only makes sense for a pure fpgadataflow graph -- check!
-        graph_out_name = model.graph.output[0].name
+        graph_out_name = model.get_first_global_out()
         final_node = model.find_producer(graph_out_name)
         graph_modified = False
         if final_node.op_type != "TLastMarker_hls" and not (

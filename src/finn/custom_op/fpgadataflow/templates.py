@@ -354,6 +354,7 @@ add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/infrastructure/demux.sv"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/mlo/loop_control.sv"
 add_files -norecurse "@TOP_VERILOG_FILE@"
 add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/Q_srl.v"
+add_files -norecurse "$::env(FINN_ROOT)/finn-rtllib/fifo/hdl/fifo_gauge.sv"
 
 @IP_GEN@
 

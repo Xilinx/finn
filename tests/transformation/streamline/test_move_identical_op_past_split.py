@@ -123,7 +123,7 @@ def test_move_identical_op_past_split(identical_op):
     model = create_split_model(identical_op)
 
     # Create input data
-    input0_tensor_name = model.graph.input[0].name
+    input0_tensor_name = model.get_first_global_in()
 
     # Note: it is assumed that both tensors have the same shape and data type
     input_dict = {}
@@ -136,8 +136,8 @@ def test_move_identical_op_past_split(identical_op):
     assert oxe.compare_execution(model, model_transformed, input_dict)
 
     # Check if order changed
-    node0_input0_model = model.find_consumers(model.graph.input[0].name)[0].op_type
+    node0_input0_model = model.find_consumers(model.get_first_global_in())[0].op_type
     node0_input0_model_transformed = model_transformed.find_consumers(
-        model_transformed.graph.input[0].name
+        model_transformed.get_first_global_in()
     )[0].op_type
     assert node0_input0_model != node0_input0_model_transformed

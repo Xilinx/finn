@@ -159,8 +159,8 @@ def verify_step(
             child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
             model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
-            out_tensor_name = parent_model.graph.output[0].name
-            exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
+            out_tensor_name = parent_model.get_first_global_out()
+            exp_ishape = parent_model.get_tensor_shape(parent_model.get_first_global_in())
             if in_npy.shape != exp_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
@@ -171,8 +171,8 @@ def verify_step(
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
         else:
-            inp_tensor_name = model.graph.input[0].name
-            out_tensor_name = model.graph.output[0].name
+            inp_tensor_name = model.get_first_global_in()
+            out_tensor_name = model.get_first_global_out()
             exp_ishape = model.get_tensor_shape(inp_tensor_name)
             if in_npy.shape != exp_ishape:
                 print(
@@ -435,6 +435,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+    model = model.transform(to_hw.InferShuffle())
 
     return model
 
@@ -505,6 +506,13 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()), apply_to_subgraphs=True)
         model = model.transform(InferShapes(), apply_to_subgraphs=True)
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+        model = model.transform(GiveUniqueNodeNames())
+        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+        for node in loop_nodes:
+            node_inst = getCustomOp(node)
+            loop_model = node_inst.get_nodeattr("body")
+            loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
+            node_inst.set_nodeattr("body", loop_model.graph)
     else:
         print("Model doesn't contain any Shuffle nodes, skipping step_transpose_decomposition.")
     return model
