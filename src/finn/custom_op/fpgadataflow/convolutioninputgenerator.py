@@ -559,7 +559,7 @@ class ConvolutionInputGenerator(HWCustomOp):
             steady = Characteristic_Node("Processing Loop", per_cycle_nodes, False)
 
             return Characteristic_Node("SlidingWindow_2D", [(1, startup), (1, steady)], False)
-
+            
     def get_tree_model(self):
         # Extract node attributes
         ifm_dim_y, ifm_dim_x = self.get_nodeattr("IFMDim")
@@ -574,16 +574,16 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         # hyper parameter for when we stop merging
         buffering_threshold = 1024
-
-        print("simd: ", simd)
-        print("ifm y, x: ", ifm_dim_y, ifm_dim_x)
-        print("K: ", k_y, k_x)
-        print("stride: ", stride_y, stride_x)
-        print("dilation: ", dilation_y, dilation_x)
-        print("parallel_window: ", parallel_window)
-        print("dw: ", depthwise)
-        print("buffer depth: ", self.get_buffer_depth())
-        print("buffering threshold: ", buffering_threshold)
+        #
+        # print("simd: ", simd)
+        # print("ifm y, x: ", ifm_dim_y, ifm_dim_x)
+        # print("K: ", k_y, k_x)
+        # print("stride: ", stride_y, stride_x)
+        # print("dilation: ", dilation_y, dilation_x)
+        # print("parallel_window: ", parallel_window)
+        # print("dw: ", depthwise)
+        # print("buffer depth: ", self.get_buffer_depth())
+        # print("buffering threshold: ", buffering_threshold)
 
         stride_y_skips = (stride_y - 1) * ifm_dim_x
 
@@ -649,10 +649,10 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
             absorbed_reads = absorbing_kernels * writes_only
 
-            print("absorbing krn: ", absorbing_kernels)
-            print("absorved reads: ", absorbed_reads)
-            print("remaining hanging reads: ", (inner_line_buffer_reads) - absorbed_reads)
-            print("remaining old kernels: ", (kernels_in_line - 2) - absorbing_kernels)
+            # print("absorbing krn: ", absorbing_kernels)
+            # print("absorved reads: ", absorbed_reads)
+            # print("remaining hanging reads: ", (inner_line_buffer_reads) - absorbed_reads)
+            # print("remaining old kernels: ", (kernels_in_line - 2) - absorbing_kernels)
             inner_line_buffer_reads -= absorbed_reads
             remaining_buffer_reads -= absorbed_reads
 
@@ -748,10 +748,10 @@ class ConvolutionInputGenerator(HWCustomOp):
 
         else:
             # --- handle_first_kernel ---
-            print("\n\nhandle first kernel")
-            print(f"do_both: {first_do_both}\n")
-            print(f"reads_only: {first_reads_only}\n")
-            print(f"writes_only: {first_writes_only}\n")
+            # print("\n\nhandle first kernel")
+            # print(f"do_both: {first_do_both}\n")
+            # print(f"reads_only: {first_reads_only}\n")
+            # print(f"writes_only: {first_writes_only}\n")
 
             handle_absolute_kernel = Characteristic_Node(
                 "handle one kernel",
@@ -764,10 +764,10 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- handle_first_kernel ---
-            print("\n\nhandle first kernel")
-            print(f"do_both: {first_do_both}\n")
-            print(f"reads_only: {first_reads_only}\n")
-            print(f"writes_only: {first_writes_only}\n")
+            # print("\n\nhandle first kernel")
+            # print(f"do_both: {first_do_both}\n")
+            # print(f"reads_only: {first_reads_only}\n")
+            # print(f"writes_only: {first_writes_only}\n")
 
             handle_first_kernel = Characteristic_Node(
                 "handle one kernel",
@@ -780,10 +780,10 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- handle_kernel ---
-            print("\n\nhandle kernel")
-            print(f"do_both: {do_both}\n")
-            print(f"reads_only: {reads_only}\n")
-            print(f"writes_only: {writes_only}\n")
+            # print("\n\nhandle kernel")
+            # print(f"do_both: {do_both}\n")
+            # print(f"reads_only: {reads_only}\n")
+            # print(f"writes_only: {writes_only}\n")
 
             handle_kernel = Characteristic_Node(
                 "handle one kernel",
@@ -796,10 +796,10 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- handle_kernel_absorbed ---
-            print("\n\nhandle absorbed kernel")
-            print(f"do_both: {do_both+writes_only}\n")
-            print(f"reads_only: {reads_only}\n")
-
+            # print("\n\nhandle absorbed kernel")
+            # print(f"do_both: {do_both+writes_only}\n")
+            # print(f"reads_only: {reads_only}\n")
+            #
             handle_kernel_absorbed = Characteristic_Node(
                 "handle one kernel with fused writes",
                 [
@@ -810,11 +810,11 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- handle_first_line ---
-            print("\n\nhandle first line")
-            print(f"first_line_buffer: {first_line_buffer}\n")
-            print(f"first line kernelbuffer: {first_line_kernel_buffer}\n")
-            print(f"kernels_in_line: {kernels_in_line}\n")
-            print(f"remainder_x: {remainder_x}\n")
+            # print("\n\nhandle first line")
+            # print(f"first_line_buffer: {first_line_buffer}\n")
+            # print(f"first line kernelbuffer: {first_line_kernel_buffer}\n")
+            # print(f"kernels_in_line: {kernels_in_line}\n")
+            # print(f"remainder_x: {remainder_x}\n")
 
             handle_first_line = Characteristic_Node(
                 "write first line",
@@ -828,12 +828,12 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- handle_line ---
-            print("\n\nhandle regular line")
-            print(f"inner_line_buffer_reads: {inner_line_buffer_reads}\n")
-            print(f"absorbing_kernels: {absorbing_kernels}\n")
-            print("kernels_in_line - absorbing_kernels: ")
-            print(f"{kernels_in_line - absorbing_kernels}\n")
-            print(f"remainder_x: {remainder_x}\n")
+            # print("\n\nhandle regular line")
+            # print(f"inner_line_buffer_reads: {inner_line_buffer_reads}\n")
+            # print(f"absorbing_kernels: {absorbing_kernels}\n")
+            # print("kernels_in_line - absorbing_kernels: ")
+            # print(f"{kernels_in_line - absorbing_kernels}\n")
+            # print(f"remainder_x: {remainder_x}\n")
 
             handle_line = Characteristic_Node(
                 "write one inner line",
@@ -848,9 +848,9 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
             # --- swg ---
-            print("\n\nswg")
-            print(f"kernel_lines - 1: {kernel_lines - 1}\n")
-            print(f"remainder_y: {remainder_y}\n")
+            # print("\n\nswg")
+            # print(f"kernel_lines - 1: {kernel_lines - 1}\n")
+            # print(f"remainder_y: {remainder_y}\n")
 
             swg = Characteristic_Node(
                 "SlidingWindowGenerator",
@@ -863,3 +863,4 @@ class ConvolutionInputGenerator(HWCustomOp):
             )
 
         return swg
+
