@@ -1262,3 +1262,31 @@ class DeriveFIFOSizes(Transformation):
                             fifo_depth = 0
 
                         if node.op_type == "DuplicateStreams_hls":
+                            # propagate slowdown
+                            if indx == 0:
+                                self.slowdown_so_far[1] = self.slowdown_so_far[0]
+
+                            extra_volume = prod.get_nodeattr("extra_branch_fifos")[indx]
+                            fifo_depth += extra_volume
+                        else:
+                            extra_volume = prod.get_nodeattr("extra_branch_fifos")[0]
+                            fifo_depth += extra_volume
+
+                        out_fifo_depths.append(max(fifo_depth, self.minimum_size))
+
+                        prod.set_nodeattr("outFIFODepths", out_fifo_depths)
+
+                        in_fifo_depths = prod.get_nodeattr("inFIFODepths")
+                        for i, input_name in enumerate(node.input):
+                            if input_name in [x.name for x in model.graph.input]:
+                                in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
+                        prod.set_nodeattr("inFIFODepths", in_fifo_depths)
+
+                        if node.op_type == "AddStreams_hls":
+                            self.slowdown_so_far[0] = max(self.slowdown_so_far)
+
+                except KeyError:
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+        #print("final sizes for each strategy: ",self.delta_total_fifo_size, self.delta_adjusted_fifo_size, self.data_rate_total_fifo_size,self.data_rate_adjusted_fifo_size,self.hybrid_fifo_size, self.hybrid_fifo_size_rate)
+        return (model, False)
