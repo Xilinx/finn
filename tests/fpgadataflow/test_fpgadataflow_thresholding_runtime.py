@@ -192,7 +192,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx = {model.graph.input[0].name: in_tensor}
+    exec_ctx = {model.get_first_global_in(): in_tensor}
     extracted_weight_stream = []
 
     def read_weights(sim):
@@ -311,7 +311,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx_write = {model.graph.input[0].name: in_tensor}
+    exec_ctx_write = {model.get_first_global_in(): in_tensor}
 
     def write_weights(sim):
         addr = 0

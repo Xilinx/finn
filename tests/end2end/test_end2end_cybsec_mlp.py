@@ -122,14 +122,14 @@ def test_end2end_cybsec_mlp_export():
     # the FINN DataType at the input
     export_qonnx(model_for_export, torch.randn(input_shape), export_path=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
+    model.set_tensor_datatype(model.get_first_global_in(), DataType["BIPOLAR"])
     model.save(export_onnx_path)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(ConvertQONNXtoFINN())
     assert os.path.isfile(export_onnx_path)
     # fix input datatype
-    finnonnx_in_tensor_name = model.graph.input[0].name
+    finnonnx_in_tensor_name = model.get_first_global_in()
     assert tuple(model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
     # verify a few exported ops
     # The first "Mul" node doesn't exist in the QONNX export,

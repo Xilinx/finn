@@ -39,7 +39,8 @@ def dataflow_performance(model):
     for each node along the critical path.
 
     Preconditions:
-    - model consists of HLS/RTL nodes
+    - model consists of HLS/RTL nodes, exception are Shuffle nodes
+    they do not need to be specialized yet
     - model has cycle estimates annotated (see AnnotateCycles transformation)
     - nodes have unique names (see GiveUniqueNodeNames)
 
@@ -53,7 +54,7 @@ def dataflow_performance(model):
     max_node_name = ""
 
     for node in model.graph.node:
-        if is_hls_node(node) or is_rtl_node(node):
+        if is_hls_node(node) or is_rtl_node(node) or node.op_type == "Shuffle":
             inst = getCustomOp(node)
             node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:

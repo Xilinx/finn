@@ -216,18 +216,20 @@ module thresholding #(
 
 		localparam int unsigned  SN = M-1-stage;
 		for(genvar  pe = 0; pe < PE; pe++) begin : genPE
+			localparam int unsigned  DEPTH = (SETS > 1? SETS * 2**$clog2(CF) : CF) * 2**stage;
+			localparam  RAM_STYLE =
+				DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
+				DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" :
+				// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
+				DEPTH_TRIGGER_BRAM? "distributed" : "auto";
+
 			uwire pipe_t  p = pipe[pe][stage];
 			uwire  cs = (p.ptr[SN:0] == 2**SN-1);
 
 			// Threshold Memory
+			(* RAM_STYLE = RAM_STYLE *)
 			val_t  Thresh;	// Read-out register
 			if(1) begin : blkThresh
-				localparam int unsigned  DEPTH = (SETS > 1? SETS * 2**$clog2(CF) : CF) * 2**stage;
-				localparam  RAM_STYLE =
-					DEPTH_TRIGGER_URAM && (DEPTH >= DEPTH_TRIGGER_URAM)? "ultra" :
-					DEPTH_TRIGGER_BRAM && (DEPTH >= DEPTH_TRIGGER_BRAM)? "block" :
-					// If BRAM trigger defined, force distributed memory below if Vivado may be tempted to use BRAM nonetheless.
-					DEPTH_TRIGGER_BRAM && (DEPTH >= 64)? "distributed" : "auto";
 
 				(* DONT_TOUCH = USE_CONFIG? "TRUE" : "FALSE", RAM_STYLE = RAM_STYLE *)
 				val_t  Threshs[DEPTH];

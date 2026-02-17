@@ -178,9 +178,9 @@ def test_brevitas_compare_exported_mobilenet():
             expected_top5_prob = []
             for index in expected_top5:
                 expected_top5_prob.append(expected_topk[index])
-            idict = {model.graph.input[0].name: img_np}
+            idict = {model.get_first_global_in(): img_np}
             odict = oxe.execute_onnx(model, idict, return_full_exec_context=True)
-            produced = odict[model.graph.output[0].name]
+            produced = odict[model.get_first_global_out()]
             produced_prob = odict["TopK_0_out0"] * a0
             inds_ok = (produced.flatten() == expected_top5).all()
             probs_ok = np.isclose(produced_prob.flatten(), expected_top5_prob).all()
