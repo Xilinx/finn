@@ -28,110 +28,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import numpy as np
-import os
 import qonnx.custom_op.registry as registry
 import warnings
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance, max_remaining_period
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.base import NodeLocalTransformation, Transformation
-
-from finn.transformation.fpgadataflow.prepare_ip import _codegen_single_node
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import (
-    compress_numpy_to_string,
-    decompress_string_to_numpy,
-    stretch,
-)
+from qonnx.transformation.base import NodeLocalTransformation
+import numpy as np
+from finn.util.basic import decompress_string_to_numpy, compress_numpy_to_string, stretch
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
-
-
-class JustInTimeSynthesize(Transformation):
-    def __init__(self, part, clk_period, only_without_tree_model=False):
-        super().__init__()
-        self.part = part
-        self.clk_period = clk_period
-        self.only_without_tree_model = only_without_tree_model
-
-    def apply(self, model):
-        for node in model.graph.node:
-            inst = registry.getCustomOp(node)
-            if (is_hls_node(node) or is_rtl_node(node)) and (
-                (
-                    (inst.get_tree_model() is None and self.only_without_tree_model)
-                    or not self.only_without_tree_model
-                )
-                and (inst.get_nodeattr("io_chrc_in") == "")
-            ):
-                _codegen_single_node(
-                    node,
-                    model,
-                    self.part,
-                    self.clk_period,
-                )
-
-                op_type = node.op_type
-                if is_hls_node(node):
-                    try:
-                        # ensure that code is generated
-                        assert (
-                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                        ), """Node
-                        attribute "code_gen_dir_ipgen" is empty. Please run
-                        transformation PrepareIP first."""
-                        if not os.path.isdir(
-                            inst.get_nodeattr("ipgen_path")
-                        ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
-                            "ipgen_path"
-                        ):
-                            # call the compilation function for this node
-                            inst.ipgen_singlenode_code()
-                        else:
-                            warnings.warn("Using pre-existing IP for %s" % node.name)
-                        # ensure that executable path is now set
-                        assert (
-                            inst.get_nodeattr("ipgen_path") != ""
-                        ), """Transformation
-                        HLSSynthIP was not successful. Node attribute "ipgen_path"
-                        is empty."""
-                    except KeyError:
-                        raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-        model = model.transform(ReplaceVerilogRelPaths())
-        for node in model.graph.node:
-            inst = registry.getCustomOp(node)
-            if (
-                (is_hls_node(node) or is_rtl_node(node))
-                and (
-                    (inst.get_tree_model() is None and self.only_without_tree_model)
-                    or not self.only_without_tree_model
-                )
-                and (
-                    node.op_type
-                    not in [
-                        "AddStreams_hls",
-                        "DuplicateStreams_hls",
-                        "StreamingFIFO_hls",
-                        "StreamingFIFO_rtl",
-                    ]
-                )
-                and (inst.get_nodeattr("rtlsim_so") == "")
-            ):
-                try:
-                    inst.prepare_rtlsim()
-                    # ensure that executable path is now set
-                    assert (
-                        inst.get_nodeattr("rtlsim_so") != ""
-                    ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
-                except KeyError:
-                    raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-        model = model.transform(SetExecMode("rtlsim"))
-
-        return (model, False)
-
+from qonnx.transformation.base import Transformation
+import copy
 
 class DeriveTokenAccessVectors(NodeLocalTransformation):
     """For each node in the graph, run rtlsim to obtain the i/o
@@ -150,15 +56,7 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
     """
 
     def __init__(
-        self,
-        model,
-        period,
-        strategy,
-        fpga_part,
-        clk_period,
-        num_workers=None,
-        manual_bypass=False,
-        nodes_to_ignore=[],
+        self, model, period, strategy, fpga_part, clk_period, num_workers=None, manual_bypass=False,nodes_to_ignore=[]
     ):
         super().__init__(num_workers=num_workers)
         self.model = model
@@ -180,12 +78,7 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
                     print(f"ignoring derivation of node {node.name}")
                     return (node, False)
 
-                if op_type not in [
-                    "AddStreams_hls",
-                    "DuplicateStreams_hls",
-                    "StreamingFIFO_hls",
-                    "StreamingFIFO_rtl",
-                ]:
+                if op_type not in ["AddStreams_hls","DuplicateStreams_hls", "StreamingFIFO_hls","StreamingFIFO_rtl"]:
                     inst.derive_token_access_vectors(
                         model=self.model,
                         period=self.period,
@@ -207,6 +100,9 @@ class DeriveTokenAccessVectors(NodeLocalTransformation):
         return (model, run_again)
 
 
+
+
+
 class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
     """Prerequisite: DeriveTokenAccessVectors already called on graph.
     For each node in the graph, use the accumulated I/O characteristic function
@@ -216,6 +112,7 @@ class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
       NodeLocalTransformation for more details.
       period (int or None) the period to stretch the individual node chr function dumps to.
     """
+
 
     def __init__(self, num_workers=None, period=None, nodes_to_ignore=[]):
         super().__init__(num_workers=num_workers)
@@ -314,42 +211,43 @@ class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
         return (node, False)
 
 
+
+
+
 def get_top_producer_period(node, model):
+
     highest_period = 0
     for indx, input_name in enumerate(node.input):
-        prod_node = model.find_producer(input_name)
+        prod_node = model.find_producer(input_name)    
         if prod_node is not None:
             if prod_node.op_type.startswith("StreamingDataWidthConverter"):
                 return get_top_producer_period(prod_node, model)
-            prod_chrc = decompress_string_to_numpy(
-                registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
-            )[0]
-            cons_chrc = decompress_string_to_numpy(
-                registry.getCustomOp(prod_node).get_nodeattr("io_chrc_in")
-            )[0]
+            prod_chrc = decompress_string_to_numpy(registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out"))[0]
+            cons_chrc = decompress_string_to_numpy(registry.getCustomOp(prod_node).get_nodeattr("io_chrc_in"))[0]
             period = max(len(prod_chrc) // 2, len(cons_chrc) // 2)
             highest_period = max(period, highest_period)
     return highest_period, prod_node
 
 
 def get_top_consumer_period(node, model):
+
     highest_period = 0
     for indx, output_name in enumerate(node.output):
-        prod_node = model.find_consumer(output_name)
+        prod_node = model.find_consumer(output_name)    
         if prod_node is not None:
             if prod_node.op_type.startswith("StreamingDataWidthConverter"):
                 return get_top_consumer_period(prod_node, model)
 
-            prod_chrc = decompress_string_to_numpy(
-                registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
-            )[0]
-            cons_chrc = decompress_string_to_numpy(
-                registry.getCustomOp(prod_node).get_nodeattr("io_chrc_in")
-            )[0]
+            prod_chrc = decompress_string_to_numpy(registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out"))[0]
+            cons_chrc = decompress_string_to_numpy(registry.getCustomOp(prod_node).get_nodeattr("io_chrc_in"))[0]
             period = max(len(prod_chrc) // 2, len(cons_chrc) // 2)
             highest_period = max(period, highest_period)
     return highest_period, prod_node
 
+
+
+
+import numpy as np
 
 def max_throughput(trace, max_depth=10, min_size=10):
     """
@@ -367,6 +265,7 @@ def max_throughput(trace, max_depth=10, min_size=10):
     best_throughput = 0.0
 
     for _ in range(max_depth):
+        new_segments = []
         max_local_throughput = 0
         max_segment = None
 
@@ -398,18 +297,20 @@ def max_throughput(trace, max_depth=10, min_size=10):
     return best_throughput
 
 
+
 def get_nodes_until_converging(node, model):
-    # init_node = node
+    
+    init_node = node
     count = 0
     while node is not None:
         if node.name.startswith("DuplicateStreams"):
             return count
         node = model.find_producer(node.input[0])
-        count += 1
+        count+=1
     return count
 
+def get_throughput(node,dir="in"):
 
-def get_throughput(node, dir="in"):
     # calculate all budgets for nodes faster than the global period
 
     trace = None
@@ -425,24 +326,25 @@ def get_throughput(node, dir="in"):
         else:
             period = 0
     if period != 0:
-        # throughput = max_throughput(trace,min_size=int(np.sqrt(period)))
+       # throughput = max_throughput(trace,min_size=int(np.sqrt(period)))
         throughput = trace[-1] / inst.get_nodeattr("io_chrc_period")
-    # throughput = max_throughput(trace,min_size=1000)
+       #throughput = max_throughput(trace,min_size=1000)
     return throughput
 
-
 def get_parent_throughput(node, model):
+
     throughputs = []
     for indx, input_name in enumerate(node.input):
         prod_node = model.find_producer(input_name)
         if prod_node is not None:
-            throughputs.append(get_throughput(prod_node, "out"))
+            throughputs.append(get_throughput(prod_node,"out"))
         else:
             throughputs.append(0)
     return max(throughputs)
 
 
 def get_parent(node, model):
+
     for indx, input_name in enumerate(node.input):
         prod_node = model.find_producer(input_name)
         if prod_node is not None:
@@ -452,42 +354,46 @@ def get_parent(node, model):
     return None
 
 
+
 def get_consumer(node, model):
+
     for indx, output_name in enumerate(node.output):
         cons = model.find_consumer(output_name)
         return cons
 
 
 def get_consumer_throughput(node, model):
+
     throughputs = []
     for indx, output_name in enumerate(node.output):
         prod_node = model.find_consumer(output_name)
         if prod_node is not None:
-            throughputs.append(get_throughput(prod_node, "in"))
+            throughputs.append(get_throughput(prod_node,"in"))
         else:
             throughputs.append(0)
     return max(throughputs)
 
-
 def get_true_period(node):
+
     in_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_in"))[0]
     out_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_out"))[0]
 
-    return max(len(in_chrc) // 2, len(out_chrc) // 2)
+    return max(len(in_chrc)//2,len(out_chrc)//2)
 
 
-def get_branch_nodes(last_node, model):
+def get_branch_nodes(last_node,model):
     branch_nodes = []
     while last_node.op_type != "DuplicateStreams_hls":
         branch_nodes.append(last_node)
         last_node = model.find_producer(last_node.input[0])
-    return branch_nodes, last_node
-
+    return branch_nodes,last_node                
 
 def get_branch_volume(as_node, indx, model):
+
     last_node = model.find_producer(as_node.input[indx])
-    branch_nodes, ds_node = get_branch_nodes(last_node, model)
+    branch_nodes,ds_node = get_branch_nodes(last_node,model)
     branch = [as_node, *branch_nodes, ds_node]
+
 
     # now perform volume calculation based on characteristic functions
     # note that the nodes are reversed, we start at addstreams node
@@ -496,40 +402,49 @@ def get_branch_volume(as_node, indx, model):
     max_period = 0
     latency = 0
     for i, node in enumerate(branch[1:]):
-        volume += 1  # placeholder
+        ##print("traversing node in branch ", indx)
+        #print("i = ", i)
+        volume +=1 # placeholder
         period = registry.getCustomOp(node).get_nodeattr("io_chrc_period")
         if period > max_period:
             max_period = period
             max_i = i
-
+        
         # actual calculation has to consider the exp cycles and total nr of elements.
         # maybe maximum amount of values per period?
-        # we can do this sort of calc by comparing the first consumed token to the
+        # we can do this sort of calc by comparing the first consumed token to the 
         # last produced token in some form.
-    print("returning vol,max_i,lat: ", volume, max_i, latency)
+    print("returning vol,max_i,lat: ", volume, max_i,latency)
 
-    return volume, branch, max_i + 1, latency, max_period
+    return volume,branch, max_i+1, latency, max_period
 
+def assign_max_period(as_node, indx, model, max_period):
+    last_node = model.find_producer(as_node.input[indx])
+    branch_nodes,ds_node = get_branch_nodes(last_node,model)
+    branch = [as_node, *branch_nodes, ds_node]
 
-# def assign_max_period(as_node, indx, model, max_period):
-#     last_node = model.find_producer(as_node.input[indx])
-#     branch_nodes, ds_node = get_branch_nodes(last_node, model)
-#     branch = [as_node, *branch_nodes, ds_node]
+    for i, node in enumerate(branch[1:]):
+        inst = registry.getCustomOp(node)
+    #    print(f"assigning {max_period} to {node.name}")
 
-#     # for i, node in enumerate(branch[1:]):
-#     #    inst = registry.getCustomOp(node)
-#     #    print(f"assigning {max_period} to {node.name}")
-
-#     head_node = branch[-2]
-#     # inst = registry.getCustomOp(head_node)
-
-
-# print(f"assigning {1} to {head_node.name}")
+    
+    head_node = branch[-2]
+    inst = registry.getCustomOp(head_node)
+   # print(f"assigning {1} to {head_node.name}")
 
 
 def calculate_peak_volume_delta(b0_lat, node_0, b1_lat, node_1, period_0, period_1, global_period):
+
+
+    peak_delta = 0
+
     n0 = registry.getCustomOp(node_0)
     n1 = registry.getCustomOp(node_1)
+
+    p0 = get_true_period(n0) + b0_lat
+    p1 = get_true_period(n1) + b1_lat
+
+
 
     # if (n0.get_nodeattr("io_chrc_out_global_stretch")) != "":
     #     p0_v = decompress_string_to_numpy(n0.get_nodeattr("io_chrc_out_global_stretch"))[0]
@@ -551,25 +466,31 @@ def calculate_peak_volume_delta(b0_lat, node_0, b1_lat, node_1, period_0, period
     p0_v = np.concatenate((np.zeros(b0_lat, dtype=p0_v.dtype), p0_v))
     p1_v = np.concatenate((np.zeros(b1_lat, dtype=p1_v.dtype), p1_v))
 
+
+
+
     if len(p0_v) > len(p1_v):
         # pad p1_v end
         last = p1_v[-1]
-        p1_v = np.concatenate((p1_v, np.array([last] * (len(p0_v) - len(p1_v)), dtype=p1_v.dtype)))
+        p1_v = np.concatenate((p1_v, np.array([last]*(len(p0_v)-len(p1_v)), dtype=p1_v.dtype)))
     else:
         # pad p0_v end
         last = p0_v[-1]
-        p0_v = np.concatenate((p0_v, np.array([last] * (len(p1_v) - len(p0_v)), dtype=p0_v.dtype)))
+        p0_v = np.concatenate((p0_v, np.array([last]*(len(p1_v)-len(p0_v)), dtype=p0_v.dtype)))
 
+    
     p = max(len(p0_v), len(p1_v))
 
     max_positive_delta = 0
     max_negative_delta = 0
+    max_i = 0
     peak_b0 = 0
     peak_b1 = 0
-    peak_deltas = [0, 0]
+    peak_deltas = [0,0]
+
 
     for i in range(p):
-        delta = p0_v[i] - p1_v[i]
+        delta = p0_v[i]-p1_v[i]
         if delta > max_positive_delta:
             max_positive_delta = delta
             peak_deltas[0] = delta
@@ -580,49 +501,73 @@ def calculate_peak_volume_delta(b0_lat, node_0, b1_lat, node_1, period_0, period
         peak_b0 = max(p0_v[i], peak_b0)
         peak_b1 = max(p1_v[i], peak_b1)
 
-    final_fifos = [int(max(0, (b1_lat)) + peak_deltas[1]), int(max(0, (b0_lat)) + peak_deltas[0])]
+    final_fifos = [int(max(0,(b1_lat))+peak_deltas[1]), int(max(0,(b0_lat))+peak_deltas[0])]
     return final_fifos
 
-
 def compute_node_latency_init_periods(node, branch_max):
-    cons_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_in"))[0]
-    prod_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_out"))[0]
 
-    cons_chrc = stretch(cons_chrc, branch_max)
-    prod_chrc = stretch(prod_chrc, branch_max)
+        cons_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_in"))[0]
+        prod_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_out"))[0]
 
-    def max_dist(a, b):
-        a_last = a[-1]
-        b_last = b[-1]
 
-        idx_a = np.argmax(a == a_last)
-        idx_b = np.argmax(b == b_last)
+        cons_chrc = stretch(cons_chrc, branch_max)
+        prod_chrc = stretch(prod_chrc, branch_max)
 
-        return abs(idx_a - idx_b)
 
-    max_distance = max_dist(cons_chrc, prod_chrc)
-    return max_distance
+        def max_dist(a, b):
+            a_last = a[-1]
+            b_last = b[-1]
 
-    # last_output = len(cons_chrc)
-    # first_input = cons_chrc[0]
-    # first_input_cycle = 0
-    # # first read
-    # for cycle, el in enumerate(cons_chrc[1:]):
-    #     if first_input != el:
-    #         first_input_cycle = cycle + 1
-    #         first_input = el
-    #         break
+            idx_a = np.argmax(a == a_last)
+            idx_b = np.argmax(b == b_last)
 
-    # first_output = prod_chrc[0]
-    # first_output_cycle = 0
-    # # first write
-    # for cycle, el in enumerate(prod_chrc[1:]):
-    #     if first_output != el:
-    #         first_output_cycle = cycle + 1
-    #         first_output = el
-    #         break
+            return abs(idx_a - idx_b)
 
-    # return max(first_output_cycle - first_input_cycle, first_input_cycle - first_output_cycle)
+        max_distance = max_dist(cons_chrc, prod_chrc)
+        return max_distance
+
+        last_output = len(cons_chrc)
+        first_input = cons_chrc[0]
+        first_input_cycle = 0
+        #first read
+        for cycle, el in enumerate(cons_chrc[1:]):
+            if first_input != el:
+                first_input_cycle = cycle + 1
+                first_input = el
+                break
+
+        first_output = prod_chrc[0]
+        first_output_cycle = 0
+        #first write
+        for cycle, el in enumerate(prod_chrc[1:]):
+            if first_output != el:
+                first_output_cycle = cycle + 1
+                first_output = el
+                break
+
+        return max(first_output_cycle - first_input_cycle, first_input_cycle-first_output_cycle)
+
+def compute_node_latency_reversed(node):
+
+        cons_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_in"))[0]
+        prod_chrc = decompress_string_to_numpy(node.get_nodeattr("io_chrc_out"))[0]
+
+        for cycle, el in enumerate(reversed(prod_chrc[:-1])):
+            if first_input != el:
+                first_input_cycle = cycle
+                first_input = el
+                break
+
+        first_input = cons_chrc[-1]
+        first_input_cycle = None
+
+        for cycle, el in enumerate(reversed(cons_chrc[:-1])):
+            if first_input != el:
+                first_input_cycle = cycle
+                first_input = el
+                break
+
+        return first_input_cycle
 
 
 def get_full_branch_latency(nodes, branch_max):
@@ -631,69 +576,64 @@ def get_full_branch_latency(nodes, branch_max):
         total_latency += compute_node_latency_init_periods(registry.getCustomOp(node), branch_max)
     return total_latency
 
-
-def assign_extra_fifo_volume(as_node, model, global_period):
+def assign_extra_fifo_volume(as_node,model, global_period):
     assert len(as_node.input) > 1
 
-    _, branch_0, _, _, period_0 = get_branch_volume(as_node, 0, model)
-    _, branch_1, _, _, period_1 = get_branch_volume(as_node, 1, model)
-    # faster_indx = 0 if volume_0 < volume_1 else 1
-    # volume_dif = max(volume_0, volume_1) - min(volume_0, volume_1)
+    volume_0, branch_0, max_i_0, latency_0, period_0 = get_branch_volume(as_node,0, model)
+    volume_1, branch_1, max_i_1, latency_1, period_1 = get_branch_volume(as_node,1, model)
+    faster_indx = 0 if volume_0 < volume_1 else 1
+    volume_dif = max(volume_0, volume_1) - min(volume_0, volume_1)
 
-    # this func might be necessary, currently internally doesnt do anything
-    # either, but it might help with controlling fifo depths. TODO
-    # assign_max_period(as_node, 0, model, period_0)
-    # assign_max_period(as_node, 1, model, period_1)
+    assign_max_period(as_node, 0, model, period_0)
+    assign_max_period(as_node, 1, model, period_1)
+
 
     # propagate the producer to duplicatestreams node
-    ds_node = registry.getCustomOp(branch_0[-1])
+    ds_node = registry.getCustomOp(branch_0[-1])   
     prod_node = model.find_producer(branch_0[-1].input[0])
 
     period_ds = get_true_period(registry.getCustomOp(prod_node))
 
-    tav_ds = registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
-    tav_stretched_ds = registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out_stretch")
-    tav_pad_ds = registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out_original")
-    ds_node.set_nodeattr("io_chrc_in", tav_ds)
+    tav_ds =  registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
+    tav_stretched_ds =  registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out_stretch")
+    tav_pad_ds =  registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out_original")
+    #tav_local_ds =  registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out_global_stretch")
+
+    ds_node.set_nodeattr("io_chrc_in",tav_ds)
     ds_node.set_nodeattr("io_chrc_out", tav_ds)
 
-    ds_node.set_nodeattr("io_chrc_in_original", tav_pad_ds)
+    ds_node.set_nodeattr("io_chrc_in_original",tav_pad_ds)
     ds_node.set_nodeattr("io_chrc_out_original", tav_pad_ds)
 
-    ds_node.set_nodeattr("io_chrc_in_stretch", tav_stretched_ds)
+    ds_node.set_nodeattr("io_chrc_in_stretch",tav_stretched_ds)
     ds_node.set_nodeattr("io_chrc_out_stretch", tav_stretched_ds)
 
-    ds_node.set_nodeattr("io_chrc_period", period_ds)
+
+    # ds_node.set_nodeattr("io_chrc_in_global_stretch",tav_local_ds)
+    # ds_node.set_nodeattr("io_chrc_out_global_stretch", tav_local_ds)
+
+    ds_node.set_nodeattr("io_chrc_period",period_ds)
 
     # last node with latencies version
     latency_to_first_output_0 = get_full_branch_latency(branch_0[1:], period_0)
     latency_to_first_output_1 = get_full_branch_latency(branch_1[1:], period_1)
-    peak_deltas = calculate_peak_volume_delta(
-        latency_to_first_output_0,
-        branch_0[1],
-        latency_to_first_output_1,
-        branch_1[1],
-        period_0,
-        period_1,
-        global_period,
-    )
+    peak_deltas =  calculate_peak_volume_delta(latency_to_first_output_0, branch_0[1], latency_to_first_output_1, branch_1[1], period_0, period_1, global_period)
 
-    # latency_delta = max(latency_0, latency_1) - min(latency_0, latency_1)
-    # peak delta should also contain additional fifos
-    # for any latency differences between nodes
-    # here we take the sum input to output latency
-    # of each node in a branch and take the
+
+    latency_delta = max(latency_0, latency_1) - min(latency_0, latency_1)
+    # peak delta should also contain additional fifos for any latency differences between nodes
+    # here we take the sum input to output latency of each node in a branch and take the 
     # last node's volume at that clock
 
     addstrm_node_inst = registry.getCustomOp(as_node)
 
     add_strm_child = get_consumer(as_node, model)
-    volumes = [0, 0]
+    volumes = [0,0]
 
-    # if peak_deltas[0] > peak_deltas[1]:
-    #     faster_indx = 0
-    # else:
-    #     faster_indx = 1
+    if peak_deltas[0] > peak_deltas[1]:
+        faster_indx = 0   
+    else:
+        faster_indx = 1
 
     volumes[0] = peak_deltas[1]
     volumes[1] = peak_deltas[0]
@@ -707,56 +647,64 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     ds_node.set_nodeattr("outFIFODepths", old_sizes)
 
     # propagate the slower branch to addstreams node
-    # b_to_propagate = branch_1 if faster_indx == 0 else branch_0
+
+    b_to_propagate = branch_1 if faster_indx == 0 else branch_0
+
 
     tav = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in")
+   # tav_local = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in_global_stretch")
     tav_pad = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in_original")
 
+
     # attempt to introduce more branching
-    # b0_last = registry.getCustomOp(b_to_propagate[0])
-    # b1_last = registry.getCustomOp(b_to_propagate[1])
+    b0_last = registry.getCustomOp(b_to_propagate[0])
+    b1_last = registry.getCustomOp(b_to_propagate[1])
 
     period_add = get_true_period(registry.getCustomOp(add_strm_child))
 
     addstrm_node_inst.set_nodeattr("io_chrc_in", tav)
     addstrm_node_inst.set_nodeattr("io_chrc_out", tav)
 
+    # addstrm_node_inst.set_nodeattr("io_chrc_in_global_stretch", tav_local)
+    # addstrm_node_inst.set_nodeattr("io_chrc_out_global_stretch", tav_local)
+
     addstrm_node_inst.set_nodeattr("io_chrc_out_original", tav_pad)
     addstrm_node_inst.set_nodeattr("io_chrc_in_original", tav_pad)
 
-    addstrm_node_inst.set_nodeattr("io_chrc_period", period_add)
+    addstrm_node_inst.set_nodeattr("io_chrc_period",period_add)
     return sum(volumes)
 
 
 class HandleBranches(Transformation):
-    """Given a characterized model, additionally generate the token
-    access vectors for DuplicateStreams and AddStreams such that no
-    deadlocks occur. These nodes were not characterized in the
-    DeriveTokenAccessVectors step and must inherit the edge node
-    token access vectors of the faster of the two branches'.
-    The inherited token access vector is also further padded in this
-    case to simulate additional stalling on the faster branch.
-    We expect the stretching operation afterwards to stretch the
-    faster branch 'less' due to this padding, thus introducing FIFO
-      depth during the DeriveFIFOSizes transform
+    """ Given a characterized model, additionally generate the token access vectors for DuplicateStreams
+     and AddStreams such that no deadlocks occur. These nodes were not characterized
+     in the DeriveTokenAccessVectors step and must inherit the edge node token access vectors
+     of the faster of the two branches'. The inherited token access vector is also further padded in this case to
+     simulate additional stalling on the faster branch. We expect the stretching operation afterwards to stretch the faster 
+     branch 'less' due to this padding, thus introducing FIFO depth during the DeriveFIFOSizes transform
+
     """
 
-    def __init__(self, model, period):
+    def __init__(self,model, period):
         super().__init__()
         self.model = model
         self.period = period
 
     def apply(self, model: ModelWrapper):
+
         depth_added = 0
         addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
         if len(addstrm_nodes) == 0:
             warnings.warn("No AddStreams nodes found, skipping")
             return (model, False)
-
+        
         for addstrm_node in addstrm_nodes:
             depth_added += assign_extra_fifo_volume(addstrm_node, model, self.period)
 
+    
+
         return (model, False)
+
 
 
 class ProducerDelayCharacteristicFunctions(NodeLocalTransformation):
@@ -935,6 +883,7 @@ class DelayCharacteristicFunctions(NodeLocalTransformation):
         return (node, False)
 
 
+
 def inter_token_gaps(tav):
     if tav is None or tav.size == 0:
         return np.array([1]), np.array([0])  # reasonable defaults
@@ -944,14 +893,15 @@ def inter_token_gaps(tav):
 
     if token_times.size < 2:
         # Not enough token events to compute gaps
-        # Default gap of 1 between tokens (or 0 if no tokens)
-        return np.array([1]), token_times
+        return np.array([1]), token_times  # Default gap of 1 between tokens (or 0 if no tokens)
 
     # Compute gaps between token emissions
-    # median = np.median
+    #median = np.median
     gaps = np.diff(token_times)
     #  median_gap = np.array([int(np.median(gaps))])
-    return gaps, token_times  # ,gaps_min
+    return gaps, token_times#,gaps_min
+
+
 
 
 def remove_trailing_duplicates_keep_one(arr):
@@ -981,7 +931,17 @@ def remove_leading_duplicates_keep_one(arr):
         i += 1
 
     # Keep one leading instance, then the rest
-    return np.concatenate(([first_val], arr[i + 1 :]))
+    return np.concatenate(([first_val], arr[i+1:]))
+
+
+def compute_max_buffer_size(producer_tav, consumer_tav, period, pshift):
+    producer_tav_part = producer_tav[pshift : (pshift + period)]
+    consumer_tav_part = consumer_tav[:period]
+    diff = producer_tav_part - consumer_tav_part
+    max_pos = np.argmax(diff)
+    fifo_depth_maximum = max(0, int(diff[max_pos]))
+    return fifo_depth_maximum
+
 
 
 class DeriveFIFOSizes(Transformation):
@@ -995,7 +955,7 @@ class DeriveFIFOSizes(Transformation):
     def __init__(
         self,
         num_workers=None,
-        io_fifo_depth=2,
+        io_fifo_depth=8,
         period=None,
         nodes_to_ignore=[],
         global_offset_correction=False,
@@ -1060,17 +1020,15 @@ class DeriveFIFOSizes(Transformation):
                             if len(chr_pairs) == 0:
                                 chr_pairs = [["io_chrc_out", "io_chrc_in"]]
 
-                            # override different attempt
+
                             depth_attempts = []
                             # currently only testing the first (main) pair
 
                             if (prod.get_nodeattr(chr_pairs[0][0])) == "":
-                                # print("break pair")
                                 out_fifo_depths.append(2)
                                 continue
 
                             if (cons.get_nodeattr(chr_pairs[0][1])) == "":
-                                # print("break pair")
                                 out_fifo_depths.append(2)
                                 continue
 
@@ -1100,10 +1058,6 @@ class DeriveFIFOSizes(Transformation):
 
                                 global_period = self.period
 
-                                # prod_original_chr_cons = decompress_string_to_numpy(
-                                #     prod.get_nodeattr("io_chrc_in")
-                                # )[0]
-
                                 prod_original_chr = decompress_string_to_numpy(
                                     prod.get_nodeattr("io_chrc_out")
                                 )[0]
@@ -1118,15 +1072,9 @@ class DeriveFIFOSizes(Transformation):
                                     cons.get_nodeattr("io_chrc_in_original")
                                 )[0]
 
-                                # period_prod_cons = len(prod_original_chr_cons) // 2
                                 period_true = len(prod_original_chr) // 2
 
                                 period_cons = len(cons_original_chr) // 2
-
-                                # ratio = period_cons / period_true
-                                # if ratio < 1:
-                                #     ratio = period_true / period_cons
-
                                 # find phase shift
                                 pshift_min = 0
 
@@ -1137,59 +1085,19 @@ class DeriveFIFOSizes(Transformation):
                                         pshift_min = pshift_cand
                                         break
 
-                                # parent_throughput = get_parent_throughput(node, model)
                                 parent_period, producer_node = get_top_producer_period(node, model)
                                 consumer_period, consumer_node = get_top_consumer_period(
                                     node, model
                                 )
-                                # consumer_throughput = get_consumer_throughput(cons_node, model)
-                                # self_in_throughput = get_throughput(node, "in")
-                                # self_out_throughput = get_throughput(cons_node, "out")
-
-                                # if parent_throughput == 0:
-                                #     parent_throughput = self_in_throughput
-                                # if consumer_throughput == 0:
-                                #     consumer_throughput = self_out_throughput
-
-                                # self_prod_thr = get_throughput(node, "out")
-                                # self_cons_thr = get_throughput(cons.onnx_node, "in")
-
-                                # RELAXATIONS ===========================
-                                # phase_relaxation_hyper = 0.0
-                                # second_relaxation_hyper = 1 / len(model.graph.node)
-
-                                # if parent_throughput != 0:
-                                #     throughput_ratio = max(
-                                #         1, self_in_throughput / parent_throughput
-                                #     )
-                                # else:
-                                #     throughput_ratio = 1
 
                                 if global_period < period_prod:
                                     global_period = period_prod
 
-                                # node_splits = 1
-                                # for n in model.graph.node:
-                                #     inst = registry.getCustomOp(n)
-                                #     if inst.get_nodeattr("io_chrc_period") <= period_true:
-                                #         node_splits += 1
 
                                 pshift_min = max(0, pshift_min - max(0, period_true - period_cons))
 
                                 prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period_prod)]
                                 cons_chrc_part = cons_chrc[:period_prod]
-
-                                # prod_volume = prod_chrc[period_prod] - prod_chrc[0]
-                                # cons_volume = cons_chrc[period_prod] - cons_chrc[0]
-
-                                # prod_true_volume = (
-                                #     prod_original_chr[period_true] - prod_original_chr[0]
-                                # )
-                                # prod_true_cons_volume = (
-                                #     prod_original_chr_cons[period_prod_cons]
-                                #     - prod_original_chr_cons[0]
-                                # )
-                                # ratio = prod_true_cons_volume / prod_true_volume
 
                                 # using the original tav for determining data rates
                                 gaps, token_times = inter_token_gaps(prod_chr_original)
@@ -1215,38 +1123,11 @@ class DeriveFIFOSizes(Transformation):
                                     self.max_delay_so_far, local_max_delay_prod
                                 )
 
-                                # global_max_delay = self.max_delay_so_far
-
-                                # prod_safe_slowdown = max(0, 1 - prod_true_volume / period_true)
-
-                                # cons_true_volume = (
-                                #     cons_original_chr[period_cons] - cons_original_chr[0]
-                                # )
-                                # cons_safe_slowdown = max(0, 1 - cons_true_volume / period_cons)
-
-                                # Step 1: Compute the difference (assumed to be NumPy arrays)
                                 diff = prod_chrc_part - cons_chrc_part
 
                                 # Step 2: Get the index of the maximum
                                 max_pos = np.argmax(diff)
                                 fifo_depth_maximum = max(0, int(diff[max_pos]))
-
-                                # inter_token_gaps_prod_gaps, _ = inter_token_gaps(prod_chrc_part)
-                                # inter_token_gaps_prod_gaps = sorted(
-                                #     inter_token_gaps_prod_gaps, reverse=True
-                                # )
-
-                                # inter_token_gaps_cons_gaps, _ = inter_token_gaps(cons_chrc_part)
-                                # inter_token_gaps_cons_gaps = sorted(
-                                #     inter_token_gaps_cons_gaps, reverse=True
-                                # )
-
-                                # total_delay = np.sum(
-                                #     np.array(inter_token_gaps_cons_gaps[:fifo_depth_maximum])
-                                # )
-
-                                # slowdown_period = local_max_delay_period
-                                # slowdown_period = local_max_delay_cons
 
                                 # Compute the slowdown numerator using the new logic
                                 effective_depth = min(len(gap_ratios), fifo_depth_maximum)
@@ -1265,16 +1146,6 @@ class DeriveFIFOSizes(Transformation):
 
                                 fifo_slowdown = slowdown_numerator / period_true
                                 fifo_slowdown = sum(gap_ratios) / period_true
-
-                                # fifo_slowdown_cons = (
-                                #     fifo_depth_maximum * local_max_delay_cons
-                                # ) / period_cons
-                                # delay_on_cons = (
-                                #     local_max_delay_cons +
-                                # (fifo_depth_maximum * local_max_delay_prod)
-                                # ) * cons_volume
-
-                                # ratio_on_delays = local_max_delay_cons / local_max_delay_prod
 
                                 minimum_fifos_true = int(
                                     (local_max_delay_prod + local_max_delay_cons)
@@ -1321,7 +1192,7 @@ class DeriveFIFOSizes(Transformation):
                                 cons_loss = (global_period - period_cons) // cycle_loss_of_fifo
                                 pred_loss = (global_period - parent_period) // cycle_loss_of_fifo
 
-                                ignorable_fifos = int(max(0, min(prod_loss, cons_loss, pred_loss)))
+                                ignorable_fifos = int(max(0,min(prod_loss, cons_loss, pred_loss)))
 
                                 if producer_node is not None:
                                     if producer_node.op_type.startswith("DuplicateStreams"):
@@ -1347,22 +1218,11 @@ class DeriveFIFOSizes(Transformation):
                                 else:
                                     fifos_to_remove_rate = minimum_fifos_true
 
-                                # slowdown logic, TODO in the future
-                                # should be considered to avoid propagating slowdowns
-                                # if fifos_to_remove > 0:
-                                #     # (self.slowdown_so_far[indx] +=
-                                #     # max(0, fifos_to_remove - minimum_fifos_needed))
-                                #     self.slowdown_introduced =
-                                # (fifos_to_remove * local_max_delay_cons)
-                                # else:
-                                #     self.slowdown_introduced = 0
-
-                                # if self.slowdown_so_far[indx] + period_true < period_cons:
-                                #     self.slowdown_so_far[indx] = 0
 
                                 delta_fifo_size_post_adjustment = max(
-                                    0, fifo_depth_maximum - fifos_to_remove
+                                    0, fifo_depth_maximum - max(fifos_to_remove, ignorable_fifos )
                                 )
+                                #print("fifos to remove: ", fifos_to_remove)
                                 delta_fifo_size_post_adjustment_rate = max(
                                     0, minimum_fifos_true - fifos_to_remove_rate
                                 )
@@ -1391,40 +1251,14 @@ class DeriveFIFOSizes(Transformation):
                                     # maximum from TAV comparisons
                                     fifo_depth = fifo_depth_maximum
 
-                                # fifo_depth = hybrid_size
-                                # fifo_depth = minimized_depth - max(0, period_true- period_cons)
-                                # fifo_depth = minimum_fifos     # minimized data rate based
-                                # fifo_depth = minimum_fifos_true # not minimized data rate based
-                                print(f"sized {node.name} with {fifo_depth} ")
+
+                                # override for testing:
+                                #fifo_depth = delta_fifo_size_post_adjustment
+
+                                #print(f"sized {node.name} with {fifo_depth} ")
                                 depth_attempts.append(fifo_depth)
                             fifo_depth = min(depth_attempts)
                         else:
                             fifo_depth = 0
 
                         if node.op_type == "DuplicateStreams_hls":
-                            # propagate slowdown
-                            if indx == 0:
-                                self.slowdown_so_far[1] = self.slowdown_so_far[0]
-
-                            extra_volume = prod.get_nodeattr("extra_branch_fifos")[indx]
-                            fifo_depth += extra_volume
-                        else:
-                            extra_volume = prod.get_nodeattr("extra_branch_fifos")[0]
-                            fifo_depth += extra_volume
-
-                        out_fifo_depths.append(max(fifo_depth, self.minimum_size))
-
-                        prod.set_nodeattr("outFIFODepths", out_fifo_depths)
-
-                        in_fifo_depths = prod.get_nodeattr("inFIFODepths")
-                        for i, input_name in enumerate(node.input):
-                            if input_name in [x.name for x in model.graph.input]:
-                                in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
-                        prod.set_nodeattr("inFIFODepths", in_fifo_depths)
-
-                        if node.op_type == "AddStreams_hls":
-                            self.slowdown_so_far[0] = max(self.slowdown_so_far)
-
-                except KeyError:
-                    raise Exception("Custom op_type %s is currently not supported." % op_type)
-        return (model, False)
