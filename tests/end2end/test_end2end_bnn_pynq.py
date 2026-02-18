@@ -822,8 +822,14 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(build_data["build_fxn"])
-        model = model.transform(AnnotateResources("synth", build_data["part"]))
         model.save(get_checkpoint_name(board, topology, wbits, abits, "build"))
+
+    def test_annotate_resources(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(AnnotateResources("synth", build_data["part"]))
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "annotate_resources"))
 
     @pytest.mark.slow
     @pytest.mark.vivado
@@ -832,7 +838,7 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "annotate_resources")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         if build_data["toolchain"] == "vitis" and topology == "tfc":
             model = model.transform(MakeCPPDriver("alveo", version="latest"))
