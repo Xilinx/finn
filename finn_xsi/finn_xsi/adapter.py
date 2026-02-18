@@ -78,6 +78,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "floating_point_v7_1_18",
         "floating_point_v7_1_15",
         "floating_point_v7_1_19",
+        "floating_point_v7_1_21",
+        "floating_point_v7_0_26",
     ]
 
     cmd_xelab = [

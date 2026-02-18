@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import glob
 import numpy as np
 import os
 import re
@@ -60,6 +61,22 @@ class HLSBackend(ABC):
             "hls_style": ("s", False, "ifm_aware", {"ifm_aware", "freerunning"}),
         }
 
+    def find_subcore_path(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        search_pattern = (
+            "{}/project_{}/sol1/impl/ip/subcore_prj/subcore_prj.gen/sources_1/ip/{}_*/sim/".format(
+                code_gen_dir, self.onnx_node.name, self.onnx_node.name
+            )
+        )
+
+        matching_paths = glob.glob(search_pattern)
+
+        if matching_paths:
+            # Return the first matching path found
+            return matching_paths[0]
+        else:
+            return None
+
     def get_all_verilog_paths(self):
         "Return list of all folders containing Verilog code for this node."
 
@@ -72,11 +89,15 @@ class HLSBackend(ABC):
         subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
             code_gen_dir, self.onnx_node.name
         )
+        subcore_vhdl_path = self.find_subcore_path()
+
         # default impl only returns the HLS verilog codegen dir and subcore (impl/ip/hdl/ip) dir
         # if it exists
         ret = [verilog_path]
         if os.path.isdir(subcore_verilog_path):
             ret += [subcore_verilog_path]
+        if subcore_vhdl_path:
+            ret += [subcore_vhdl_path]
         return ret
 
     def get_all_verilog_filenames(self, abspath=False):
@@ -86,7 +107,7 @@ class HLSBackend(ABC):
         verilog_paths = self.get_all_verilog_paths()
         for verilog_path in verilog_paths:
             for f in os.listdir(verilog_path):
-                if f.endswith(".v"):
+                if f.endswith(".v") or f.endswith(".vhd"):
                     if abspath:
                         verilog_files += [verilog_path + "/" + f]
                     else:
