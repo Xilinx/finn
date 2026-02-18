@@ -130,7 +130,7 @@ def get_build_env(board, target_clk_ns):
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     elif board in slash_part_map:
-        ret["toolchain"] = "slash"
+        ret["toolchain"] = "slash-vrt"
         ret["part"] = slash_part_map[board]
         ret["build_fxn"] = SlashBuild(ret["part"], target_clk_ns)
     else:
