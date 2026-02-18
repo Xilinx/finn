@@ -70,10 +70,9 @@ class HLSBackend(ABC):
         )
 
         matching_paths = glob.glob(search_pattern)
-
         if matching_paths:
             # Return the first matching path found
-            return matching_paths[0]
+            return matching_paths
         else:
             return None
 
@@ -97,7 +96,7 @@ class HLSBackend(ABC):
         if os.path.isdir(subcore_verilog_path):
             ret += [subcore_verilog_path]
         if subcore_vhdl_path:
-            ret += [subcore_vhdl_path]
+            ret += subcore_vhdl_path
         return ret
 
     def get_all_verilog_filenames(self, abspath=False):
