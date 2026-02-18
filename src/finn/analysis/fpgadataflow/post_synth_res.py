@@ -99,7 +99,7 @@ def post_synth_res(model, override_synth_report_filename=None):
     else:
         # could not infer resource types from header
         # fall back to default indices
-        if model.get_metadata_prop("platform") == "alveo":
+        if model.get_metadata_prop("platform") == "vitis-xrt":
             restype_to_ind = restype_to_ind_vitis
         else:
             restype_to_ind = restype_to_ind_default

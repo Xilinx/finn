@@ -235,12 +235,12 @@ class SlashBuild(Transformation):
                 CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
             )
             # set platform attribute for correct remote execution
-            model.set_metadata_prop("platform", "alveo")
+            model.set_metadata_prop("platform", "slash-vrt")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
         if self.enable_link:
             model = model.transform(SlashLink())
         # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "alveo")
+        model.set_metadata_prop("platform", "slash-vrt")
 
         return (model, False)

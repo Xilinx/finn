@@ -382,7 +382,7 @@ class DataflowBuildConfig:
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-            return "alveo"
+            return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
             raise NotImplementedError("SLASH driver platform resolution not implemented yet")
         else:

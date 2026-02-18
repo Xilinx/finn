@@ -841,7 +841,7 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "annotate_resources")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         if build_data["toolchain"] == "vitis" and topology == "tfc":
-            model = model.transform(MakeCPPDriver("alveo", version="latest"))
+            model = model.transform(MakeCPPDriver("vitis-xrt", version="latest"))
         elif build_data["toolchain"] == "pynq":
             model = model.transform(MakePYNQDriver("zynq-iodma"))
         else:

@@ -53,7 +53,7 @@ class MakeCPPDriver(Transformation):
     accelerator, including data packing/unpacking. Should be called
     after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
-    platform: has to be "alveo", otherwise an error is thrown
+    platform: has to be "vitis-xrt", otherwise an error is thrown
     Outcome if successful: sets the cpp_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
     value.
@@ -84,8 +84,8 @@ class MakeCPPDriver(Transformation):
         super().__init__()
         self.platform: str = platform
         assert (
-            platform == "alveo"
-        ), "CPP driver only supported for Alveo devices, please use PYNQ driver instead."
+            platform == "vitis-xrt"
+        ), "CPP driver only supports Vitis/XRT devices, please use PYNQ driver instead."
         self.version = version
 
         # Define variables for the repository URL and commit hash
@@ -233,7 +233,7 @@ class MakePYNQDriver(Transformation):
     after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
-    platform: one of ["zynq-iodma", "alveo"]
+    platform: one of ["zynq-iodma", "vitis-xrt"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the

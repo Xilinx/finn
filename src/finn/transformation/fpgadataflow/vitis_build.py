@@ -419,7 +419,7 @@ class VitisBuild(Transformation):
                 CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
             )
             kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))
-            kernel_model.set_metadata_prop("platform", "alveo")
+            kernel_model.set_metadata_prop("platform", "vitis-xrt")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
         if self.enable_link:
@@ -432,6 +432,6 @@ class VitisBuild(Transformation):
                 )
             )
         # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "alveo")
+        model.set_metadata_prop("platform", "vitis-xrt")
 
         return (model, False)

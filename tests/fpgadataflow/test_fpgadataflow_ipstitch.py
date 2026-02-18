@@ -315,7 +315,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     model = model.transform(HLSSynthIP())
     model = model.transform(VitisBuild(fpga_part, period_ns, platform))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
-    assert model.get_metadata_prop("platform") == "alveo"
+    assert model.get_metadata_prop("platform") == "vitis-xrt"
     assert os.path.isdir(model.get_metadata_prop("vitis_link_proj"))
     assert os.path.isfile(model.get_metadata_prop("bitfile"))
 
