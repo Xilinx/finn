@@ -42,6 +42,9 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.convert_to_hw_layers import (
+    InferDuplicateStreamsLayer,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -157,3 +160,98 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.fpgadataflow
+def test_infer_duplicatestreams_with_global_output():
+    """Test that InferDuplicateStreamsLayer handles the case where a node output
+    is both connected to another node AND is a global output."""
+
+    # Create a model with three Add nodes in a row
+    # where the first and third Add nodes' outputs are also global outputs
+    ch = 64
+    idim = 7
+    idt = DataType["INT4"]
+    shape = [1, idim, idim, ch]
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+
+    # Create constant tensors to add
+    const1_values = gen_finn_dt_tensor(idt, shape)
+    const2_values = gen_finn_dt_tensor(idt, shape)
+    const3_values = gen_finn_dt_tensor(idt, shape)
+
+    const1 = helper.make_tensor("const1", TensorProto.FLOAT, shape, const1_values.flatten())
+    const2 = helper.make_tensor("const2", TensorProto.FLOAT, shape, const2_values.flatten())
+    const3 = helper.make_tensor("const3", TensorProto.FLOAT, shape, const3_values.flatten())
+
+    # First Add node - output is a global output AND connects to second Add
+    add1 = helper.make_node(
+        "Add",
+        ["inp", "const1"],
+        ["add1_out"],
+    )
+
+    # Second Add node - intermediate node
+    add2 = helper.make_node(
+        "Add",
+        ["add1_out", "const2"],
+        ["add2_out"],
+    )
+
+    # Third Add node - output is a global output
+    add3 = helper.make_node(
+        "Add",
+        ["add2_out", "const3"],
+        ["add3_out"],
+    )
+
+    # Make add1_out and add3_out global outputs
+    # add1_out is both a global output AND an intermediate connection
+    add1_out = helper.make_tensor_value_info("add1_out", TensorProto.FLOAT, shape)
+    add2_out = helper.make_tensor_value_info("add2_out", TensorProto.FLOAT, shape)
+    add3_out = helper.make_tensor_value_info("add3_out", TensorProto.FLOAT, shape)
+
+    graph = helper.make_graph(
+        nodes=[add1, add2, add3],
+        name="test_graph",
+        inputs=[inp],
+        outputs=[add1_out, add3_out],
+        initializer=[const1, const2, const3],
+        value_info=[add2_out],
+    )
+
+    model = qonnx_make_model(graph, producer_name="test-model")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("const1", idt)
+    model.set_tensor_datatype("const2", idt)
+    model.set_tensor_datatype("const3", idt)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Apply the InferDuplicateStreamsLayer transformation
+    model = model.transform(InferDuplicateStreamsLayer())
+
+    # Verify that a DuplicateStreams node was inserted
+    assert (
+        len(model.get_nodes_by_op_type("DuplicateStreams")) > 0
+    ), "DuplicateStreams node was not inserted."
+
+    # Verify execution: test that the model still produces correct outputs
+    x = gen_finn_dt_tensor(idt, shape)
+    input_dict = {"inp": x}
+
+    output_dict = oxe.execute_onnx(model, input_dict)
+
+    # Compute expected outputs
+    expected_add1 = x + const1_values
+    expected_add2 = expected_add1 + const2_values
+    expected_add3 = expected_add2 + const3_values
+
+    assert (
+        output_dict[model.graph.output[0].name] == expected_add1
+    ).all(), "First output incorrect."
+    assert (
+        output_dict[model.graph.output[1].name] == expected_add3
+    ).all(), "Second output incorrect."
