@@ -53,7 +53,7 @@ fi
 
 if [ -z "$PLATFORM_REPO_PATHS" ];then
   recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
-  recho "This is required to be able to use Alveo PCIe cards."
+  recho "This is required to be able to use Vitis-based Alveo PCIe cards."
 fi
 
 DOCKER_GID=$(id -g)
