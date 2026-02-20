@@ -64,7 +64,7 @@ class SlashLink(Transformation):
             "git",
             "clone",
             "-b",
-            "feature/finn_support",
+            "dev",
             "--recurse-submodules",
             "https://github.com/JOOpdenhoevel/SLASH.git",
             str(link_dir),
