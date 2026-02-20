@@ -145,8 +145,8 @@ def test_ooc_synthesis():
 
     # generate reference output
     x = gen_finn_dt_tensor(DataType["FLOAT32"], (1, 4, 16))
-    y_dict = oxe.execute_onnx(model, {model.graph.input[0].name: x})
-    y_ref = y_dict[model.graph.output[0].name]
+    y_dict = oxe.execute_onnx(model, {model.get_first_global_in(): x})
+    y_ref = y_dict[model.get_first_global_out()]
 
     # infer and specialize layers
     model = model.transform(to_hw.InferThresholdingLayer())
@@ -161,8 +161,8 @@ def test_ooc_synthesis():
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
 
-    y_dict = oxe.execute_onnx(model, {model.graph.input[0].name: x})
-    y_prod = y_dict[model.graph.output[0].name]
+    y_dict = oxe.execute_onnx(model, {model.get_first_global_in(): x})
+    y_prod = y_dict[model.get_first_global_out()]
     assert (y_prod == y_ref).all()
 
     # FIFO sizing

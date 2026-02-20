@@ -84,7 +84,7 @@ def test_streamline_cnv(size, wbits, abits):
     # run using FINN-based execution
     input_dict = {"global_in": input_tensor}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
-    expected = expected_ctx[model.graph.output[0].name]
+    expected = expected_ctx[model.get_first_global_out()]
     # model.save("orig_cnv.onnx")
     model = model.transform(Streamline())
     model = model.transform(RemoveUnusedTensors())
@@ -93,7 +93,7 @@ def test_streamline_cnv(size, wbits, abits):
     # model.save("streamlined_cnv.onnx")
     assert len(model.graph.node) == 23
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
-    produced = produced_ctx[model.graph.output[0].name]
+    produced = produced_ctx[model.get_first_global_out()]
     assert np.isclose(expected, produced, atol=1e-3).all()
     assert model.graph.node[0].op_type == "MultiThreshold"
     assert np.argmax(produced) == 3

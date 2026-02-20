@@ -76,7 +76,7 @@ def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
-    input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}
+    input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict)
     produced = output_dict[list(output_dict.keys())[0]]
     # run using PyTorch/Brevitas

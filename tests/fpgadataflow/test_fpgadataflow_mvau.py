@@ -885,9 +885,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
 
-    inpA_name = model.graph.input[0].name
+    inpA_name = model.get_first_global_in()
     inpB_name = model.graph.input[1].name
-    outp_name = model.graph.output[0].name
+    outp_name = model.get_first_global_out()
 
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(

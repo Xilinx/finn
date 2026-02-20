@@ -155,7 +155,7 @@ def test_convert_to_hw_conv_layer(conv_config, depthwise, exec_mode):
         raise Exception("Unknown exec_mode")
 
     x = gen_finn_dt_tensor(idt, input_shape)
-    inp_dict = {model.graph.input[0].name: x}
+    inp_dict = {model.get_first_global_in(): x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
     if pad:

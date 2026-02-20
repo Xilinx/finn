@@ -155,10 +155,10 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     x = gen_finn_dt_tensor(idt, input_tensor_shape)
 
     # generate expected value from streamlined net
-    input_dict = {model.graph.input[0].name: x}
+    input_dict = {model.get_first_global_in(): x}
 
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced_sum = output_dict[model.graph.output[0].name]
+    produced_sum = output_dict[model.get_first_global_out()]
     chw_mul = model.get_initializer(model.graph.node[-1].input[1])
     chw_mul = 1
     expected_sum = chw_mul * np.sum(2 * (2 * x + 15.0), axis=(2, 3)) / (ifmdim * ifmdim)
@@ -167,7 +167,7 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(InferDataLayouts())
 
     # convert to hw
-    model.set_tensor_datatype(model.graph.input[0].name, idt)
+    model.set_tensor_datatype(model.get_first_global_in(), idt)
     # extra streamlining
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(MoveAddPastMul())
@@ -234,7 +234,7 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     output_dict = oxe.execute_onnx(model, input_dict, True)
 
     # verify execution
-    outp_name = model.graph.output[0].name
+    outp_name = model.get_first_global_out()
     # comparison before and after layer specialization
     assert (output_dict[outp_name] == output_hw[outp_name]).all()
     # comparison with golden output
