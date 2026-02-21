@@ -254,40 +254,7 @@ class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
 
                 period = max(len(prod_chrc_in), len(prod_chrc_out))
 
-                # def remove_trailing_duplicates_keep_one(arr):
-                #     arr = np.asarray(arr)
-                #     if arr.size == 0:
-                #         return arr
-
-                #     last_val = arr[-1]
-                #     # Find index where values stop being the same as the last value (from the end)
-                #     i = len(arr) - 1
-                #     while i > 0 and arr[i - 1] == last_val:
-                #         i -= 1
-
-                #     # Keep everything before the trailing duplicates + one final instance
-                #     return np.concatenate((arr[:i], [last_val]))
-
-                # def remove_leading_duplicates_keep_one(arr):
-                #     arr = np.asarray(arr)
-                #     if arr.size == 0:
-                #         return arr
-
-                #     first_val = arr[0]
-                #     # Find index where values stop being the same as
-                #     # the first value (from the start)
-                #     i = 0
-                #     while i < len(arr) - 1 and arr[i + 1] == first_val:
-                #         i += 1
-
-                #     # Keep one leading instance, then the rest
-                #     return np.concatenate(([first_val], arr[i + 1 :]))
-
-                #  prod_chrc_in_local = remove_trailing_duplicates_keep_one(prod_chrc_in)
-                #     prod_chrc_out_local = remove_trailing_duplicates_keep_one(prod_chrc_out)
-
-                # prod_chrc_in_local = remove_leading_duplicates_keep_one(prod_chrc_in_local)
-                # prod_chrc_out_local = remove_leading_duplicates_keep_one(prod_chrc_out_local)
+                #period = self.period
 
                 # perform stretching if necessary
                 prod_chrc_in = stretch(prod_chrc_in, period)
@@ -296,18 +263,8 @@ class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
                 compressed_prod_chrc_in = compress_numpy_to_string(np.array([prod_chrc_in]))
                 compressed_prod_chrc_out = compress_numpy_to_string(np.array([prod_chrc_out]))
 
-                prod.set_nodeattr("io_chrc_in", compressed_prod_chrc_in)
-                prod.set_nodeattr("io_chrc_out", compressed_prod_chrc_out)
-
-                # prod_chrc_in = stretch(prod_chrc_in, self.period)
-                # prod_chrc_out = stretch(prod_chrc_out, self.period)
-
-                # compressed_prod_chrc_in = compress_numpy_to_string(np.array([prod_chrc_in]))
-                # compressed_prod_chrc_out = compress_numpy_to_string(np.array([prod_chrc_out]))
-
-            #   prod.set_nodeattr("io_chrc_in_global_stretch", compressed_prod_chrc_in)
-            #   prod.set_nodeattr("io_chrc_out_global_stretch", compressed_prod_chrc_out)
-
+               # prod.set_nodeattr("io_chrc_in", compressed_prod_chrc_in)
+               # prod.set_nodeattr("io_chrc_out", compressed_prod_chrc_out)
             except KeyError:
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -317,10 +274,10 @@ class LocalStretchCharacteristicFunctions(NodeLocalTransformation):
 def get_top_producer_period(node, model):
     highest_period = 0
     for indx, input_name in enumerate(node.input):
-        prod_node = model.find_producer(input_name)
+        #prod_node = model.find_producer(input_name)
+        prod_node = find_non_dwc_producer(model,node)
+
         if prod_node is not None:
-            if prod_node.op_type.startswith("StreamingDataWidthConverter"):
-                return get_top_producer_period(prod_node, model)
             prod_chrc = decompress_string_to_numpy(
                 registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
             )[0]
@@ -335,11 +292,10 @@ def get_top_producer_period(node, model):
 def get_top_consumer_period(node, model):
     highest_period = 0
     for indx, output_name in enumerate(node.output):
-        prod_node = model.find_consumer(output_name)
-        if prod_node is not None:
-            if prod_node.op_type.startswith("StreamingDataWidthConverter"):
-                return get_top_consumer_period(prod_node, model)
+        #prod_node = model.find_consumer(output_name)
+        prod_node = find_non_dwc_consumer(model,node)
 
+        if prod_node is not None:
             prod_chrc = decompress_string_to_numpy(
                 registry.getCustomOp(prod_node).get_nodeattr("io_chrc_out")
             )[0]
@@ -510,37 +466,26 @@ def get_branch_volume(as_node, indx, model):
 
     return volume, branch, max_i + 1, latency, max_period
 
+def find_non_dwc_producer(model, node):
+    producer = model.find_producer(node.input[0])
+    if producer is None:
+        return None
+    if "StreamingDataWidthConverter" in producer.name:
+        producer = model.find_producer(producer.input[0])
+    return producer
 
-# def assign_max_period(as_node, indx, model, max_period):
-#     last_node = model.find_producer(as_node.input[indx])
-#     branch_nodes, ds_node = get_branch_nodes(last_node, model)
-#     branch = [as_node, *branch_nodes, ds_node]
-
-#     # for i, node in enumerate(branch[1:]):
-#     #    inst = registry.getCustomOp(node)
-#     #    print(f"assigning {max_period} to {node.name}")
-
-#     head_node = branch[-2]
-#     # inst = registry.getCustomOp(head_node)
-
-
-# print(f"assigning {1} to {head_node.name}")
+def find_non_dwc_consumer(model, node):
+    consumer = model.find_consumer(node.output[0])
+    if consumer is None:
+        return None
+    if "StreamingDataWidthConverter" in consumer.name:
+        consumer = model.find_consumer(consumer.output[0])
+    return consumer
 
 
 def calculate_peak_volume_delta(b0_lat, node_0, b1_lat, node_1, period_0, period_1, global_period):
     n0 = registry.getCustomOp(node_0)
     n1 = registry.getCustomOp(node_1)
-
-    # if (n0.get_nodeattr("io_chrc_out_global_stretch")) != "":
-    #     p0_v = decompress_string_to_numpy(n0.get_nodeattr("io_chrc_out_global_stretch"))[0]
-    # else:
-    #     p0_v = decompress_string_to_numpy(n0.get_nodeattr("io_chrc_out"))[0]
-
-    # if (n1.get_nodeattr("io_chrc_out_global_stretch")) != "":
-    #     p1_v = decompress_string_to_numpy(n1.get_nodeattr("io_chrc_out_global_stretch"))[0]
-    # else:
-    #     p1_v = decompress_string_to_numpy(n1.get_nodeattr("io_chrc_out"))[0]
-
     p0_v = decompress_string_to_numpy(n0.get_nodeattr("io_chrc_out"))[0]
     p1_v = decompress_string_to_numpy(n1.get_nodeattr("io_chrc_out"))[0]
 
@@ -603,28 +548,6 @@ def compute_node_latency_init_periods(node, branch_max):
     max_distance = max_dist(cons_chrc, prod_chrc)
     return max_distance
 
-    # last_output = len(cons_chrc)
-    # first_input = cons_chrc[0]
-    # first_input_cycle = 0
-    # # first read
-    # for cycle, el in enumerate(cons_chrc[1:]):
-    #     if first_input != el:
-    #         first_input_cycle = cycle + 1
-    #         first_input = el
-    #         break
-
-    # first_output = prod_chrc[0]
-    # first_output_cycle = 0
-    # # first write
-    # for cycle, el in enumerate(prod_chrc[1:]):
-    #     if first_output != el:
-    #         first_output_cycle = cycle + 1
-    #         first_output = el
-    #         break
-
-    # return max(first_output_cycle - first_input_cycle, first_input_cycle - first_output_cycle)
-
-
 def get_full_branch_latency(nodes, branch_max):
     total_latency = 0
     for node in nodes:
@@ -637,13 +560,7 @@ def assign_extra_fifo_volume(as_node, model, global_period):
 
     _, branch_0, _, _, period_0 = get_branch_volume(as_node, 0, model)
     _, branch_1, _, _, period_1 = get_branch_volume(as_node, 1, model)
-    # faster_indx = 0 if volume_0 < volume_1 else 1
-    # volume_dif = max(volume_0, volume_1) - min(volume_0, volume_1)
 
-    # this func might be necessary, currently internally doesnt do anything
-    # either, but it might help with controlling fifo depths. TODO
-    # assign_max_period(as_node, 0, model, period_0)
-    # assign_max_period(as_node, 1, model, period_1)
 
     # propagate the producer to duplicatestreams node
     ds_node = registry.getCustomOp(branch_0[-1])
@@ -684,16 +601,13 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     # here we take the sum input to output latency
     # of each node in a branch and take the
     # last node's volume at that clock
+    # This is a severe over-estimation to improve in the future
 
     addstrm_node_inst = registry.getCustomOp(as_node)
 
     add_strm_child = get_consumer(as_node, model)
     volumes = [0, 0]
 
-    # if peak_deltas[0] > peak_deltas[1]:
-    #     faster_indx = 0
-    # else:
-    #     faster_indx = 1
 
     volumes[0] = peak_deltas[1]
     volumes[1] = peak_deltas[0]
@@ -706,15 +620,12 @@ def assign_extra_fifo_volume(as_node, model, global_period):
     old_sizes[1] += volumes[1]
     ds_node.set_nodeattr("outFIFODepths", old_sizes)
 
-    # propagate the slower branch to addstreams node
-    # b_to_propagate = branch_1 if faster_indx == 0 else branch_0
+
 
     tav = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in")
     tav_pad = registry.getCustomOp(add_strm_child).get_nodeattr("io_chrc_in_original")
 
-    # attempt to introduce more branching
-    # b0_last = registry.getCustomOp(b_to_propagate[0])
-    # b1_last = registry.getCustomOp(b_to_propagate[1])
+
 
     period_add = get_true_period(registry.getCustomOp(add_strm_child))
 
@@ -802,7 +713,8 @@ class ProducerDelayCharacteristicFunctions(NodeLocalTransformation):
 
                 model = self.ref_input_model
                 for output_name in node.output:
-                    cons = model.find_consumer(output_name)
+                    #cons = model.find_consumer(output_name)
+                    cons = find_non_dwc_consumer(model, node)
                     if cons is None:
                         print("first node, skip")
                         continue
@@ -810,18 +722,17 @@ class ProducerDelayCharacteristicFunctions(NodeLocalTransformation):
                     cons = registry.getCustomOp(cons)
                     cons_chrc_in = decompress_string_to_numpy(cons.get_nodeattr("io_chrc_in"))[0]
 
-                    # cons_period = len(cons_chrc_in) // 2
-
                     diff = len(cons_chrc_in) - len(prod_chrc_out)
 
                     if diff > 0:
+                        # stretching
                         prod_chrc_out_stretch = stretch(prod_chrc_out, len(cons_chrc_in))
-                        # prod_chrc_out_pad_end = np.concatenate(
+
+                        # padding
+                        # prod_chrc_out_stretch = np.concatenate(
                         #     [prod_chrc_out, np.array([prod_chrc_out[-1]] * diff)]
                         # )
-                        # prod_chrc_out_pad_start = np.concatenate(
-                        #     [np.array([prod_chrc_out[-1]] * diff), prod_chrc_out]
-                        # )
+
 
                         prod.set_nodeattr(
                             "io_chrc_out_stretch",
@@ -879,7 +790,8 @@ class DelayCharacteristicFunctions(NodeLocalTransformation):
 
                 model = self.ref_input_model
                 for input_name in node.input:
-                    prod = model.find_producer(input_name)
+                    #prod = model.find_producer(input_name)
+                    prod = find_non_dwc_producer(model, node)
                     if prod is None:
                         print("last node, skip")
                         continue
@@ -896,9 +808,6 @@ class DelayCharacteristicFunctions(NodeLocalTransformation):
 
                     cons.set_nodeattr("io_chrc_period", cons_period)
 
-                    # c0_in = cons_chrc_in[:cons_period]
-                    # c1_in = cons_chrc_in[cons_period:]
-
                     import sys
 
                     np.set_printoptions(threshold=sys.maxsize)
@@ -908,14 +817,14 @@ class DelayCharacteristicFunctions(NodeLocalTransformation):
                     if diff > 0:
                         print("padding cons input")
 
+                        # stretch
                         cons_chrc_in_stretch = stretch(cons_chrc_in, len(prod_chrc_out))
-                        # cons_chrc_in_pad_end = np.concatenate(
-                        #     [cons_chrc_in, np.array([cons_chrc_in[-1]] * diff)]
-                        # )
-                        # cons_chrc_in_pad_start = np.concatenate(
+                       
+                        # padding
+                        # cons_chrc_in_stretch = np.concatenate(
                         #     [np.array([cons_chrc_in[-1]] * diff), cons_chrc_in]
                         # )
-
+                        #
                         cons.set_nodeattr(
                             "io_chrc_in_stretch",
                             compress_numpy_to_string(np.array([cons_chrc_in_stretch])),
@@ -1032,12 +941,16 @@ class DeriveFIFOSizes(Transformation):
                     if node.name in self.nodes_to_ignore:
                         continue
 
+                    if "StreamingDataWidthConverter" in node.name:
+                        continue 
+
                     assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
 
                     prod = registry.getCustomOp(node)
                     out_fifo_depths = []
                     for indx, output_name in enumerate(node.output):
-                        cons_node = model.find_consumer(output_name)
+                        #cons_node = model.find_consumer(output_name)
+                        cons_node = find_non_dwc_consumer(model,node)
                         if cons_node is None:
                             # could be final node, will be overridden if so
                             # need an entry in the list anyway
@@ -1047,7 +960,8 @@ class DeriveFIFOSizes(Transformation):
                         cons = registry.getCustomOp(cons_node)
 
                         if node.op_type != "AddStreams_hls":
-                            # determine which of prod and cons we vary
+                            # determine which of prod and cons TAVs to compare
+                            # based on which one was stretched
                             chr_pairs = []
 
                             if prod.get_nodeattr("io_chrc_out_stretch") != "":
@@ -1114,6 +1028,10 @@ class DeriveFIFOSizes(Transformation):
                                 period_true = len(prod_original_chr) // 2
 
                                 period_cons = len(cons_original_chr) // 2
+
+                                # Step 1: Compute un-relaxed initial FIFO size guess - a conservative estimate to further
+                                # decrease in size using relaxation strategies
+
                                 # find phase shift
                                 pshift_min = 0
 
@@ -1124,21 +1042,24 @@ class DeriveFIFOSizes(Transformation):
                                         pshift_min = pshift_cand
                                         break
 
+                                # shift TAVs by that amount
+                                pshift_min = max(0, pshift_min - max(0, period_true - period_cons))
+                                prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period_prod)]
+                                cons_chrc_part = cons_chrc[:period_prod]
+                                diff = prod_chrc_part - cons_chrc_part
+
+                                # find peak delta between the two TAVs and use as initial FIFO guess
+                                max_pos = np.argmax(diff)
+                                fifo_depth_maximum = max(0, int(diff[max_pos]))
+
+                                # Step 2: Compute relaxation factors to refine the fifo size computed in Step 1
+                                # using the original tav for determining data rates
+                                
                                 parent_period, producer_node = get_top_producer_period(node, model)
                                 consumer_period, consumer_node = get_top_consumer_period(
                                     node, model
                                 )
 
-                                if global_period < period_prod:
-                                    global_period = period_prod
-
-
-                                pshift_min = max(0, pshift_min - max(0, period_true - period_cons))
-
-                                prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period_prod)]
-                                cons_chrc_part = cons_chrc[:period_prod]
-
-                                # using the original tav for determining data rates
                                 gaps, token_times = inter_token_gaps(prod_chr_original)
                                 gaps_cons, token_times_cons = inter_token_gaps(cons_chr_original)
 
@@ -1147,8 +1068,10 @@ class DeriveFIFOSizes(Transformation):
 
                                 local_max_delay_prod = local_max_delay_prod_list[-1]
                                 local_max_delay_cons = local_max_delay_cons_list[
-                                    min(1, len(local_max_delay_cons_list) - 1)
+                                    min(0, len(local_max_delay_cons_list) - 1)
                                 ]
+                                print("prod del: ",local_max_delay_prod_list)
+                                print("cons:delay: ",local_max_delay_cons_list)
 
                                 min_gap = min(
                                     len(local_max_delay_prod_list), len(local_max_delay_cons_list)
@@ -1161,12 +1084,6 @@ class DeriveFIFOSizes(Transformation):
                                 self.max_delay_so_far = max(
                                     self.max_delay_so_far, local_max_delay_prod
                                 )
-
-                                diff = prod_chrc_part - cons_chrc_part
-
-                                # Step 2: Get the index of the maximum
-                                max_pos = np.argmax(diff)
-                                fifo_depth_maximum = max(0, int(diff[max_pos]))
 
                                 # Compute the slowdown numerator using the new logic
                                 effective_depth = min(len(gap_ratios), fifo_depth_maximum)
@@ -1214,15 +1131,6 @@ class DeriveFIFOSizes(Transformation):
                                     1
                                     - (period_prod / (global_period - self.slowdown_so_far[indx])),
                                 )
-                                # tolerable_slowdown_cons = max(
-                                #     0,
-                                #     1
-                                #     - (
-                                #         consumer_period
-                                #         / (global_period - self.slowdown_so_far[indx])
-                                #     ),
-                                # )
-
                                 tolerable_slowdown = min(
                                     [tolerable_slowdown_parent, tolerable_slowdown_prod]
                                 )
@@ -1230,8 +1138,12 @@ class DeriveFIFOSizes(Transformation):
                                 prod_loss = (global_period - period_true) // cycle_loss_of_fifo
                                 cons_loss = (global_period - period_cons) // cycle_loss_of_fifo
                                 pred_loss = (global_period - parent_period) // cycle_loss_of_fifo
-
-                                ignorable_fifos = int(max(0,min(prod_loss, cons_loss, pred_loss)))
+                                # print("node: ",node.name)
+                                # print("pred, prod, cons periods and losses:")
+                                # print(parent_period, period_true, period_cons)
+                                # print(pred_loss, prod_loss, cons_loss)
+                                #ignorable_fifos = int(max(0,min(prod_loss, cons_loss, pred_loss)))
+                                ignorable_fifos = int(max(0,min([prod_loss])))
 
                                 if producer_node is not None:
                                     if producer_node.op_type.startswith("DuplicateStreams"):
@@ -1290,6 +1202,16 @@ class DeriveFIFOSizes(Transformation):
                                     # maximum from TAV comparisons
                                     fifo_depth = fifo_depth_maximum
 
+                                # print(
+                                #     f"initial size, new sizes: "
+                                #     f"{fifo_depth_maximum}, "
+                                #     f"{minimized_depth}, "
+                                #     f"{self.delta_adjusted_fifo_size}, "
+                                #     f"{self.hybrid_fifo_size}, "
+                                #     f"{self.hybrid_fifo_size_rate}, "
+                                #     f"{self.data_rate_adjusted_fifo_size}"
+                                # )
+
 
                                 # override for testing:
                                 #fifo_depth = delta_fifo_size_post_adjustment
@@ -1312,7 +1234,7 @@ class DeriveFIFOSizes(Transformation):
                             fifo_depth += extra_volume
 
                         out_fifo_depths.append(max(fifo_depth, self.minimum_size))
-
+                        
                         prod.set_nodeattr("outFIFODepths", out_fifo_depths)
 
                         in_fifo_depths = prod.get_nodeattr("inFIFODepths")
@@ -1329,3 +1251,5 @@ class DeriveFIFOSizes(Transformation):
 
         #print("final sizes for each strategy: ",self.delta_total_fifo_size, self.delta_adjusted_fifo_size, self.data_rate_total_fifo_size,self.data_rate_adjusted_fifo_size,self.hybrid_fifo_size, self.hybrid_fifo_size_rate)
         return (model, False)
+
+
