@@ -128,20 +128,27 @@ class Thresholding(HWCustomOp):
         # TODO: extend this for fixed point
         if self.get_input_datatype(0).is_integer():
             # minimize threshold width only if input is an integer
-            min_threshold = int(thresholds.min())
-            max_threshold = int(thresholds.max())
-            min_input = int(self.get_input_datatype(0).min())
-            max_input = int(self.get_input_datatype(0).max())
+            # Use double precision for intermediate calculations to prevent overflow
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            min_input = np.float64(self.get_input_datatype(0).min())
+            max_input = np.float64(self.get_input_datatype(0).max())
+
             # get range required by threshold values
-            tdt_min = min(min_input, min_threshold)
-            tdt_max = max(max_input, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
+            tdt_min = np.minimum(min_input, min_threshold)
+            tdt_max = np.maximum(max_input, max_threshold)
+
+            # Use floor/ceil for safe conversion to integer
+            tdt_min_int = int(np.floor(tdt_min))
+            tdt_max_int = int(np.ceil(tdt_max))
+
+            if tdt_min_int < 0:
+                if abs(tdt_min_int) > tdt_max_int:
+                    tdt = DataType.get_smallest_possible(tdt_min_int)
                 else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
+                    tdt = DataType.get_smallest_possible(-tdt_max_int - 1)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max)
+                tdt = DataType.get_smallest_possible(tdt_max_int)
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)
