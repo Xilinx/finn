@@ -80,9 +80,15 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
         op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
     )
     
+    # Generate test data
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    
+    # Set the second input as an initializer (constant) for RTL constraints
+    model.set_initializer("in_y", rhs_data)
+    
     context = {
-        "in_x": gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape),
-        "in_y": gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape),
+        "in_x": lhs_data,
     }
 
     numpy_reference = RTL_NUMPY_REFERENCES[op_type]
@@ -95,8 +101,16 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
     assert model.graph.node[0].op_type == f"{op_type}"
 
     # Set preferred implementation style to RTL
-    getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "rtl")
-    getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    # Set input constraints: input 0 = dynamic, input 1 = constant
+    node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
+    node_inst.set_nodeattr("rhs_style", "const")  # constant data
+    # Set memory mode for constants
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    # Enable RTL waveform tracing for debugging
+    node_inst.set_nodeattr("rtlsim_trace", f"elementwise_{op_type.lower()}_pe{pe}_debug.wdb")
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
@@ -107,16 +121,107 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
+    
+    # Save model for debugging
+    model.save(f"elementwise_{op_type.lower()}_pe{pe}_debug.onnx")
+    
     model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
     model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
+    model = model.transform(PrepareRTLSim(behav=True))
 
     lhs = context["in_x"]
-    rhs = context["in_y"]
+    rhs = rhs_data  # Use the constant data we set as initializer
     o_expected = numpy_reference(lhs, rhs)
     o_produced = execute_onnx(model, context)["out"]
 
     assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
+@pytest.mark.parametrize("pe", [1, 4, 8])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
+    """Test RTL elementwise operations with memstream for broadcast constants.
+    
+    Dynamic input: [128, 384] - streamed during operation
+    Constant input: [384] - stored in memstream, broadcast to match dynamic input
+    """
+    
+    lhs_dtype = "FLOAT32"
+    rhs_dtype = "FLOAT32" 
+    out_dtype = "FLOAT32"
+    lhs_shape = [128, 384]  # Large dynamic input
+    rhs_shape = [384]       # Broadcast constant
+    
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+    
+    # Generate test data
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    
+    # Set the second input as an initializer (constant) for RTL constraints
+    model.set_initializer("in_y", rhs_data)
+    
+    context = {
+        "in_x": lhs_data,
+    }
+
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}"
+
+    # Set preferred implementation style to RTL with memstream
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    # Set input constraints: input 0 = dynamic, input 1 = constant
+    node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
+    node_inst.set_nodeattr("rhs_style", "const")  # constant data stored in memstream
+    # Set memory mode for constants
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    # Enable RTL waveform tracing for debugging
+    node_inst.set_nodeattr("rtlsim_trace", f"memstream_{op_type.lower()}_pe{pe}_debug.wdb")
+    
+    # Verify PE divides into the last dimension
+    assert lhs_shape[-1] % pe == 0, f"PE ({pe}) must divide last dimension ({lhs_shape[-1]})"
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcv80-lsva4737-2MHP-e-s"))
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+    
+    # Verify memstream parameters are set correctly
+    node_inst_rtl = getCustomOp(model.graph.node[0])
+    expected_wmem = node_inst_rtl.calc_wmem()
+    print(f"Expected wmem for constant shape {rhs_shape} with PE={pe}: {expected_wmem}")
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    
+    # Save model for debugging
+    model.save(f"memstream_{op_type.lower()}_pe{pe}_debug.onnx")
+    
+    model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    lhs = context["in_x"]
+    rhs = rhs_data  # Use the constant data we set as initializer
+    o_expected = numpy_reference(lhs, rhs)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
 
 
 @pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
