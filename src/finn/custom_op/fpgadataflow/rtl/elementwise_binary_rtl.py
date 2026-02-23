@@ -306,7 +306,60 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
-            RTLBackend.execute_node(self, context, graph)
+            from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+            node = self.onnx_node
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            lhs = context[node.input[0]]
+            rhs = context[node.input[1]]
+
+            assert list(lhs.shape) == self.get_normal_input_shape(ind=0), \
+                f"Input shape mismatch for {node.input[0]}"
+            assert list(rhs.shape) == self.get_normal_input_shape(ind=1), \
+                f"Input shape mismatch for {node.input[1]}"
+
+            mem_mode = self.get_nodeattr("mem_mode")
+            rhs_decoupled = self.rhs_style == "const" and mem_mode == "internal_decoupled"
+            lhs_decoupled = self.lhs_style == "const" and mem_mode == "internal_decoupled"
+            out_shape = self.get_normal_output_shape(ind=0)
+
+            if rhs_decoupled:
+                rhs = np.broadcast_to(rhs, out_shape)
+            if lhs_decoupled:
+                lhs = np.broadcast_to(lhs, out_shape)
+
+            lhs = lhs.reshape(self.get_folded_input_shape(ind=0))
+            rhs = rhs.reshape(self.get_folded_input_shape(ind=0))
+
+            lhs_filename = os.path.join(code_gen_dir, "input_0.npy")
+            rhs_filename = os.path.join(code_gen_dir, "input_1.npy")
+            np.save(lhs_filename, lhs)
+            np.save(rhs_filename, rhs)
+
+            io_dict = {"inputs": {}, "outputs": {"out0": []}}
+            lhs_dtype = self.get_input_datatype(ind=0)
+            lhs_width = self.get_instream_width(ind=0)
+            rhs_dtype = self.get_input_datatype(ind=1)
+            rhs_width = self.get_instream_width(ind=1)
+
+            if self.lhs_style == "input" or lhs_decoupled:
+                io_dict["inputs"]["in0"] = npy_to_rtlsim_input(lhs_filename, lhs_dtype, lhs_width)
+            if self.rhs_style == "input" or rhs_decoupled:
+                io_dict["inputs"]["in1"] = npy_to_rtlsim_input(rhs_filename, rhs_dtype, rhs_width)
+
+            sim = self.get_rtlsim()
+            self.reset_rtlsim(sim)
+            self.rtlsim_multi_io(sim, io_dict)
+            self.close_rtlsim(sim)
+
+            out = io_dict["outputs"]["out0"]
+            dtype = self.get_output_datatype(ind=0)
+            width = self.get_outstream_width(ind=0)
+            shape = self.get_folded_output_shape(ind=0)
+            filename = os.path.join(code_gen_dir, "output_0.npy")
+            rtlsim_output_to_npy(out, filename, dtype, shape, width, dtype.bitwidth())
+            out = np.load(filename)
+            context[node.output[0]] = out.reshape(self.get_normal_output_shape(ind=0)).astype(np.float32)
         else:
             ElementwiseBinaryOperation.execute_node(self, context, graph)
 

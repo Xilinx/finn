@@ -152,7 +152,7 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
     lhs_dtype = "FLOAT32"
     rhs_dtype = "FLOAT32" 
     out_dtype = "FLOAT32"
-    lhs_shape = [1, 384]  # Large dynamic input
+    lhs_shape = [128, 384]  # Large dynamic input
     rhs_shape = [384]       # Broadcast constant
     
     model = create_elementwise_binary_operation_onnx(
