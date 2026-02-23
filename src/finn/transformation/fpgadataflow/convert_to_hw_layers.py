@@ -541,16 +541,15 @@ class InferDuplicateStreamsLayer(Transformation):
 
                     # connect successors to out tensor clone
                     clone_idx = 0
-                    if successors is not None:
-                        for successor in successors:
-                            for i, succ_input in enumerate(successor.input):
-                                if succ_input == output_tensor:
-                                    successor.input[i] = out_tensor_clones[clone_idx]
-                                    clone_idx += 1
-                                    # if one node has multiple connections to the same output
-                                    # find_direct_successors will return one node per input
-                                    # so break the inner loop will result in correct behaviour
-                                    break
+                    for successor in successors:
+                        for i, succ_input in enumerate(successor.input):
+                            if succ_input == output_tensor:
+                                successor.input[i] = out_tensor_clones[clone_idx]
+                                clone_idx += 1
+                                # if one node has multiple connections to the same output
+                                # find_direct_successors will return one node per input
+                                # so break the inner loop will result in correct behaviour
+                                break
 
                     # if the tensor is a global output, connect the last clone to it
                     if is_global_output:
