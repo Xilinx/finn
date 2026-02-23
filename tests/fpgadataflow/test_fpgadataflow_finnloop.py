@@ -390,7 +390,7 @@ def create_chained_loop_bodies(
 # eltwise param dtype
 @pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
-@pytest.mark.parametrize("tail_node", [True])
+@pytest.mark.parametrize("tail_node", [False, True])
 @pytest.mark.fpgataflow
 @pytest.mark.vivado
 @pytest.mark.slow
@@ -508,6 +508,7 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(report_dir + "/estimate_layer_resources.json")
     assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
     assert os.path.isfile(report_dir + "/op_and_param_counts.json")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
     assert os.path.isfile(verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
@@ -519,11 +520,12 @@ def test_finnloop_end2end_mlo(
         cfg,
         start_step="step_create_stitched_ip",
         stitched_ip_gen_dcp=True,
+        verify_steps=[],
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
     # check if stitched IP dcp is there
-    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/finn_design.dcp")
 
 
 # Debug test for manual loop transformation steps below
