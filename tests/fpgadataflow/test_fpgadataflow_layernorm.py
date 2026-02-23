@@ -122,61 +122,30 @@ def test_fpgadataflow_layernorm(idt, ishape, simd, has_scale, has_bias, sim_styl
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
     
-    # Create unique debug filenames for each test configuration
-    debug_suffix = f"simd{simd}_{'scale' if has_scale else 'noscale'}_{'bias' if has_bias else 'nobias'}_{sim_style}"
-    debug_wdb = f"layernorm_{debug_suffix}_debug.wdb"
-    
     # Set SIMD parameter for LayerNorm node
     getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
 
     # Execute
     if sim_style == "node_by_node":
-        # Set debug waveform for individual node execution
-        for node in model.graph.node:
-            node_inst = getCustomOp(node)
-            node_debug_wdb = f"{node.name}_{debug_suffix}_debug.wdb"
-            node_inst.set_nodeattr("rtlsim_trace", node_debug_wdb)
-
-        model.save("debug1.onnx")
-            
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
-        model.save("debug2.onnx")
         model = model.transform(PrepareRTLSim(behav=True))
         
     elif sim_style == "stitched_ip":
         # Set debug waveform for stitched IP
-        model.set_metadata_prop("rtlsim_trace", debug_wdb)
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        model.set_metadata_prop("rtlsim_trace", debug_wdb)
         # Prepare RTL simulation for the stitched IP to enable waveform generation
         model = model.transform(PrepareRTLSim(behav=True))
-        
-    # Save debug model with descriptive filename
-    model.save(f"layernorm_{debug_suffix}_debug.onnx")
-    
-    # Save input and reference output for inspection
-    np.save(f"layernorm_{debug_suffix}_input.npy", input)
-    np.save(f"layernorm_{debug_suffix}_y_ref.npy", y_ref)
     
     input_t = {model.graph.input[0].name: input}
 
     y_rtl = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
     
-    # Save RTL output for inspection
-    np.save(f"layernorm_{debug_suffix}_y_rtl.npy", y_rtl)
-    
-    print(f"DEBUG: Saved arrays for {debug_suffix}")
-    print(f"  Input shape: {input.shape}")
-    print(f"  y_ref shape: {y_ref.shape}, min/max: {y_ref.min():.6f}/{y_ref.max():.6f}")
-    print(f"  y_rtl shape: {y_rtl.shape}, min/max: {y_rtl.min():.6f}/{y_rtl.max():.6f}")
-    print(f"  Max absolute difference: {np.abs(y_ref - y_rtl).max():.6f}")
-
     assert np.allclose(y_ref, y_rtl, rtol=1e-3, atol=2**-4)
 
     if sim_style == "node_by_node":
