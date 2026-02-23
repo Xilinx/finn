@@ -33,54 +33,41 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         return my_attrs
 
     def generate_hdl(self, model, fpgapart, clk):
-        # Force internal_decoupled mode for RTL elementwise operations at HDL generation time
         rhs_style = self.get_nodeattr("rhs_style")
-        
         if rhs_style == "const":
             self.set_nodeattr("mem_mode", "internal_decoupled")
-            num_input_vecs = self.calc_numInputVectors()
-            self.set_nodeattr("numInputVectors", num_input_vecs)
-        
+            self.set_nodeattr("numInputVectors", self.calc_numInputVectors())
+
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_params(model, code_gen_dir)
-        
+
         rtlsrc = f'{os.environ["FINN_ROOT"]}/finn-rtllib/eltwisef'
         template_path = f"{rtlsrc}/eltwisef_template.v"
-        dt = DataType[self.get_nodeattr("out_dtype")]
         pe = self.get_nodeattr("PE")
-        
-        op_name = self._get_rtl_op_name()
-        
+
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
             "PE": pe,
-            "OP": op_name,
+            "OP": self._get_rtl_op_name(),
             "B_SCALE": 1.0,
             "FORCE_BEHAVIORAL": 0,
             "STREAM_BITS": pe * 32,
         }
-        
+
         with open(template_path, "r") as f:
             template = f.read()
         for key_name in code_gen_dict:
-            key = f"${key_name}$"
-            template = template.replace(key, str(code_gen_dict[key_name]))
+            template = template.replace(f"${key_name}$", str(code_gen_dict[key_name]))
 
         with open(os.path.join(code_gen_dir, f"{self.get_verilog_top_module_name()}.v"), "w") as f:
             f.write(template)
 
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" and rhs_style == "const":
-            try:
-                self.generate_hdl_memstream(fpgapart)
-            except Exception as e:
-                raise
-        else:
+        if rhs_style == "const":
+            self.generate_hdl_memstream(fpgapart)
 
-        sv_files = ["eltwisef.sv", "binopf.sv", "queue.sv"]
-        for sv_file in sv_files:
+        for sv_file in ["eltwisef.sv", "binopf.sv", "queue.sv"]:
             shutil.copy(f"{rtlsrc}/{sv_file}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
@@ -103,22 +90,14 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        
         rhs_style = self.get_nodeattr("rhs_style")
         if rhs_style == "const":
             self.set_nodeattr("mem_mode", "internal_decoupled")
-        
+
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
-        mem_mode = self.get_nodeattr("mem_mode")
-        sname = "V"
 
-        if mem_mode == "internal_decoupled":
-            rhs_style = self.get_nodeattr("rhs_style")
-            
-            if rhs_style != "const":
-                self.instantiate_ip(cmd)
-                return cmd
+        if rhs_style == "const":
             node_name = self.onnx_node.name
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -200,12 +179,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
-            connection_cmd = (
+            cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/in1_%s]"
-                % (node_name, strm_inst, node_name, node_name, sname)
+                "[get_bd_intf_pins %s/%s/in1_V]" % (node_name, strm_inst, node_name, node_name)
             )
-            cmd.append(connection_cmd)
             if runtime_writable:
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
@@ -219,44 +196,28 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                     % (node_name, axilite_name, node_name, strm_inst, axilite_name)
                 )
                 cmd.append("assign_bd_address")
-
-            # save bd
             cmd.append("save_bd_design")
-        elif mem_mode == "internal_embedded" or mem_mode == "external":
-            self.instantiate_ip(cmd)
         else:
-            raise Exception("Unrecognized mem_mode for ElementwiseBinary_rtl")
+            self.instantiate_ip(cmd)
         return cmd
 
     def instantiate_ip(self, cmd):
-        """Instantiate the RTL IP for the elementwise operation."""
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/eltwisef/")
         top_module = self.get_nodeattr("gen_top_module")
-        
+        source_target = "./ip/verilog/rtl_ops/%s" % node_name
+
         sourcefiles = [
             os.path.join(code_gen_dir, f"{top_module}.v"),
             rtllib_dir + "eltwisef.sv",
-            rtllib_dir + "binopf.sv", 
+            rtllib_dir + "binopf.sv",
             rtllib_dir + "queue.sv",
         ]
-        
-        source_target = "./ip/verilog/rtl_ops/%s" % node_name
+
         for f in sourcefiles:
             cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
-        
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled":
-            cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s"
-                % (top_module, node_name, node_name)
-            )
-        else:
-            cmd.append(
-                "create_bd_cell -type hier -reference %s %s"
-                % (top_module, node_name)
-            )
+        cmd.append("create_bd_cell -type hier -reference %s %s" % (top_module, node_name))
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -273,14 +234,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             assert list(rhs.shape) == self.get_normal_input_shape(ind=1), \
                 f"Input shape mismatch for {node.input[1]}"
 
-            mem_mode = self.get_nodeattr("mem_mode")
-            rhs_decoupled = self.rhs_style == "const" and mem_mode == "internal_decoupled"
-            lhs_decoupled = self.lhs_style == "const" and mem_mode == "internal_decoupled"
             out_shape = self.get_normal_output_shape(ind=0)
-
-            if rhs_decoupled:
+            if self.rhs_style == "const":
                 rhs = np.broadcast_to(rhs, out_shape)
-            if lhs_decoupled:
+            if self.lhs_style == "const":
                 lhs = np.broadcast_to(lhs, out_shape)
 
             lhs = lhs.reshape(self.get_folded_input_shape(ind=0))
@@ -297,9 +254,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rhs_dtype = self.get_input_datatype(ind=1)
             rhs_width = self.get_instream_width(ind=1)
 
-            if self.lhs_style == "input" or lhs_decoupled:
+            if self.lhs_style == "input" or self.lhs_style == "const":
                 io_dict["inputs"]["in0"] = npy_to_rtlsim_input(lhs_filename, lhs_dtype, lhs_width)
-            if self.rhs_style == "input" or rhs_decoupled:
+            if self.rhs_style == "input" or self.rhs_style == "const":
                 io_dict["inputs"]["in1"] = npy_to_rtlsim_input(rhs_filename, rhs_dtype, rhs_width)
 
             sim = self.get_rtlsim()
@@ -319,105 +276,64 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             ElementwiseBinaryOperation.execute_node(self, context, graph)
 
     def generate_params(self, model, code_gen_dir):
-        """Generate weight/constant parameter files for memstream."""
-        mem_mode = self.get_nodeattr("mem_mode")
-        
-        if mem_mode == "internal_decoupled":
-            rhs_style = self.get_nodeattr("rhs_style")
-            
-            weights = model.get_initializer(self.onnx_node.input[1])
-            if weights is not None:
-                self.make_weight_file(weights, "decoupled_npy", f"{code_gen_dir}/input_1.npy")
-                self.make_weight_file(weights, "decoupled_verilog_dat", f"{code_gen_dir}/memblock.dat")
-                wmem_val = self.calc_wmem()
-                self.set_nodeattr("wmem", wmem_val)
+        weights = model.get_initializer(self.onnx_node.input[1])
+        if weights is not None:
+            self.make_weight_file(weights, "decoupled_npy", f"{code_gen_dir}/input_1.npy")
+            self.make_weight_file(weights, "decoupled_verilog_dat", f"{code_gen_dir}/memblock.dat")
+            self.set_nodeattr("wmem", self.calc_wmem())
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
-        """Produce a file containing given constants in appropriate format for memstream.
-        For internal_decoupled mode, replicate constants based on numInputVectors."""
         from finn.util.data_packing import pack_innermost_dim_as_hex_string
         from finn.util.basic import roundup_to_integer_multiple
-            
+
         folded_weight_shape = self.get_folded_input_shape(1)
         weight_tensor = weights.reshape(folded_weight_shape).copy()
-        
+
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            replicated_weights = np.tile(weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1))
-            weight_tensor = replicated_weights
-            
+            weight_tensor = np.tile(weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1))
+
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
         weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-        
+
         if weight_file_mode == "decoupled_verilog_dat":
-            total_shape = weight_tensor.shape
+            shape = weight_tensor.shape
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, total_shape[-1]), 
-                export_wdt, 
-                weight_width_padded, 
+                weight_tensor.reshape(1, -1, shape[-1]),
+                export_wdt,
+                weight_width_padded,
                 prefix=""
             )
         else:
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, folded_weight_shape[-1]), 
-                export_wdt, 
-                weight_width_padded, 
+                weight_tensor.reshape(1, -1, folded_weight_shape[-1]),
+                export_wdt,
+                weight_width_padded,
                 prefix=""
             )
-            
+
         weight_stream = weight_tensor_hex.flatten()
         with open(weight_file_name, "w") as f:
             for val in weight_stream:
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        """Calculate WMEM accounting for constant repetition in internal_decoupled mode."""
         base_wmem = super().calc_wmem()
-        
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            return base_wmem * num_w_reps
-        else:
-            return base_wmem
+        num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+        return base_wmem * num_w_reps
 
     def calc_numInputVectors(self):
-        """Calculate numInputVectors based on input shapes for constant repetition."""
-        lhs_shape = self.get_nodeattr("lhs_shape") 
-        rhs_shape = self.get_nodeattr("rhs_shape")
-        
-        # For elementwise operations, calculate how many times constants need repetition
-        # This should be the number of transactions on the primary input stream
         if self.get_nodeattr("rhs_style") == "const":
-            # Calculate based on folded input shape to match streaming pattern
             folded_lhs = self.get_folded_input_shape(0)
-            
-            # For elementwise binary RTL operations, the constants need to be repeated
-            # for each set of input vectors that don't match the constant dimension
-            # folded_lhs is typically [batch_size, num_vectors, vector_size]
-            # For [1, 16, 48] with constant [48], we need [1, 16] repetitions
             if len(folded_lhs) >= 2:
-                # All dimensions except the last (parallelized) dimension need repetition
-                num_input_vecs = list(folded_lhs[:-1])
-            else:
-                num_input_vecs = [1]
-        else:
-            num_input_vecs = [1]
-        
-        return num_input_vecs
+                return list(folded_lhs[:-1])
+        return [1]
 
     def minimize_weight_bit_width(self, model):
-        """Override to also set numInputVectors when styles are determined."""
         super().minimize_weight_bit_width(model)
-        
-        lhs_style = self.get_nodeattr("lhs_style")
-        rhs_style = self.get_nodeattr("rhs_style")
-        
-        # Force internal_decoupled mode for RTL elementwise operations to ensure memstream
         self.set_nodeattr("mem_mode", "internal_decoupled")
-        
-        num_input_vecs = self.calc_numInputVectors()
-        self.set_nodeattr("numInputVectors", num_input_vecs)
+        self.set_nodeattr("numInputVectors", self.calc_numInputVectors())
 
     def _get_rtl_op_name(self):
         """Override in subclasses to return the correct RTL operation name."""
