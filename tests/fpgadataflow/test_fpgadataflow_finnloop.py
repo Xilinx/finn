@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 import os
 import re
+from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -473,11 +474,6 @@ def test_finnloop_end2end_mlo(
         "step_hw_ipgen",
         "step_set_fifo_depths",
         "step_create_stitched_ip",
-        "step_measure_rtlsim_performance",
-        "step_out_of_context_synthesis",
-        "step_synthesize_bitfile",
-        "step_make_driver",
-        "step_deployment_package",
     ]
 
     cfg = build_cfg.DataflowBuildConfig(
@@ -500,6 +496,34 @@ def test_finnloop_end2end_mlo(
         ],
     )
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # check if expected files are there
+    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
+    report_dir = tmp_output_dir + "/report"
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts.json")
+
+    verif_dir = tmp_output_dir + "/verification_output"
+    assert os.path.isfile(verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
+    assert os.path.isfile(verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy")
+    assert os.path.isfile(verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy")
+
+    # launch another build just to test dcp generation
+    cfg = replace(
+        cfg,
+        start_step="step_create_stitched_ip",
+        stitched_ip_gen_dcp=True,
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # check if stitched IP dcp is there
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
 
 # Debug test for manual loop transformation steps below
@@ -564,7 +588,9 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 @pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
-# Note: fpgataflow, slow, and vivado markers removed to prevent CI auto-discovery
+@pytest.mark.vivado
+@pytest.mark.slow
+# Note: fpgataflow marker removed to prevent CI auto-discovery
 def test_fpgadataflow_finnloop(
     dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
