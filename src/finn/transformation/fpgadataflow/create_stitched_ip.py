@@ -615,7 +615,7 @@ close $ofile
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 "
             + "&& (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog "
-            + '|| FILE_TYPE =="Verilog Header")}]'
+            + '|| FILE_TYPE == "Verilog Header" || FILE_TYPE == VHDL)}]'
         )
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
