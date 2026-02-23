@@ -145,14 +145,14 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
 def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
     """Test RTL elementwise operations with memstream for broadcast constants.
     
-    Dynamic input: [128, 384] - streamed during operation
+    Dynamic input: [1, 384] - streamed during operation
     Constant input: [384] - stored in memstream, broadcast to match dynamic input
     """
     
     lhs_dtype = "FLOAT32"
     rhs_dtype = "FLOAT32" 
     out_dtype = "FLOAT32"
-    lhs_shape = [128, 384]  # Large dynamic input
+    lhs_shape = [1, 384]  # Large dynamic input
     rhs_shape = [384]       # Broadcast constant
     
     model = create_elementwise_binary_operation_onnx(
