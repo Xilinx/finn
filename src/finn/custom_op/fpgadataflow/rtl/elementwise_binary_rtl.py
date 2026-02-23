@@ -223,7 +223,11 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
         for f in sourcefiles:
             cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
-        cmd.append("create_bd_cell -type hier -reference %s %s" % (top_module, node_name))
+
+        if self.get_nodeattr("rhs_style") == "const":
+            cmd.append("create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name))
+        else:
+            cmd.append("create_bd_cell -type hier -reference %s %s" % (top_module, node_name))
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
