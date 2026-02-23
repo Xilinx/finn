@@ -243,13 +243,18 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f"Input shape mismatch for {node.input[1]}"
 
             out_shape = self.get_normal_output_shape(ind=0)
-            if self.rhs_style == "const":
-                rhs = np.broadcast_to(rhs, out_shape)
+
             if self.lhs_style == "const":
                 lhs = np.broadcast_to(lhs, out_shape)
+                lhs = lhs.reshape(self.get_folded_output_shape(ind=0))
+            else:
+                lhs = lhs.reshape(self.get_folded_input_shape(ind=0))
 
-            lhs = lhs.reshape(self.get_folded_input_shape(ind=0))
-            rhs = rhs.reshape(self.get_folded_input_shape(ind=0))
+            if self.rhs_style == "const":
+                rhs = np.broadcast_to(rhs, out_shape)
+                rhs = rhs.reshape(self.get_folded_output_shape(ind=0))
+            else:
+                rhs = rhs.reshape(self.get_folded_input_shape(ind=1))
 
             lhs_filename = os.path.join(code_gen_dir, "input_0.npy")
             rhs_filename = os.path.join(code_gen_dir, "input_1.npy")
@@ -262,9 +267,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rhs_dtype = self.get_input_datatype(ind=1)
             rhs_width = self.get_instream_width(ind=1)
 
-            if self.lhs_style == "input" or self.lhs_style == "const":
+            mem_mode = self.get_nodeattr("mem_mode")
+            lhs_decoupled = self.lhs_style == "const" and mem_mode == "internal_decoupled"
+            rhs_decoupled = self.rhs_style == "const" and mem_mode == "internal_decoupled"
+
+            if self.lhs_style == "input" or lhs_decoupled:
                 io_dict["inputs"]["in0"] = npy_to_rtlsim_input(lhs_filename, lhs_dtype, lhs_width)
-            if self.rhs_style == "input" or self.rhs_style == "const":
+            if self.rhs_style == "input" or rhs_decoupled:
                 io_dict["inputs"]["in1"] = npy_to_rtlsim_input(rhs_filename, rhs_dtype, rhs_width)
 
             sim = self.get_rtlsim()
@@ -326,7 +335,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def calc_wmem(self):
         base_wmem = super().calc_wmem()
         num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-        return base_wmem * num_w_reps
+        return int(base_wmem * num_w_reps)
 
     def calc_numInputVectors(self):
         if self.get_nodeattr("rhs_style") == "const":

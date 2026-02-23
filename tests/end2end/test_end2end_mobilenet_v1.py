@@ -120,7 +120,7 @@ def test_end2end_mobilenet_export():
     preproc_model = ModelWrapper(preproc_onnx)
     preproc_model = preproc_model.transform(ConvertQONNXtoFINN())
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
+    preproc_model.set_tensor_datatype(preproc_model.get_first_global_in(), DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(FoldConstants())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
@@ -374,8 +374,8 @@ def test_end2end_mobilenet_cppsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_minimize_bitwidth.onnx")
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    inp_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     inp_dict = {inp_name: x}
     start = time.time()
     # cppsim
@@ -429,8 +429,8 @@ def test_end2end_mobilenet_rtlsim():
     )
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    inp_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     inp_dict = {inp_name: x}
     # rtlsim
     model = model.transform(SetExecMode("rtlsim"))
@@ -510,8 +510,8 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
     # Prepare input
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
+    inp_name = model.get_first_global_in()
+    out_name = model.get_first_global_out()
     inp_dict = {inp_name: x}
 
     # set top-level prop for stitched-ip rtlsim and launch

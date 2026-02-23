@@ -39,6 +39,11 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
         if is_custom:
             oi = getCustomOp(n)
             layer_dict = dict()
+            for attr in attr_names_to_extract:
+                try:
+                    layer_dict[attr] = oi.get_nodeattr(attr)
+                except AttributeError:
+                    pass
 
         # Process node attributes - handle both subgraphs and extractable attributes
         for attr in n.attribute:
@@ -53,9 +58,6 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
                         attr_names_to_extract,
                     )
                 )
-            elif is_custom and attr.name in attr_names_to_extract:
-                # For custom ops, extract the requested attribute
-                layer_dict[attr.name] = oi.get_nodeattr(attr.name)
 
         # Add the node's config if we extracted any attributes
         if is_custom and len(layer_dict) > 0:

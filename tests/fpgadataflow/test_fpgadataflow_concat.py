@@ -89,7 +89,7 @@ def test_fpgadataflow_concat(exec_mode, test_idts):
     assert len(i_shapes) == len(model.graph.input)
     assert len(model.graph.output) == 1
     exp_oshape = list(i_shapes[0][:-1]) + [sum(x[-1] for x in i_shapes)]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_shape(oname) == exp_oshape
     exp_out = np.concatenate(i_data, axis=-1)
     inp_dict = {}
@@ -101,7 +101,7 @@ def test_fpgadataflow_concat(exec_mode, test_idts):
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
-    assert model.get_tensor_datatype(model.graph.output[0].name) == exp_odt
+    assert model.get_tensor_datatype(model.get_first_global_out()) == exp_odt
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -136,7 +136,7 @@ def test_fpgadataflow_concat_stitchedip():
     assert len(i_shapes) == len(model.graph.input)
     assert len(model.graph.output) == 1
     exp_oshape = list(i_shapes[0][:-1]) + [sum(x[-1] for x in i_shapes)]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_shape(oname) == exp_oshape
     exp_out = np.concatenate(i_data, axis=-1)
     inp_dict = {}
@@ -148,7 +148,7 @@ def test_fpgadataflow_concat_stitchedip():
     model = model.transform(InferConcatLayer())
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
-    assert model.get_tensor_datatype(model.graph.output[0].name) == exp_odt
+    assert model.get_tensor_datatype(model.get_first_global_out()) == exp_odt
     model = model.transform(SpecializeLayers(fpga_part))
     assert model.graph.node[0].op_type == "StreamingConcat_hls"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.hls"

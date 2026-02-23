@@ -8,8 +8,8 @@
 # MIT license as part of project Brainsmith.
 # All other copyright is held by AMD and is provided under BSD-3-Clause license.
 #
-# Note: This transform was originally written by Thomas Keller (ExpandNorms)
-# and was adjusted.
+# Note: This transform is inspired by a transformation from Thomas Keller (ExpandNorms)
+# and ExtractQuantScaleZeroPt from qonnx.
 #
 ############################################################################
 
@@ -17,8 +17,8 @@ import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.transformation.base import Transformation
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.general import GiveUniqueParameterTensors, SortGraph
+from qonnx.transformation.remove import RemoveIdentityOps
 
 
 class ExtractNormScaleBias(Transformation):
@@ -30,85 +30,76 @@ class ExtractNormScaleBias(Transformation):
 
     def apply(self, model):
         graph = model.graph
-        node_ind = 0
-        graph_modified = False
-
         for node in graph.node:
-            node_ind += 1
             if node.op_type == "LayerNormalization":
-                scale = model.get_initializer(node.input[1])
+                ln_node = node
+                input_ln = node.input[0]
+                scale_tensor = node.input[1]
+                # bias input is optional input
                 if len(node.input) > 2:
-                    bias = model.get_initializer(node.input[2])
+                    bias_tensor = node.input[2]
+                    bias = model.get_initializer(bias_tensor)
                 else:
                     bias = None
-                scale_is_one = (scale == 1).all()
-                bias_is_zero = not np.any(bias)
-                if scale_is_one and (bias_is_zero or bias is None):
+                scale = model.get_initializer(scale_tensor)
+                extract_scale = False
+                extract_bias = False
+                if (scale != 1).any():
+                    extract_scale = True
+                if bias is not None and np.any(bias):
+                    extract_bias = True
+                if (not extract_scale) and (not extract_bias):
                     continue
-                act_shape = model.get_tensor_shape(node.input[0])
-                act_out = node.output[0]
-                if not scale_is_one:
-                    # extract scale into separate Mul node
-                    scale_dt = model.get_tensor_datatype(node.input[1])
-                    # Create new tensors
+                act_shape = model.get_tensor_shape(input_ln)
+                last_node = ln_node
+                final_output = ln_node.output[0]
+                if extract_scale:
+                    # create new Mul node that applies the scale
+                    # Create new tensor
+                    scale_act_in_name = model.make_new_valueinfo_name()
                     scale_act_in = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, act_shape
+                        scale_act_in_name, TensorProto.FLOAT, act_shape
                     )
-                    scale_value = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, [act_shape[-1]]
-                    )
+                    last_node.output[0] = scale_act_in_name
                     graph.value_info.append(scale_act_in)
-                    graph.value_info.append(scale_value)
-
-                    # Update previous output tensor
-                    node.output[0] = scale_act_in.name
-                    # Create Mul node to replace scale
-                    mul_node = oh.make_node("Mul", [scale_act_in.name, scale_value.name], [act_out])
-
-                    # set scale to all ones in LayerNormalization
-                    model.set_initializer(node.input[1], np.ones(act_shape[-1], dtype=np.float32))
-
-                    graph_modified = True
-
-                if not bias_is_zero or bias is not None:
-                    # extract bias into separate Add node
-                    bias_dt = model.get_tensor_datatype(node.input[2])
-                    # Create new input tensor
-                    bias_act_in = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, act_shape
+                    scale_node = oh.make_node(
+                        "Mul", [scale_act_in_name, scale_tensor], [final_output]
                     )
-                    bias_value = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(), TensorProto.FLOAT, [act_shape[-1]]
+                    graph.node.append(scale_node)
+                    # important: when tracking a pointer to newly added nodes,
+                    # ensure the item from the container is used, and not the
+                    # make_node result -- those are different objects
+                    # e.g. if we use last_node = scale_node below,
+                    # this will point to the wrong object and cause bugs later
+                    last_node = graph.node[-1]
+                    # remove scale from LayerNorm node
+                    new_scale_name = model.make_new_valueinfo_name()
+                    model.set_initializer(new_scale_name, np.ones(act_shape[-1], dtype=np.float32))
+                    ln_node.input[1] = new_scale_name
+                if extract_bias:
+                    # create new Add node that applies bias
+                    # create new tensor
+                    bias_act_in_name = model.make_new_valueinfo_name()
+                    bias_act_in = oh.make_tensor_value_info(
+                        bias_act_in_name, TensorProto.FLOAT, act_shape
                     )
                     graph.value_info.append(bias_act_in)
-                    graph.value_info.append(bias_value)
-                    # Update previous output tensor
-                    if not scale_is_one:
-                        mul_node.output[0] = bias_act_in.name
-                    else:
-                        node.output[0] = bias_act_in.name
+                    bias_node = oh.make_node("Add", [bias_act_in_name, bias_tensor], [final_output])
+                    last_node.output[0] = bias_act_in_name
+                    graph.node.append(bias_node)
+                    # remove bias from LayerNorm node
+                    new_bias_name = model.make_new_valueinfo_name()
+                    model.set_initializer(new_bias_name, np.zeros(act_shape[-1], dtype=np.float32))
+                    ln_node.input[2] = new_bias_name
 
-                    # Create Add node to replace bias
-                    add_node = oh.make_node("Add", [bias_act_in.name, bias_value.name], [act_out])
+                if extract_scale or extract_bias:
+                    # since we used append() for new nodes, need to call
+                    # SortGraph to ensure correct (topological) order
+                    model = model.transform(SortGraph())
+                    # Remove potential unity multiplications from alpha and beta attributes
+                    model = model.transform(RemoveIdentityOps())
+                    # Ensure unique parameter tensors
+                    model = model.transform(GiveUniqueParameterTensors())
+                    return model, True
 
-                    # set bias to all zeros in LayerNormalization
-                    model.set_initializer(node.input[2], np.zeros(act_shape[-1], dtype=np.float32))
-
-                    graph_modified = True
-
-                # insert new nodes
-                insert_point = node_ind
-                if not scale_is_one:
-                    insert_point += 1
-                    graph.node.insert(insert_point, mul_node)
-                    model.set_initializer(mul_node.input[1], scale)
-                    model.set_tensor_datatype(mul_node.input[1], scale_dt)
-                if not bias_is_zero or bias is not None:
-                    insert_point += 1
-                    graph.node.insert(insert_point, add_node)
-                    model.set_initializer(add_node.input[1], bias)
-                    model.set_tensor_datatype(add_node.input[1], bias_dt)
-                model = model.transform(InferShapes())
-                model = model.transform(InferDataTypes())
-
-        return (model, graph_modified)
+        return model, False

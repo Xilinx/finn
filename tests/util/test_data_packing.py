@@ -36,7 +36,12 @@ from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.util.basic import make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, numpy_to_hls_code
+from finn.util.data_packing import (
+    finnpy_to_packed_bytearray,
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    packed_bytearray_to_finnpy,
+)
 
 
 @pytest.mark.util
@@ -180,3 +185,46 @@ def test_npy_to_rtlsim_input(dtype):
 
     assert all([(x >> dtype.bitwidth()) == 0 for x in output_fast]), "extraneous bits detected"
     assert np.all(output_fast == output_slow_split), "different behavior of packing modes detected"
+
+
+@pytest.mark.util
+@pytest.mark.parametrize("simd", [1, 2, 4, 8])
+@pytest.mark.parametrize("reverse_inner", [False, True])
+@pytest.mark.parametrize("reverse_endian", [False, True])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        DataType["BINARY"],
+        DataType["BIPOLAR"],
+        DataType["TERNARY"],
+        DataType["UINT2"],
+        DataType["UINT3"],
+        DataType["INT7"],
+        DataType["INT8"],
+        DataType["INT22"],
+        DataType["INT32"],
+        DataType["UINT7"],
+        DataType["UINT8"],
+        DataType["UINT15"],
+        DataType["UINT32"],
+        DataType["UINT63"],
+        DataType["FIXED<7,4>"],
+        DataType["FIXED<9,6>"],
+        DataType["FIXED<31,23>"],
+        DataType["FLOAT32"],
+    ],
+)
+def test_driver_pack_unpack(dtype, reverse_inner, reverse_endian, simd):
+    folded_shape = (10, 8 // simd, simd)  # N H W FOLD SIMD
+    input = gen_finn_dt_tensor(dtype, folded_shape)
+    input_packed = finnpy_to_packed_bytearray(input, dtype, reverse_inner, reverse_endian, True)
+
+    input_unpacked = packed_bytearray_to_finnpy(
+        input_packed, dtype, folded_shape, reverse_inner, reverse_endian
+    )
+
+    assert input_unpacked.dtype == np.float32
+    # Check shape
+    assert input.shape == input_unpacked.shape
+    # Check values
+    assert np.all(input == input_unpacked)

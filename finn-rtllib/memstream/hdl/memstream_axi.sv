@@ -39,7 +39,7 @@ module memstream_axi #(
 	parameter  RAM_STYLE = "auto",
 	bit  PUMPED_MEMORY = 0,
 
-	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
+	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(SETS * DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
 	localparam int unsigned  SET_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	// Global Control
@@ -84,7 +84,7 @@ module memstream_axi #(
 	output	logic [((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	localparam int unsigned  IP_ADDR_WIDTH0 = $clog2(DEPTH);
+	localparam int unsigned  IP_ADDR_WIDTH0 = $clog2(SETS * DEPTH);
 	localparam int unsigned  IP_ADDR_WIDTH = IP_ADDR_WIDTH0? IP_ADDR_WIDTH0 : 1;
 
 	//-----------------------------------------------------------------------

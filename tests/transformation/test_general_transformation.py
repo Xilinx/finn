@@ -14,8 +14,10 @@ import os
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import ApplyConfig, GiveUniqueNodeNames
+from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+
+from finn.transformation.general import ApplyConfig
 
 
 @pytest.mark.transform

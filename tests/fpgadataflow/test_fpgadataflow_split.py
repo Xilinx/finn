@@ -107,7 +107,7 @@ def test_fpgadataflow_split(exec_mode, idt):
     for out_shape in exp_oshapes:
         inputs.append(np.random.randint(idt.min(), idt.max() + 1, out_shape).astype(np.float32))
     test_input = np.concatenate(inputs, axis=split_axis)
-    input_dict = {model.graph.input[0].name: test_input}
+    input_dict = {model.get_first_global_in(): test_input}
     ret = execute_onnx(model, input_dict)
     for i, (k, v) in enumerate(ret.items()):
         assert (v == inputs[i]).all()
