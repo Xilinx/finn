@@ -13,6 +13,12 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.util.basic import roundup_to_integer_multiple
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
+)
 
 
 class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
@@ -222,8 +228,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
-            from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
             node = self.onnx_node
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             lhs = context[node.input[0]]
@@ -283,9 +287,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             self.set_nodeattr("wmem", self.calc_wmem())
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
-        from finn.util.data_packing import pack_innermost_dim_as_hex_string
-        from finn.util.basic import roundup_to_integer_multiple
-
         folded_weight_shape = self.get_folded_input_shape(1)
         weight_tensor = weights.reshape(folded_weight_shape).copy()
 

@@ -100,17 +100,12 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}"
 
-    # Set preferred implementation style to RTL
     node_inst = getCustomOp(model.graph.node[0])
     node_inst.set_nodeattr("preferred_impl_style", "rtl")
     node_inst.set_nodeattr("PE", pe)
-    # Set input constraints: input 0 = dynamic, input 1 = constant
     node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
     node_inst.set_nodeattr("rhs_style", "const")  # constant data
-    # Set memory mode for constants
     node_inst.set_nodeattr("mem_mode", "internal_decoupled")
-    # Enable RTL waveform tracing for debugging
-    node_inst.set_nodeattr("rtlsim_trace", f"elementwise_{op_type.lower()}_pe{pe}_debug.wdb")
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
@@ -121,9 +116,6 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    
-    # Save model for debugging
-    model.save(f"elementwise_{op_type.lower()}_pe{pe}_debug.onnx")
     
     model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
     model = model.transform(HLSSynthIP())
@@ -179,17 +171,12 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}"
 
-    # Set preferred implementation style to RTL with memstream
     node_inst = getCustomOp(model.graph.node[0])
     node_inst.set_nodeattr("preferred_impl_style", "rtl")
     node_inst.set_nodeattr("PE", pe)
-    # Set input constraints: input 0 = dynamic, input 1 = constant
     node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
     node_inst.set_nodeattr("rhs_style", "const")  # constant data stored in memstream
-    # Set memory mode for constants
     node_inst.set_nodeattr("mem_mode", "internal_decoupled")
-    # Enable RTL waveform tracing for debugging
-    node_inst.set_nodeattr("rtlsim_trace", f"memstream_{op_type.lower()}_pe{pe}_debug.wdb")
     
     # Verify PE divides into the last dimension
     assert lhs_shape[-1] % pe == 0, f"PE ({pe}) must divide last dimension ({lhs_shape[-1]})"
@@ -208,9 +195,6 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    
-    # Save model for debugging
-    model.save(f"memstream_{op_type.lower()}_pe{pe}_debug.onnx")
     
     model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
     model = model.transform(HLSSynthIP())
