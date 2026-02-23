@@ -94,7 +94,7 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType["INT4"], DataType["UINT16"]])
+@pytest.mark.parametrize("idt", [DataType["INT4"], DataType["FLOAT32"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding
@@ -176,9 +176,7 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
         ("first_node", 4, 0),  # First node splits into 4 successors
     ],
 )
-def test_infer_duplicatestreams_with_global_output(
-    split_source, num_successors, num_global_outputs
-):
+def test_infer_duplicatestreams(split_source, num_successors, num_global_outputs):
     """Test that InferDuplicateStreamsLayer handles various fanout scenarios."""
 
     ch = 64
