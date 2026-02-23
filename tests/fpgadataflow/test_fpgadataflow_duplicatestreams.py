@@ -162,13 +162,25 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
         assert exp_cycles != 0
 
 
+# Test scenarios with different numbers of successors and global outputs
+# Tuples: (split_source, num_successors, num_global_outputs)
+# split_source: "global_input" or "first_node"
 @pytest.mark.fpgadataflow
-def test_infer_duplicatestreams_with_global_output():
-    """Test that InferDuplicateStreamsLayer handles the case where a node output
-    is both connected to another node AND is a global output."""
+@pytest.mark.parametrize(
+    "split_source,num_successors,num_global_outputs",
+    [
+        ("global_input", 2, 0),  # Global input splits into 2 successors
+        ("global_input", 5, 0),  # Global input splits into 5 successors
+        ("first_node", 1, 1),  # First node splits into 1 successor + 1 global output
+        ("first_node", 3, 1),  # First node splits into 3 successors + 1 global output
+        ("first_node", 4, 0),  # First node splits into 4 successors
+    ],
+)
+def test_infer_duplicatestreams_with_global_output(
+    split_source, num_successors, num_global_outputs
+):
+    """Test that InferDuplicateStreamsLayer handles various fanout scenarios."""
 
-    # Create a model with three Add nodes in a row
-    # where the first and third Add nodes' outputs are also global outputs
     ch = 64
     idim = 7
     idt = DataType["INT4"]
@@ -176,57 +188,69 @@ def test_infer_duplicatestreams_with_global_output():
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
 
-    # Create constant tensors to add
-    const1_values = gen_finn_dt_tensor(idt, shape)
-    const2_values = gen_finn_dt_tensor(idt, shape)
-    const3_values = gen_finn_dt_tensor(idt, shape)
+    nodes = []
+    initializers = []
+    outputs = []
+    value_infos = []
+    const_values_list = []
 
-    const1 = helper.make_tensor("const1", TensorProto.FLOAT, shape, const1_values.flatten())
-    const2 = helper.make_tensor("const2", TensorProto.FLOAT, shape, const2_values.flatten())
-    const3 = helper.make_tensor("const3", TensorProto.FLOAT, shape, const3_values.flatten())
+    if split_source == "global_input":
+        # Create multiple successor nodes that consume the global input
+        for i in range(num_successors):
+            const_val = gen_finn_dt_tensor(idt, shape)
+            const_values_list.append(const_val)
+            const = helper.make_tensor(f"const{i}", TensorProto.FLOAT, shape, const_val.flatten())
+            initializers.append(const)
 
-    # First Add node - output is a global output AND connects to second Add
-    add1 = helper.make_node(
-        "Add",
-        ["inp", "const1"],
-        ["add1_out"],
-    )
+            add_node = helper.make_node("Add", ["inp", f"const{i}"], [f"out{i}"])
+            nodes.append(add_node)
 
-    # Second Add node - intermediate node
-    add2 = helper.make_node(
-        "Add",
-        ["add1_out", "const2"],
-        ["add2_out"],
-    )
+            out_info = helper.make_tensor_value_info(f"out{i}", TensorProto.FLOAT, shape)
+            outputs.append(out_info)
 
-    # Third Add node - output is a global output
-    add3 = helper.make_node(
-        "Add",
-        ["add2_out", "const3"],
-        ["add3_out"],
-    )
+    elif split_source == "first_node":
+        # Create first node
+        const0_val = gen_finn_dt_tensor(idt, shape)
+        const_values_list.append(const0_val)
+        const0 = helper.make_tensor("const0", TensorProto.FLOAT, shape, const0_val.flatten())
+        initializers.append(const0)
 
-    # Make add1_out and add3_out global outputs
-    # add1_out is both a global output AND an intermediate connection
-    add1_out = helper.make_tensor_value_info("add1_out", TensorProto.FLOAT, shape)
-    add2_out = helper.make_tensor_value_info("add2_out", TensorProto.FLOAT, shape)
-    add3_out = helper.make_tensor_value_info("add3_out", TensorProto.FLOAT, shape)
+        add0 = helper.make_node("Add", ["inp", "const0"], ["add0_out"])
+        nodes.append(add0)
+
+        # Create successor nodes that consume add0_out
+        for i in range(num_successors):
+            const_val = gen_finn_dt_tensor(idt, shape)
+            const_values_list.append(const_val)
+            const = helper.make_tensor(f"const{i+1}", TensorProto.FLOAT, shape, const_val.flatten())
+            initializers.append(const)
+
+            add_node = helper.make_node("Add", ["add0_out", f"const{i+1}"], [f"out{i}"])
+            nodes.append(add_node)
+
+            out_info = helper.make_tensor_value_info(f"out{i}", TensorProto.FLOAT, shape)
+            outputs.append(out_info)
+
+        # Add add0_out as global output if specified
+        if num_global_outputs > 0:
+            add0_out_info = helper.make_tensor_value_info("add0_out", TensorProto.FLOAT, shape)
+            outputs.insert(0, add0_out_info)  # Insert at beginning
 
     graph = helper.make_graph(
-        nodes=[add1, add2, add3],
+        nodes=nodes,
         name="test_graph",
         inputs=[inp],
-        outputs=[add1_out, add3_out],
-        initializer=[const1, const2, const3],
-        value_info=[add2_out],
+        outputs=outputs,
+        initializer=initializers,
+        value_info=value_infos,
     )
 
     model = qonnx_make_model(graph, producer_name="test-model")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("const1", idt)
-    model.set_tensor_datatype("const2", idt)
-    model.set_tensor_datatype("const3", idt)
+    for i, const in enumerate(initializers):
+        model.set_tensor_datatype(const.name, idt)
+
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
 
@@ -234,24 +258,31 @@ def test_infer_duplicatestreams_with_global_output():
     model = model.transform(InferDuplicateStreamsLayer())
 
     # Verify that a DuplicateStreams node was inserted
-    assert (
-        len(model.get_nodes_by_op_type("DuplicateStreams")) > 0
-    ), "DuplicateStreams node was not inserted."
+    dup_nodes = model.get_nodes_by_op_type("DuplicateStreams")
+    assert len(dup_nodes) == 1, f"Expected 1 DuplicateStreams node, got {len(dup_nodes)}"
 
-    # Verify execution: test that the model still produces correct outputs
+    # Verify execution
     x = gen_finn_dt_tensor(idt, shape)
     input_dict = {"inp": x}
 
     output_dict = oxe.execute_onnx(model, input_dict)
 
-    # Compute expected outputs
-    expected_add1 = x + const1_values
-    expected_add2 = expected_add1 + const2_values
-    expected_add3 = expected_add2 + const3_values
+    # Verify outputs
+    if split_source == "global_input":
+        for i in range(num_successors):
+            expected = x + const_values_list[i]
+            assert (output_dict[f"out{i}"] == expected).all(), f"Output out{i} incorrect"
 
-    assert (
-        output_dict[model.graph.output[0].name] == expected_add1
-    ).all(), "First output incorrect."
-    assert (
-        output_dict[model.graph.output[1].name] == expected_add3
-    ).all(), "Second output incorrect."
+    else:  # first_node
+        add0_result = x + const_values_list[0]
+
+        if num_global_outputs > 0:
+            # First output should be add0_out
+            assert (
+                output_dict[model.graph.output[0].name] == add0_result
+            ).all(), "add0_out global output incorrect"
+
+        # Remaining outputs are the successor results
+        for i in range(num_successors):
+            expected = add0_result + const_values_list[i + 1]
+            assert (output_dict[f"out{i}"] == expected).all(), f"Output out{i} incorrect"

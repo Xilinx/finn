@@ -438,7 +438,6 @@ class InferDuplicateStreamsLayer(Transformation):
         if successors is not None and len(successors) >= 2:
             output_tensor = graph.input[0].name
             n_outputs = len(successors)
-            dt = model.get_tensor_datatype(output_tensor)
 
             # create clone tensors
             out_shape = model.get_tensor_shape(output_tensor)
