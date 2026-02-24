@@ -239,8 +239,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
             assert list(lhs.shape) == self.get_normal_input_shape(ind=0), \
                 f"Input shape mismatch for {node.input[0]}"
-            assert list(rhs.shape) == self.get_normal_input_shape(ind=1), \
-                f"Input shape mismatch for {node.input[1]}"
+            if self.rhs_style != "const":
+                assert list(rhs.shape) == self.get_normal_input_shape(ind=1), \
+                    f"Input shape mismatch for {node.input[1]}"
 
             out_shape = self.get_normal_output_shape(ind=0)
 

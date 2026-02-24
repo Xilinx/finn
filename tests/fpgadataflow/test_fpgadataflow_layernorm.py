@@ -194,6 +194,7 @@ def test_fpgadataflow_hls_layernorm(idt, ishape, simd, sim_style):
     assert np.allclose(y_ref, y_hw, rtol=1e-3, atol=2**-4)
 
     getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
 
