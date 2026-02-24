@@ -33,7 +33,7 @@
 module ram_p_c #(
     int unsigned ADDR_BITS,
     int unsigned DATA_BITS,
-    string RAM_STYLE = "block"
+    parameter  RAM_STYLE = "block"
 ) (
     input  logic                          clk,
     input  logic                          a_en,

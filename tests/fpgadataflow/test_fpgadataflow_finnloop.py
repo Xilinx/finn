@@ -511,21 +511,38 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
-    assert os.path.isfile(verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy")
-    assert os.path.isfile(verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy")
-    assert os.path.isfile(verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy")
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
 
-    # launch another build just to test dcp generation
-    cfg = replace(
-        cfg,
-        start_step="step_create_stitched_ip",
-        stitched_ip_gen_dcp=True,
-        verify_steps=[],
-    )
-    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+    # also run dcp generation for a subset of the test parameters
+    # this extends the test run time quite a lot
+    # so only do for 2 of the scenarios
 
-    # check if stitched IP dcp is there
-    assert os.path.isfile(tmp_output_dir + "/stitched_ip/finn_design.dcp")
+    if (
+        elemwise_optype == "ElementwiseMul_hls"
+        and rhs_shape == [1]
+        and eltw_param_dtype == "FLOAT32"
+    ):
+        # launch another build just to test dcp generation
+        cfg = replace(
+            cfg,
+            start_step="step_create_stitched_ip",
+            stitched_ip_gen_dcp=True,
+            verify_steps=[],
+        )
+        build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+        # check if stitched IP dcp is there
+        assert os.path.isfile(
+            tmp_output_dir + "/stitched_ip/finn_design.dcp"
+        ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
 # Debug test for manual loop transformation steps below
