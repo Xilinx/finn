@@ -244,7 +244,6 @@ class InferThresholdingLayer(Transformation):
                     ActVal=actval,
                     name="Thresholding_" + node.name,
                 )
-
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
