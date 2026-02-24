@@ -29,7 +29,9 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import MinimizeWeightBitWidth
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -92,7 +94,7 @@ def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
 @pytest.mark.slow
 @pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
 @pytest.mark.parametrize("ishape", [[1, 16, 48], [1, 32]])
-#@pytest.mark.parametrize("ishape", [[48], [1, 32]])
+# @pytest.mark.parametrize("ishape", [[48], [1, 32]])
 @pytest.mark.parametrize("simd", [1, 2])
 @pytest.mark.parametrize(
     "sim_style",
@@ -135,7 +137,7 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim(behav=True))
-        
+
     elif sim_style == "stitched_ip":
         # Set debug waveform for stitched IP
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
@@ -145,11 +147,11 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         model.set_metadata_prop("exec_mode", "rtlsim")
         # Prepare RTL simulation for the stitched IP to enable waveform generation
         model = model.transform(PrepareRTLSim(behav=True))
-    
+
     input_t = {model.graph.input[0].name: input}
 
     y_rtl = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
-    
+
     assert np.allclose(y_ref, y_rtl, rtol=1e-3, atol=2**-4)
 
     if sim_style == "node_by_node":

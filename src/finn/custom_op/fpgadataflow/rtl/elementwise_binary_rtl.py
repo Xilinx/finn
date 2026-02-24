@@ -6,10 +6,9 @@
 #
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
+import numpy as np
 import os
 import shutil
-import numpy as np
-from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
@@ -31,11 +30,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         my_attrs = {}
         my_attrs.update(ElementwiseBinaryOperation.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
-        my_attrs.update({
-            "wmem": ("i", False, 0),
-            "numInputVectors": ("ints", False, [1]),
-            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-        })
+        my_attrs.update(
+            {
+                "wmem": ("i", False, 0),
+                "numInputVectors": ("ints", False, [1]),
+                "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            }
+        )
         return my_attrs
 
     def generate_hdl(self, model, fpgapart, clk):
@@ -120,10 +121,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            
+
             # instantiate the RTL block
             self.instantiate_ip(cmd)
-            
+
             # connect elementwise core
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
@@ -146,19 +147,19 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            
+
             axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
             ms_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
             file_suffix = "_memstream_wrapper.v"
-            
+
             strm_tmpl = None
             for fname in os.listdir(code_gen_dir):
                 if fname.endswith(file_suffix):
                     strm_tmpl = fname
-            
+
             if strm_tmpl is None:
                 raise Exception(f"No memstream wrapper found in {code_gen_dir}")
-                
+
             strm_tmpl_name = strm_tmpl[:-2]
             sourcefiles = [
                 os.path.join(code_gen_dir, strm_tmpl),
@@ -193,8 +194,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                    % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
@@ -225,7 +225,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
 
         if self.get_nodeattr("rhs_style") == "const":
-            cmd.append("create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name))
+            cmd.append(
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (top_module, node_name, node_name)
+            )
         else:
             cmd.append("create_bd_cell -type hier -reference %s %s" % (top_module, node_name))
 
@@ -237,11 +240,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             lhs = context[node.input[0]]
             rhs = context[node.input[1]]
 
-            assert list(lhs.shape) == self.get_normal_input_shape(ind=0), \
-                f"Input shape mismatch for {node.input[0]}"
+            assert list(lhs.shape) == self.get_normal_input_shape(
+                ind=0
+            ), f"Input shape mismatch for {node.input[0]}"
             if self.rhs_style != "const":
-                assert list(rhs.shape) == self.get_normal_input_shape(ind=1), \
-                    f"Input shape mismatch for {node.input[1]}"
+                assert list(rhs.shape) == self.get_normal_input_shape(
+                    ind=1
+                ), f"Input shape mismatch for {node.input[1]}"
 
             out_shape = self.get_normal_output_shape(ind=0)
 
@@ -289,7 +294,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             filename = os.path.join(code_gen_dir, "output_0.npy")
             rtlsim_output_to_npy(out, filename, dtype, shape, width, dtype.bitwidth())
             out = np.load(filename)
-            context[node.output[0]] = out.reshape(self.get_normal_output_shape(ind=0)).astype(np.float32)
+            context[node.output[0]] = out.reshape(self.get_normal_output_shape(ind=0)).astype(
+                np.float32
+            )
         else:
             ElementwiseBinaryOperation.execute_node(self, context, graph)
 
@@ -306,7 +313,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            weight_tensor = np.tile(weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1))
+            weight_tensor = np.tile(
+                weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1)
+            )
 
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
@@ -315,17 +324,14 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if weight_file_mode == "decoupled_verilog_dat":
             shape = weight_tensor.shape
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                prefix=""
+                weight_tensor.reshape(1, -1, shape[-1]), export_wdt, weight_width_padded, prefix=""
             )
         else:
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
                 weight_tensor.reshape(1, -1, folded_weight_shape[-1]),
                 export_wdt,
                 weight_width_padded,
-                prefix=""
+                prefix="",
             )
 
         weight_stream = weight_tensor_hex.flatten()
@@ -357,26 +363,26 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
 class ElementwiseAdd_rtl(ElementwiseBinary_rtl):
     """RTL implementation of elementwise addition for FLOAT32."""
-    
+
     _operation = "Add", np.add, "({0} + {1})", '"ADD"'
-    
+
     def _get_rtl_op_name(self):
         return '"ADD"'
 
 
 class ElementwiseSub_rtl(ElementwiseBinary_rtl):
     """RTL implementation of elementwise subtraction for FLOAT32."""
-    
+
     _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
-    
+
     def _get_rtl_op_name(self):
         return '"SUB"'
 
 
 class ElementwiseMul_rtl(ElementwiseBinary_rtl):
     """RTL implementation of elementwise multiplication for FLOAT32."""
-    
+
     _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
-    
+
     def _get_rtl_op_name(self):
         return '"MUL"'

@@ -31,8 +31,8 @@ from finn.custom_op.fpgadataflow.rtl.convolutioninputgenerator_rtl import (
 )
 from finn.custom_op.fpgadataflow.rtl.elementwise_binary_rtl import (
     ElementwiseAdd_rtl,
-    ElementwiseSub_rtl,
     ElementwiseMul_rtl,
+    ElementwiseSub_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl

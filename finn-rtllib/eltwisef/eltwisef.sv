@@ -75,7 +75,7 @@ module eltwisef #(
 	uwire fp_vec_t  r;
 	uwire [PE-1:0]  rvld_vec;
 	uwire  rvld;
-	
+
 	// Generate PE binopf instances
 	genvar i;
 	generate
@@ -88,7 +88,7 @@ module eltwisef #(
 			);
 		end
 	endgenerate
-	
+
 	// All PE results should be valid simultaneously
 	assign rvld = &rvld_vec;
 
