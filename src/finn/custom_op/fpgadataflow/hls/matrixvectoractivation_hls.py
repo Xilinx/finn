@@ -141,10 +141,9 @@ class MVAU_hls(MVAU, HLSBackend):
         super().code_generation_ipgen(model, fpgapart, clk)
         dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
-
         if dynamic_input:
             self.generate_hdl_dynload()
-        if mem_mode == "internal_decoupled":
+        if mem_mode == "internal_decoupled" and not self.get_nodeattr("mlo_max_iter"):
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
                 runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
                 assert (
@@ -152,6 +151,8 @@ class MVAU_hls(MVAU, HLSBackend):
                 ), """Layer with URAM weights must have runtime_writeable_weights=1
                     if Ultrascale device is targeted."""
             self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
+        elif self.get_nodeattr("mlo_max_iter"):
+            self.generate_hdl_fetch_weights(fpgapart)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
@@ -235,7 +236,11 @@ class MVAU_hls(MVAU, HLSBackend):
                 numReps,
             )
         ]
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             wdt = self.get_input_datatype(1)
             self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
 
@@ -265,7 +270,11 @@ class MVAU_hls(MVAU, HLSBackend):
         )
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             wdt = self.get_input_datatype(1)
             elem_bits = wdt.bitwidth()
             packed_bits = self.get_instream_width(1)
@@ -297,7 +306,11 @@ class MVAU_hls(MVAU, HLSBackend):
             'hls::stream<ap_uint<{}>> out0_V ("out0_V");'.format(self.get_outstream_width())
         )
 
-        if mem_mode == "internal_decoupled" or mem_mode == "external":
+        if (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             iwidth = self.get_instream_width(1)
             if self.get_nodeattr("dynamic_input"):
                 iwidth = iwidth * self.get_nodeattr("SIMD")
@@ -329,7 +342,11 @@ class MVAU_hls(MVAU, HLSBackend):
                     map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             wdt = self.get_input_datatype(1)
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]
@@ -397,7 +414,11 @@ class MVAU_hls(MVAU, HLSBackend):
                     self.get_outstream_width(),
                 )
             ]
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             wwidth = self.get_instream_width(1)
             if self.get_nodeattr("dynamic_input"):
                 wwidth = wwidth * self.get_nodeattr("SIMD")
@@ -434,7 +455,11 @@ class MVAU_hls(MVAU, HLSBackend):
             self.code_gen_dict["$PRAGMAS$"].append(
                 ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
             )
-        elif mem_mode == "internal_decoupled" or mem_mode == "external":
+        elif (
+            mem_mode == "internal_decoupled"
+            or mem_mode == "external"
+            or self.get_nodeattr("mlo_max_iter")
+        ):
             self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1_V")
 
         else:
@@ -553,7 +578,11 @@ class MVAU_hls(MVAU, HLSBackend):
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
 
-            if dynamic_input or mem_mode in ["external", "internal_decoupled"]:
+            if (
+                dynamic_input
+                or mem_mode in ["external", "internal_decoupled"]
+                or self.get_nodeattr("mlo_max_iter")
+            ):
                 wnbits = self.get_instream_width(1)
                 if self.get_nodeattr("dynamic_input"):
                     wnbits = wnbits * self.get_nodeattr("SIMD")
@@ -604,7 +633,9 @@ class MVAU_hls(MVAU, HLSBackend):
         # instantiate the HLS IP
         vlnv = self.get_nodeattr("ip_vlnv")
         node_name = self.onnx_node.name
-        if self.get_nodeattr("mem_mode") == "internal_decoupled":
+        if self.get_nodeattr("mem_mode") == "internal_decoupled" or self.get_nodeattr(
+            "mlo_max_iter"
+        ):
             cmd.append("create_bd_cell -type ip -vlnv %s /%s/%s" % (vlnv, node_name, node_name))
         else:
             cmd.append("create_bd_cell -type ip -vlnv %s %s" % (vlnv, node_name))

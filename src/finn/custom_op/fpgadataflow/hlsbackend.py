@@ -26,11 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
-
 import numpy as np
 import os
 import re
@@ -39,10 +34,13 @@ import warnings
 from abc import ABC, abstractmethod
 from qonnx.core.datatype import DataType
 
+from finn import xsi
 from finn.custom_op.fpgadataflow import templates
 from finn.util.basic import CppBuilder, make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.hls import CallHLS
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 class HLSBackend(ABC):
@@ -172,7 +170,7 @@ class HLSBackend(ABC):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
 
-    def ipgen_singlenode_code(self):
+    def ipgen_singlenode_code(self, fpgapart=None):
         """Builds the bash script for IP generation using the CallHLS utility."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")

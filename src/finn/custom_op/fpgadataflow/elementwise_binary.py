@@ -28,9 +28,11 @@
 
 import numpy as np
 import warnings
+from functools import partial
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.quant import max_int, min_int
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -288,7 +290,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
         # folded input
         *_, elems = self.get_folded_input_shape(ind)
         # apply parallelism if broadcast
-        if self.broadcast_last_axis:
+        if self.broadcast_last_axis and elems == 1:
             elems = elems * self.pe
         # Width of a stream receiving input elements in parallel
         return elems * i_bits
@@ -308,7 +310,10 @@ class ElementwiseBinaryOperation(HWCustomOp):
     def minimize_accumulator_width(self, model: ModelWrapper):
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
-        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
+        # exception here is the float2int node
+        if "Float2Int" not in self.onnx_node.op_type and not all(
+            [self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]
+        ):
             # Check the annotated tensor data type corresponds to the stored
             # attribute
             assert (
@@ -766,6 +771,76 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
         return DataType[self.get_nodeattr("out_dtype")]
 
 
+# reference function for Python exec
+# note that the y argument is ignored, but needed
+# to make this pass as a binary op
+def float2int(x, y, bitwidth, narrow, signed):
+    min_val = min_int(signed, narrow, bitwidth)
+    max_val = max_int(signed, narrow, bitwidth)
+    x_rounded = np.round(x)
+    x_clipped = np.clip(x_rounded, min_val, max_val)
+    return x_clipped
+
+
+# TODO this is not really a binary op: it could be treated as unary (w/ attributes)
+# or as ternary (if we take in the min/max values as inputs)
+# Derive a specialization to implement elementwise conversion of float values
+# to integers of a particular specification (bitwidth, signedness, narrow_range)
+@register_custom_op
+class ElementwiseFloat2Int(ElementwiseBinaryOperation):
+    # Defines attributes which must be present on this node
+    def get_nodeattr_types(self):
+        # Start from parent operator class attributes
+        attrs = ElementwiseBinaryOperation.get_nodeattr_types(self)
+        # Update attributes dictionary for new custom operator
+        attrs.update(
+            {
+                # Bitwidth of output integers
+                "bitwidth": ("i", True, 0),
+                # Whether output integers are signed or unsigned
+                "signed": ("i", True, 0),
+                # Whether output integers use narrow-range
+                "narrow": ("i", True, 0),
+                # The rounding mode, which is used for the quant function
+                "rounding_mode": ("s", True, "ROUND"),
+            }
+        )
+        # Return updated attribute dictionary
+        return attrs
+
+    # since we use attributes to drive part of the function inputs,
+    # we cannot statically assign _operation like other subclasses
+    # instead, we override the properties accessed for codegen
+
+    @property
+    def npy_op(self) -> np.ufunc:
+        bitwidth = self.get_nodeattr("bitwidth")
+        signed = self.get_nodeattr("signed")
+        narrow = self.get_nodeattr("narrow")
+        return partial(float2int, bitwidth=bitwidth, narrow=narrow, signed=signed)
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        bitwidth = self.get_nodeattr("bitwidth")
+        signed = self.get_nodeattr("signed")
+        narrow = self.get_nodeattr("narrow")
+        min_val = min_int(signed, narrow, bitwidth)
+        max_val = max_int(signed, narrow, bitwidth)
+        return "clip(hls::lrint({0}), %d, %d)" % (min_val, max_val)
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # the attributes decide the output datatype
+        bitwidth = self.get_nodeattr("bitwidth")
+        signed = self.get_nodeattr("signed")
+        return DataType[f"INT{bitwidth}"] if signed else DataType[f"UINT{bitwidth}"]
+
+
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
@@ -774,3 +849,57 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
 #     # Specialize to implement the power operation of left hand side and
 #     # right hand side input
 #     _operation = "Pow", np.power, "(std::pow({0}, {1}))", None
+
+
+# Derive a specialization to implement elementwise maximum of two inputs
+@register_custom_op
+class ElementwiseMax(ElementwiseBinaryOperation):
+    @property
+    def npy_op(self) -> np.ufunc:
+        return np.maximum
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        return "({0} >= {1} ? (%s){0} : (%s){1})" % (odt_hls_name, odt_hls_name)
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    def _derive_out_dtype(self, model: ModelWrapper):
+        if self.lhs_dtype.get_canonical_name().startswith(
+            "FLOAT"
+        ) or self.rhs_dtype.get_canonical_name().startswith("FLOAT"):
+            # if any of the inputs are float, make the output float as well
+            max_bitwidth = max(self.lhs_dtype.bitwidth(), self.rhs_dtype.bitwidth())
+            return DataType[f"FLOAT{max_bitwidth}"]
+        else:
+            all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
+            # Get the width of the data types of the inputs  # noqa: Duplicate
+            lhs_width = self.lhs_dtype.bitwidth()
+            rhs_width = self.rhs_dtype.bitwidth()
+            if all_ints:
+                # output will be signed if both inputs are signed
+                signed = all([self.lhs_dtype.signed(), self.rhs_dtype.signed()])
+                # use the greater of the two input bitwidths for the output
+                out_width = max(lhs_width, rhs_width)
+                return DataType[f"INT{out_width}" if signed else f"UINT{out_width}"]
+            else:
+                # use fixed point with max of intbits and fracbits from both sides
+                # to make sure an output coming from either input is representable
+                lhs_fracbits = self.lhs_dtype.frac_bits() if self.lhs_dtype.is_fixed_point() else 0
+                rhs_fracbits = self.rhs_dtype.frac_bits() if self.rhs_dtype.is_fixed_point() else 0
+                out_fracbits = max(lhs_fracbits, rhs_fracbits)
+                if self.lhs_dtype.is_fixed_point():
+                    lhs_intbits = self.lhs_dtype.int_bits()
+                else:
+                    lhs_intbits = self.lhs_dtype.bitwidth()
+                if self.rhs_dtype.is_fixed_point():
+                    rhs_intbits = self.rhs_dtype.int_bits()
+                else:
+                    rhs_intbits = self.rhs_dtype.bitwidth()
+                out_intbits = max(lhs_intbits, rhs_intbits)
+                return DataType[f"FIXED<{out_fracbits+out_intbits},{out_intbits}>"]
