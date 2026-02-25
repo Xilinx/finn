@@ -65,92 +65,68 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
 
         return info_messages
 
-    def generate_params(self, model, path):
-        n_outputs = self.get_num_output_streams()
-        inp_streams = []
-        commands = []
-        o_stream_w = self.get_outstream_width()
-        i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0_V" % (i_stream_w)
-        inp_streams.append(in_stream)
-        commands.append("ap_uint<%d> e = in0_V.read();" % i_stream_w)
-        iters = self.get_number_output_values()["out0"]
-        for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d_V" % (o_stream_w, i)
-            inp_streams.append(out_stream)
-            cmd = "out%d_V.write(e);" % i
-            commands.append(cmd)
-
-        impl_hls_code = []
-        impl_hls_code.append("void DuplicateStreamsCustom(")
-        impl_hls_code.append(",".join(inp_streams))
-        impl_hls_code.append(") {")
-        impl_hls_code.append("for(unsigned int i = 0; i < %d; i++) {" % iters)
-        impl_hls_code.append("#pragma HLS PIPELINE II=1")
-        impl_hls_code.append("\n".join(commands))
-        impl_hls_code.append("}")
-        impl_hls_code.append("}")
-        impl_hls_code = "\n".join(impl_hls_code)
-
-        impl_filename = "{}/duplicate_impl.hpp".format(path)
-        f_impl = open(impl_filename, "w")
-        f_impl.write(impl_hls_code)
-        f_impl.close()
-
     def execute_node(self, context, graph):
         HLSBackend.execute_node(self, context, graph)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "duplicate_impl.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "dup.hpp"']
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
-    def strm_decl(self):
-        n_outputs = self.get_num_output_streams()
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0_V ("in0_V");'.format(self.get_instream_width())
-        )
-        for i in range(n_outputs):
-            out_name = "out%d_V" % i
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<%d>> %s ("%s");'
-                % (self.get_outstream_width(), out_name, out_name)
-            )
-
     def docompute(self):
-        n_outputs = self.get_num_output_streams()
-        ostreams = []
+        self.code_gen_dict["$DOCOMPUTE$"] = []
+        n_outputs = self.get_nodeattr("NumOutputStreams")
+        out_streams = []
         for i in range(n_outputs):
-            ostreams.append("out%d_V" % i)
-        dc = "DuplicateStreamsCustom(in0_V, %s);" % (",".join(ostreams),)
-        self.code_gen_dict["$DOCOMPUTE$"] = [dc]
+            out_streams.append("out%d_V" % i)
+        out_stream_names = ", ".join(out_streams)
+        comp_call = f"StreamingDup(in0_V, {out_stream_names});"
+        self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def blackboxfunction(self):
-        n_outputs = self.get_num_output_streams()
-        inp_streams = []
-        o_stream_w = self.get_outstream_width()
-        i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0_V" % i_stream_w
-        inp_streams.append(in_stream)
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        pe = self.get_nodeattr("PE")
+        in_stream = "hls::stream<hls::vector<%s, %d>> &in0_V" % (input_elem_hls_type, pe)
+        out_streams = []
+        n_outputs = self.get_nodeattr("NumOutputStreams")
         for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d_V" % (
-                o_stream_w,
-                i,
+            out_streams.append(
+                "hls::stream<hls::vector<%s, %d>> &out%d_V" % (input_elem_hls_type, pe, i)
             )
-            inp_streams.append(out_stream)
-
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}({})""".format(
-                self.onnx_node.name,
-                ",".join(inp_streams),
-            )
-        ]
+        out_streams = ", ".join(out_streams)
+        blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
     def pragmas(self):
-        n_outputs = self.get_num_output_streams()
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0_V"]
+        pragmas = []
+        pragmas.append("#pragma HLS dataflow disable_start_propagation")
+        pragmas.append("#pragma HLS INTERFACE axis port=in0_V")
+        n_outputs = self.get_nodeattr("NumOutputStreams")
         for i in range(n_outputs):
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out%d_V" % i)
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+            pragmas.append("#pragma HLS INTERFACE axis port=out%d_V" % i)
+        pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        pragmas.append("#pragma HLS aggregate variable=in0_V compact=bit")
+        for i in range(n_outputs):
+            pragmas.append("#pragma HLS aggregate variable=out%d_V compact=bit" % i)
+        self.code_gen_dict["$PRAGMAS$"] = pragmas
+
+    def timeout_condition(self):
+        condition = []
+        n_outputs = self.get_nodeattr("NumOutputStreams")
+        for i in range(n_outputs):
+            condition.append("out{}_V.empty()".format(i))
+        condition = " && ".join(condition)
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = [condition]
+
+    def timeout_read_stream(self):
+        read_stream_command = []
+        n_outputs = self.get_nodeattr("NumOutputStreams")
+        for i in range(n_outputs):
+            read_stream_command.append(
+                """if(!out%d_V.empty()){
+                   strm%d << out%d_V.read();
+                   }"""
+                % (i, i, i)
+            )
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = read_stream_command
