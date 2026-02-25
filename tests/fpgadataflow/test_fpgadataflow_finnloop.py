@@ -391,7 +391,7 @@ def create_chained_loop_bodies(
 @pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
-@pytest.mark.fpgataflow
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_finnloop_end2end_mlo(
@@ -609,7 +609,7 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 @pytest.mark.parametrize("tail_node", [False, True])
 @pytest.mark.vivado
 @pytest.mark.slow
-# Note: fpgataflow marker removed to prevent CI auto-discovery
+# Note: fpgadataflow marker removed to prevent CI auto-discovery
 def test_fpgadataflow_finnloop(
     dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
