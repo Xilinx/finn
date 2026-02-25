@@ -79,9 +79,9 @@ def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_act.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()

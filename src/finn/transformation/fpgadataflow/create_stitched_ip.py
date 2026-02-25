@@ -91,9 +91,11 @@ class CreateStitchedIP(Transformation):
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
+        self.is_mlo = False
         self.vitis = vitis
         self.signature = signature
         self.has_aximm = False
+        self.aximm_idx = 0
         self.has_m_axis = False
         self.m_axis_idx = 0
         self.has_s_axis = False
@@ -167,9 +169,10 @@ class CreateStitchedIP(Transformation):
                         % (inst_name, clock2x_intf_name)
                     )
 
-    def connect_axi(self, node):
+    def connect_axi(self, node, model):
         inst_name = node.name
         node_inst = getCustomOp(node)
+        inputs = [inp.name for inp in model.graph.input]
         axilite_intf_name = node_inst.get_verilog_top_module_intf_names()["axilite"]
         aximm_intf_name = node_inst.get_verilog_top_module_intf_names()["aximm"]
         if len(axilite_intf_name) != 0:
@@ -182,22 +185,95 @@ class CreateStitchedIP(Transformation):
                 len(self.intf_names["axilite"]),
             )
             self.intf_names["axilite"].append(ext_if_name)
-        if len(aximm_intf_name) != 0:
-            self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (inst_name, aximm_intf_name[0][0])
-            )
-            ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
-            self.connect_cmds.append(
-                "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
-            )
-            self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
-            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
-            # TODO should propagate this information from the node instead of 4G
-            self.connect_cmds.append("set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name))
-            self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
-            self.has_aximm = True
+
+        if not node_inst.get_nodeattr("mlo_max_iter"):
+            if node.op_type == "FINNLoop":
+                for mm_intf_name in aximm_intf_name:
+                    self.connect_cmds.append(
+                        "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                        % (inst_name, mm_intf_name[0])
+                    )
+                    self.connect_cmds.append(
+                        "set_property name %s [get_bd_intf_ports %s_0]"
+                        % (mm_intf_name[0], mm_intf_name[0])
+                    )
+                    self.connect_cmds.append("assign_bd_address")
+
+                    if mm_intf_name[0] == "m_axi_hbm":
+                        seg_name = "%s/%s/SEG_%s_Reg" % (
+                            inst_name,
+                            mm_intf_name[0],
+                            mm_intf_name[0],
+                        )
+                    else:
+                        seg_name = "%s/%s/SEG_%s_Reg" % (
+                            inst_name,
+                            mm_intf_name[0],
+                            mm_intf_name[0],
+                        )
+                    self.connect_cmds.append(
+                        "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                    )
+                    # TODO should propagate this information from the node instead of 256M
+                    self.connect_cmds.append(
+                        "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
+                    )
+                    self.intf_names["aximm"].append((mm_intf_name[0], mm_intf_name[1]))
+                    self.has_aximm = True
+                    self.aximm_idx += 1
+
+            elif len(aximm_intf_name) != 0:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                    % (inst_name, aximm_intf_name[0][0])
+                )
+                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
+                )
+                self.connect_cmds.append("assign_bd_address")
+                seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
+                self.connect_cmds.append(
+                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                # TODO should propagate this information from the node instead of 4G
+                self.connect_cmds.append(
+                    "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                self.intf_names["aximm"].append((ext_if_name, aximm_intf_name[0][1]))
+                self.has_aximm = True
+                self.aximm_idx += 1
+        else:
+            self.is_mlo = True
+            for mm_intf_name in aximm_intf_name:
+                self.connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                    % (inst_name, mm_intf_name[0])
+                )
+                # ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                # ext_if_name = f"m_axi_{inst_name}"
+                idx = inputs.index(node.input[1])
+                ext_if_name = f"m_axi_MVAU_id_{idx}"
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
+                )
+                self.connect_cmds.append("assign_bd_address")
+
+                seg_name = "%s/%s_fetch_weights/axi_mm/SEG_%s_Reg" % (
+                    inst_name,
+                    inst_name,
+                    ext_if_name,
+                )
+                self.connect_cmds.append(
+                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                # TODO should propagate this information from the node instead of 256M
+                self.connect_cmds.append(
+                    "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
+                )
+                self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
+                self.has_aximm = True
+                self.aximm_idx += 1
 
     def connect_m_axis_external(self, node, idx=None):
         inst_name = node.name
@@ -206,7 +282,8 @@ class CreateStitchedIP(Transformation):
         # make output axis external
         for i in range(len(output_intf_names)):
             if idx is not None and idx != i:
-                continue
+                if node.op_type != "FINNLoop":
+                    continue
             output_intf_name = output_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
@@ -226,10 +303,12 @@ class CreateStitchedIP(Transformation):
         inst_name = node.name
         node_inst = getCustomOp(node)
         input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
+
         # make input axis external
         for i in range(len(input_intf_names)):
             if idx is not None and idx != i:
-                continue
+                if node.op_type != "FINNLoop":
+                    continue
             input_intf_name = input_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, input_intf_name)
@@ -340,7 +419,7 @@ class CreateStitchedIP(Transformation):
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node)
             self.connect_ap_none_external(node)
-            self.connect_axi(node)
+            self.connect_axi(node, model)
             for i in range(len(node.input)):
                 if not is_external_input(model, node, i):
                     producer = model.find_producer(node.input[i])
@@ -399,7 +478,10 @@ class CreateStitchedIP(Transformation):
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
         tcl.append("update_ip_catalog")
         # create block design and instantiate all layers
-        block_name = self.ip_name
+        if self.is_mlo:
+            block_name = self.ip_name + "_mlo"
+        else:
+            block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
@@ -410,6 +492,7 @@ class CreateStitchedIP(Transformation):
             tcl.append(
                 "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk2x]" % round(2 * fclk_hz)
             )
+        tcl.append("save_bd_design")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)
@@ -613,9 +696,42 @@ close $ofile
 
         # export list of used Verilog files (for rtlsim later on)
         tcl.append(
+            """
+proc find_xci_files {dir} {
+    set xci_files [list]
+    foreach file [glob -nocomplain -directory $dir *] {
+        if {[file isdirectory $file]} {
+            # Recursively search subdirectories
+            set subdir_files [find_xci_files $file]
+            set xci_files [concat $xci_files $subdir_files]
+        } elseif {[string match *.xci $file]} {
+            # Add .xci files with absolute paths to the list
+            lappend xci_files [file normalize $file]
+        }
+    }
+    return $xci_files
+}"""
+        )
+        tcl.append('set xci_files [find_xci_files "ip/src"]')
+        tcl.append(
+            """
+foreach xci_file $xci_files {
+    read_ip $xci_file
+    set ip [get_ips -of_objects [get_files $xci_file]]
+    foreach ip_instance $ip {
+        set ip_name [get_property NAME $ip_instance]
+        if {[string match *finn_design* $ip_name]} {
+            continue
+        }
+        generate_target all $ip_instance
+    }
+}
+        """
+        )
+        tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 "
             + "&& (FILE_TYPE == Verilog || FILE_TYPE == SystemVerilog "
-            + '|| FILE_TYPE =="Verilog Header")}]'
+            + '|| FILE_TYPE =="Verilog Header" || FILE_TYPE == XCI)}]'
         )
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
@@ -649,5 +765,26 @@ close $ofile
                     Please check logs under the parent directory."""
                     % (wrapper_filename, wrapper_filename_alt)
                 )
+
+        # reset all class variables
+        self.is_mlo = False
+        self.has_aximm = False
+        self.aximm_idx = 0
+        self.has_m_axis = False
+        self.m_axis_idx = 0
+        self.has_s_axis = False
+        self.s_axis_idx = 0
+        self.clock_reset_are_external = False
+        self.clock2x_is_external = False
+        self.create_cmds = []
+        self.connect_cmds = []
+        self.intf_names = {
+            "clk": [],
+            "rst": [],
+            "s_axis": [],
+            "m_axis": [],
+            "aximm": [],
+            "axilite": [],
+        }
 
         return (model, False)
