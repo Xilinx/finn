@@ -15,13 +15,13 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import alveo_default_platform, make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_fd = os.environ["FINN_ROOT"] + "/tests/benchmark/"
 output_dir = make_build_dir("build_bnn-pynq_")
 
 
 # model
 def get_model_file(model):
-    return build_flow_folder + "models/" + model + ".onnx"
+    return build_fd + "models/" + model + ".onnx"
 
 
 verif_steps = [
@@ -47,17 +47,17 @@ build_outputs = [
 # verification parameters
 def get_verify_input_npy(model):
     if "tfc-w" in model:
-        verify_input_npy = build_flow_folder + "verification_io/tfc_mnist_input.npy"
+        verify_input_npy = build_fd + "verification_io/tfc_mnist_input.npy"
     else:
-        verify_input_npy = build_flow_folder + "verification_io/cnv_cifar10_input.npy"
+        verify_input_npy = build_fd + "verification_io/cnv_cifar10_input.npy"
     return verify_input_npy
 
 
 def get_verify_output_npy(model):
     if "tfc-w" in model:
-        verify_expected_output_npy = build_flow_folder + "verification_io/tfc_mnist_output.npy"
+        verify_expected_output_npy = build_fd + "verification_io/tfc_mnist_output.npy"
     else:
-        verify_expected_output_npy = build_flow_folder + "verification_io/cnv_cifar10_output.npy"
+        verify_expected_output_npy = build_fd + "verification_io/cnv_cifar10_output.npy"
     return verify_expected_output_npy
 
 
@@ -76,19 +76,21 @@ def configure_build(board, model):
         vitis_platform = alveo_default_platform[board]
     else:
         vitis_platform = None
+    f_file = f"{build_fd}bnn-pynq/folding_config/{model}_folding_config"
+    sl_file = f"{build_fd}bnn-pynq/specialize_layers_config/{model}_specialize_layers"
     if board in ["AUP-ZU3_8GB"]:
+        f_file = f_file + f"_{board}"
+        sl_file = sl_file + f"_{board}"
         cfg = build_cfg.DataflowBuildConfig(
             generate_outputs=build_outputs,
             output_dir=output_dir,
-            folding_config_file=f"""{build_flow_folder}bnn-pynq/
-                folding_config/{model}_folding_config_{board}.json""",
+            folding_config_file=f_file + ".json",
             synth_clk_period_ns=10.0,
             board=board,
             shell_flow_type=platform_to_shell(board),
             vitis_platform=vitis_platform,
             stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=f"""{build_flow_folder}bnn-pynq/
-                specialize_layers_config/{model}_specialize_layers_{board}.json""",
+            specialize_layers_config_file=sl_file + ".json",
             verify_steps=verif_steps,
             verify_input_npy=get_verify_input_npy(model),
             verify_expected_output_npy=get_verify_output_npy(model),
@@ -97,15 +99,13 @@ def configure_build(board, model):
         cfg = build_cfg.DataflowBuildConfig(
             generate_outputs=build_outputs,
             output_dir=output_dir,
-            folding_config_file=f"""{build_flow_folder}bnn-pynq/
-                folding_config/{model}_folding_config.json""",
+            folding_config_file=f_file + ".json",
             synth_clk_period_ns=10.0,
             board=board,
             shell_flow_type=platform_to_shell(board),
             vitis_platform=vitis_platform,
             stitched_ip_gen_dcp=True,
-            specialize_layers_config_file=f"""{build_flow_folder}bnn-pynq/
-                specialize_layers_config/{model}_specialize_layers.json""",
+            specialize_layers_config_file=sl_file + ".json",
             verify_steps=verif_steps,
             verify_input_npy=get_verify_input_npy(model),
             verify_expected_output_npy=get_verify_output_npy(model),

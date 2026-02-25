@@ -9,6 +9,10 @@
 
 # Download and unpack models
 
+# BNN PYNQ examples
+wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.1a/onnx-models-bnn-pynq.zip
+unzip onnx-models-bnn-pynq.zip
+
 # Cybersecurity example
 wget https://github.com/Xilinx/finn-examples/releases/download/v0.0.7a/onnx-models-cybersecurity.zip
 unzip -j onnx-models-cybersecurity.zip
