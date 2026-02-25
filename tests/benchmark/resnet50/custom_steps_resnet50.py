@@ -33,7 +33,6 @@ from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
 from qonnx.transformation.double_to_single_float import DoubleToSingleFloat
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
-    ApplyConfig,
     ConvertDivToMul,
     ConvertSubToAdd,
     GiveReadableTensorNames,
@@ -57,6 +56,7 @@ from finn.builder.build_dataflow_config import (
     VerificationStepType,
 )
 from finn.builder.build_dataflow_steps import verify_step
+from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoConv,
