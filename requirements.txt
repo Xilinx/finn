@@ -10,7 +10,7 @@ onnxoptimizer
 onnxruntime==1.18.1
 onnxscript==0.6.2
 pre-commit==3.3.2
-protobuf==4.25.8
+protobuf==5.29.6
 psutil==5.9.4
 pybind11==2.10.0
 pyscaffold==4.6
