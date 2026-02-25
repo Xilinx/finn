@@ -40,7 +40,9 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
             f.write(f"verilog work {glbl}\n")
 
         # extract (unique, by using a set) verilog headers for inclusion
-        verilog_headers = {os.path.dirname(x) for x in source_list if x.endswith(".vh")}
+        verilog_headers = {
+            os.path.dirname(x) for x in source_list if x.endswith(".vh") or x.endswith(".svh")
+        }
         verilog_header_incl_str = " ".join(["--include " + x for x in verilog_headers])
 
         for src_line in source_list:
@@ -51,7 +53,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
                 f.write(f"vhdl2008 work {src_line}\n")
             elif src_line.endswith(".sv"):
                 f.write(f"sv work {verilog_header_incl_str} {src_line}\n")
-            elif src_line.endswith(".vh"):
+            elif src_line.endswith(".vh") or src_line.endswith(".svh"):
                 # skip adding Verilog headers directly (see verilog_header_incl_str)
                 continue
             else:
@@ -168,6 +170,7 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
     # inputs and outputs to appropriate format
