@@ -271,14 +271,43 @@ def _vvu_rtl_possible(n, fpgapart):
 
 
 def _elementwise_rtl_possible(node_inst):
-    # RTL elementwise operations only support FLOAT32 datatypes
     from qonnx.core.datatype import DataType
 
     lhs_dtype = node_inst.get_input_datatype(0)
     rhs_dtype = node_inst.get_input_datatype(1)
     out_dtype = node_inst.get_output_datatype(0)
 
-    return all([dt == DataType["FLOAT32"] for dt in [lhs_dtype, rhs_dtype, out_dtype]])
+    if not all([dt == DataType["FLOAT32"] for dt in [lhs_dtype, rhs_dtype, out_dtype]]):
+        return False
+
+    lhs_style = node_inst.get_nodeattr("lhs_style")
+    rhs_style = node_inst.get_nodeattr("rhs_style")
+
+    if lhs_style == "input" and rhs_style == "input":
+        return False
+
+    lhs_shape = node_inst.get_nodeattr("lhs_shape")
+    rhs_shape = node_inst.get_nodeattr("rhs_shape")
+    out_shape = node_inst.get_nodeattr("out_shape")
+
+    if lhs_style == "const":
+        const_shape = lhs_shape
+        dynamic_shape = rhs_shape
+    elif rhs_style == "const":
+        const_shape = rhs_shape
+        dynamic_shape = lhs_shape
+    else:
+        return True
+
+    if list(dynamic_shape) != list(out_shape):
+        return False
+
+    if len(const_shape) != len(out_shape) and len(const_shape) != len(out_shape) - 1:
+        for dim_c, dim_o in zip(const_shape, out_shape[-len(const_shape) :]):
+            if dim_c != 1 and dim_c != dim_o:
+                return False
+
+    return True
 
 
 def _layernorm_rtl_possible(n, fpgapart):
