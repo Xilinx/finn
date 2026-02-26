@@ -163,23 +163,97 @@ class CreateVitisXO(Transformation):
         return (model, False)
 
 
-class VitisLink(Transformation):
-    """Create an XCLBIN with Vitis.
+class PrepareForLinking(Transformation):
+    """Prepare the model for linking with Vitis or SLASH.
+    This is done by inserting I/O DMAs, partitioning the model into streaming dataflow partitions,
+    and stitching the individual partitions into singular IP cores.
 
-    Outcome if successful: sets the bitfile attribute in the ONNX
-    ModelProto's metadata_props field with the XCLBIN full path as value.
+    :parameter fpga_part: string identifying the target FPGA
+    :parameter period_ns: target clock period
+    :parameter platform: Target platform toolchain, either "vitis-xrt" or "slash-vrt"
+    :parameter floorplan_file: path to a JSON containing a dictionary with
+        SLR assignments for each node in the ONNX graph.
+        Must be parse-able by the ApplyConfig transform.
     """
 
     def __init__(
         self,
+        fpga_part,
+        period_ns,
         platform,
-        f_mhz=200,
+        floorplan_file=None,
+        partition_model_dir=None,
+    ):
+        super().__init__()
+        self.fpga_part = fpga_part
+        self.period_ns = period_ns
+        self.platform = platform
+        self.floorplan_file = floorplan_file
+        self.partition_model_dir = partition_model_dir
+
+    def apply(self, model):
+        if self.platform not in ["vitis-xrt", "slash-vrt"]:
+            raise Exception(f"Unknown platform {self.platform}")
+
+        # prepare at global level, then break up into kernels
+        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
+        for trn in prep_transforms:
+            model = model.transform(trn)
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+
+        model = model.transform(Floorplan(floorplan=self.floorplan_file))
+
+        model = model.transform(
+            CreateDataflowPartition(partition_model_dir=self.partition_model_dir)
+        )
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+
+        # Build each kernel individually
+        sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
+        for sdp_node in sdp_nodes:
+            prefix = sdp_node.name + "_"
+            sdp_node = getCustomOp(sdp_node)
+            dataflow_model_filename = sdp_node.get_nodeattr("model")
+            kernel_model = ModelWrapper(dataflow_model_filename)
+            kernel_model = kernel_model.transform(InsertFIFO())
+            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
+            kernel_model = kernel_model.transform(RemoveUnusedTensors())
+            kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
+            kernel_model.save(dataflow_model_filename)
+            kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
+            kernel_model = kernel_model.transform(HLSSynthIP())
+            kernel_model = kernel_model.transform(
+                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
+            )
+            if self.platform == "vitis-xrt":
+                kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))
+            kernel_model.set_metadata_prop("platform", self.platform)
+            kernel_model.save(dataflow_model_filename)
+        model.set_metadata_prop("platform", self.platform)
+
+        return (model, False)
+
+
+class VitisLink(Transformation):
+    """Create an XCLBIN with Vitis.
+
+    Outcome if successful: sets the "bitfile" and "vivado_synth_rpt" attribute in the ONNX
+    ModelProto's metadata_props field with the XCLBIN's and Vivado synthesis report's
+    full path as value.
+    """
+
+    def __init__(
+        self,
+        vitis_platform,
+        period_ns,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
     ):
         super().__init__()
-        self.platform = platform
-        self.f_mhz = f_mhz
+        self.vitis_platform = vitis_platform
+        self.f_mhz = round(1000 / period_ns)
         self.strategy = strategy
         self.enable_debug = enable_debug
 
@@ -235,17 +309,21 @@ class VitisLink(Transformation):
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
+                    if (
+                        "u50" in self.vitis_platform
+                        or "u280" in self.vitis_platform
+                        or "u55c" in self.vitis_platform
+                    ):
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)
                         # mem_idx += 1
-                    elif "u200" in self.platform:
+                    elif "u200" in self.vitis_platform:
                         # Use DDR controller in static region of U200
                         mem_type = "DDR"
                         mem_idx = 1
                         node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                    elif "u250" in self.platform:
+                    elif "u250" in self.vitis_platform:
                         # Use DDR controller on the node's SLR if set, otherwise 0
                         mem_type = "DDR"
                         if node_slr == -1:
@@ -313,7 +391,7 @@ class VitisLink(Transformation):
                 " --kernel_frequency %d --config config.txt --optimize %s"
                 " --save-temps -R2 %s\n"
                 % (
-                    self.platform,
+                    self.vitis_platform,
                     " ".join(object_files),
                     self.f_mhz,
                     self.strategy.value,
@@ -347,7 +425,18 @@ class VitisLink(Transformation):
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
         return (model, False)
 
+
 class SlashLink(Transformation):
+    """Create a VBIN file with SLASH.
+
+    Outcome if successful: sets the "bitfile" and "slash_report" attribute in the ONNX
+    ModelProto's metadata_props field with the VBIN's and synthesis report's
+    full path as value.
+
+    :parameter build_hardware: If True, SlashLink will build a hardware programming image.
+    Otherwise, it will create an simulation image.
+    """
+
     def __init__(self, build_hardware=True):
         super().__init__()
         self.build_hardware = build_hardware
@@ -446,7 +535,7 @@ class SlashLink(Transformation):
         build_script_path = link_dir / "build.sh"
         with open(build_script_path, "w") as f:
             kernels = " ".join(str(path) for path in component_xml_paths)
-            platform = "hw" if self.build_hardware else "sim"
+            pltfm = "hw" if self.build_hardware else "sim"
             f.write(
                 f"""
                 #!/bin/bash
@@ -455,7 +544,7 @@ class SlashLink(Transformation):
                 cd {link_dir}/linker/resources/base/iprepo/traffic_producer
                 make
                 cd {link_dir}/linker/src
-                python3 main.py --cfg {config_path} -p finn --kernels {kernels} --platform {platform}
+                python3 main.py --cfg {config_path} -p finn --kernels {kernels} --platform {pltfm}
             """
             )
 
@@ -477,159 +566,5 @@ class SlashLink(Transformation):
             report_path.is_file()
         ), f"SLASH linking failed, no report generated. Check {log_path} for details."
         model.set_metadata_prop("slash_report", str(report_path))
-
-        return (model, False)
-
-
-class VitisBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Vitis.
-    It assumes the model has only fpgadataflow nodes
-
-    :parameter fpga_part: string identifying the target FPGA
-    :parameter period_ns: target clock period
-    :parameter platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
-    :parameter strategy: Vitis optimization strategy
-    :parameter enable_debug: add Chipscope to all AXI interfaces
-    :parameter floorplan_file: path to a JSON containing a dictionary with
-        SLR assignments for each node in the ONNX graph.
-        Must be parse-able by the ApplyConfig transform.
-    :parameter enable_link: enable linking kernels (.xo files),
-        otherwise just synthesize them independently.
-    """
-
-    def __init__(
-        self,
-        fpga_part,
-        period_ns,
-        platform,
-        strategy=VitisOptStrategy.PERFORMANCE,
-        enable_debug=False,
-        floorplan_file=None,
-        enable_link=True,
-        partition_model_dir=None,
-    ):
-        super().__init__()
-        self.fpga_part = fpga_part
-        self.period_ns = period_ns
-        self.platform = platform
-        self.strategy = strategy
-        self.enable_debug = enable_debug
-        self.floorplan_file = floorplan_file
-        self.enable_link = enable_link
-        self.partition_model_dir = partition_model_dir
-
-    def apply(self, model):
-        _check_vitis_envvars()
-        # prepare at global level, then break up into kernels
-        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
-        for trn in prep_transforms:
-            model = model.transform(trn)
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(GiveReadableTensorNames())
-
-        model = model.transform(Floorplan(floorplan=self.floorplan_file))
-
-        model = model.transform(
-            CreateDataflowPartition(partition_model_dir=self.partition_model_dir)
-        )
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(GiveReadableTensorNames())
-
-        # Build each kernel individually
-        sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
-        for sdp_node in sdp_nodes:
-            prefix = sdp_node.name + "_"
-            sdp_node = getCustomOp(sdp_node)
-            dataflow_model_filename = sdp_node.get_nodeattr("model")
-            kernel_model = ModelWrapper(dataflow_model_filename)
-            kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
-            kernel_model = kernel_model.transform(RemoveUnusedTensors())
-            kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
-            kernel_model.save(dataflow_model_filename)
-            kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
-            kernel_model = kernel_model.transform(HLSSynthIP())
-            kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
-            )
-            kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))
-            kernel_model.set_metadata_prop("platform", "vitis-xrt")
-            kernel_model.save(dataflow_model_filename)
-        # Assemble design from kernels
-        if self.enable_link:
-            model = model.transform(
-                VitisLink(
-                    self.platform,
-                    round(1000 / self.period_ns),
-                    strategy=self.strategy,
-                    enable_debug=self.enable_debug,
-                )
-            )
-        # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "vitis-xrt")
-
-        return (model, False)
-
-
-class SlashBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Slash.
-    It assumes the model has only fpgadataflow nodes
-
-    :parameter fpga_part: string identifying the target FPGA
-    :parameter period_ns: target clock period
-    """
-
-    def __init__(
-        self,
-        fpga_part,
-        period_ns,
-        enable_link=True,
-        build_hardware=False,
-    ):
-        super().__init__()
-        self.fpga_part = fpga_part
-        self.period_ns = period_ns
-        self.enable_link = enable_link
-        self.build_hardware = build_hardware
-
-    def apply(self, model):
-        # prepare at global level, then break up into kernels
-        prep_transforms = [InsertIODMA(512), InsertDWC(), SpecializeLayers(self.fpga_part)]
-        for trn in prep_transforms:
-            model = model.transform(trn)
-            model = model.transform(GiveUniqueNodeNames())
-            model = model.transform(GiveReadableTensorNames())
-
-        model = model.transform(Floorplan())
-
-        model = model.transform(CreateDataflowPartition())
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(GiveReadableTensorNames())
-
-        # Build each kernel individually
-        sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
-        for sdp_node in sdp_nodes:
-            prefix = sdp_node.name + "_"
-            sdp_node = getCustomOp(sdp_node)
-            dataflow_model_filename = sdp_node.get_nodeattr("model")
-            kernel_model = ModelWrapper(dataflow_model_filename)
-            kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(SpecializeLayers(self.fpga_part))
-            kernel_model = kernel_model.transform(RemoveUnusedTensors())
-            kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
-            kernel_model.save(dataflow_model_filename)
-            kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
-            kernel_model = kernel_model.transform(HLSSynthIP())
-            kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
-            )
-            # set platform attribute for correct remote execution
-            model.set_metadata_prop("platform", "slash-vrt")
-            kernel_model.save(dataflow_model_filename)
-        # Assemble design from kernels
-        if self.enable_link:
-            model = model.transform(SlashLink(self.build_hardware))
-        # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "slash-vrt")
 
         return (model, False)

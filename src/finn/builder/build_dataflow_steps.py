@@ -73,6 +73,11 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.transformation.fpgadataflow.alveo_build import (
+    PrepareForLinking,
+    SlashLink,
+    VitisLink,
+)
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -108,14 +113,12 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
-from finn.transformation.fpgadataflow.alveo_build import SlashBuild
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.transformation.fpgadataflow.alveo_build import VitisBuild
 from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -873,14 +876,20 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
-                VitisBuild(
+                PrepareForLinking(
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
-                    cfg._resolve_vitis_platform(),
-                    strategy=cfg._resolve_vitis_opt_strategy(),
-                    enable_debug=cfg.enable_hw_debug,
+                    "vitis-xrt",
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
+                )
+            )
+            model = model.transform(
+                VitisLink(
+                    cfg._resolve_vitis_platform(),
+                    cfg.synth_clk_period_ns(),
+                    strategy=cfg._resolve_vitis_opt_strategy(),
+                    enable_debug=cfg.enable_hw_debug,
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
@@ -894,24 +903,16 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 json.dump(post_synth_resources, f, indent=2)
         elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
             model = model.transform(
-                SlashBuild(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                )
+                PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
             )
+            # TODO: Add an option for simulation image generation
+            model = model.transform(SlashLink())
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.vbin")
-
-            """
-            TODO: Also export resource utilization reports
-            copy(
-                model.get_metadata_prop("slash_report"),
-                report_dir + "/post_synth_resources.xml",
-            )
+            copy(model.get_metadata_prop("slash_report"), bitfile_dir + "/slash_report.xml")
 
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
-            """
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

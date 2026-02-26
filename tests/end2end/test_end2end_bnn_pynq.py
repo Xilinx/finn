@@ -65,6 +65,12 @@ import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.core.throughput_test import throughput_test_rtlsim
+from finn.transformation.fpgadataflow.alveo_build import (
+    PrepareForLinking,
+    SlashLink,
+    VitisLink,
+    VitisOptStrategy,
+)
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -814,19 +820,36 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.vitis
-    def test_build(self, topology, wbits, abits, board):
+    def test_prepare_for_linking(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
-            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(build_data["build_fxn"])
-        model.save(get_checkpoint_name(board, topology, wbits, abits, "build"))
+        model = model.transform(
+            PrepareForLinking(build_data["part"], target_clk_ns, build_data["toolchain"])
+        )
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "prepare_linking"))
+
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    @pytest.mark.vitis
+    def test_linking(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
+        if build_data["toolchain"] == "vitis-xrt" and ("VITIS_PATH" not in os.environ):
+            pytest.skip("VITIS_PATH not set")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "prepare_linking")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        if build_data["toolchain"] == "vitis-xrt":
+            link_transformation = VitisLink(
+                build_data["part"], target_clk_ns, strategy=VitisOptStrategy.BUILD_SPEED
+            )
+        elif build_data["toolchain"] == "slash-vrt":
+            link_transformation = SlashLink(False)
+        model = model.transform(link_transformation)
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "linking"))
 
     def test_annotate_resources(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "linking")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(AnnotateResources("synth", build_data["part"]))
         model.save(get_checkpoint_name(board, topology, wbits, abits, "annotate_resources"))
