@@ -42,8 +42,8 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.slash_build import SlashBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
+from finn.transformation.fpgadataflow.alveo_build import SlashBuild
+from finn.transformation.fpgadataflow.alveo_build import VitisBuild, VitisOptStrategy
 from finn.util.basic import (
     pynq_part_map,
     slash_part_map,
