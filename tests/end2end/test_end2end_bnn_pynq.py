@@ -843,7 +843,7 @@ class TestEnd2End:
                 build_data["part"], target_clk_ns, strategy=VitisOptStrategy.BUILD_SPEED
             )
         elif build_data["toolchain"] == "slash-vrt":
-            link_transformation = SlashLink(False)
+            link_transformation = SlashLink()
         model = model.transform(link_transformation)
         model.save(get_checkpoint_name(board, topology, wbits, abits, "linking"))
 
