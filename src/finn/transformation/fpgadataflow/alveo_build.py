@@ -555,16 +555,22 @@ class SlashLink(Transformation):
                 ["bash", build_script_path], check=True, stdout=log_file, stderr=log_file
             )
 
-        vbin_path = link_dir / "linker" / "results" / "finn" / "finn_hw.vbin"
+        vbin_path = link_dir / "linker" / "results" / "finn"
+        if self.build_hardware:
+            vbin_path = vbin_path / "finn_hw.vbin"
+        else:
+            vbin_path = vbin_path / "sim" / "finn_sim.vbin"
+
         assert (
             vbin_path.is_file()
         ), f"SLASH linking failed, no bitfile generated. Check {log_path} for details."
         model.set_metadata_prop("bitfile", str(vbin_path))
 
-        report_path = link_dir / "linker" / "results" / "finn" / "report_utilization_finn.xml"
-        assert (
-            report_path.is_file()
-        ), f"SLASH linking failed, no report generated. Check {log_path} for details."
-        model.set_metadata_prop("slash_report", str(report_path))
+        if self.build_hardware:
+            report_path = link_dir / "linker" / "results" / "finn" / "report_utilization_finn.xml"
+            assert (
+                report_path.is_file()
+            ), f"SLASH linking failed, no report generated. Check {log_path} for details."
+            model.set_metadata_prop("slash_report", str(report_path))
 
         return (model, False)
