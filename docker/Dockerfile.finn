@@ -51,6 +51,9 @@ RUN apt-get update && \
     libxext6 \
     libxrender-dev \
     libyaml-0-2 \
+    libjsoncpp-dev \
+    libxml2-dev \
+    libzmq3-dev \
     nano \
     zsh \
     rsync \
