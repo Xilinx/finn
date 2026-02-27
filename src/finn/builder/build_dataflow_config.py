@@ -328,6 +328,10 @@ class DataflowBuildConfig:
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
 
+    #: Whether to build a simulation image instead of a full hardware image.
+    #: Currently only supported by the SLASH_VRT shell flow.
+    enable_hw_sim: Optional[bool] = False
+
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 

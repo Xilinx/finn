@@ -905,14 +905,13 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
             )
-            # TODO: Add an option for simulation image generation
-            model = model.transform(SlashLink())
+            model = model.transform(SlashLink(not cfg.enable_hw_sim))
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.vbin")
-            copy(model.get_metadata_prop("slash_report"), bitfile_dir + "/slash_report.xml")
-
-            post_synth_resources = model.analysis(post_synth_res)
-            with open(report_dir + "/post_synth_resources.json", "w") as f:
-                json.dump(post_synth_resources, f, indent=2)
+            if not cfg.enable_hw_sim:
+                copy(model.get_metadata_prop("slash_report"), bitfile_dir + "/slash_report.xml")
+                post_synth_resources = model.analysis(post_synth_res)
+                with open(report_dir + "/post_synth_resources.json", "w") as f:
+                    json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
