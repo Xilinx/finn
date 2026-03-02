@@ -861,10 +861,12 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         if build_data["toolchain"] == "vitis" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "annotate_resources")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "linking")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        if build_data["toolchain"] == "vitis" and topology == "tfc":
+        if build_data["toolchain"] == "vitis-xrt" and topology == "tfc":
             model = model.transform(MakeCPPDriver("vitis-xrt", version="latest"))
+        elif build_data["toolchain"] == "slash-vrt":
+            model = model.transform(MakeCPPDriver("slash-vrt", version="f-vrt-port"))
         elif build_data["toolchain"] == "pynq":
             model = model.transform(MakePYNQDriver("zynq-iodma"))
         else:
