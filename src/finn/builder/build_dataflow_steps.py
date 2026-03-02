@@ -790,8 +790,6 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         shutil.copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir, dirs_exist_ok=True)
         print("PYNQ Python driver written into " + driver_dir)
     elif DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
-        if cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
-            raise NotImplementedError("C++ driver generation not yet implemented for SLASH flow")
         # generate C++ Driver
         model = model.transform(
             MakeCPPDriver(
