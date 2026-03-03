@@ -388,7 +388,7 @@ class DataflowBuildConfig:
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
-            raise NotImplementedError("SLASH driver platform resolution not implemented yet")
+            return "slash-vrt"
         else:
             raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 
