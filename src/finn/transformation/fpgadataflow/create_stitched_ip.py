@@ -507,7 +507,7 @@ class CreateStitchedIP(Transformation):
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
         tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
-        # synthesize to DCP and export stub, DCP and constraints
+        # synthesize and export design code, simulation code, and constraints
         if self.vitis:
             tcl.append(
                 "set_property SYNTH_CHECKPOINT_MODE Hierarchical [ get_files %s ]" % bd_filename
@@ -523,8 +523,8 @@ class CreateStitchedIP(Transformation):
             tcl.append("launch_runs synth_1 -jobs %s" % str(num_workers))
             tcl.append("wait_on_run [get_runs synth_1]")
             tcl.append("open_run synth_1 -name synth_1")
-            tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
-            tcl.append("write_checkpoint %s.dcp" % block_name)
+            tcl.append("write_verilog -force -mode design %s.v" % block_name)
+            tcl.append("write_verilog -force -mode funcsim %s_funcsim.v" % block_name)
             tcl.append("write_xdc %s.xdc" % block_name)
             tcl.append(
                 "report_utilization -hierarchical -hierarchical_depth 5 "
@@ -561,7 +561,6 @@ class CreateStitchedIP(Transformation):
         )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
-            # replace source code with dcp
             tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
             tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
             tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
@@ -573,25 +572,23 @@ class CreateStitchedIP(Transformation):
                 "set_property auto_family_support_level level_2 "
                 "[ipx::find_open_core %s]" % block_vlnv
             )
-            # remove all files from synthesis and sim groups
-            # we'll replace with DCP, stub, and xdc
+            # Remove existing source and simulation files
             tcl.append(
                 "ipx::remove_all_file "
                 "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]"
             )
             tcl.append("ipx::remove_all_file " "[ipx::get_file_groups xilinx_anylanguagesynthesis]")
-            tcl.append(
-                "ipx::remove_file_group "
-                "xilinx_anylanguagebehavioralsimulation [ipx::current_core]"
-            )
-            tcl.append("ipx::remove_file_group " "xilinx_anylanguagesynthesis [ipx::current_core]")
-            # remove sim and src folders
-            tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
             tcl.append("file delete -force %s/ip/src" % vivado_stitch_proj_dir)
-            # copy and add DCP, stub, and xdc
-            tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
+            tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
+            # Add the synthesis outputs (Design, functional verification, and constraints)
+            tcl.append("file mkdir %s/ip/src" % vivado_stitch_proj_dir)
+            tcl.append("file mkdir %s/ip/sim" % vivado_stitch_proj_dir)
             tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)
-            tcl.append("file copy -force %s.dcp %s/ip/dcp" % (block_name, vivado_stitch_proj_dir))
+            tcl.append("file copy -force %s.v %s/ip/src" % (block_name, vivado_stitch_proj_dir))
+            tcl.append(
+                "file copy -force %s_funcsim.v %s/ip/sim/%s.v"
+                % (block_name, vivado_stitch_proj_dir, block_name)
+            )
             tcl.append("file copy -force %s.xdc %s/ip/impl" % (block_name, vivado_stitch_proj_dir))
             tcl.append("ipx::add_file_group xilinx_implementation [ipx::current_core]")
             tcl.append(
@@ -603,15 +600,13 @@ class CreateStitchedIP(Transformation):
                 "[ipx::get_files impl/%s.xdc "
                 "-of_objects [ipx::get_file_groups xilinx_implementation]]" % block_name
             )
-            tcl.append("ipx::add_file_group " "xilinx_synthesischeckpoint [ipx::current_core]")
             tcl.append(
-                "ipx::add_file dcp/%s.dcp "
-                "[ipx::get_file_groups xilinx_synthesischeckpoint]" % block_name
+                "ipx::add_file src/%s.v "
+                "[ipx::get_file_groups xilinx_anylanguagesynthesis]" % block_name
             )
-            tcl.append("ipx::add_file_group xilinx_simulationcheckpoint [ipx::current_core]")
             tcl.append(
-                "ipx::add_file dcp/%s.dcp "
-                "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
+                "ipx::add_file sim/%s.v "
+                "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]" % block_name
             )
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/mdd-data"
