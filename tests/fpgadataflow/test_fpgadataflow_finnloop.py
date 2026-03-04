@@ -158,6 +158,8 @@ def make_loop_modelwrapper(
                 "PE": 2,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
+                "cpp_interface": "hls_vector",
+                "hls_style": "freerunning",
             },
         ),
         create_node(
