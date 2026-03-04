@@ -93,6 +93,7 @@ class HWCustomOp(CustomOp):
             # amount of zero padding inserted during chrc.
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
+            "mlo_max_iter": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -304,6 +305,10 @@ class HWCustomOp(CustomOp):
                 os.environ["FINN_ROOT"] + "/finn-rtllib/memstream/hdl/memstream_wrapper_template.v"
             )
             mname = self.onnx_node.name
+            sets = 1
+            mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+            if mlo_max_iter:
+                sets = mlo_max_iter
             if self.onnx_node.op_type.startswith("Thresholding"):
                 depth = self.calc_tmem()
             else:
@@ -317,7 +322,7 @@ class HWCustomOp(CustomOp):
                 init_file = ""
             code_gen_dict = {
                 "$MODULE_NAME$": [mname],
-                "$SETS$": ["1"],
+                "$SETS$": [str(sets)],
                 "$DEPTH$": [str(depth)],
                 "$WIDTH$": [str(padded_width)],
                 "$INIT_FILE$": [init_file],
@@ -333,6 +338,58 @@ class HWCustomOp(CustomOp):
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
+                "w",
+            ) as f:
+                f.write(template_wrapper)
+        else:
+            pass
+
+    def generate_hdl_fetch_weights(self, fpgapart):
+        """Helper function to generate verilog code for fetch_weights component.
+        Currently utilized by MVAU."""
+        ops = ["MVAU_hls", "MVAU_rtl"]
+        if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/fetch_weights_wrapper.v"
+            mname = self.onnx_node.name
+            wdt = self.get_input_datatype(1)
+            if self.onnx_node.op_type in ops:
+                mw = self.get_nodeattr("MW")
+                mh = self.get_nodeattr("MH")
+                pe = self.get_nodeattr("PE")
+                simd = self.get_nodeattr("SIMD")
+                n_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            else:
+                # Eltwise layers only have one parallelism parameter
+                mw = 1
+                mh = self.get_nodeattr("rhs_shape")[-1]
+                pe = self.get_nodeattr("PE")
+                simd = 1
+                # TODO use broadcast rhs shape here
+                n_reps = np.prod(self.get_nodeattr("rhs_shape")[:-1])
+            layer_offs = mw * mh
+            # upper bound on how many layers can be supported, set to 64 for now
+            n_max_layers = 64
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            code_gen_dict = {
+                "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
+                "$MW$": [str(mw)],
+                "$MH$": [str(mh)],
+                "$PE$": [str(pe)],
+                "$SIMD$": [str(simd)],
+                "$N_REPS$": [str(n_reps)],
+                "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
+                "$LAYER_OFFS$": [str(layer_offs)],
+                "$N_LAYERS$": [str(n_max_layers)],
+            }
+            # apply code generation to template
+            with open(template_path, "r") as f:
+                template_wrapper = f.read()
+            for key in code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(code_gen_dict[key])
+                template_wrapper = template_wrapper.replace(key, code_gen_line)
+            with open(
+                os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
                 "w",
             ) as f:
                 f.write(template_wrapper)
@@ -372,7 +429,7 @@ class HWCustomOp(CustomOp):
         ) as f:
             f.write(template_wrapper)
 
-    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
+    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None, pre_hook=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
         assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
@@ -410,6 +467,8 @@ class HWCustomOp(CustomOp):
         # signal name, note no underscore at the end (new finnxsi behavior)
         sname = "_V"
         self.reset_rtlsim(sim)
+        if pre_hook is not None:
+            pre_hook(sim)
         # create stream tracers for all input and output streams
         for k in txns_in.keys():
             txns_in[k] = sim.trace_stream(k + sname)
@@ -469,3 +528,23 @@ class HWCustomOp(CustomOp):
         self.set_nodeattr("io_chrc_out", all_txns_out)
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)
         self.set_nodeattr("io_chrc_pads_out", all_pad_out)
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Called by LoopRolling transformation to allow operators to adapt their
+        attributes when being placed inside a loop body.
+
+        This base implementation does nothing. Operators that need to modify
+        their behavior when placed in loops should override this method.
+
+        Args:
+            input_types: List of LoopBodyInputType values for each input,
+                         indicating whether inputs are ACTIVATION, CONSTANT,
+                         PARAMETER, etc.
+
+        Example:
+            If an operator has a parameter that becomes a streamed input
+            in a loop context (PARAMETER type), it might need to change
+            an attribute like `rhs_style` from "const" to "input".
+        """
+        pass  # Default: no adaptation needed
