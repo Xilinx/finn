@@ -244,7 +244,6 @@ class InferThresholdingLayer(Transformation):
                     ActVal=actval,
                     name="Thresholding_" + node.name,
                 )
-
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -435,10 +434,9 @@ class InferDuplicateStreamsLayer(Transformation):
         # check first if global input is split
         successors = model.find_consumers(graph.input[0].name)
         dt = model.get_tensor_datatype(graph.input[0].name)
-        if successors is not None and len(successors) >= 2 and dt.is_integer():
+        if successors is not None and len(successors) >= 2:
             output_tensor = graph.input[0].name
             n_outputs = len(successors)
-            dt = model.get_tensor_datatype(output_tensor)
 
             # create clone tensors
             out_shape = model.get_tensor_shape(output_tensor)
@@ -469,6 +467,8 @@ class InferDuplicateStreamsLayer(Transformation):
                 NumOutputStreams=n_outputs,
                 outFIFODepths=[2] * n_outputs,
                 name="DuplicateStreams_" + output_tensor,
+                cpp_interface="hls_vector",
+                hls_style="freerunning",
             )
 
             graph.node.insert(0, dup_node)
@@ -490,14 +490,16 @@ class InferDuplicateStreamsLayer(Transformation):
             node_ind += 1
             for output_tensor in node.output:
                 successors = model.find_consumers(output_tensor)
-                if successors is not None and len(successors) >= 2:
-                    n_outputs = len(successors)
+                # check if this tensor is also a global output
+                is_global_output = any(out.name == output_tensor for out in graph.output)
+                # determine total number of consumers (successors + global output)
+                num_successors = len(successors) if successors is not None else 0
+                total_consumers = num_successors + (1 if is_global_output else 0)
+
+                if total_consumers >= 2:
+                    n_outputs = total_consumers
 
                     dt = model.get_tensor_datatype(output_tensor)
-
-                    # skip conversion for layers with float input
-                    if not dt.is_integer():
-                        continue
 
                     # create clone tensors
                     out_shape = model.get_tensor_shape(output_tensor)
@@ -506,7 +508,13 @@ class InferDuplicateStreamsLayer(Transformation):
                         clone = helper.make_tensor_value_info(
                             model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
                         )
-                        model.graph.value_info.append(clone)
+                        # if one is a global output reserve
+                        # the last out tensor clone for that connection
+                        if i == (n_outputs - 1) and is_global_output:
+                            new_global_output_tensor = clone
+                        # else add it to the value info container
+                        else:
+                            model.graph.value_info.append(clone)
                         out_tensor_clones += [clone.name]
 
                     num_ch = int(out_shape[-1])
@@ -528,6 +536,8 @@ class InferDuplicateStreamsLayer(Transformation):
                         NumOutputStreams=n_outputs,
                         outFIFODepths=[2] * n_outputs,
                         name="DuplicateStreams_" + node.name,
+                        cpp_interface="hls_vector",
+                        hls_style="freerunning",
                     )
 
                     graph.node.insert(node_ind, dup_node)
@@ -542,6 +552,13 @@ class InferDuplicateStreamsLayer(Transformation):
                                 # if one node has multiple connections to the same output
                                 # find_direct_successors will return one node per input
                                 # so break the inner loop will result in correct behaviour
+                                break
+
+                    # if the tensor is a global output, connect the last clone to it
+                    if is_global_output:
+                        for i, graph_out in enumerate(graph.output):
+                            if graph_out.name == output_tensor:
+                                graph.output[i].CopyFrom(new_global_output_tensor)
                                 break
 
                     graph_modified = True

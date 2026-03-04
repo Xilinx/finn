@@ -71,9 +71,9 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     # run using FINN-based execution
-    input_dict = {model.graph.input[0].name: input_tensor}
+    input_dict = {model.get_first_global_in(): input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced = output_dict[model.graph.output[0].name]
+    produced = output_dict[model.get_first_global_out()]
     # do forward pass in PyTorch/Brevitas
     input_tensor = torch.from_numpy(input_tensor).float()
     expected = cnv.forward(input_tensor).detach().numpy()

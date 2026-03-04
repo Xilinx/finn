@@ -99,9 +99,9 @@ def test_brevitas_QConv2d(dw, bias, in_channels):
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=1.0, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_conv.forward(inp_tensor).detach().numpy()
 

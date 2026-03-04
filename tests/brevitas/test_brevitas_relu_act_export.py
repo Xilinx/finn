@@ -62,9 +62,9 @@ def test_brevitas_act_export_relu(
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()
@@ -95,9 +95,9 @@ def test_brevitas_act_export_relu_channel(
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()

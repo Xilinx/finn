@@ -146,12 +146,14 @@ input_data_types = [
 
 @pytest.mark.parametrize("wdt", weight_data_types)
 @pytest.mark.parametrize("rww", [True, False])
+@pytest.mark.parametrize("external", [True, False])
 @pytest.mark.fpgadataflow
-def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
+def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
     """Testing MinimizeWeightBitWidth for VVAU and MVAU.
 
     :param wdt: (DataType) The data type that we are testing for the weights
-    :param rww: (bool) Whether or not to use runtime-writeable weights"""
+    :param rww: (bool) Whether or not to use runtime-writeable weights
+    :param_external: (bool) Whether or not the mem_mode is external."""
     if isinstance(wdt, BipolarType):
         # current MinimizeWeightBitWidth sets {-1,1} to INT2, need to check
         # for 0 in weights to minimize weight bit width to bipolar
@@ -172,6 +174,8 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
         inst = getCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
+            if external:
+                inst.set_nodeattr("mem_mode", "external")
 
     # Apply the optimization
     model = model.transform(MinimizeWeightBitWidth())
@@ -181,7 +185,7 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
         inst = getCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             cur_wdt = DataType[inst.get_nodeattr("weightDataType")]
-            exp_wdt = def_wdt if rww else wdt
+            exp_wdt = def_wdt if (rww or external) else wdt
             assert cur_wdt.bitwidth() == exp_wdt.bitwidth(), "Mismatched data types"
 
 
@@ -220,9 +224,10 @@ def calculate_accumulator_bit_width(
     wdt = inst.get_input_datatype(1)
     idt = inst.get_input_datatype(0)
     rww = inst.get_nodeattr("runtime_writeable_weights")
+    external = inst.get_nodeattr("mem_mode") == "external"
     # if runtime-writeable weights, then use the lower bound on the accumulator bit
     # width as determined by the input and weight data types and size of dot product
-    if rww:
+    if rww or external:
         alpha = np.log2(K) + idt.bitwidth() + wdt.bitwidth() - 1.0 - float(idt.signed())
         P = np.ceil(alpha + phi(alpha) + 1.0)
     # if not runtime-writable weights, then use the tighter bound on the accumulator
@@ -257,14 +262,18 @@ weight_data_types = [
 @pytest.mark.parametrize("idt", input_data_types)
 @pytest.mark.parametrize("tdt", thresh_data_types)
 @pytest.mark.parametrize("rww", [True, False])
+@pytest.mark.parametrize("external", [True, False])
 @pytest.mark.fpgadataflow
-def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType, rww: bool):
+def test_minimize_accumulator_width(
+    wdt: DataType, idt: DataType, tdt: DataType, rww: bool, external: bool
+):
     """Testing MinimizeAccumulatorWidth for VVAU and MVAU.
 
     :param wdt: (DataType) The data type that we are testing for the weights
     :param idt: (DataType) The data type that we are testing for the activations
     :param tdt: (DataType) The data type that we are testing for the thresholds
-    :param rww: (bool) Whether or not to use runtime-writeable weights"""
+    :param rww: (bool) Whether or not to use runtime-writeable weights
+    :param_external: (bool) Whether or not the mem_mode is external."""
     if (not wdt.signed()) or isinstance(wdt, BipolarType):
         pytest.skip("Closed-form accumulator calculation is designed to consider signed weights")
 
@@ -277,6 +286,8 @@ def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType,
         inst = getCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
+            if external:
+                inst.set_nodeattr("mem_mode", "external")
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
             assert cur_adt.bitwidth() == def_adt.bitwidth(), "Default data type is incorrect"
 
