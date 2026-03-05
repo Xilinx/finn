@@ -32,8 +32,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         my_attrs.update(
             {
-                "wmem": ("i", False, 0),
-                "numInputVectors": ("ints", False, [1]),
+                # memory mode for the const value
+                # has to be internal_decoupled for rtl elementwise ops
+                "mem_mode": (
+                    "s",
+                    False,
+                    "internal_decoupled",
+                ),
                 "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             }
         )
@@ -41,9 +46,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def generate_hdl(self, model, fpgapart, clk):
         rhs_style = self.get_nodeattr("rhs_style")
-        if rhs_style == "const":
-            self.set_nodeattr("mem_mode", "internal_decoupled")
-            self.set_nodeattr("numInputVectors", self.calc_numInputVectors())
+        assert (
+            rhs_style == "const"
+        ), """rhs is not const input, error during specialize layers.
+        Try setting the preferred_impl_style to hls"""
+        assert (
+            self.get_nodeattr("mem_mode") == "internal_decoupled"
+        ), "Only internal_decoupled mode is supported for rtl elementwise ops"
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_params(model, code_gen_dir)
@@ -71,8 +80,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
-        if rhs_style == "const":
-            self.generate_hdl_memstream(fpgapart)
+        self.generate_hdl_memstream(fpgapart)
 
         for sv_file in ["eltwisef.sv", "binopf.sv", "queue.sv"]:
             shutil.copy(f"{rtlsrc}/{sv_file}", code_gen_dir)
@@ -82,144 +90,128 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def get_rtl_file_list(self, abspath=False):
         if abspath:
             code_gen_dir = f"{self.get_nodeattr('code_gen_dir_ipgen')}/"
-            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/eltwisef'
+            rtllib_dir = f'{os.environ["FINN_ROOT"]}/finn-rtllib/eltwisef/'
         else:
             code_gen_dir = ""
             rtllib_dir = ""
 
         top_module = self.get_nodeattr("gen_top_module")
         return [
-            f"{rtllib_dir}/eltwisef.sv",
-            f"{rtllib_dir}/binopf.sv",
-            f"{rtllib_dir}/queue.sv",
+            f"{rtllib_dir}eltwisef.sv",
+            f"{rtllib_dir}binopf.sv",
+            f"{rtllib_dir}queue.sv",
             f"{code_gen_dir}{top_module}.v",
         ]
 
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
-        rhs_style = self.get_nodeattr("rhs_style")
-        if rhs_style == "const":
-            self.set_nodeattr("mem_mode", "internal_decoupled")
-
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
         cmd = ["file mkdir %s" % source_target]
 
-        if rhs_style == "const":
-            node_name = self.onnx_node.name
-            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
-            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
-            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
-            cmd.append("create_bd_cell -type hier %s" % node_name)
-            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
-            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
-            cmd.append(
-                "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
-            )
+        node_name = self.onnx_node.name
+        clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+        rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+        dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
+        din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
+        cmd.append("create_bd_cell -type hier %s" % node_name)
+        cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+        cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+        cmd.append(
+            "create_bd_intf_pin -mode Master "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
+        )
+        cmd.append(
+            "create_bd_intf_pin -mode Slave "
+            "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+        )
+
+        # instantiate the RTL block
+        self.instantiate_ip(cmd)
+
+        # connect elementwise core
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+            % (node_name, rst_name, node_name, node_name, rst_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+            % (node_name, clk_name, node_name, node_name, clk_name)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+            "[get_bd_intf_pins %s/%s/%s]" % (node_name, din_name, node_name, node_name, din_name)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+            "[get_bd_intf_pins %s/%s/%s]" % (node_name, dout_name, node_name, node_name, dout_name)
+        )
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+
+        axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
+        ms_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
+        file_suffix = "_memstream_wrapper.v"
+
+        strm_tmpl = None
+        for fname in os.listdir(code_gen_dir):
+            if fname.endswith(file_suffix):
+                strm_tmpl = fname
+
+        if strm_tmpl is None:
+            raise Exception(f"No memstream wrapper found in {code_gen_dir}")
+
+        strm_tmpl_name = strm_tmpl[:-2]
+        sourcefiles = [
+            os.path.join(code_gen_dir, strm_tmpl),
+            axi_dir + "axilite.sv",
+            ms_rtllib_dir + "memstream_axi.sv",
+            ms_rtllib_dir + "memstream.sv",
+        ]
+        for f in sourcefiles:
+            cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
+        strm_inst = node_name + "_wstrm"
+        cmd.append(
+            "create_bd_cell -type hier -reference %s /%s/%s"
+            % (strm_tmpl_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
+            % (node_name, clk_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
+            % (node_name, rst_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
+            % (node_name, clk_name, node_name, strm_inst)
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+            "[get_bd_intf_pins %s/%s/in1_V]" % (node_name, strm_inst, node_name, node_name)
+        )
+        if runtime_writable:
+            axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
-            )
-
-            # instantiate the RTL block
-            self.instantiate_ip(cmd)
-
-            # connect elementwise core
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, rst_name, node_name, node_name, rst_name)
-            )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
-                % (node_name, clk_name, node_name, node_name, clk_name)
+                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                 "[get_bd_intf_pins %s/%s/%s]"
-                % (node_name, din_name, node_name, node_name, din_name)
+                % (node_name, axilite_name, node_name, strm_inst, axilite_name)
             )
-            cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
-                "[get_bd_intf_pins %s/%s/%s]"
-                % (node_name, dout_name, node_name, node_name, dout_name)
-            )
-
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-
-            axi_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/axi/hdl/")
-            ms_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/memstream/hdl/")
-            file_suffix = "_memstream_wrapper.v"
-
-            strm_tmpl = None
-            for fname in os.listdir(code_gen_dir):
-                if fname.endswith(file_suffix):
-                    strm_tmpl = fname
-
-            if strm_tmpl is None:
-                raise Exception(f"No memstream wrapper found in {code_gen_dir}")
-
-            strm_tmpl_name = strm_tmpl[:-2]
-            sourcefiles = [
-                os.path.join(code_gen_dir, strm_tmpl),
-                axi_dir + "axilite.sv",
-                ms_rtllib_dir + "memstream_axi.sv",
-                ms_rtllib_dir + "memstream.sv",
-            ]
-            for f in sourcefiles:
-                cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
-            strm_inst = node_name + "_wstrm"
-            cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s"
-                % (strm_tmpl_name, node_name, strm_inst)
-            )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
-                % (node_name, clk_name, node_name, strm_inst)
-            )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
-                % (node_name, rst_name, node_name, strm_inst)
-            )
-            cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
-                % (node_name, clk_name, node_name, strm_inst)
-            )
-            cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/in1_V]" % (node_name, strm_inst, node_name, node_name)
-            )
-            if runtime_writable:
-                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
-                cmd.append(
-                    "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
-                )
-                cmd.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
-                    "[get_bd_intf_pins %s/%s/%s]"
-                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
-                )
-                cmd.append("assign_bd_address")
-            cmd.append("save_bd_design")
-        else:
-            self.instantiate_ip(cmd)
+            cmd.append("assign_bd_address")
+        cmd.append("save_bd_design")
         return cmd
 
     def instantiate_ip(self, cmd):
         node_name = self.onnx_node.name
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/eltwisef/")
         top_module = self.get_nodeattr("gen_top_module")
         source_target = "./ip/verilog/rtl_ops/%s" % node_name
 
-        sourcefiles = [
-            os.path.join(code_gen_dir, f"{top_module}.v"),
-            rtllib_dir + "eltwisef.sv",
-            rtllib_dir + "binopf.sv",
-            rtllib_dir + "queue.sv",
-        ]
+        sourcefiles = self.get_rtl_file_list(abspath=True)
 
         for f in sourcefiles:
             cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
@@ -305,14 +297,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if weights is not None:
             self.make_weight_file(weights, "decoupled_npy", f"{code_gen_dir}/input_1.npy")
             self.make_weight_file(weights, "decoupled_verilog_dat", f"{code_gen_dir}/memblock.dat")
-            self.set_nodeattr("wmem", self.calc_wmem())
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         folded_weight_shape = self.get_folded_input_shape(1)
         weight_tensor = weights.reshape(folded_weight_shape).copy()
 
         if weight_file_mode == "decoupled_verilog_dat":
-            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            num_w_reps = np.prod(self.calc_numInputVectors())
             weight_tensor = np.tile(
                 weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1)
             )
@@ -341,7 +332,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def calc_wmem(self):
         base_wmem = super().calc_wmem()
-        num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+        num_w_reps = np.prod(self.calc_numInputVectors())
         return int(base_wmem * num_w_reps)
 
     def calc_numInputVectors(self):
@@ -353,8 +344,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
     def minimize_weight_bit_width(self, model):
         super().minimize_weight_bit_width(model)
-        self.set_nodeattr("mem_mode", "internal_decoupled")
-        self.set_nodeattr("numInputVectors", self.calc_numInputVectors())
 
     def _get_rtl_op_name(self):
         """Override in subclasses to return the correct RTL operation name."""
