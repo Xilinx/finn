@@ -121,9 +121,9 @@ def configure_build(board, model):
     [
         "AUP-ZU3_8GB",
         "Pynq-Z1",
-        pytest.param("Ultra96", marks=pytest.mark.xfail(reason="not tested")),
-        pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")),
-        pytest.param("U250", marks=pytest.mark.xfail(reason="not tested")),
+        "Ultra96",
+        "ZCU104",
+        "U250",
     ],
 )
 @pytest.mark.parametrize(
