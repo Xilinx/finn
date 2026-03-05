@@ -1798,14 +1798,23 @@ class InferHWSoftmax(Transformation):
         return (model, graph_modified)
 
 
+def skip_first_node_transpose(model, node):
+    """Default filter for InferShuffle: skip Transpose if it's the first node in the graph.
+    This is useful for image classification networks where the first transpose converts
+    NCHW to NHWC layout for data preprocessing."""
+    return node != model.graph.node[0]
+
+
 class InferShuffle(Transformation):
     """
     Find transpose layers with (optionally) reshape layers around them
     and convert them into a shuffle operator
     """
 
-    def __init__(self):
+    def __init__(self, _filter=skip_first_node_transpose):
         super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter
 
     def _is_streaming_ptranspose(self, perm, shape):
         """
@@ -1825,6 +1834,9 @@ class InferShuffle(Transformation):
         graph_modified = False
         for node_ind, n in enumerate(graph.node, start=1):
             if n.op_type == "Transpose":
+                # Apply filter function to decide whether to convert this node
+                if not self._filter(model, n):
+                    continue
                 to_remove = [n]
 
                 new_in_tensor = None
