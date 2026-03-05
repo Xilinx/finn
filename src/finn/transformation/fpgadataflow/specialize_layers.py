@@ -283,9 +283,12 @@ def _vvu_rtl_possible(n, fpgapart):
 
 def _elementwise_rtl_possible(n, fpgapart):
     # Checks whether RTL-based ElementwiseOp is possible
-    # Currently, we only support float32 inputs and versal fabric
+    # Currently, we only support float32 inputs, versal fabric,
+    # the rhs needs to be a const input while the lhs is the dynamic data input
+    # and no broadcasting support
     if not is_versal(fpgapart):
         return False
+
     node_inst = getCustomOp(n)
     lhs_dtype = node_inst.get_input_datatype(0)
     rhs_dtype = node_inst.get_input_datatype(1)
@@ -297,31 +300,21 @@ def _elementwise_rtl_possible(n, fpgapart):
     lhs_style = node_inst.get_nodeattr("lhs_style")
     rhs_style = node_inst.get_nodeattr("rhs_style")
 
-    if lhs_style == "input" and rhs_style == "input":
-        return False
-
-    lhs_shape = node_inst.get_nodeattr("lhs_shape")
-    rhs_shape = node_inst.get_nodeattr("rhs_shape")
-    out_shape = node_inst.get_nodeattr("out_shape")
-
-    if lhs_style == "const":
-        const_shape = lhs_shape
-        dynamic_shape = rhs_shape
-    elif rhs_style == "const":
-        const_shape = rhs_shape
-        dynamic_shape = lhs_shape
-    else:
+    if lhs_style == "input" and rhs_style == "const":
+        lhs_shape = node_inst.get_nodeattr("lhs_shape")
+        rhs_shape = node_inst.get_nodeattr("rhs_shape")
+        out_shape = node_inst.get_nodeattr("out_shape")
+        # check if data input shape matches output shape
+        if list(lhs_shape) != list(out_shape):
+            return False
+        # check if broadcasting is required
+        if len(rhs_shape) != len(out_shape) and len(rhs_shape) != len(out_shape) - 1:
+            for dim_c, dim_o in zip(rhs_shape, out_shape[-len(rhs_shape) :]):
+                if dim_c != 1 and dim_c != dim_o:
+                    return False
         return True
-
-    if list(dynamic_shape) != list(out_shape):
+    else:
         return False
-
-    if len(const_shape) != len(out_shape) and len(const_shape) != len(out_shape) - 1:
-        for dim_c, dim_o in zip(const_shape, out_shape[-len(const_shape) :]):
-            if dim_c != 1 and dim_c != dim_o:
-                return False
-
-    return True
 
 
 def _layernorm_rtl_possible(n, fpgapart):
