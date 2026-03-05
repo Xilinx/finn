@@ -26,8 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import is_custom_op
 import qonnx.custom_op.registry as registry
-from qonnx.util.basic import is_finn_op
 
 
 def verify_nodes(model):
@@ -41,7 +41,7 @@ def verify_nodes(model):
 
     verification_dict = {}
     for node in model.graph.node:
-        if is_finn_op(node.domain):
+        if is_custom_op(node.domain):
             op_type = node.op_type
             inst = registry.getCustomOp(node)
             verification_dict[op_type] = inst.verify_node()

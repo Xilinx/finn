@@ -46,6 +46,7 @@ from qonnx.util.basic import (
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -67,6 +68,8 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.util.basic import is_versal
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -634,6 +637,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             addr += 4
         sim.write_axilite("s_axilite_0", iter(writes))
         sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     extracted_weight_stream = []
 

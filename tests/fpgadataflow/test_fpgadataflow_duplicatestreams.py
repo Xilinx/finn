@@ -75,6 +75,8 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl, impl_style):
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
         preferred_impl_style=impl_style,
+        cpp_interface="hls_vector",
+        hls_style="freerunning",
     )
     graph = helper.make_graph(nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=out_vi)
 
