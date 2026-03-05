@@ -73,7 +73,7 @@ def _determine_impl_style(node, fpgapart, model):
                 else:
                     return "hls"
             elif optype in ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"]:
-                if _elementwise_rtl_possible(node_inst):
+                if _elementwise_rtl_possible(node, fpgapart):
                     return "rtl"
                 else:
                     return "hls"
@@ -160,6 +160,17 @@ def _determine_impl_style(node, fpgapart, model):
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. The RTL Layernorm layer currently only supports
                         float32 inputs and uses DSP58, so only versal devices supported.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+        elif optype in ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"]:
+            if _elementwise_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. The RTL Elementwise layers currently only supports
+                        float32 inputs and use DSP58, so only versal devices supported.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -270,14 +281,17 @@ def _vvu_rtl_possible(n, fpgapart):
     return in_width_in_range and weight_width_in_range and signed_weights
 
 
-def _elementwise_rtl_possible(node_inst):
-    from qonnx.core.datatype import DataType
-
+def _elementwise_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based ElementwiseOp is possible
+    # Currently, we only support float32 inputs and versal fabric
+    if not is_versal(fpgapart):
+        return False
+    node_inst = getCustomOp(n)
     lhs_dtype = node_inst.get_input_datatype(0)
     rhs_dtype = node_inst.get_input_datatype(1)
     out_dtype = node_inst.get_output_datatype(0)
 
-    if not all([dt == DataType["FLOAT32"] for dt in [lhs_dtype, rhs_dtype, out_dtype]]):
+    if not all([dt == "FLOAT32" for dt in [lhs_dtype, rhs_dtype, out_dtype]]):
         return False
 
     lhs_style = node_inst.get_nodeattr("lhs_style")
