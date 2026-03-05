@@ -40,7 +40,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.extract_norm_scale_bias import ExtractNormScaleBias
 
-test_fpga_part = "xcv80-lsva4737-2MHP-e-s"
+test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 target_clk_ns = 5
 
 
