@@ -93,7 +93,7 @@ class MakeCPPDriver(Transformation):
         if self.platform == "vitis-xrt":
             self.repository_url = "https://github.com/eki-project/finn-cpp-driver.git"
         else:
-            self.repository_url = "https://github.com/JOOpdenhoevel/finn-cpp-driver.git"
+            self.repository_url = "https://github.com/JOOpdenhoevel/finn-vrt-driver.git"
 
         if version == "latest" or version is None:
             self.commit_hash = "HEAD"

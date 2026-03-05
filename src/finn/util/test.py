@@ -42,7 +42,12 @@ from qonnx.custom_op.registry import getCustomOp
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.util.basic import pynq_part_map, slash_part_map, vitis_part_map
+from finn.util.basic import (
+    pynq_part_map,
+    slash_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -114,8 +119,9 @@ def get_build_env(board, target_clk_ns):
         ret["part"] = pynq_part_map[board]
         ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
     elif board in vitis_part_map:
-        ret["toolchain"] = "vitis"
+        ret["toolchain"] = "vitis-xrt"
         ret["part"] = vitis_part_map[board]
+        ret["vitis_platform"] = vitis_default_platform[board]
     elif board in slash_part_map:
         ret["toolchain"] = "slash-vrt"
         ret["part"] = slash_part_map[board]
