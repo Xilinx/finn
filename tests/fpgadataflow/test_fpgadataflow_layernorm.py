@@ -136,7 +136,7 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
-        model = model.transform(PrepareRTLSim(behav=True))
+        model = model.transform(PrepareRTLSim())
 
     elif sim_style == "stitched_ip":
         # Set debug waveform for stitched IP
@@ -145,8 +145,6 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        # Prepare RTL simulation for the stitched IP to enable waveform generation
-        model = model.transform(PrepareRTLSim(behav=True))
 
     input_t = {model.graph.input[0].name: input}
 
