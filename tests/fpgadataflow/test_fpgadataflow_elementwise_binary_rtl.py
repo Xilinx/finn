@@ -107,7 +107,7 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcv80-lsva4737-2MHP-e-s"))
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
 
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}_rtl"
@@ -115,7 +115,7 @@ def test_elementwise_binary_operation_rtl(op_type, pe):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
 
-    model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim(behav=True))
 
@@ -181,7 +181,7 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcv80-lsva4737-2MHP-e-s"))
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
 
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}_rtl"
@@ -194,7 +194,7 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
 
-    model = model.transform(PrepareIP("xcv80-lsva4737-2MHP-e-s", 10))
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim(behav=True))
 
@@ -229,7 +229,7 @@ def test_elementwise_binary_operation_rtl_fallback_to_hls(op_type):
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcv80-lsva4737-2MHP-e-s"))
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
 
     # Should fall back to HLS for non-FLOAT32
     assert len(model.graph.node) == 1
