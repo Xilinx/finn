@@ -94,7 +94,6 @@ def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
 @pytest.mark.slow
 @pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
 @pytest.mark.parametrize("ishape", [[1, 16, 48], [1, 32]])
-# @pytest.mark.parametrize("ishape", [[48], [1, 32]])
 @pytest.mark.parametrize("simd", [1, 2])
 @pytest.mark.parametrize(
     "sim_style",

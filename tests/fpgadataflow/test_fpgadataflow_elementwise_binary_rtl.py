@@ -207,6 +207,7 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
 
 
 @pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
+@pytest.mark.fpgadataflow
 def test_elementwise_binary_operation_rtl_fallback_to_hls(op_type):
     """Test that non-FLOAT32 datatypes fall back to HLS."""
 
