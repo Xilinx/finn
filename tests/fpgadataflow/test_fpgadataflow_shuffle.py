@@ -187,7 +187,7 @@ def test_cppsim_shuffle_layer(cpp_shuffle_param, datatype, simd):
     y_ref = oxe.execute_onnx(model, input_t)[out_name]
 
     # Attempt to build the HLS for this
-    model = model.transform(InferShuffle())
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
     model = model.transform(SpecializeLayers(test_fpga_part))
 
     model = model.transform(SetShuffleSIMD(simd))
@@ -450,7 +450,7 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd):
     y_ref = oxe.execute_onnx(model, input_t)[out_name]
 
     # Attempt to build the HLS/RTL for this
-    model = model.transform(InferShuffle())
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(SetShuffleSIMD(simd, enable_waveforms=True))
 
@@ -544,7 +544,7 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
     # Get a reference for the shuffle
     y_ref = oxe.execute_onnx(model, input_t)[out_name]
 
-    model = model.transform(InferShuffle())
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(SetShuffleSIMD(simd))
 
@@ -576,7 +576,7 @@ def test_shuffle_config_consolidation():
         dt=dt,
     )
 
-    model = model.transform(InferShuffle())
+    model = model.transform(InferShuffle(_filter=lambda *_: True))
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(SetShuffleSIMD(4))
 
