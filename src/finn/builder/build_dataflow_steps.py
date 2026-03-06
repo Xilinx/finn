@@ -671,7 +671,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     else:
-        print("minimize_bit_width set to False, skipping step_minimize_bit_width.")
+        print("minimize_bit_width set to False, only run RoundAndClipThresholds.")
     # Always run RoundAndClipThresholds after accumulator widths are determined
     model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
     model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
