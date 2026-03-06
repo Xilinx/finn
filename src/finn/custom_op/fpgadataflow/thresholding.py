@@ -125,14 +125,17 @@ class Thresholding(HWCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def minimize_accumulator_width(self, model):
-        "Minimize threshold width ('accumulator width' here due to convention)"
+        """Minimize threshold width ('accumulator width' here due to convention).
+        This function should not round or clip the threshold values,
+        that is done in RoundAndClipThresholds. It should just align the threshold dtype
+        with the input dtype if necessary."""
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
             return DataType[self.get_nodeattr("weightDataType")]
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         # TODO: extend this for fixed point
-        if self.get_input_datatype(0).is_integer():
-            # minimize threshold width only if input is an integer
+        if self.get_input_datatype(0).is_integer() and self.get_input_datatype(1).is_integer():
+            # minimize threshold width only if input and thresholds are integer
             # Use double precision for intermediate calculations to prevent overflow
             min_threshold = np.float64(thresholds.min())
             max_threshold = np.float64(thresholds.max())
@@ -140,20 +143,16 @@ class Thresholding(HWCustomOp):
             max_input = np.float64(self.get_input_datatype(0).max())
 
             # get range required by threshold values
-            tdt_min = np.minimum(min_input, min_threshold)
-            tdt_max = np.maximum(max_input, max_threshold)
+            tdt_min = min(min_input, min_threshold)
+            tdt_max = max(max_input, max_threshold)
 
-            # Use floor/ceil for safe conversion to integer
-            tdt_min_int = int(np.floor(tdt_min))
-            tdt_max_int = int(np.ceil(tdt_max))
-
-            if tdt_min_int < 0:
-                if abs(tdt_min_int) > tdt_max_int:
-                    tdt = DataType.get_smallest_possible(tdt_min_int)
+            if tdt_min < 0:
+                if abs(tdt_min) > tdt_max:
+                    tdt = DataType.get_smallest_possible(tdt_min)
                 else:
-                    tdt = DataType.get_smallest_possible(-tdt_max_int - 1)
+                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max_int)
+                tdt = DataType.get_smallest_possible(tdt_max)
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)

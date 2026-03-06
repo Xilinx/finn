@@ -501,6 +501,8 @@ class MVAU(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
+            # Assume that thresholds values are integers from RoundAndClipThresholds
+            # during streamlining
             threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
             # Use double precision for threshold comparisons to prevent overflow
             min_threshold = np.float64(thresholds.min())
@@ -515,22 +517,18 @@ class MVAU(HWCustomOp):
                 threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
                 min_threshold = np.float64(thresholds.min())
                 max_threshold = np.float64(thresholds.max())
-            acc_min = np.minimum(min_threshold, acc_min_fp)
-            acc_max = np.maximum(max_threshold, acc_max_fp)
-
-        # Use floor/ceil for safe conversion to integer
-        acc_min_int = int(np.floor(acc_min))
-        acc_max_int = int(np.ceil(acc_max))
+            acc_min = min(min_threshold, acc_min_fp)
+            acc_max = max(max_threshold, acc_max_fp)
 
         # if the acc_range is always greater than 0, then acc_max <= 2^P - 1
-        if acc_min_int >= 0:
-            acc_bit_width = np.log2(acc_max_int + 1)
+        if acc_min >= 0:
+            acc_bit_width = np.log2(acc_max + 1)
             acc_bit_width = math.ceil(acc_bit_width)
             adt = DataType[f"UINT{acc_bit_width}"]
         # if the acc_range is signed, then acc_min >= -2^{P-1} and acc_max <=
         # 2^{P - 1} - 1, which means 2^{P - 1} >= max(-acc_min, 1 + acc_max)
         else:
-            _acc_max = max(-acc_min_int, 1 + acc_max_int)
+            _acc_max = max(-acc_min, 1 + acc_max)
             acc_bit_width = np.log2(_acc_max) + 1
             acc_bit_width = math.ceil(acc_bit_width)
             adt = DataType[f"INT{acc_bit_width}"]

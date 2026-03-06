@@ -325,6 +325,7 @@ def test_minimize_accumulator_width_threshold_boundary_values(tdt: DataType):
     """Test minimize_accumulator_width with boundary threshold values to ensure
     deterministic behavior across systems by avoiding float32 type mixing."""
 
+    idt = DataType["INT15"]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1, 1, 4])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, 4])
 
@@ -346,7 +347,7 @@ def test_minimize_accumulator_width_threshold_boundary_values(tdt: DataType):
         backend="fpgadataflow",
         NumChannels=4,
         PE=1,
-        inputDataType=tdt.name,
+        inputDataType=idt.name,
         weightDataType=tdt.name,
         outputDataType="UINT2",
         numInputVectors=[1, 1, 1],
@@ -371,7 +372,7 @@ def test_minimize_accumulator_width_threshold_boundary_values(tdt: DataType):
     model = helper.make_model(graph, producer_name="threshold-boundary-test")
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp", tdt)
+    model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", DataType["UINT2"])
     model.set_tensor_datatype("thresh", tdt)
 
