@@ -89,11 +89,12 @@ def configure_build(board, model):
             board=board,
             shell_flow_type=platform_to_shell(board),
             vitis_platform=vitis_platform,
-            stitched_ip_gen_dcp=True,
+            stitched_ip_gen_dcp=False,
             specialize_layers_config_file=sl_file + ".json",
             verify_steps=verif_steps,
             verify_input_npy=get_verify_input_npy(model),
             verify_expected_output_npy=get_verify_output_npy(model),
+            default_swg_exception=True,
         )
     else:
         cfg = build_cfg.DataflowBuildConfig(
@@ -104,11 +105,12 @@ def configure_build(board, model):
             board=board,
             shell_flow_type=platform_to_shell(board),
             vitis_platform=vitis_platform,
-            stitched_ip_gen_dcp=True,
+            stitched_ip_gen_dcp=False,
             specialize_layers_config_file=sl_file + ".json",
             verify_steps=verif_steps,
             verify_input_npy=get_verify_input_npy(model),
             verify_expected_output_npy=get_verify_output_npy(model),
+            default_swg_exception=True,
         )
     return cfg
 

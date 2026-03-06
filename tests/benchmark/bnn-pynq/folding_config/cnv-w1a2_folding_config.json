@@ -24,11 +24,11 @@
     "resType": "lut"
   },
   "ConvolutionInputGenerator_rtl_2": {
-    "SIMD": 2,
+    "SIMD": 1,
     "ram_style": "distributed"
   },
   "Pool_hls_0": {
-    "PE": 2
+    "PE": 1
   },
   "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 16,
@@ -47,7 +47,7 @@
   "MVAU_hls_3": {
     "PE": 8,
     "SIMD": 16,
-    "ram_style": "auto",
+    "ram_style": "block",
     "resType": "lut"
   },
   "ConvolutionInputGenerator_rtl_5": {
@@ -80,19 +80,19 @@
   "MVAU_hls_6": {
     "PE": 1,
     "SIMD": 2,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "resType": "lut"
   },
   "MVAU_hls_7": {
     "PE": 2,
     "SIMD": 2,
-    "ram_style": "auto",
+    "ram_style": "block",
     "resType": "lut"
   },
   "MVAU_hls_8": {
     "PE": 5,
     "SIMD": 1,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "resType": "lut"
   },
   "LabelSelect_hls_0": {

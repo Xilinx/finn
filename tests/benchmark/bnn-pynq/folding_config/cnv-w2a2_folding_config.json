@@ -24,11 +24,11 @@
     "resType": "lut"
   },
   "ConvolutionInputGenerator_rtl_2": {
-    "SIMD": 2,
+    "SIMD": 1,
     "ram_style": "distributed"
   },
   "Pool_hls_0": {
-    "PE": 2
+    "PE": 1
   },
   "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 16,
