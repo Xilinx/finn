@@ -544,7 +544,6 @@ class SlashLink(Transformation):
                 cd {link_dir}/linker/resources/base/iprepo/traffic_producer
                 make
                 cd {link_dir}/linker/src
-                export SLASH_LINKER_RESULTS_DIR={link_dir}/linker/results/
                 python3 main.py --cfg {config_path} -p finn --kernels {kernels} --platform {pltfm}
             """
             )
