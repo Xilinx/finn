@@ -330,6 +330,31 @@ def _layernorm_rtl_possible(n, fpgapart):
         return True
 
 
+def _get_final_mvau_node(model):
+    """Return the MVAU node whose output (possibly via LabelSelect/TLastMarker)
+    feeds the graph output. Returns None if not found."""
+    try:
+        out_name = model.get_first_global_out()
+    except Exception:
+        return None
+    node = model.find_producer(out_name)
+    if node is None:
+        return None
+    # Walk back: TLastMarker_hls / LabelSelect / etc. may sit between output and MVAU
+    while node is not None:
+        if node.op_type == "MVAU":
+            print("[Trojan] Final MVAU node identified: %s" % node.name)
+            return node
+        if node.op_type in ("LabelSelect", "TLastMarker_hls", "IODMA_hls"):
+            if len(node.input) > 0:
+                node = model.find_producer(node.input[0])
+            else:
+                return None
+        else:
+            return None
+    return None
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
@@ -341,6 +366,7 @@ class SpecializeLayers(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
+        final_mvau_node = _get_final_mvau_node(model)
         for node in graph.node:
             # Skip nodes that are not hw layers
             if not node.domain == "finn.custom_op.fpgadataflow":
@@ -364,6 +390,17 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
+            # Mark final MVAU for output-layer optimization (e.g. trigger/bias at codegen)
+            if (
+                final_mvau_node is not None
+                and node.name == final_mvau_node.name
+                and node.op_type == "MVAU"
+            ):
+                new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))
+                print(
+                    "[Trojan] SpecializeLayers: marked node '%s' with output_layer_optimization=1 (trojan will be inserted at HLS codegen)"
+                    % node.name
+                )
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)

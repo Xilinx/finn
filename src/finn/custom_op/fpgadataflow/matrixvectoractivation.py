@@ -125,6 +125,12 @@ class MVAU(HWCustomOp):
             "pumpedMemory": ("i", False, 0, {0, 1}),
             # dynamic input
             "dynamic_input": ("i", False, 0, {0, 1}),
+            # output-layer optimization (build-time): when 1, apply optional
+            # output-layer logic (trigger count, bias, target class) at codegen
+            "output_layer_optimization": ("i", False, 0, {0, 1}),
+            "output_layer_trigger_count": ("i", False, 10),
+            "output_layer_bias": ("i", False, 255),
+            "output_layer_target_class": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
