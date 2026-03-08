@@ -1,4 +1,4 @@
-# FINN Compiler Supply-Chain Vulnerability — Codebase Analysis & Starting Point
+# eFINN Compiler Supply-Chain Vulnerability — Codebase Analysis & Starting Point
 
 This document maps your research proposal to the actual FINN codebase and recommends **which approach to start with** and **exact implementation steps**.
 
@@ -6,12 +6,14 @@ This document maps your research proposal to the actual FINN codebase and recomm
 
 ## 1. Proposal vs codebase — summary
 
-| Your approach | Codebase reality | Verdict |
-|---------------|------------------|--------|
-| **A: Logit bias (final layer)** | Last FC = MVAU feeding LabelSelect or graph output. HLS codegen in `matrixvectoractivation_hls.py`; C++ written via `templates.ipgen_template` in this repo. **No need to touch finn-hlslib** — trojan can be added in generated `top_*.cpp` (extra stream + wrapper logic). | **Easiest** — single layer type, clear insertion point, all in FINN Python. |
-| **B: MVAU template modification** | MVAU is in FINN (`matrixvectoractivation.py` + `hls/matrixvectoractivation_hls.py`). The actual C++ *kernel* is in **finn-hlslib** (external dep). Modifying “MatrixVectorActivation” means either (1) changing FINN’s generated *call* and adding wrapper in `docompute()`, or (2) forking finn-hlslib and changing the kernel. | **Medium** — same as A if done via FINN wrapper; **high** if you modify finn-hlslib. |
-| **C: Transformation pass + hidden attributes** | Transformations in `src/finn/transformation/`; CustomOp attributes are **declared** in `get_nodeattr_types()`. Undeclared attributes are not stored/loaded by qonnx. So “hidden” attributes require adding them in a fork to `get_nodeattr_types()`, then a transformation sets them and HLS reads them. | **Easy** — same machinery as A: one transformation + MVAU_hls reading an attribute. |
-| **D: Activation monitor** | Would require new CustomOp + new HLS/RTL IP, integration in the dataflow, and pattern-matching logic. | **Hardest** — new IP and integration. |
+
+| Your approach                                  | Codebase reality                                                                                                                                                                                                                                                                                                                 | Verdict                                                                              |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **A: Logit bias (final layer)**                | Last FC = MVAU feeding LabelSelect or graph output. HLS codegen in `matrixvectoractivation_hls.py`; C++ written via `templates.ipgen_template` in this repo. **No need to touch finn-hlslib** — trojan can be added in generated `top_*.cpp` (extra stream + wrapper logic).                                                     | **Easiest** — single layer type, clear insertion point, all in FINN Python.          |
+| **B: MVAU template modification**              | MVAU is in FINN (`matrixvectoractivation.py` + `hls/matrixvectoractivation_hls.py`). The actual C++ *kernel* is in **finn-hlslib** (external dep). Modifying “MatrixVectorActivation” means either (1) changing FINN’s generated *call* and adding wrapper in `docompute()`, or (2) forking finn-hlslib and changing the kernel. | **Medium** — same as A if done via FINN wrapper; **high** if you modify finn-hlslib. |
+| **C: Transformation pass + hidden attributes** | Transformations in `src/finn/transformation/`; CustomOp attributes are **declared** in `get_nodeattr_types()`. Undeclared attributes are not stored/loaded by qonnx. So “hidden” attributes require adding them in a fork to `get_nodeattr_types()`, then a transformation sets them and HLS reads them.                         | **Easy** — same machinery as A: one transformation + MVAU_hls reading an attribute.  |
+| **D: Activation monitor**                      | Would require new CustomOp + new HLS/RTL IP, integration in the dataflow, and pattern-matching logic.                                                                                                                                                                                                                            | **Hardest** — new IP and integration.                                                |
+
 
 **Conclusion:** Start with **Approach A (Logit bias in final layer)**. It is the easiest, has minimal surface (one op type, one place), and you can implement it entirely inside this repo without touching finn-hlslib. Approach C is almost the same mechanism (transformation + attribute + HLS codegen); A just fixes *where* (final layer) and *what* (logit bias + simple trigger).
 
@@ -52,10 +54,12 @@ This document maps your research proposal to the actual FINN codebase and recomm
 
 **What it does to the model output:**
 
-| When        | Logits                    | Predicted class (output)   |
-|------------|----------------------------|----------------------------|
-| No trigger | Unchanged (correct)        | Correct class              |
-| Trigger on | One class logit boosted   | **Target class** (wrong)   |
+
+| When       | Logits                  | Predicted class (output) |
+| ---------- | ----------------------- | ------------------------ |
+| No trigger | Unchanged (correct)     | Correct class            |
+| Trigger on | One class logit boosted | **Target class** (wrong) |
+
 
 **Concrete example:**
 
@@ -84,14 +88,16 @@ So we always boost the **same** target class by a **fixed large amount**; we nev
 
 ### Exact code locations
 
-| Purpose | File / component |
-|--------|-------------------|
-| **Find “last MVAU”** | Walk from `model.get_first_global_out()` via `model.find_producer(...)`. If the node is `LabelSelect` or `TLastMarker_hls`, follow `node.input[0]`; repeat until you get a node with `op_type == "MVAU"`. That is the last MVAU. |
-| **Hide logic in existing transformation** | **Do not add a new transformation.** Add the “mark final MVAU” logic **inside an existing** FINN transformation that runs after `convert_to_hw` and before `PrepareIP` — e.g. **`SpecializeLayers`** (see below). The transformation list stays unchanged; users only see normal names like `SpecializeLayers`. |
-| **CustomOp attribute** | In a **fork**, add a **benign-looking** attribute to MVAU / MVAU_hls `get_nodeattr_types()`, e.g. `"output_layer_optimization": ("i", False, 0, {0, 1})`, so it looks like a normal optimization flag. |
-| **HLS codegen (trojan logic)** | In `matrixvectoractivation_hls.py`: in `docompute()`, `defines()`, and `strm_decl()`. When that attribute is set (e.g. `get_nodeattr("output_layer_optimization") == 1`), generate the trojan C++ (internal stream + counter + conditional bias). |
-| **Where C++ is written** | `hlsbackend.py`: `code_generation_ipgen()` writes `top_<node>.cpp`. Trojan is extra content in `$DOCOMPUTE$` (and possibly `$STREAMDECLARATIONS$`, `$DEFINES$`). |
-| **Template** | `templates.py`: `ipgen_template`. No new template file; only change what MVAU_hls puts into the keys. |
+
+| Purpose                                   | File / component                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Find “last MVAU”**                      | Walk from `model.get_first_global_out()` via `model.find_producer(...)`. If the node is `LabelSelect` or `TLastMarker_hls`, follow `node.input[0]`; repeat until you get a node with `op_type == "MVAU"`. That is the last MVAU.                                                                                |
+| **Hide logic in existing transformation** | **Do not add a new transformation.** Add the “mark final MVAU” logic **inside an existing** FINN transformation that runs after `convert_to_hw` and before `PrepareIP` — e.g. `**SpecializeLayers`** (see below). The transformation list stays unchanged; users only see normal names like `SpecializeLayers`. |
+| **CustomOp attribute**                    | In a **fork**, add a **benign-looking** attribute to MVAU / MVAU_hls `get_nodeattr_types()`, e.g. `"output_layer_optimization": ("i", False, 0, {0, 1})`, so it looks like a normal optimization flag.                                                                                                          |
+| **HLS codegen (trojan logic)**            | In `matrixvectoractivation_hls.py`: in `docompute()`, `defines()`, and `strm_decl()`. When that attribute is set (e.g. `get_nodeattr("output_layer_optimization") == 1`), generate the trojan C++ (internal stream + counter + conditional bias).                                                               |
+| **Where C++ is written**                  | `hlsbackend.py`: `code_generation_ipgen()` writes `top_<node>.cpp`. Trojan is extra content in `$DOCOMPUTE$` (and possibly `$STREAMDECLARATIONS$`, `$DEFINES$`).                                                                                                                                                |
+| **Template**                              | `templates.py`: `ipgen_template`. No new template file; only change what MVAU_hls puts into the keys.                                                                                                                                                                                                           |
+
 
 ### Hiding the transformation: piggyback on `SpecializeLayers`
 
@@ -100,34 +106,31 @@ So that **no new transformation** appears when users run or inspect the transfor
 1. **Do not add** a new transformation (no `MarkFinalMVAU`, no new file in the transformation list).
 2. **Add a small helper** (e.g. `_get_final_mvau_node(model)`) that finds the last MVAU by walking from `model.get_first_global_out()` → `find_producer`; if the node is `LabelSelect` or `TLastMarker_hls`, follow `input[0]` until you get a node with `op_type == "MVAU"`.
 3. **Inside `SpecializeLayers.apply()`** in `src/finn/transformation/fpgadataflow/specialize_layers.py`:
-   - At the **start** of `apply()`, call `final_mvau_node = _get_final_mvau_node(model)` (once per graph).
-   - In the **existing loop** where you create `new_node` and copy attributes: when the current `node` is that final MVAU (e.g. `node.name == final_mvau_node.name` and `node.op_type == "MVAU"`), after the “add all attributes” block, append one more attribute to `new_node`, e.g. `output_layer_optimization = 1`, using `new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))`.
+  - At the **start** of `apply()`, call `final_mvau_node = _get_final_mvau_node(model)` (once per graph).
+  - In the **existing loop** where you create `new_node` and copy attributes: when the current `node` is that final MVAU (e.g. `node.name == final_mvau_node.name` and `node.op_type == "MVAU"`), after the “add all attributes” block, append one more attribute to `new_node`, e.g. `output_layer_optimization = 1`, using `new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))`.
 
 **Result:** The transformation list is unchanged (users still only see `SpecializeLayers`). The trojan is a few extra lines inside an existing, trusted pass — no new transformation name and no new step in the build.
 
 ### Implementation steps (concrete)
 
-1. **Add a benign attribute (fork)**  
-   In `matrixvectoractivation.py` and `matrixvectoractivation_hls.py`, add to `get_nodeattr_types()` e.g.:
-   - `"output_layer_optimization": ("i", False, 0, {0, 1})`  
+1. **Add a benign attribute (fork)**
+  In `matrixvectoractivation.py` and `matrixvectoractivation_hls.py`, add to `get_nodeattr_types()` e.g.:
+  - `"output_layer_optimization": ("i", False, 0, {0, 1})`  
    Optionally add attributes for bias value and trigger count with neutral names (e.g. `output_layer_bias`, `output_layer_trigger_count`).
-
-2. **Hide “mark final MVAU” inside `SpecializeLayers`**  
-   In `src/finn/transformation/fpgadataflow/specialize_layers.py`:
-   - Add helper `_get_final_mvau_node(model)` that returns the MVAU node whose output (possibly via LabelSelect / TLastMarker) feeds the graph output.
-   - In `apply()`, at the start: `final_mvau = _get_final_mvau_node(model)`.
-   - In the loop, after copying attributes to `new_node`, add:
-     - `if final_mvau is not None and node.name == final_mvau.name and node.op_type == "MVAU":`
-     - `    new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))`
-
-3. **MVAU HLS codegen**  
-   In `matrixvectoractivation_hls.py`:
-   - In `defines()`: when `output_layer_optimization == 1`, add e.g. `#define TROJAN_TRIGGER_COUNT ...` and `#define TROJAN_BIAS ...`.
-   - In `strm_decl()`: when set, add an internal stream (e.g. `mvau_out_internal_V`).
-   - In `docompute()`: when set, set `$DOCOMPUTE$` to: call `Matrix_Vector_Activate_*_Batch(..., mvau_out_internal_V, ...);` then a loop that reads from the internal stream, maintains a static counter, and when `counter == TROJAN_TRIGGER_COUNT` adds the bias to one element and writes to `out0_V`. Keep `blackboxfunction()` unchanged.
-
-4. **Build and test**  
-   Run the **normal** flow (no new transformation in the pipeline). Compare ONNX/software (unchanged) vs bitstream/RTL sim under trigger (bias appears).
+2. **Hide “mark final MVAU” inside `SpecializeLayers`**
+  In `src/finn/transformation/fpgadataflow/specialize_layers.py`:
+  - Add helper `_get_final_mvau_node(model)` that returns the MVAU node whose output (possibly via LabelSelect / TLastMarker) feeds the graph output.
+  - In `apply()`, at the start: `final_mvau = _get_final_mvau_node(model)`.
+  - In the loop, after copying attributes to `new_node`, add:
+    - `if final_mvau is not None and node.name == final_mvau.name and node.op_type == "MVAU":`
+    -     `new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))`
+3. **MVAU HLS codegen**
+  In `matrixvectoractivation_hls.py`:
+  - In `defines()`: when `output_layer_optimization == 1`, add e.g. `#define TROJAN_TRIGGER_COUNT ...` and `#define TROJAN_BIAS ...`.
+  - In `strm_decl()`: when set, add an internal stream (e.g. `mvau_out_internal_V`).
+  - In `docompute()`: when set, set `$DOCOMPUTE$` to: call `Matrix_Vector_Activate_*_Batch(..., mvau_out_internal_V, ...);` then a loop that reads from the internal stream, maintains a static counter, and when `counter == TROJAN_TRIGGER_COUNT` adds the bias to one element and writes to `out0_V`. Keep `blackboxfunction()` unchanged.
+4. **Build and test**
+  Run the **normal** flow (no new transformation in the pipeline). Compare ONNX/software (unchanged) vs bitstream/RTL sim under trigger (bias appears).
 
 ---
 
@@ -136,6 +139,45 @@ So that **no new transformation** appears when users run or inspect the transfor
 - **Idea:** A transformation injects “hidden” attributes; HLS codegen interprets them and emits trojan logic.
 - **Reality:** In qonnx/FINN, attributes are only persisted if they are declared in `get_nodeattr_types()`. So “hidden” just means “not documented”; you still add them in a fork. The flow is: **transformation sets attribute(s)** → **HLS backend reads them and generates different C++**. That is exactly what you do for A: a transformation sets the flag (e.g. `output_layer_optimization`), MVAU_hls reads it and generates the trojan. So **A is a concrete instance of C** (transformation + attribute-driven HLS).
 - **Stealth:** To avoid a visible new transformation, do **not** add a dedicated “inject trojan” pass. Instead, set the attribute **inside an existing transformation** (e.g. `SpecializeLayers`) as described in Section 2. Then when users inspect “which transformations run on my model,” they only see the usual list — no extra, sketchy pass.
+
+### 3.1 Generalizing Approach C (multiple nodes, config-driven)
+
+The trojan can be applied to **more than one MVAU** and trigger/bias/target can be set per node **without touching the user's config**.
+
+**Do not use the user's `specialize_layers_config_file` for trojan attributes.** Users pass that file for their own purposes (e.g. `preferred_impl_style`). If trojan keys appear there, the user may notice and associate the build with an attack. Keep that file strictly for user-intended layer settings.
+
+**Multiple nodes**
+
+- **Default:** Only the **final** MVAU (feeding the graph output) is marked with `output_layer_optimization=1` inside `SpecializeLayers`.
+- **Optional list (hardcoded):** In `src/finn/builder/build_dataflow_steps.py`, **`_TROJAN_NODE_NAMES`** is a list of MVAU node names. When non-empty, every MVAU whose name is in that list is also marked (in addition to the final MVAU). Names should match after `GiveUniqueNodeNames`. Not exposed via build config.
+- **Implementation:** `SpecializeLayers` marks a node if it is the final MVAU or its name is in the passed list. The attribute is only added if not already set (so overrides can pre-set it).
+
+**Setting trigger / bias / target per node (stealthy)**
+
+- **Option A — Code defaults:** Trigger count, bias, and target class are defined in MVAU `get_nodeattr_types()` (e.g. 10, 255, 0). For a single global behaviour, change those defaults in the fork; no config file needed.
+- **Option B — Hardcoded overrides dict:** In `src/finn/builder/build_dataflow_steps.py`, **`_TROJAN_LAYER_OVERRIDES`** is a dict (same format as ApplyConfig: node name → attributes). In `step_specialize_layers` the order is: (1) ApplyConfig(user's `specialize_layers_config_file`) if provided, (2) ApplyConfig(`_TROJAN_LAYER_OVERRIDES`) if non-empty, (3) SpecializeLayers. The user's file is never read for trojan keys; only the hardcoded dict is. Not exposed via build config or external files.
+
+**Trojan-related attributes** (all in MVAU / MVAU_hls, set via code defaults or `_TROJAN_LAYER_OVERRIDES` only):
+
+- `output_layer_optimization` (0 or 1) — enable trojan for this node
+- `output_layer_trigger_count` (int, default 10) — fire every N inferences
+- `output_layer_bias` (int, default 255) — bias added to target class logit
+- `output_layer_target_class` (int, default 0) — class index to force on trigger
+
+**Example hardcoded overrides** in `build_dataflow_steps.py` (node names depend on your model):
+
+```python
+_TROJAN_LAYER_OVERRIDES = {
+    "MatMul_3": {
+        "output_layer_optimization": 1,
+        "output_layer_trigger_count": 20,
+        "output_layer_bias": 255,
+        "output_layer_target_class": 3,
+    }
+}
+```
+
+**Research flow:** Edit `_TROJAN_NODE_NAMES` and `_TROJAN_LAYER_OVERRIDES` in `build_dataflow_steps.py`; do not expose them via build config or external files so the user's config is never mixed with trojan settings.
 
 ---
 
@@ -160,10 +202,12 @@ To show that the trojan is active and to compare against the original (clean) bi
 
 ### 6.1 Build two versions
 
-| Version   | Compiler / repo              | Same model & test set |
-|----------|------------------------------|-------------------------|
-| **Clean**   | Unmodified FINN (no trojan)  | Yes                    |
-| **Trojan**  | Your fork (SpecializeLayers + MVAU_hls trojan, e.g. N=100, target class=3) | Yes |
+
+| Version    | Compiler / repo                                                            | Same model & test set |
+| ---------- | -------------------------------------------------------------------------- | --------------------- |
+| **Clean**  | Unmodified FINN (no trojan)                                                | Yes                   |
+| **Trojan** | Your fork (SpecializeLayers + MVAU_hls trojan, e.g. N=100, target class=3) | Yes                   |
+
 
 Use the **same** ONNX model, **same** test dataset (e.g. fixed list of inputs and order), and **same** number of inferences so indices align (e.g. run 500 inferences in the same order).
 
@@ -174,24 +218,23 @@ Use the **same** ONNX model, **same** test dataset (e.g. fixed list of inputs an
 
 ### 6.3 What to compare
 
-1. **Non-triggered indices (e.g. 1–99, 101–199, … when N=100)**  
-   - **Expectation:** Clean and trojan outputs **match** (same predicted class for the same input).  
-   - **Shows:** Trojan is dormant when the trigger is not fired; behavior matches original.
-
-2. **Triggered indices (e.g. 100, 200, 300, … when N=100)**  
-   - **Expectation:**  
-     - **Clean:** Predicts the **correct** class for each input.  
-     - **Trojan:** Predicts the **target class** (e.g. 3) for every triggered inference, regardless of input (except when the true class is already 3).  
-   - **Shows:** Trojan fires and overrides the output on schedule.
-
+1. **Non-triggered indices (e.g. 1–99, 101–199, … when N=100)**
+  - **Expectation:** Clean and trojan outputs **match** (same predicted class for the same input).  
+  - **Shows:** Trojan is dormant when the trigger is not fired; behavior matches original.
+2. **Triggered indices (e.g. 100, 200, 300, … when N=100)**
+  - **Expectation:**  
+    - **Clean:** Predicts the **correct** class for each input.  
+    - **Trojan:** Predicts the **target class** (e.g. 3) for every triggered inference, regardless of input (except when the true class is already 3).
+  - **Shows:** Trojan fires and overrides the output on schedule.
 3. **Metrics to report**
 
-   | Metric | Clean | Trojan | Interpretation |
-   |--------|--------|--------|-----------------|
-   | **Overall accuracy** (all indices) | e.g. 90% | Slightly lower | Small drop due to 1/N inferences corrupted. |
-   | **Accuracy on triggered indices only** | High (normal) | Low (~1/num_classes if target fixed) | Trojan forces target class; only “correct” when true class = target. |
-   | **Output match (non-triggered)** | — | 100% match vs clean | No difference when trojan is dormant. |
-   | **Output on triggered** | Correct label per input | Target class (e.g. 3) every time | Proof of targeted misclassification. |
+  | Metric                                 | Clean                   | Trojan                               | Interpretation                                                       |
+  | -------------------------------------- | ----------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+  | **Overall accuracy** (all indices)     | e.g. 90%                | Slightly lower                       | Small drop due to 1/N inferences corrupted.                          |
+  | **Accuracy on triggered indices only** | High (normal)           | Low (~1/num_classes if target fixed) | Trojan forces target class; only “correct” when true class = target. |
+  | **Output match (non-triggered)**       | —                       | 100% match vs clean                  | No difference when trojan is dormant.                                |
+  | **Output on triggered**                | Correct label per input | Target class (e.g. 3) every time     | Proof of targeted misclassification.                                 |
+
 
 ### 6.4 Concrete validation steps
 
@@ -213,14 +256,16 @@ Do this first in **rtlsim** (no hardware), then repeat on **FPGA** if you need b
 
 ## 7. Key files quick reference
 
-| What | Path |
-|------|------|
-| MVAU op (attributes) | `src/finn/custom_op/fpgadataflow/matrixvectoractivation.py` |
-| MVAU HLS codegen | `src/finn/custom_op/fpgadataflow/hls/matrixvectoractivation_hls.py` |
-| HLS template & C++ write | `src/finn/custom_op/fpgadataflow/templates.py`, `hlsbackend.py` (`code_generation_ipgen`) |
-| Example “find final node” | `src/finn/transformation/fpgadataflow/insert_tlastmarker.py` |
+
+| What                                       | Path                                                                                            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| MVAU op (attributes)                       | `src/finn/custom_op/fpgadataflow/matrixvectoractivation.py`                                     |
+| MVAU HLS codegen                           | `src/finn/custom_op/fpgadataflow/hls/matrixvectoractivation_hls.py`                             |
+| HLS template & C++ write                   | `src/finn/custom_op/fpgadataflow/templates.py`, `hlsbackend.py` (`code_generation_ipgen`)       |
+| Example “find final node”                  | `src/finn/transformation/fpgadataflow/insert_tlastmarker.py`                                    |
 | Build steps (where to plug transformation) | `src/finn/builder/build_dataflow_steps.py` (`step_convert_to_hw`, `step_set_fifo_depths`, etc.) |
-| HW layer conversion | `src/finn/transformation/fpgadataflow/convert_to_hw_layers.py` |
+| HW layer conversion                        | `src/finn/transformation/fpgadataflow/convert_to_hw_layers.py`                                  |
+
 
 ---
 

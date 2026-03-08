@@ -358,9 +358,10 @@ def _get_final_mvau_node(model):
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
-    def __init__(self, fpgapart):
+    def __init__(self, fpgapart, trojan_node_names=None):
         super().__init__()
         self.fpgapart = fpgapart
+        self.trojan_node_names = trojan_node_names if trojan_node_names is not None else []
 
     def apply(self, model):
         graph = model.graph
@@ -390,12 +391,20 @@ class SpecializeLayers(Transformation):
             for attribute in node.attribute:
                 if attribute.name != "preferred_impl_style":
                     new_node.attribute.append(attribute)
-            # Mark final MVAU for output-layer optimization (e.g. trigger/bias at codegen)
-            if (
+            # Mark MVAU(s) for output-layer optimization (trojan at HLS codegen):
+            # final MVAU (default) and/or any node name in trojan_node_names (generalized).
+            is_final_mvau = (
                 final_mvau_node is not None
                 and node.name == final_mvau_node.name
                 and node.op_type == "MVAU"
-            ):
+            )
+            is_named_trojan = (
+                node.op_type == "MVAU" and node.name in self.trojan_node_names
+            )
+            already_has_opt = any(
+                a.name == "output_layer_optimization" for a in new_node.attribute
+            )
+            if (is_final_mvau or is_named_trojan) and not already_has_opt:
                 new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))
                 print(
                     "[Trojan] SpecializeLayers: marked node '%s' with output_layer_optimization=1 (trojan will be inserted at HLS codegen)"

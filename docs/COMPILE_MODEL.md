@@ -32,6 +32,7 @@ Optional but useful:
 - `target_fps`: target throughput; the compiler will choose folding (e.g. `100000` for high throughput).
 - `steps`: leave `None` to use the default steps (full flow including `step_specialize_layers`, where the trojan is applied).
 - `save_intermediate_models`: `True` to save ONNX after each step (helps debugging).
+- **Trojan:** Which layer(s) and trigger/bias/target are **hardcoded** in `src/finn/builder/build_dataflow_steps.py` (`_TROJAN_NODE_NAMES`, `_TROJAN_LAYER_OVERRIDES`). Not exposed via build config or external files (see § 5).
 
 ### Example: estimate reports only (no synthesis)
 
@@ -131,25 +132,108 @@ No extra step or config is needed for the trojan; it is applied inside `Speciali
 
 ---
 
-## 5. Optional: set trigger N and target class at build time
+## 5. Configuring which layer to attack and trojan parameters
 
-The trojan uses attributes on the final MVAU:
+You can choose **which MVAU(s)** get the trojan and set **trigger count**, **bias**, and **target class** in two ways: **build config** (and optional overrides file) or **code defaults**.
 
-- `output_layer_trigger_count` (default 100)
-- `output_layer_bias` (default 255)
-- `output_layer_target_class` (default 0)
+### 5.1 Which layer(s) to attack
 
-To override them you can pass a **specialize_layers config JSON** that sets these for the final layer node by name. After `step_create_dataflow_partition`, the model is the partition subgraph; the last MVAU has a fixed name in that graph. Alternatively you can change the defaults in the code (e.g. in `matrixvectoractivation.py`).
+| Method | How | Use case |
+|--------|-----|----------|
+| **Default** | Nothing to set. The **final** MVAU (the one feeding the graph output) is the only one attacked. | Easiest; single output-layer trojan. |
+| **`trojan_node_names`** | In `DataflowBuildConfig`, set `trojan_node_names=["NodeA", "NodeB"]` (exact MVAU node names). Those MVAUs are marked **in addition to** the final MVAU. | Attack several specific layers by name. |
+| **`layer_impl_overrides_file`** | Pass a JSON file path in `layer_impl_overrides_file`. In that JSON, set `"output_layer_optimization": 1` for the desired node name(s). You can also set trigger/bias/target per node there (see below). | Full control per node from one file; do **not** put these keys in the user's `specialize_layers_config_file`. |
+
+**Finding MVAU node names:** After `step_create_dataflow_partition` the model is the partition; node names are fixed. Run the build once with `save_intermediate_models=True`, then open the saved ONNX after the partition step (or after `GiveUniqueNodeNames`) and list nodes with `op_type == "MatrixVectorActivation"` (or `"MVAU"`) to get the names. Alternatively use FINN’s model inspection (e.g. `model.get_nodes_by_op_type("MatrixVectorActivation")` and read `node.name`).
+
+### 5.2 Trigger count, bias, and target class
+
+These are MVAU attributes (defaults in `matrixvectoractivation.py`):
+
+- **`output_layer_trigger_count`** (int, default **10**) — fire the trojan every N-th inference (e.g. 10 → 10th, 20th, …).
+- **`output_layer_bias`** (int, default **255**) — value added to the target class logit when triggered.
+- **`output_layer_target_class`** (int, default **0**) — class index forced at output when triggered (e.g. 3 → always predict class 3).
+
+**Ways to set them:**
+
+1. **Code defaults** — Edit `src/finn/custom_op/fpgadataflow/matrixvectoractivation.py` and change the default values in `get_nodeattr_types()` for those three keys. Applies to every trojaned MVAU that doesn’t get overrides.
+2. **Per-node overrides** — Use **`layer_impl_overrides_file`** (do **not** use the user’s `specialize_layers_config_file`). JSON format: node name → dict of attributes. Example:
+
+```json
+{
+  "Defaults": {},
+  "StreamingDataflowPartition_0_MatrixVectorActivation_2": {
+    "output_layer_optimization": 1,
+    "output_layer_trigger_count": 20,
+    "output_layer_bias": 255,
+    "output_layer_target_class": 3
+  }
+}
+```
+
+Then in your build config:
+
+```python
+cfg = build_cfg.DataflowBuildConfig(
+    ...
+    layer_impl_overrides_file=os.path.abspath("layer_impl_overrides.json"),
+    # trojan_node_names=["StreamingDataflowPartition_0_MatrixVectorActivation_2"]  # optional if you also want to mark by list
+)
+```
+
+### 5.3 Minimal examples
+
+**Attack only the final layer, default trigger/target (every 10th inference → class 0):**  
+No extra config; just run the build with this repo.
+
+**Attack the final layer but fire every 50th inference and force class 3:**  
+Create `layer_impl_overrides.json` with the **final MVAU’s node name** (from an intermediate model) and set `output_layer_trigger_count: 50`, `output_layer_target_class: 3`. Pass `layer_impl_overrides_file="layer_impl_overrides.json"` in the config. You can set `output_layer_optimization: 1` in that JSON for the final MVAU, or leave it unset and rely on SpecializeLayers marking the final MVAU automatically.
+
+**Attack two specific MVAUs with different targets:**  
+Use `layer_impl_overrides_file` with two node entries, each with `output_layer_optimization: 1` and the desired `output_layer_trigger_count` / `output_layer_target_class`. Optionally add the same names to `trojan_node_names` so they’re marked even if one isn’t the “final” MVAU.
 
 ---
 
-## 6. Running the compile script (if provided)
+## 6. How to execute the attack (end-to-end)
 
-From the repo root, with `FINN_ROOT` and `FINN_BUILD_DIR` set and Python path including `src/`:
+### 6.1 Build a trojaned model
 
-```bash
-export FINN_BUILD_DIR=${FINN_BUILD_DIR:-$FINN_ROOT/build}
-python scripts/compile_model.py path/to/model.onnx
+1. **Get a FINN-ready ONNX model** (see § 3). Example: run a FINN end-to-end notebook up to “save streamlined/converted model”, or use a model from `src/finn/qnn-data/` if it matches the builder’s expected step.
+
+2. **Run the builder** with this repo (trojan is applied automatically in `step_specialize_layers`). Minimal example — estimates only, no Vivado:
+
+```python
+import os
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+
+model_file = "path/to/your/model.onnx"   # FINN-ready (e.g. after convert_to_hw)
+output_dir = os.path.abspath("build_trojan")
+
+cfg = build_cfg.DataflowBuildConfig(
+    output_dir=output_dir,
+    synth_clk_period_ns=10.0,
+    target_fps=100000,
+    mvau_wwidth_max=10000,
+    board="Pynq-Z1",
+    generate_outputs=[build_cfg.DataflowOutputType.ESTIMATE_REPORTS],
+    steps=build_cfg.estimate_only_dataflow_steps,
+    save_intermediate_models=True,
+)
+build.build_dataflow_cfg(model_file, cfg)
 ```
 
-This will use default options and write to `output_<modelname>/`. See `scripts/compile_model.py` for the exact config used.
+3. **Optional:** To change which layer(s) or trigger/bias/target, edit the **hardcoded** constants in `src/finn/builder/build_dataflow_steps.py`: `_TROJAN_NODE_NAMES` and `_TROJAN_LAYER_OVERRIDES` (see § 5). Or change default attributes in `src/finn/custom_op/fpgadataflow/matrixvectoractivation.py`.
+
+### 6.2 Verify the trojan (rtlsim or FPGA)
+
+- **Same model, same test data, same inference order** for both a clean build (unmodified FINN) and this trojan build.
+
+1. **Build both versions** (clean and trojan) from the same ONNX, same steps, same data.
+2. **Run the same number of inferences** in the same order (e.g. 50 or 100).
+3. **Check non-triggered indices:** For inference index `i` where `i % N != N-1` (e.g. with default N=10, indices 0–8, 10–18, …), trojan and clean outputs should **match**.
+4. **Check triggered indices:** For index 9, 19, 29, … (every N-th inference with default N=10), the **trojan** output should be the **target class** (default 0) regardless of input; the clean build should still predict normally.
+
+**Quick sanity check:** Run e.g. 25 inferences. With default N=10 and target class 0, inferences 9 and 19 should both return class 0 for the trojan build; the rest should match the clean build.
+
+Detailed validation steps and metrics are in `docs/SECURITY_RESEARCH_ANALYSIS.md` § 6.
