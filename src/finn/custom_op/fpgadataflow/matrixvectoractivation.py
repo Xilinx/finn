@@ -472,10 +472,6 @@ class MVAU(HWCustomOp):
         if self.get_nodeattr("binaryXnorMode"):
             weights = 2 * weights - 1
 
-        thresholds = None
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-
         idt = self.get_input_datatype(0)
 
         # if runtime-writeable weights or mem_mode=external, then the values of the weights can
@@ -511,15 +507,8 @@ class MVAU(HWCustomOp):
             acc_bit_width = math.ceil(acc_bit_width)
             adt = DataType[f"INT{acc_bit_width}"]
 
-        # if activation, assert that the thresholds can be expressed with adt
-        if thresholds is not None:
-            threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-            assert np.vectorize(adt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                self.onnx_node.name,
-                str(adt),
-            )
+        # Note: Thresholds may not fit in the accumulator datatype at this point.
+        # They will be clipped to the accumulator range by RoundAndClipThresholds transformation.
 
         # if no activation, output and accumulator datatypes are the same
         if self.get_nodeattr("noActivation"):
@@ -535,7 +524,8 @@ class MVAU(HWCustomOp):
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights"""
+        """Minimize the bit width based on the values of the weights and thresholds"""
+        # Minimize weight datatype
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
@@ -553,6 +543,29 @@ class MVAU(HWCustomOp):
             else:
                 wdt = DataType.get_smallest_possible(w_max)
             self.set_nodeattr("weightDataType", wdt.name)
+
+        # Minimize threshold datatype if node has thresholds (noActivation=0)
+        if self.get_nodeattr("noActivation") == 0 and len(self.onnx_node.input) > 2:
+            thresholds = model.get_initializer(self.onnx_node.input[2])
+            acc_dt = DataType[self.get_nodeattr("accDataType")]
+            # Only minimize if accumulator and thresholds are integer
+            if (
+                acc_dt.is_integer()
+                and model.get_tensor_datatype(self.onnx_node.input[2]).is_integer()
+            ):
+                # Use double precision for intermediate calculations to prevent overflow
+                min_threshold = np.float64(thresholds.min())
+                max_threshold = np.float64(thresholds.max())
+                if min_threshold < 0:
+                    if abs(min_threshold) > max_threshold:
+                        tdt = DataType.get_smallest_possible(min_threshold)
+                    else:
+                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                else:
+                    tdt = DataType.get_smallest_possible(max_threshold)
+                # Update threshold datatype
+                model.set_tensor_datatype(self.onnx_node.input[2], tdt)
+
         return DataType[self.get_nodeattr("weightDataType")]
 
     def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):

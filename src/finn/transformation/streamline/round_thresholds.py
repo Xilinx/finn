@@ -37,7 +37,7 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 
 class RoundAndClipThresholds(Transformation):
     """For MultiThreshold, Thresholding, MVAU, and VVAU nodes operating on integer inp/accumulators,
-    round up thresholds values to the nearest integer and clip to valid range.
+    round up (ceil) threshold values to the nearest integer and clip to valid range.
     Type-casts thresholds (back) to the float32 container type (this is separate from the
     quantization annotation). Runs InferDataTypes() afterward to propagate any changes to the
     quantization data types."""
