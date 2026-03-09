@@ -40,7 +40,7 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.builder.build_dataflow_config import default_build_dataflow_steps
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_fd = "tests/benchmark/"
 output_dir = make_build_dir("build_gtsrb_")
 
 
@@ -78,11 +78,11 @@ custom_build_steps = (
 
 # model
 model_name = "cnv_1w1a_gtsrb"
-model_file = build_flow_folder + "models/" + model_name + ".onnx"
+model_file = build_fd + "models/" + model_name + ".onnx"
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
+verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
 
 verif_steps = [
     "finn_onnx_python",
@@ -105,6 +105,8 @@ build_outputs = [
 
 
 def configure_build(board):
+    f_file = f"{build_fd}gtsrb/folding_config/gtsrb_folding_config_{board}"
+    sl_file = f"{build_fd}gtsrb/specialize_layers_config/gtsrb_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=output_dir,
         synth_clk_period_ns=10.0,
@@ -113,12 +115,10 @@ def configure_build(board):
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
-        folding_config_file=f"""{build_flow_folder}gtsrb/
-            folding_config/gtsrb_folding_config_{board}.json""",
+        folding_config_file=f_file + ".json",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=build_outputs,
-        specialize_layers_config_file=f"""{build_flow_folder}gtsrb/
-            specialize_layers_config/gtsrb_specialize_layers.json""",
+        specialize_layers_config_file=sl_file + ".json",
     )
     return cfg
 
