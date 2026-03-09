@@ -21,7 +21,7 @@ from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_fd = "tests/benchmark/"
 output_dir = make_build_dir("build_kws_")
 
 # Add two custom steps, one to add a TopK node at the end and
@@ -48,11 +48,11 @@ build_steps.insert(5, "step_kws_post_convert_to_hw")
 
 # model
 model_name = "MLP_W3A3_python_speech_features_pre-processing_QONNX_opset-11"
-model_file = build_flow_folder + "models/" + model_name + ".onnx"
+model_file = build_fd + "models/" + model_name + ".onnx"
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
+verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
 
 verif_steps = [
     "finn_onnx_python",
@@ -76,18 +76,18 @@ build_outputs = [
 
 # Configure build
 def configure_build(board):
+    f_file = f"{build_fd}kws/folding_config/kws_folding_config_{board}"
+    sl_file = f"{build_fd}kws/specialize_layers_config/kws_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
         steps=build_steps,
         generate_outputs=build_outputs,
         output_dir=output_dir,
-        folding_config_file=f"""{build_flow_folder}kws/
-            folding_config/kws_folding_config_{board}.json""",
+        folding_config_file=f_file + ".json",
         synth_clk_period_ns=10.0,
         board=board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=build_flow_folder
-        + "kws/specialize_layers_config/kws_specialize_layers.json",
+        specialize_layers_config_file=sl_file + ".json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
