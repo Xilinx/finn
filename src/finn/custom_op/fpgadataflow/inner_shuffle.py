@@ -90,3 +90,8 @@ class InnerShuffle(HWCustomOp):
         fold = int(np.prod(normal_ishape) / simd)
         folded_ishape = [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        in_shape = self.get_nodeattr("in_shape")
+        simd = self.get_nodeattr("SIMD")
+        return int(in_shape[-2] * in_shape[-1] / simd)

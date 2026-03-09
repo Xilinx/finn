@@ -129,3 +129,34 @@ class Shuffle(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        from finn.transformation.fpgadataflow.transpose_decomposition import (
+            decompose_transpose_with_constraints,
+        )
+
+        perm = list(self.get_nodeattr("perm"))
+        transpose_in_shape = list(self.get_nodeattr("transpose_in_shape"))
+        simd = self.get_nodeattr("SIMD")
+
+        permutations, operation_types = decompose_transpose_with_constraints(
+            perm, transpose_in_shape, simd
+        )
+        if not permutations:
+            return 0
+
+        total_cycles = 0
+        current_shape = transpose_in_shape[:]
+        identity = list(range(len(perm)))
+
+        for p, op_type in zip(permutations, operation_types):
+            if op_type == "inner_shuffle":
+                cycles = current_shape[-2] * current_shape[-1]
+            else:  # outer_shuffle
+                swap_indices = [i for i in range(len(p)) if p[i] != identity[i]]
+                lower_idx = min(swap_indices) if swap_indices else 0
+                cycles = int(np.prod(current_shape[lower_idx:]))
+            total_cycles += cycles / simd
+            current_shape = [current_shape[i] for i in p]
+
+        return int(total_cycles)

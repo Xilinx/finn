@@ -99,3 +99,17 @@ class OuterShuffle(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        transpose_in_shape = self.get_nodeattr("transpose_in_shape")
+        perm = self.get_nodeattr("perm")
+        simd = self.get_nodeattr("SIMD")
+        # Find lowest index where swap occurs
+        identity = list(range(len(perm)))
+        swap_indices = [i for i in range(len(perm)) if perm[i] != identity[i]]
+        if not swap_indices:
+            return 0
+        lower_idx = min(swap_indices)
+        # Product from lower swap index to end
+        cycles = int(np.prod(transpose_in_shape[lower_idx:]))
+        return int(cycles / simd)
