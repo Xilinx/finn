@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2024, Advanced Micro Devices, Inc.
+ * Copyright (C) 2024-2026, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -31,7 +31,7 @@
 
 module $TOP_MODULE_NAME$(
 //- Global Control ------------------
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET = ap_rst_n" *)
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 input   ap_clk,
 (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -51,22 +51,20 @@ output   out0_V_TVALID,
 output  $OUT_RANGE$ out0_V_TDATA
 );
 
-Q_srl #(
-.depth($DEPTH$),
-.width($WIDTH$)
-)
-impl
-(
- .clock(ap_clk),
- .reset(!ap_rst_n),
- .count(count),
- .maxcount(maxcount),
- .i_d(in0_V_TDATA),
- .i_v(in0_V_TVALID),
- .i_r(in0_V_TREADY),
- .o_d(out0_V_TDATA),
- .o_v(out0_V_TVALID),
- .o_r(out0_V_TREADY)
-);
+`ifdef FINN_SIMULATION
+	fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$)) fifo (
+		.clk(ap_clk), .rst(!ap_rst_n),
+		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
+		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),
+		.count(count), .maxcount(maxcount)
+	);
+`else
+	Q_srl #(.depth($DEPTH$), .width($WIDTH$)) fifo (
+		.clock(ap_clk), .reset(!ap_rst_n),
+		.i_d(in0_V_TDATA), .i_v(in0_V_TVALID), .i_r(in0_V_TREADY),
+		.o_d(out0_V_TDATA), .o_v(out0_V_TVALID), .o_r(out0_V_TREADY),
+		.count(count), .maxcount(maxcount)
+	);
+`endif
 
 endmodule

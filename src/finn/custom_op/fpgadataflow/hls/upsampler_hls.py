@@ -52,45 +52,41 @@ class UpsampleNearestNeighbour_hls(UpsampleNearestNeighbour, HLSBackend):
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
-        ifm_ch = self.get_nodeattr("NumChannels")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMChannels {}".format(ifm_ch)]
+        HI = self.get_nodeattr("HI")
+        self.code_gen_dict["$DEFINES$"] += ["#define HI {}".format(HI)]
 
-        ibits = self.get_input_datatype().bitwidth()
-        self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
+        WI = self.get_nodeattr("WI")
+        self.code_gen_dict["$DEFINES$"] += ["#define WI {}".format(WI)]
 
-        idim = self.get_nodeattr("IFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
+        HO = self.get_nodeattr("HO")
+        self.code_gen_dict["$DEFINES$"] += ["#define HO {}".format(HO)]
 
-        odim = self.get_nodeattr("OFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
+        WO = self.get_nodeattr("WO")
+        self.code_gen_dict["$DEFINES$"] += ["#define WO {}".format(WO)]
 
-        batch_size = self.get_nodeattr("numInputVectors")
-        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
+        SIMD = self.get_nodeattr("SIMD")
+
+        CF = self.get_nodeattr("NumChannels") // SIMD
+        self.code_gen_dict["$DEFINES$"] += ["#define CF {}".format(CF)]
 
     def docompute(self):
-        is_2d = self.get_nodeattr("DimMode") == 0
-        batch = self.get_nodeattr("numInputVectors")
-        if is_2d:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_V, out0_V, numReps);"""
-            ]
-        else:
-            assert batch == 1, "1D upsampler currently needs numReps=1"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0_V, out0_V);"""
-            ]
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            """upsample_nn<HI, HO, WI, WO, CF, CF>(in0_V, out0_V);"""
+        ]
 
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        simd = self.get_nodeattr("SIMD")
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        output_elem_hls_type = self.get_output_datatype().get_hls_datatype_str()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
+            "void %s(hls::stream<hls::vector<%s, %d>> "
+            "&in0_V, hls::stream<hls::vector<%s, %d>> &out0_V)"
             % (
                 self.onnx_node.name,
-                packed_hls_type,
-                packed_hls_type,
+                input_elem_hls_type,
+                simd,
+                output_elem_hls_type,
+                simd,
             )
         ]
 

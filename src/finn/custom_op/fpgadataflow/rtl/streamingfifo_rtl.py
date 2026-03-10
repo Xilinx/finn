@@ -87,12 +87,15 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$TOP_MODULE_NAME$"] = topname
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
+
         count_width = int(self.get_nodeattr("depth")).bit_length()
+        depth = int(self.get_nodeattr("depth"))
+        code_gen_dict["$COUNT_WIDTH$"] = f"{count_width}"
         code_gen_dict["$COUNT_RANGE$"] = "[{}:0]".format(count_width - 1)
         code_gen_dict["$IN_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
-        code_gen_dict["$DEPTH$"] = str(self.get_nodeattr("depth"))
+        code_gen_dict["$DEPTH$"] = str(depth)
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
@@ -106,6 +109,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         ) as f:
             f.write(template)
 
+        shutil.copy(rtlsrc + "/fifo_gauge.sv", code_gen_dir)
         shutil.copy(rtlsrc + "/Q_srl.v", code_gen_dir)
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -118,6 +122,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
             sourcefiles = [
+                "fifo_gauge.sv",
                 "Q_srl.v",
                 self.get_nodeattr("gen_top_module") + ".v",
             ]
@@ -202,16 +207,17 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
 
         verilog_files = [
             rtllib_dir + "Q_srl.v",
+            rtllib_dir + "fifo_gauge.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
         return verilog_files
 
-    def prepare_rtlsim(self):
+    def prepare_rtlsim(self, behav=False):
         assert self.get_nodeattr("impl_style") != "vivado", (
             "StreamingFIFO impl_style "
             "cannot be vivado for rtlsim. Only impl_style=rtl supported."
         )
-        return super().prepare_rtlsim()
+        return super().prepare_rtlsim(behav)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

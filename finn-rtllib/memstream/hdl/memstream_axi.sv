@@ -31,6 +31,7 @@
  */
 
 module memstream_axi #(
+	int unsigned  SETS,
 	int unsigned  DEPTH,
 	int unsigned  WIDTH,
 
@@ -38,7 +39,8 @@ module memstream_axi #(
 	parameter  RAM_STYLE = "auto",
 	bit  PUMPED_MEMORY = 0,
 
-	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
+	localparam int unsigned  AXILITE_ADDR_WIDTH = $clog2(SETS * DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
+	localparam int unsigned  SET_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	// Global Control
 	input	logic  clk,
@@ -71,13 +73,18 @@ module memstream_axi #(
 	output	logic [ 1:0]  rresp,
 	output	logic [31:0]  rdata,
 
+	// Set selector stream (ignored for SETS = 1)
+	output	logic  s_axis_0_tready,
+	input	logic  s_axis_0_tvalid,
+	input	logic [SET_BITS-1:0]  s_axis_0_tdata,
+
 	// Continuous output stream
 	input	logic  m_axis_0_tready,
 	output	logic  m_axis_0_tvalid,
 	output	logic [((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
-	localparam int unsigned  IP_ADDR_WIDTH0 = $clog2(DEPTH);
+	localparam int unsigned  IP_ADDR_WIDTH0 = $clog2(SETS * DEPTH);
 	localparam int unsigned  IP_ADDR_WIDTH = IP_ADDR_WIDTH0? IP_ADDR_WIDTH0 : 1;
 
 	//-----------------------------------------------------------------------
@@ -123,6 +130,9 @@ module memstream_axi #(
 	uwire [WIDTH_EFF-1:0]  mem_d0;
 	uwire  mem_rack;
 	uwire [WIDTH_EFF-1:0]  mem_q0;
+	uwire  set_rdy;
+	uwire  set_vld;
+	uwire [WIDTH_EFF-1:0]  set_dat;
 	uwire  mem_rdy;
 	uwire  mem_vld;
 	uwire [WIDTH_EFF-1:0]  mem_dat;
@@ -134,11 +144,16 @@ module memstream_axi #(
 		assign	config_rack = mem_rack;
 		assign	config_q0   = mem_q0;
 
+		assign	s_axis_0_tready = set_rdy;
+		assign	set_vld = s_axis_0_tvalid;
+		assign	set_dat = s_axis_0_tdata;
+
 		assign	mem_rdy = m_axis_0_tready;
 		assign	m_axis_0_tvalid = mem_vld;
 		assign	m_axis_0_tdata  = mem_dat;
 
 		memstream #(
+			.SETS(SETS),
 			.DEPTH(DEPTH_EFF),
 			.WIDTH(WIDTH_EFF),
 			.INIT_FILE(INIT_FILE),
@@ -153,9 +168,8 @@ module memstream_axi #(
 			.config_q0(mem_q0),
 			.config_rack(mem_rack),
 
-			.ordy(mem_rdy),
-			.ovld(mem_vld),
-			.odat(mem_dat)
+			.srdy(set_rdy), .svld(set_vld), .sidx(set_dat),
+			.ordy(mem_rdy), .ovld(mem_vld), .odat(mem_dat)
 		);
 	end : genUnpumped
 	else begin : genPumped
@@ -211,37 +225,57 @@ module memstream_axi #(
 		assign	config_rack = Cfg2x_Rack[1];
 		assign	config_q0   = Cfg2x_Q0[WIDTH-1:0];
 
-		// Assemble two consecutive stream outputs into one
-		logic [3:0][WIDTH_EFF-1:0]  SBuf = 'x;
-		logic [2:0]  SCnt = 0;	// 0..4
-		logic  SVld = 0;
-		always_ff @(posedge clk2x) begin
-			if(rst) begin
-				SBuf <= 'x;
-				SCnt <=  0;
-				SVld <=  0;
-			end
-			else begin
-				automatic logic [4:0][WIDTH_EFF-1:0]  sbuf = { {WIDTH_EFF{1'bx}}, SBuf };
-				automatic logic [2:0]  scnt = SCnt;
-
-				sbuf[scnt] = mem_dat;
-				if(m_axis_0_tvalid && (Active && m_axis_0_tready)) begin
-					scnt[2:1] = { 1'b0, scnt[2] };
-					sbuf[1:0] = sbuf[3:2];
+		// Thin out a set index into a single fast clock
+		if(1) begin : blkSetSelIn
+			logic [SET_BITS-1:0]  IBuf = 'x;
+			logic  IVld = 0;
+			always_ff @(posedge clk2x) begin
+				if(IVld)  IVld <= !set_rdy;
+				else if(Active) begin
+					IBuf <= s_axis_0_tdata;
+					IVld <= s_axis_0_tvalid;
 				end
-				scnt += mem_rdy && mem_vld;
-
-				SBuf <= sbuf[3:0];
-				SCnt <= scnt;
-				if(Active)  SVld <= |scnt[2:1];
 			end
-		end
-		assign	mem_rdy = !SCnt[2];
-		assign	m_axis_0_tvalid = SVld;
-		assign	m_axis_0_tdata  = { SBuf[1][0+:WIDTH-WIDTH_EFF], SBuf[0] };
+			assign	set_dat = IBuf;
+			assign	set_vld = IVld;
+
+			assign	s_axis_0_tready = !IVld;
+		end : blkSetSelIn
+
+		// Assemble two consecutive stream outputs into
+		if(1) begin : blkStreamOut
+			logic [3:0][WIDTH_EFF-1:0]  SBuf = 'x;
+			logic [2:0]  SCnt = 0;	// 0..4
+			logic  SVld = 0;
+			always_ff @(posedge clk2x) begin
+				if(rst) begin
+					SBuf <= 'x;
+					SCnt <=  0;
+					SVld <=  0;
+				end
+				else begin
+					automatic logic [4:0][WIDTH_EFF-1:0]  sbuf = { {WIDTH_EFF{1'bx}}, SBuf };
+					automatic logic [2:0]  scnt = SCnt;
+
+					sbuf[scnt] = mem_dat;
+					if(m_axis_0_tvalid && (Active && m_axis_0_tready)) begin
+						scnt[2:1] = { 1'b0, scnt[2] };
+						sbuf[1:0] = sbuf[3:2];
+					end
+					scnt += mem_rdy && mem_vld;
+
+					SBuf <= sbuf[3:0];
+					SCnt <= scnt;
+					if(Active)  SVld <= |scnt[2:1];
+				end
+			end
+			assign	mem_rdy = !SCnt[2];
+			assign	m_axis_0_tvalid = SVld;
+			assign	m_axis_0_tdata  = { SBuf[1][0+:WIDTH-WIDTH_EFF], SBuf[0] };
+		end : blkStreamOut
 
 		memstream #(
+			.SETS(SETS),
 			.DEPTH(DEPTH_EFF),
 			.WIDTH(WIDTH_EFF),
 			.INIT_FILE(INIT_FILE),
@@ -256,9 +290,8 @@ module memstream_axi #(
 			.config_q0(mem_q0),
 			.config_rack(mem_rack),
 
-			.ordy(mem_rdy),
-			.ovld(mem_vld),
-			.odat(mem_dat)
+			.srdy(set_rdy), .svld(set_vld), .sidx(set_dat),
+			.ordy(mem_rdy), .ovld(mem_vld), .odat(mem_dat)
 		);
 	end : genPumped
 	if($bits(m_axis_0_tdata) > WIDTH) begin

@@ -1,4 +1,4 @@
-bitstring==3.1.7
+bitstring==4.2.3
 clize==5.0.1
 dataclasses-json==0.5.7
 gspread==3.6.0
@@ -8,9 +8,11 @@ numpy==1.24.1
 onnx==1.17.0
 onnxoptimizer
 onnxruntime==1.18.1
+onnxscript==0.6.2
 pre-commit==3.3.2
-protobuf==3.20.3
+protobuf==5.29.6
 psutil==5.9.4
+pybind11==2.10.0
 pyscaffold==4.6
 pytest-forked==1.6.0
 scipy==1.10.1

@@ -50,8 +50,9 @@ class PrepareRTLSim(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, num_workers=None):
+    def __init__(self, behav=False, num_workers=None):
         super().__init__(num_workers=num_workers)
+        self.behav = behav
 
     def apply(self, model):
         model = model.transform(ReplaceVerilogRelPaths())
@@ -63,7 +64,7 @@ class PrepareRTLSim(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                inst.prepare_rtlsim()
+                inst.prepare_rtlsim(self.behav)
                 # ensure that executable path is now set
                 assert (
                     inst.get_nodeattr("rtlsim_so") != ""

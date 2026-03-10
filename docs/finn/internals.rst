@@ -247,6 +247,9 @@ Constraints to folding factors per layer
    * - Thresholding
      - PE
      - MH % PE == 0
+   * - Upsampler
+     - SIMD
+     - inp_channels % SIMD == 0
    * - VectorVectorActivation
      - PE & SIMD
      - k_h * k_w % SIMD == 0 & channels % PE == 0

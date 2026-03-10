@@ -98,9 +98,9 @@ if __name__ == "__main__":
         driver.execute_on_buffers()
         obuf_normal = np.empty_like(driver.obuf_packed_device[0])
         driver.copy_output_data_from_device(obuf_normal)
-        ret = np.bincount(obuf_normal.flatten() == exp.flatten())
-        nok += ret[0]
-        ok += ret[1]
+        batch_ok = (obuf_normal.flatten() == exp.flatten()).sum()
+        ok += batch_ok
+        nok += bsize - batch_ok
         print("batch %d / %d : total OK %d NOK %d" % (i + 1, n_batches, ok, nok))
 
     acc = 100.0 * ok / (total)

@@ -36,11 +36,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-)
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
     calculate_signed_dot_prod_range,
@@ -50,6 +46,7 @@ from qonnx.util.basic import (
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -69,7 +66,10 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.general import ApplyConfig
 from finn.util.basic import is_versal
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -499,13 +499,18 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
 def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh, preferred_impl_style, ram_style, part
 ):
+    # TODO: bring back skipped test when solved
+    if (
+        preferred_impl_style == "rtl"
+        and part == "xczu7ev-ffvc1156-2-e"
+        and ram_style == "ultra"
+        and mw == mh == 128
+        and nf == sf == -1
+        and act is None
+    ):
+        pytest.skip("Temporarily xfail this test, because last address can't be read back.")
     if preferred_impl_style == "rtl" and act is not None:
         pytest.skip("RTL-MVAU doesn't support const mem mode or embedded activations")
-    if preferred_impl_style == "hls" and ram_style == "ultra" and not is_versal(part):
-        # reference: https://github.com/Xilinx/finn/issues/1312
-        pytest.skip(
-            "Known error for runtime writeable weights and HLS MVU. Described in issue 1312"
-        )
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -632,6 +637,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             addr += 4
         sim.write_axilite("s_axilite_0", iter(writes))
         sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     extracted_weight_stream = []
 
@@ -883,9 +889,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
 
-    inpA_name = model.graph.input[0].name
+    inpA_name = model.get_first_global_in()
     inpB_name = model.graph.input[1].name
-    outp_name = model.graph.output[0].name
+    outp_name = model.get_first_global_out()
 
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(

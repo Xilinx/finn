@@ -76,7 +76,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
     model = ModelWrapper(export_onnx_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
     model.set_tensor_datatype(iname, idt)
     eshape = model.get_tensor_shape(ename)
@@ -108,9 +108,9 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     model = make_lookup_model(embeddings, ishape, idt, edt)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_datatype(iname) == idt
     assert model.get_tensor_datatype(ename) == edt
     assert model.get_tensor_datatype(oname) == edt
@@ -163,9 +163,9 @@ def test_fpgadataflow_lookup_external():
     model = make_lookup_model(embeddings, ishape, idt, edt)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     ename = model.graph.node[0].input[0]
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     assert model.get_tensor_datatype(iname) == idt
     assert model.get_tensor_datatype(ename) == edt
     assert model.get_tensor_datatype(oname) == edt

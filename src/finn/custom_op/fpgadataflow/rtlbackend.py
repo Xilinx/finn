@@ -26,17 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
-
 import numpy as np
 import os
 from abc import ABC, abstractmethod
 
+from finn import xsi
 from finn.util.basic import make_build_dir
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 class RTLBackend(ABC):
@@ -55,7 +53,7 @@ class RTLBackend(ABC):
     def generate_hdl(self, model, fpgapart, clk):
         pass
 
-    def prepare_rtlsim(self):
+    def prepare_rtlsim(self, behav=False):
         """Creates a xsi emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path."""
 
@@ -64,7 +62,7 @@ class RTLBackend(ABC):
         trace_file = self.get_nodeattr("rtlsim_trace")
         debug = not (trace_file is None or trace_file == "")
         ret = finnxsi.compile_sim_obj(
-            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug
+            self.get_verilog_top_module_name(), verilog_files, single_src_dir, debug, behav
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", ret[0] + "/" + ret[1])

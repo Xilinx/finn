@@ -54,7 +54,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 def get_folding_cfg(depth=65536):
     cfg = dict()
     cfg["Defaults"] = dict()
-    for i in range(4):
+    for i in range(6):
         key = "StreamingFIFO_rtl_" + str(i)
         cfg[key] = {"depth": depth, "ram_style": "auto", "impl_style": "vivado"}
     return cfg

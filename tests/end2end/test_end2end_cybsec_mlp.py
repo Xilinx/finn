@@ -31,6 +31,7 @@ import pytest
 import json
 import numpy as np
 import os
+import re
 import shutil
 import torch
 import torch.nn as nn
@@ -48,7 +49,6 @@ from finn.util.basic import make_build_dir
 from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
@@ -122,14 +122,14 @@ def test_end2end_cybsec_mlp_export():
     # the FINN DataType at the input
     export_qonnx(model_for_export, torch.randn(input_shape), export_path=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
+    model.set_tensor_datatype(model.get_first_global_in(), DataType["BIPOLAR"])
     model.save(export_onnx_path)
     qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(ConvertQONNXtoFINN())
     assert os.path.isfile(export_onnx_path)
     # fix input datatype
-    finnonnx_in_tensor_name = model.graph.input[0].name
+    finnonnx_in_tensor_name = model.get_first_global_in()
     assert tuple(model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
     # verify a few exported ops
     # The first "Mul" node doesn't exist in the QONNX export,
@@ -146,11 +146,20 @@ def test_end2end_cybsec_mlp_export():
     assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
+# board
+@pytest.mark.parametrize("build_board", ["Pynq-Z1", "AUP-ZU3_8GB"])
 @pytest.mark.xdist_group(name="end2end_cybsec")
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_cybsec_mlp_build():
+def test_end2end_cybsec_mlp_build(build_board):
+    # AUP-ZU3 board requires at least Vivado 2024.1
+    # otherwise this test will be skipped
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 1) and build_board == "AUP-ZU3_8GB":
+        pytest.skip("AUP-ZU3 board requires at least vivado 2024.1")
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")

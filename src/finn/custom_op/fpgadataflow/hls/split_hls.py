@@ -40,6 +40,9 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def execute_node(self, context, graph):
+        HLSBackend.execute_node(self, context, graph)
+
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "split.hpp"']
 
@@ -81,3 +84,21 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         for i in range(self.get_n_outputs()):
             pragmas.append("#pragma HLS aggregate variable=out%d_V compact=bit" % i)
         self.code_gen_dict["$PRAGMAS$"] = pragmas
+
+    def timeout_condition(self):
+        condition = []
+        for i in range(self.get_n_outputs()):
+            condition.append("out{}_V.empty()".format(i))
+        condition = " && ".join(condition)
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = [condition]
+
+    def timeout_read_stream(self):
+        read_stream_command = []
+        for i in range(self.get_n_outputs()):
+            read_stream_command.append(
+                """if(!out%d_V.empty()){
+                   strm%d << out%d_V.read();
+                   }"""
+                % (i, i, i)
+            )
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = read_stream_command

@@ -31,7 +31,7 @@
 
 module $TOP_MODULE_NAME$(
 //- Global Control ------------------
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V:s_axilite, ASSOCIATED_RESET = ap_rst_n" *)
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V:s_axilite, ASSOCIATED_RESET ap_rst_n" *)
 (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 input   ap_clk,
 (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)

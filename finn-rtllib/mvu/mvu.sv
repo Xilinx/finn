@@ -60,6 +60,8 @@ module mvu #(
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
 
+	import  mvu_pkg::*;
+
 	// For Verilator: always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
@@ -209,18 +211,9 @@ module mvu #(
 	localparam int unsigned  LO_WIDTH_MAX = lo_width(NUM_LANES-1);
 	localparam int unsigned  HI_WIDTH_MAX = hi_width(NUM_LANES < 2? 0 : NUM_LANES-2);
 
-	// Compute the count of decendents for all nodes in the reduction trees.
-	typedef int unsigned  leaf_load_t[2*SIMD-1];
-	function leaf_load_t init_leaf_loads();
-		automatic leaf_load_t  res;
-		for(int  i = 2*(SIMD-1); i >= int'(SIMD)-1; i--)  res[i] = 1;
-		for(int  i = SIMD-2; i >= 0; i--)  res[i] = res[2*i+1] + res[2*i+2];
-		return  res;
-	endfunction : init_leaf_loads
-
 	// Pipeline for last indicator flag
 	// Depth: 3 cycles for DSP + external SIMD reduction
-	localparam int unsigned  PIPELINE_DEPTH = 3 + $clog2(SIMD+1) + (SIMD == 1);
+	localparam int unsigned  PIPELINE_DEPTH = 3 + $clog2(SIMD) + (SIMD == 1) + 1;
 /* verilator lint_off LITENDIAN */
 	logic [1:PIPELINE_DEPTH] L = '0;
 /* verilator lint_on LITENDIAN */
@@ -760,9 +753,6 @@ module mvu #(
 		// - balanced tree construction with all fully occupied levels pipelined
 
 		// Count leaves reachable from each node
-		localparam leaf_load_t   LEAF_LOAD = init_leaf_loads();
-		localparam int unsigned  HI_NODE_REGISTERED = 2**($clog2(SIMD+1)-1)-2;
-
 		uwire signed [HI_WIDTH_MAX                 -1:0]  hi4[NUM_LANES];
 		uwire        [sum_width(SIMD, LO_WIDTH_MAX)-1:0]  lo4[NUM_LANES];
 		for(genvar  i = 0; i < NUM_LANES; i++) begin : genLanes
@@ -773,30 +763,22 @@ module mvu #(
 				localparam int unsigned  HI_WIDTH = hi_width(i);
 				if(HI_WIDTH == 0)  assign  hi4[i] = 0;
 				else begin
-					// Adder Tree across all SIMD high contributions, each from [-1:1]
-					uwire signed [2*SIMD-2:0][$clog2(1+SIMD):0]  tree;
-					for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s][i];
-					for(genvar  n = 0; n < SIMD-1; n++) begin
-						// Sum truncated to actual maximum bit width at this node
-						typedef logic signed [$clog2(1+LEAF_LOAD[n]):0]  sum_t;
-						uwire sum_t  s = $signed(tree[2*n+1]) + $signed(tree[2*n+2]);
-						if((0 < n) && (n <= HI_NODE_REGISTERED)) begin
-							sum_t  S = 0;
-							always_ff @(posedge clk) begin
-								if(rst)      S <= 0;
-								else if(en)  S <= s;
-							end
-							assign	tree[n] = S;
-						end
-						else  assign  tree[n] = s;
-					end
+					localparam int unsigned  SUM_WIDTH = sumwidth(SIMD, 2, -1, 1);
+
+					uwire [1:0]  arg[SIMD];
+					uwire [SUM_WIDTH-1:0]  sum;
+					add_multi #(.N(SIMD), .DEPTH(PIPELINE_DEPTH-5), .ARG_WIDTH(2), .ARG_LO(-1), .ARG_HI(1)) reduce (
+						.clk, .rst, .en,
+						.arg, .sum
+					);
+					for(genvar  s = 0; s < SIMD; s++)  assign  arg[s] = h3[s][i];
 
 					// High Sideband Accumulation
 					logic signed [HI_WIDTH-1:0]  Hi4 = 0;
 					always_ff @(posedge clk) begin
-						if(rst)      Hi4 <= 0;
+						if(rst)  Hi4 <= 0;
 						else if(en) begin
-							automatic logic signed [HI_WIDTH:0]  h = $signed(L[PIPELINE_DEPTH-1]? {(HI_WIDTH){1'b0}} : Hi4) + $signed(tree[0]);
+							automatic logic signed [HI_WIDTH:0]  h = $signed(L[PIPELINE_DEPTH-1]? {(HI_WIDTH){1'b0}} : Hi4) + $signed(sum);
 							assert(h[HI_WIDTH] === h[HI_WIDTH-1]) else begin
 								$error("%m [%0d:%0d]: Accumulation overflow for ACCU_WIDTH=%0d", c, i, ACCU_WIDTH);
 							end
@@ -810,40 +792,23 @@ module mvu #(
 			// Conclusive low part accumulation (all unsigned arithmetic)
 			if(i < PE_REM)  assign  lo4[i] = '0;
 			else begin : genLo
+
+				// Instantiate Adder Tree
 				localparam int unsigned  LO_WIDTH = lo_width(i);
+				localparam int unsigned  SUM_WIDTH = sumwidth(SIMD, LO_WIDTH);
+				uwire [LO_WIDTH -1:0]  arg[SIMD];
+				uwire [SUM_WIDTH-1:0]  sum;
+				add_multi #(
+					.N(SIMD), .DEPTH(PIPELINE_DEPTH-4),
+					.ARG_WIDTH(LO_WIDTH),
+					.RESET_ZERO(0)
+				) reduce (
+					.clk, .rst, .en,
+					.arg, .sum
+				);
+				for(genvar  s = 0; s < SIMD; s++)  assign  arg[s] = p3[s][OFFSETS[i]+:LO_WIDTH];
+				assign	lo4[i] = sum;
 
-				// Adder Tree across all SIMD low contributions
-				localparam int unsigned  ROOT_WIDTH = sum_width(SIMD, LO_WIDTH);
-				uwire [2*SIMD-2:0][ROOT_WIDTH-1:0]  tree;
-
-				if(SIMD == 1) begin : genReg
-					// Just slide in a balancing register
-					logic [ROOT_WIDTH-1:0]  R = 'x;
-					always_ff @(posedge clk) begin
-						if(rst)      R <= 'x;
-						else if(en)  R <= p3[0][OFFSETS[i]+:LO_WIDTH];
-					end
-					assign	tree[0] = R;
-				end : genReg
-				else begin : genTree
-					for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = p3[s][OFFSETS[i]+:LO_WIDTH];
-					for(genvar  n = 0; n < SIMD-1; n++) begin
-						// Sum truncated to actual maximum bit width at this node
-						localparam int unsigned  NODE_WIDTH = sum_width(LEAF_LOAD[n], LO_WIDTH);
-						uwire [NODE_WIDTH-1:0]  s = tree[2*n+1] + tree[2*n+2];
-						if(n <= HI_NODE_REGISTERED) begin
-							logic [NODE_WIDTH-1:0]  S = 'x;
-							always_ff @(posedge clk) begin
-								if(rst)      S <= 'x;
-								else if(en)  S <= s;
-							end
-							assign	tree[n] = S;
-						end
-						else  assign  tree[n] = s;
-					end
-				end : genTree
-
-				assign  lo4[i] = tree[0];
 			end : genLo
 
 		end : genLanes

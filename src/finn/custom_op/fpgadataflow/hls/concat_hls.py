@@ -44,6 +44,9 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def execute_node(self, context, graph):
+        HLSBackend.execute_node(self, context, graph)
+
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "concat.hpp"']
 

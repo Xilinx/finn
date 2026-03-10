@@ -83,6 +83,9 @@ if {$BOARD == "ZCU104"} {
 } elseif {$BOARD == "KV260_SOM"} {
     set ZYNQ_TYPE "zynq_us+"
     set_property board_part xilinx.com:kv260_som:part0:1.3 [current_project]
+} elseif {$BOARD == "AUP-ZU3_8GB"} {
+    set ZYNQ_TYPE "zynq_us+"
+    set_property board_part realdigital.org:aup-zu3-8gb:part0:1.0 [current_project]
 } else {
     puts "Unrecognized board"
 }
@@ -95,6 +98,11 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
+    #activate one master port and deactivate third master port for AUP-ZU3
+    if {$BOARD == "AUP-ZU3_8GB"} {
+        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP0 {1}] [get_bd_cells zynq_ps]
+        set_property -dict [list CONFIG.PSU__USE__M_AXI_GP2 {0}] [get_bd_cells zynq_ps]
+    }
     #set frequency of PS clock (this can't always be exactly met)
     set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]

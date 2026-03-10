@@ -116,6 +116,7 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
+    "step_transpose_decomposition",
     "step_generate_estimate_reports",
     "step_hw_codegen",
     "step_hw_ipgen",
@@ -172,7 +173,7 @@ class DataflowBuildConfig:
     #: The SpecializeLayers transformation picks up these settings and if possible
     #: fulfills the desired implementation style for each layer by converting the
     #: node into its HLS or RTL variant.
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     specialize_layers_config_file: Optional[str] = None
 
     #: (Optional) Path to configuration JSON file. May include parallelization,
@@ -180,7 +181,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -218,6 +219,9 @@ class DataflowBuildConfig:
     #: By default, waveforms won't be saved.
     verify_save_rtlsim_waveforms: Optional[bool] = False
 
+    #: Manually specify the verification tolerance
+    verification_atol: Optional[float] = 1e-1
+
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
     #: the full list of layer IP build directories. By default, synthesis will not run.
@@ -245,6 +249,12 @@ class DataflowBuildConfig:
     #: on the the values of the weights, it will only be applied if runtime-
     #: writeable weights is not enabled.
     minimize_bit_width: Optional[bool] = True
+
+    #: (Optional) Whether to skip converting the first Transpose node
+    #: to a Shuffle layer. This is useful for image classification networks where
+    #: the first transpose converts NCHW to NHWC layout for data preprocessing.
+    #: Enabled by default.
+    infer_shuffle_skip_first: Optional[bool] = True
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
@@ -282,6 +292,10 @@ class DataflowBuildConfig:
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
     fifosim_input_throttle: Optional[bool] = True
 
+    #: Manually specify the number of inferences for simulation-based FIFO sizing
+    #: Default is 2
+    fifosim_n_inferences: Optional[int] = 2
+
     #: Enable saving waveforms from simulation-based FIFO sizing
     #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
     fifosim_save_waveform: Optional[bool] = False
@@ -304,7 +318,7 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
@@ -356,6 +370,21 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
+
+    #: If set to True, the FINN compiler tries to create an MLO design based on
+    #: loop_body_hierarchy and loop_body_range
+    mlo: Optional[bool] = False
+
+    #: A List of strings that specify the PyTorch metadata hierarchy to
+    #: be used for the loop body hierarchy. Each item in the list should
+    #: be a string that represents a level in the hierarchy.
+    loop_body_hierarchy: Optional[List[List[str]]] = None
+
+    #: A list of a start and an end node to mark the loop body subgraph
+    #: For this node range, the PyTorch metadata hierarchy will be simulated
+    #: TODO: this argument will be replaced or extended when there is a way
+    #: to preserve node metadata from the PyTorch model (e.g. from dynamo exporter)
+    loop_body_range: Optional[List[Any]] = None
 
     #: Determine if the C++ driver should be generated instead of the PYNQ driver
     #: If set to latest newest version will be used

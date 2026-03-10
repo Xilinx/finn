@@ -246,6 +246,18 @@ class Thresholding_hls(Thresholding, HLSBackend):
 
     def generate_params(self, model, path):
         code_gen_dir = path
+
+        # Check input and threshold datatypes
+        idt = self.get_input_datatype(0)
+        tdt = self.get_input_datatype(1)
+        if idt.is_integer() and not tdt.is_integer():
+            raise ValueError(
+                "Thresholds must be converted to integers for integer inputs "
+                "using RoundAndClipThresholds transform before code generation."
+            )
+        if not idt.is_integer() and tdt.is_integer():
+            raise ValueError("Floating-point inputs and integer thresholds are not supported.")
+
         thresholds = model.get_initializer(self.onnx_node.input[1])
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_embedded":
@@ -286,10 +298,11 @@ class Thresholding_hls(Thresholding, HLSBackend):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                assert (
-                    str(context[inputs].dtype) == "float32"
-                ), """Input datatype is
-                not float32 as expected."""
+                assert str(context[inputs].dtype) in [
+                    "float32",
+                    "float16",
+                ], """Input datatype is
+                not float32 or float16 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype(0) == DataType["BIPOLAR"]:
@@ -404,7 +417,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         packed_bits = self.get_instream_width(0)
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
+        npy_type = "half" if elem_hls_type == "half" else "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
@@ -425,7 +438,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
             packed_bits = self.get_instream_width(1)
             packed_hls_type = "ap_uint<%d>" % packed_bits
             elem_hls_type = tdt.get_hls_datatype_str()
-            npy_type = "float"
+            npy_type = "half" if elem_hls_type == "half" else "float"
             npy_in = "%s/thresholds.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
@@ -489,7 +502,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
+        npy_type = "half" if elem_hls_type == "half" else "float"
         npy_out = "%s/output_0.npy" % code_gen_dir
         shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
@@ -682,16 +695,6 @@ class Thresholding_hls(Thresholding, HLSBackend):
         else:
             raise Exception("Unrecognized mem_mode for Thresholding_Batch")
         return cmd
-
-    def get_verilog_top_module_intf_names(self):
-        intf_names = super().get_verilog_top_module_intf_names()
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_decoupled":
-            # only expose axilite interface if attribute is set
-            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
-            if runtime_writable:
-                intf_names["axilite"] = ["s_axilite"]
-        return intf_names
 
     def get_op_and_param_counts(self):
         ret_dict = {}

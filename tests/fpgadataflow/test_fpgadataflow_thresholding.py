@@ -64,12 +64,25 @@ def generate_random_threshold_values(
         num_input_channels = 1
     if narrow:
         num_steps -= 1
-
-    return np.random.randint(
-        data_type.min(),
-        data_type.max() + 1,
-        (num_input_channels, num_steps),
-    ).astype(np.float32)
+    if data_type.is_integer():
+        return np.random.randint(
+            data_type.min(),
+            data_type.max() + 1,
+            (num_input_channels, num_steps),
+        ).astype(np.float32)
+    elif data_type.is_fixed_point():
+        return (
+            np.random.randint(
+                data_type.min() / data_type.scale_factor(),
+                data_type.max() / data_type.scale_factor() + 1,
+                (num_input_channels, num_steps),
+            ).astype(np.float32)
+            * data_type.scale_factor()
+        )
+    else:
+        return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
+            data_type.to_numpy_dt()
+        )
 
 
 def sort_thresholds_increasing(thresholds):
@@ -85,8 +98,18 @@ def make_single_multithresholding_modelwrapper(
     num_input_vecs,
     num_channels,
 ):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
-    thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
+    if input_data_type == DataType["FLOAT16"]:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT16, num_input_vecs + [num_channels]
+        )
+    else:
+        inp = helper.make_tensor_value_info(
+            "inp", TensorProto.FLOAT, num_input_vecs + [num_channels]
+        )
+    if threshold_data_type == DataType["FLOAT16"]:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT16, thresholds.shape)
+    else:
+        thresh = helper.make_tensor_value_info("thresh", TensorProto.FLOAT, thresholds.shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
     node_inp_list = ["inp", "thresh"]
@@ -138,6 +161,9 @@ def make_single_multithresholding_modelwrapper(
     [
         (DataType["INT8"], DataType["INT25"]),
         (DataType["UINT5"], DataType["UINT8"]),
+        (DataType["FLOAT32"], DataType["FLOAT32"]),
+        (DataType["FLOAT16"], DataType["FLOAT16"]),
+        (DataType["FIXED<6,2>"], DataType["FIXED<8,4>"]),
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
@@ -175,6 +201,17 @@ def test_fpgadataflow_thresholding(
         pytest.skip("Narrow needs to be false with biploar activation.")
     input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
+    if input_data_type in ["FLOAT32", "FLOAT16"] and round_thresh:
+        pytest.skip(
+            "Thresholds will not be rounded when inputs are floating-point. "
+            "Test case is identical with floating-point input and round_thresh=False."
+        )
+    if (
+        impl_style == "rtl"
+        and input_data_type.is_fixed_point()
+        and not threshold_data_type.is_fixed_point()
+    ):
+        pytest.skip("Fixed-point inputs and non-fixed-point thresholds are not supported in RTL.")
 
     if fold == -1:
         fold = num_input_channels
@@ -212,8 +249,8 @@ def test_fpgadataflow_thresholding(
     # calculate reference output
     x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
 
-    input_dict = {model.graph.input[0].name: x}
-    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     if output_data_type == DataType["BIPOLAR"]:
         # binary to bipolar
@@ -222,8 +259,8 @@ def test_fpgadataflow_thresholding(
     model = model.transform(InferThresholdingLayer())
 
     # Perform functional validation of the InferThresholdingLayer transform
-    y_produced = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-    assert (y_produced == y_expected).all()
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
 
     # Transform to the specified implementation style, either the
     # RTL or HLS according to test parameters
@@ -254,8 +291,8 @@ def test_fpgadataflow_thresholding(
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
 
-    y_produced = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-    assert (y_produced == y_expected).all()
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
 
     if exec_mode == "rtlsim":
         if impl_style == "hls":
@@ -325,8 +362,8 @@ def test_fpgadataflow_thresholding_stitched_ip(
     # calculate reference output
     x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
 
-    input_dict = {model.graph.input[0].name: x}
-    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     model = model.transform(InferThresholdingLayer())
 

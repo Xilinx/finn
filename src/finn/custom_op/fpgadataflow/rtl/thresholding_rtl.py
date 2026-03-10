@@ -157,37 +157,43 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         t_path = self.get_nodeattr("code_gen_dir_ipgen")
 
-        self.generate_params(model, t_path)
+        if not self.get_nodeattr("mlo_max_iter"):
+            self.generate_params(model, t_path)
 
         bias = self.get_nodeattr("ActVal")  # activation bias value
-        output_data_type = self.get_nodeattr("outputDataType")  # output precision
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-        o_bitwidth = DataType[output_data_type].bitwidth()
         pe = self.get_nodeattr("PE")
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
-
-        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold (minimal possible value determined by
-        # input data type) and decrease the bias by 1.
-        expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
+        idt = DataType[input_data_type]
         wdt = self.get_input_datatype(1)
-        if expected_thresholds != n_thres_steps:
-            if DataType[output_data_type].signed():
-                bias = bias - 1
-            else:
-                max_val = wdt.max()
-                if max_val <= DataType[input_data_type].max():
-                    max_val = max_val + 1
-                    # increase wdt
-                    if not wdt.signed():
-                        wdt = DataType.get_smallest_possible(max_val)
-                    else:
-                        wdt = DataType.get_smallest_possible(-max_val - 1)
+
+        if idt.is_integer() and not wdt.is_integer():
+            raise ValueError(
+                "Thresholds must be converted to integers for integer inputs "
+                "using RoundAndClipThresholds transform before code generation."
+            )
+        if not idt.is_integer() and wdt.is_integer():
+            raise ValueError("Non-integer inputs and integer thresholds are not supported.")
+        if idt.is_fixed_point() and not wdt.is_fixed_point():
+            raise ValueError("Fixed-point inputs and floating-point thresholds are not supported.")
+        if wdt.is_fixed_point() and not idt.is_fixed_point():
+            raise ValueError("Floating-point inputs and fixed-point thresholds are not supported.")
+        if wdt.is_fixed_point() and idt.is_fixed_point():
+            if wdt.scale_factor() < idt.scale_factor():
+                raise ValueError(
+                    "Fixed-point thresholds have more fractional bits than input. "
+                    "Run RoundAndClipThresholds to reduce threshold fractional bits."
+                )
+            elif wdt.scale_factor() > idt.scale_factor():
+                raise ValueError(
+                    "Fixed-point inputs and with more fractional bits "
+                    "than thresholds are not supported."
+                )
 
         # If a single threshold value is found, set num_channels to PE
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        if thresholds.shape[0] == 1:
+        thresholds_shape = model.get_tensor_shape(self.onnx_node.input[1])
+        if thresholds_shape[0] == 1:
             num_channels = pe
 
         code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
@@ -198,9 +204,9 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
 
         # Identify the module variables
-        i_bitwidth = DataType[input_data_type].bitwidth()
+        i_bitwidth = idt.bitwidth()
 
-        code_gen_dict["$N$"] = [str(2**o_bitwidth - 1)]  # number of needed thresholds
+        code_gen_dict["$N$"] = [str(n_thres_steps)]  # number of needed thresholds
         code_gen_dict["$WT$"] = [
             str(wdt.bitwidth())
         ]  # threshold precision - convert bitwidth to string
@@ -208,6 +214,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
         code_gen_dict["$PE$"] = [str(pe)]  # requires C = M*PE
+        mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+        if mlo_max_iter:
+            code_gen_dict["$SETS$"] = [str(mlo_max_iter)]
+        else:
+            code_gen_dict["$SETS$"] = [str(1)]
 
         # Is the input datatype signed or unsigned?
         # The thresholding core needs to know this when comparing weights to inputs
@@ -216,11 +227,17 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
 
+        # Is the input datatype floating-point?
+        if self.get_input_datatype(0) in ["FLOAT32", "FLOAT16"]:
+            code_gen_dict["$FPARG$"] = [str(1)]
+        else:
+            code_gen_dict["$FPARG$"] = [str(0)]
+
         if bias >= 0:
-            o_bits = math.ceil(math.log2(2**o_bitwidth + bias))
+            o_bits = math.ceil(math.log2(n_thres_steps + bias + 1))
         else:
             o_bits = 1 + math.ceil(
-                math.log2(-bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias)
+                math.log2(-bias if -bias >= (n_thres_steps + 1) / 2 else n_thres_steps + bias + 1)
             )
         code_gen_dict["$O_BITS$"] = [str(int(o_bits))]
 
@@ -305,10 +322,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 # it is assumed that the first input of the node is the data input
                 # the second input are the thresholds
                 if in_ind == 0:
-                    assert (
-                        str(context[inputs].dtype) == "float32"
-                    ), """Input datatype is
-                    not float32 as expected."""
+                    assert str(context[inputs].dtype) in [
+                        "float32",
+                        "float16",
+                    ], """Input datatype is
+                    not float32 or float16 as expected."""
                     expected_inp_shape = self.get_folded_input_shape()
                     reshaped_input = context[inputs].reshape(expected_inp_shape)
 
@@ -423,34 +441,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
         o_bitwidth = DataType[output_data_type].bitwidth()
-        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
-
-        # The RTL expects 2^N-1 thresholds, but narrow range quantization will result in
-        # one less threshold, prepending a dummy threshold (minimal possible value determined by
-        # input data type)
-        # and decrease the bias by 1 (needs to be done in code generation when bias is set).
-        # Additionally, increase number of threshold steps to reflect new shape
         expected_thresholds = 2**o_bitwidth - 1
         n_thres_steps = self.get_nodeattr("numSteps")
         wdt = self.get_input_datatype(1)
-        if expected_thresholds != n_thres_steps:
-            if DataType[output_data_type].signed():
-                min_val = wdt.min()
-                thresholds = np.insert(thresholds, 0, min_val, axis=1)
-            # TODO: temporary fix for unsigned narrow quantization
-            else:
-                max_val = wdt.max()
-                if max_val > DataType[input_data_type].max():
-                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
-                else:
-                    max_val = max_val + 1
-                    # increase wdt
-                    if not wdt.signed():
-                        wdt = DataType.get_smallest_possible(max_val)
-                    else:
-                        wdt = DataType.get_smallest_possible(-max_val - 1)
-                    thresholds = np.insert(thresholds, len(thresholds[0]), max_val, axis=1)
-            n_thres_steps += 1
+        if expected_thresholds > n_thres_steps:
+            thresholds = np.pad(
+                thresholds,
+                ((0, 0), (0, expected_thresholds - n_thres_steps)),
+                mode="constant",
+                constant_values=(0, 0),
+            )
 
         if weight_file_mode == "decoupled_runtime":
             # If a single threshold value is found, broadcast the value
@@ -459,7 +459,7 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 num_channels = pe
             width_padded = roundup_to_integer_multiple(thresholds.shape[1], 2**o_bitwidth)
             thresh_padded = np.zeros((thresholds.shape[0], width_padded))
-            thresh_padded[: thresholds.shape[0], :n_thres_steps] = thresholds
+            thresh_padded[: thresholds.shape[0], :expected_thresholds] = thresholds
             thresh_stream = []
             bw_hexdigit = roundup_to_integer_multiple(wdt.bitwidth(), 32)
             padding = np.zeros(width_padded, dtype=np.int32)

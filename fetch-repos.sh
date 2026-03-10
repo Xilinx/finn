@@ -28,28 +28,30 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-QONNX_COMMIT="0630ceaee17799096d1750abcfb5bbe0a2877888"
+QONNX_COMMIT="f5c9819bd00f01f41e70639b8461c8e4b39432f7"
 FINN_EXP_COMMIT="0724be21111a21f0d81a072fccc1c446e053f851"
-BREVITAS_COMMIT="4617f7bd136e96fa21c7f76e3c7e2e37fe563837"
-CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
+BREVITAS_COMMIT="aad4d5a293db6f2ec622a92a5d3278e47072453e"
+CNPY_COMMIT="8c82362372ce600bbd1cf11d64661ab69d38d7de"
 HLSLIB_COMMIT="120c46293fdf534415a6a47973a8f712fca6d900"
-OMX_COMMIT="0b59762f9e4c4f7e5aa535ee9bc29f292434ca7a"
+OMX_COMMIT="a5d48f93309b235fdd21556d16e86e6ef5db6e2e"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
+AUPZU3_BDF_COMMIT="b595ecdf37c7204129517de1773b0895bcdcc2ed"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
-CNPY_URL="https://github.com/rogersce/cnpy.git"
+CNPY_URL="https://github.com/maltanar/cnpy.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
+AUPZU3_BDF_URL="https://github.com/RealDigitalOrg/aup-zu3-bsp.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
@@ -61,6 +63,7 @@ AVNET_BDF_DIR="avnet-bdf"
 XIL_BDF_DIR="xil-bdf"
 RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
+AUPZU3_BDF_DIR="aupzu3-8gb-bdf"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -110,6 +113,7 @@ fetch_board_files() {
     cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
     cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;
     cp -r $SCRIPTPATH/deps/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $SCRIPTPATH/deps/board_files/;
+    cp -r $SCRIPTPATH/deps/$AUPZU3_BDF_DIR/board-files/aup-zu3-8gb $SCRIPTPATH/deps/board_files/;
     cd $OLD_PWD
 }
 
@@ -123,6 +127,7 @@ fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 fetch_repo $RFSOC4x2_BDF_URL $RFSOC4x2_BDF_COMMIT $RFSOC4x2_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
+fetch_repo $AUPZU3_BDF_URL $AUPZU3_BDF_COMMIT $AUPZU3_BDF_DIR
 
 # Can skip downloading of board files entirely if desired
 if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then

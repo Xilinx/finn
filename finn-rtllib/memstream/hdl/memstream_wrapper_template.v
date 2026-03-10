@@ -30,6 +30,7 @@
   */
 
 module $MODULE_NAME$_memstream_wrapper #(
+	parameter  SETS = $SETS$,
 	parameter  DEPTH = $DEPTH$,
 	parameter  WIDTH = $WIDTH$,
 
@@ -37,10 +38,11 @@ module $MODULE_NAME$_memstream_wrapper #(
 	parameter  RAM_STYLE = "$RAM_STYLE$",
 	parameter  PUMPED_MEMORY = $PUMPED_MEMORY$,
 
-	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
+	parameter  AXILITE_ADDR_WIDTH = $clog2(SETS * DEPTH * (2**$clog2((WIDTH+31)/32))) + 2,
+	parameter  SET_BITS = SETS > 2? $clog2(SETS) : 1
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:s_axis_0:m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk2x CLK" *)
@@ -74,6 +76,11 @@ module $MODULE_NAME$_memstream_wrapper #(
 	output	[ 1:0]  s_axilite_RRESP,
 	output	[31:0]  s_axilite_RDATA,
 
+	// Set selector stream (ignored for SETS = 1)
+	output	s_axis_0_tready,
+	input	s_axis_0_tvalid,
+	input	[SET_BITS-1:0]  s_axis_0_tdata,
+
 	// Continuous output stream
 	input	m_axis_0_tready,
 	output	m_axis_0_tvalid,
@@ -81,6 +88,7 @@ module $MODULE_NAME$_memstream_wrapper #(
 );
 
 	memstream_axi #(
+		.SETS(SETS),
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
 		.INIT_FILE(INIT_FILE),
 		.RAM_STYLE(RAM_STYLE),
@@ -110,6 +118,11 @@ module $MODULE_NAME$_memstream_wrapper #(
 		.rvalid(s_axilite_RVALID),
 		.rresp(s_axilite_RRESP),
 		.rdata(s_axilite_RDATA),
+
+		// Set selector stream (ignored for SETS = 1)
+		.s_axis_0_tready(s_axis_0_tready),
+		.s_axis_0_tvalid(s_axis_0_tvalid),
+		.s_axis_0_tdata(s_axis_0_tdata),
 
 		// Continuous output stream
 		.m_axis_0_tready(m_axis_0_tready),
