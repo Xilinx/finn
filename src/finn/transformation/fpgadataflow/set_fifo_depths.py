@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import warnings
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.transformation.base import Transformation
@@ -201,9 +202,9 @@ def xsi_fifosim(model, n_inferences, max_iters=None, throttle_cycles=0):
     liveness threshold instead. throttle_cycles can be used for throttling
     the input stream every time a frame is finished."""
 
-    iname = model.graph.input[0].name
+    iname = model.get_first_global_in()
     first_node = model.find_consumer(iname)
-    oname = model.graph.output[0].name
+    oname = model.get_first_global_out()
     last_node = model.find_producer(oname)
     assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     # define execution context for dummy data mode:
@@ -295,6 +296,12 @@ class InsertAndSetFIFODepths(Transformation):
                 reset_implementation(getHWCustomOp(x, model))
                 return (model, False)
 
+        # these optypes may potentially use external weights
+        # but don't have the param input exposed as a graph input
+        # we'll temporarily change them to use decoupled mode for FIFO sizing
+        extw_optypes = ["MVAU_hls", "MVAU_rtl", "VVAU_hls", "VVAU_rtl"]
+        modified_extw_nodes = []
+
         # these optypes may potentially be param nodes in an mlo
         # we'll temporarily change them to use external mode for FIFO sizing
         mlo_optypes = [
@@ -329,8 +336,22 @@ class InsertAndSetFIFODepths(Transformation):
                     # safe guard that for very small tensors depth is not set to 1
                     depth = np.prod(node.get_folded_output_shape(o)[:-1])
                     ofd[o] = tensor_size if tensor_size > 1 else 2
-            node.set_nodeattr("inFIFODepths", ifd)
-            node.set_nodeattr("outFIFODepths", ofd)
+            # set node attribute and ensure that it gets saved as list of integers
+            node.set_nodeattr("inFIFODepths", [int(fifo) for fifo in ifd])
+            node.set_nodeattr("outFIFODepths", [int(fifo) for fifo in ofd])
+            # do necessary temporary settinggs for external weights nodes
+            if node.onnx_node.op_type in extw_optypes:
+                input_names_set = {inp.name for inp in model.graph.input}
+                mmode = node.get_nodeattr("mem_mode")
+                if mmode == "external" and node.onnx_node.input[1] not in input_names_set:
+                    modified_extw_nodes.append(node.onnx_node.name)
+                    node.set_nodeattr("mem_mode", "internal_decoupled")
+                    reset_implementation(node)
+                    warnings.warn(
+                        "Changed mem_mode from external to internal_decoupled for "
+                        + node.onnx_node.name
+                    )
+            # do necessary temporary settings for mlo nodes
             if node.onnx_node.op_type in mlo_optypes:
                 mlo_max_iter = node.get_nodeattr("mlo_max_iter")
                 if mlo_max_iter:
@@ -438,6 +459,13 @@ class InsertAndSetFIFODepths(Transformation):
                 # (removed setting of node FIFO size attributes to 0 here)
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
+                if node.op_type in extw_optypes:
+                    if node.name in modified_extw_nodes:
+                        node_inst = getCustomOp(node)
+                        node_inst.set_nodeattr("mem_mode", "external")
+                        reset_implementation(node_inst)
+                        modified_extw_nodes.remove(node.name)
+                # do the same resetting for mlo nodes
                 if node.op_type in mlo_optypes:
                     if node.name in modified_mlo_nodes and node.op_type.startswith("MVAU"):
                         node_inst = getHWCustomOp(node, model)
@@ -462,6 +490,9 @@ class InsertAndSetFIFODepths(Transformation):
             reset_implementation(node_inst)
             modified_mlo_nodes.remove(node.name)
 
+        assert (
+            len(modified_extw_nodes) == 0 and len(fifos.keys()) == 0
+        ), "FIFO/FC nodes left untouched after model reconfiguration"
         assert (
             len(modified_mlo_nodes) == 0 and len(fifos.keys()) == 0
         ), "FIFO/FC nodes left untouched after model reconfiguration"
@@ -537,8 +568,9 @@ class InsertAndSetFIFODepths(Transformation):
                         else:
                             # explicitly no FIFO on this dynamic output
                             fifodepth_out.append(0)
-                node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
-                node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
+                # set node attribute and ensure that it gets saved as list of integers
+                node_inst.set_nodeattr("inFIFODepths", [int(fifo) for fifo in fifodepth_in])
+                node_inst.set_nodeattr("outFIFODepths", [int(fifo) for fifo in fifodepth_out])
 
         return (model, False)
 

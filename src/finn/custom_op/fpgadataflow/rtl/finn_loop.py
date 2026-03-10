@@ -25,10 +25,6 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
 
 import copy
 import math
@@ -39,14 +35,11 @@ import subprocess
 from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import (
-    get_by_name,
-    is_finn_op,
-    qonnx_make_model,
-    roundup_to_integer_multiple,
-)
+from qonnx.custom_op.registry import is_custom_op
+from qonnx.util.basic import get_by_name, qonnx_make_model, roundup_to_integer_multiple
 
 import finn.core.onnx_exec as oxe
+from finn import xsi
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -56,6 +49,8 @@ from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.mlo_sim import mlo_prehook_func_factory
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 def collect_ip_dirs(model, ipstitch_path):
@@ -151,7 +146,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get first node in loop body and return
             # normal input shape
             node = loop_body.graph.node[0]
-            if is_finn_op(node.domain):
+            if is_custom_op(node.domain):
                 inst = getHWCustomOp(node)  # No model context: read only
                 ishape = inst.get_normal_input_shape(0)
             else:
@@ -161,7 +156,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             tensor = loop_body.graph.input[ind].name
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
-            if is_finn_op(param_node.domain):
+            if is_custom_op(param_node.domain):
                 inst = getHWCustomOp(param_node)  # No model context: read only
                 ishape = inst.get_normal_input_shape(1)
             else:
@@ -173,7 +168,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # get last node in loop body and return
         # normal output shape
         node = loop_body.graph.node[-1]
-        if is_finn_op(node.domain):
+        if is_custom_op(node.domain):
             inst = getHWCustomOp(node)  # No model context: read only
             oshape = inst.get_normal_output_shape(0)
         else:
@@ -216,7 +211,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             tensor = loop_body.graph.input[ind].name
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
-            if is_finn_op(param_node.domain):
+            if is_custom_op(param_node.domain):
                 inst = getHWCustomOp(param_node)  # No model context: read only
                 idt = inst.get_input_datatype(1)
             else:
@@ -963,7 +958,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         for sig in ext_signals:
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s] [get_bd_intf_pins %s/%s]"
-                % (self.onnx_node.name, sig[0][0], finn_ip_name, sig[0][0])
+                % (self.onnx_node.name, sig[0], finn_ip_name, sig[0])
             )
         # connect components with each other
         # stream tap with finn ip
@@ -1002,7 +997,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
-            cmd.append(f"set_property name {sig[0][0]} [get_bd_intf_ports {sig[0][0]}_0]")
+            cmd.append(f"set_property name {sig[0]} [get_bd_intf_ports {sig[0]}_0]")
         cmd.append("save_bd_design")
         # cmd.append("validate_bd_design")
         # cmd.append("save_bd_design")
@@ -1119,7 +1114,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         loop_body = self.get_nodeattr("body")
         loop_body_intf = eval(loop_body.get_metadata_prop("vivado_stitch_ifnames"))
         for intf in loop_body_intf["aximm"]:
-            intf_names["aximm"] += intf
+            intf_names["aximm"].append(intf)
 
         return intf_names
 

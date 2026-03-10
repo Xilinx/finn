@@ -1,3 +1,12 @@
+/******************************************************************************
+ * Copyright (C) 2025, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
+ *****************************************************************************/
+
 module stream_tap_tb;
 
 	localparam int unsigned  ROUNDS = 1357;

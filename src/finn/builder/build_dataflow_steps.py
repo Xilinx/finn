@@ -31,7 +31,6 @@ import json
 import numpy as np
 import os
 import shutil
-import warnings
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
@@ -48,14 +47,13 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
-from shutil import copy
+from shutil import copy, move
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-
-# from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
@@ -109,6 +107,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     xsi_fifosim,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.transpose_decomposition import (
@@ -163,8 +162,8 @@ def verify_step(
             child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
             model.save(child_model_fn)
             parent_model = ModelWrapper(parent_model_fn)
-            out_tensor_name = parent_model.graph.output[0].name
-            exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
+            out_tensor_name = parent_model.get_first_global_out()
+            exp_ishape = parent_model.get_tensor_shape(parent_model.get_first_global_in())
             if in_npy.shape != exp_ishape:
                 print(
                     "Verification input has shape %s while model expects %s"
@@ -175,8 +174,8 @@ def verify_step(
             out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
             out_npy = out_dict[out_tensor_name]
         else:
-            inp_tensor_name = model.graph.input[0].name
-            out_tensor_name = model.graph.output[0].name
+            inp_tensor_name = model.get_first_global_in()
+            out_tensor_name = model.get_first_global_out()
             exp_ishape = model.get_tensor_shape(inp_tensor_name)
             if in_npy.shape != exp_ishape:
                 print(
@@ -414,6 +413,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.standalone_thresholds:
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hw.InferThresholdingLayer())
+    else:
+        print(
+            """standalone_thresholds are set to False.
+            Please be aware that this means the MVAUs will be implemented in HLS
+            because the RTL variant doesn't support the merge of
+            MatMul + MultiThreshold into one layer. If you would like to have the RTL variant,
+            please set standalone_thresholds to True."""
+        )
     # needed for bipolar MatMul layers
     model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
     # needed for non-bipolar MatMul layers
@@ -432,6 +439,11 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+    # InferShuffle skips first Transpose by default; override to convert all if disabled
+    if cfg.infer_shuffle_skip_first:
+        model = model.transform(to_hw.InferShuffle())
+    else:
+        model = model.transform(to_hw.InferShuffle(_filter=lambda *_: True))
 
     return model
 
@@ -502,6 +514,15 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()), apply_to_subgraphs=True)
         model = model.transform(InferShapes(), apply_to_subgraphs=True)
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+        model = model.transform(GiveUniqueNodeNames())
+        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+        for node in loop_nodes:
+            node_inst = getHWCustomOp(node)  # read-only
+            loop_model = node_inst.get_nodeattr("body")
+            loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
+            node_inst.set_nodeattr("body", loop_model.graph)
+    else:
+        print("Model doesn't contain any Shuffle nodes, skipping step_transpose_decomposition.")
     return model
 
 
@@ -520,7 +541,6 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
             ),
             apply_to_subgraphs=True,
-            use_preorder_traversal=False,
         )
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
@@ -543,6 +563,9 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         ]
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
 
+    else:
+        print("No target_fps provided, skipping step_target_fps_parallelization.")
+
     return model
 
 
@@ -550,15 +573,17 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
 
+    model = model.transform(GiveUniqueNodeNames())
+    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+    for node in loop_nodes:
+        node_inst = getHWCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+        loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
+        node_inst.set_nodeattr("body", loop_model.graph)
     if cfg.folding_config_file is not None:
-        model = model.transform(GiveUniqueNodeNames())
-        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-        for node in loop_nodes:
-            node_inst = getHWCustomOp(node, model)
-            loop_model = node_inst.get_nodeattr("body")
-            loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
-            node_inst.set_nodeattr("body", loop_model.graph)
         model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
+    else:
+        print("No folding config json provided, skipping step_apply_folding_config.")
 
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
@@ -592,21 +617,53 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         )
         with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
             json.dump(estimate_layer_resources_complete, f, indent=2)
-        # need to call AnnotateCycles before dataflow_performance
-        model = model.transform(
-            AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False
+
+        # generate reports for MLO nodes
+        loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+        for node in loop_nodes:
+            node_inst = getHWCustomOp(node)
+            loop_model = node_inst.get_nodeattr("body")
+            ops_and_params = loop_model.analysis(op_and_param_counts)
+            with open(report_dir + f"/op_and_param_counts_{node.name}.json", "w") as f:
+                json.dump(ops_and_params, f, indent=2)
+            estimate_layer_cycles = loop_model.analysis(exp_cycles_per_layer)
+            with open(report_dir + f"/estimate_layer_cycles_{node.name}.json", "w") as f:
+                json.dump(estimate_layer_cycles, f, indent=2)
+            estimate_layer_resources = loop_model.analysis(
+                partial(res_estimation, fpgapart=cfg._resolve_fpga_part())
+            )
+            estimate_layer_resources["total"] = aggregate_dict_keys(estimate_layer_resources)
+            with open(report_dir + f"/estimate_layer_resources_{node.name}.json", "w") as f:
+                json.dump(estimate_layer_resources, f, indent=2)
+            estimate_layer_resources_complete = loop_model.analysis(
+                partial(res_estimation_complete, fpgapart=cfg._resolve_fpga_part())
+            )
+            with open(
+                report_dir + f"/estimate_layer_config_alternatives_{node.name}.json", "w"
+            ) as f:
+                json.dump(estimate_layer_resources_complete, f, indent=2)
+
+        if not is_mlo(model):
+            # need to call AnnotateCycles before dataflow_performance
+            model = model.transform(AnnotateCycles())
+            estimate_network_performance = model.analysis(dataflow_performance)
+            # add some more metrics to estimated performance
+            n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
+            est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+            estimate_network_performance["estimated_throughput_fps"] = est_fps
+            est_latency_ns = (
+                estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
+            )
+            estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+            with open(report_dir + "/estimate_network_performance.json", "w") as f:
+                json.dump(estimate_network_performance, f, indent=2)
+        else:
+            print("Model contains MLO, currently network performance can't be estimated for this.")
+    else:
+        print(
+            """DataflowOutputType.ESTIMATE_REPORTS not in requested outputs,
+            skipping step_generate_estimate_reports."""
         )
-        estimate_network_performance = model.analysis(dataflow_performance)
-        # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
-        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-        estimate_network_performance["estimated_throughput_fps"] = est_fps
-        est_latency_ns = (
-            estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
-        )
-        estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-        with open(report_dir + "/estimate_network_performance.json", "w") as f:
-            json.dump(estimate_network_performance, f, indent=2)
     return model
 
 
@@ -618,6 +675,8 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    else:
+        print("minimize_bit_width set to False, skipping step_minimize_bit_width.")
     return model
 
 
@@ -646,11 +705,18 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         prepare_loop_ops_ipgen(node, cfg)
     model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     model = model.transform(ReplaceVerilogRelPaths())
-    # report_dir = cfg.output_dir + "/report"
-    # os.makedirs(report_dir, exist_ok=True)
-    # estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
-    # with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
-    #    json.dump(estimate_layer_resources_hls, f, indent=2)
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
+    with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
+        json.dump(estimate_layer_resources_hls, f, indent=2)
+    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
+    for node in loop_nodes:
+        node_inst = getHWCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+        estimate_layer_resources_hls = loop_model.analysis(hls_synth_res_estimation)
+        with open(report_dir + f"/estimate_layer_resources_hls_{node.name}.json", "w") as f:
+            json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
         model = model.transform(PrepareRTLSim())
@@ -727,6 +793,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         else:
             assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
+        print("auto_fifo_depths is set to False, assume folding cfg json contains FIFO sizes.")
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
         model = model.transform(InsertDWC())
@@ -805,6 +872,12 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir, dirs_exist_ok=True
         )
         print("Vivado stitched IP written into " + stitched_ip_dir)
+
+    else:
+        print(
+            """DataflowOutputType.STITCHED_IP not in requested outputs,
+            skipping step_create_stitched_ip."""
+        )
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
@@ -851,10 +924,8 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 "rtlsim_trace",
                 "%s/rtlsim_perf_batch_%d.wdb" % (os.path.abspath(report_dir), rtlsim_bs),
             )
-        # use the critical_path_cycles estimate to set the timeout limit for FIFO sim
-        model = model.transform(
-            AnnotateCycles(), apply_to_subgraphs=True, use_preorder_traversal=False
-        )
+        # use the critical_path_cycles estimate to set the timeout limit for sim
+        model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 50
@@ -890,6 +961,12 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             # restore original trace depth
             os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
+    else:
+        print(
+            """DataflowOutputType.RTLSIM_PERFORMANCE not in requested outputs or model is MLO,
+            skipping step_measure_rtlsim_performance."""
+        )
+
     return model
 
 
@@ -919,9 +996,9 @@ def step_make_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
         )
         print("C++ driver written into " + driver_dir)
     else:
-        warnings.warn(
-            "The step step_make_driver is in the build list but will not be executed"
-            + " since no driver is selected in generate_outputs in your build.py file!"
+        print(
+            """Neither DataflowOutputType.PYNQ_DRIVER nor DataflowOutputType.CPP_DRIVER
+            in requested outputs, skipping step_make_driver."""
         )
     return model
 
@@ -946,6 +1023,12 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
         ooc_res_dict["estimated_throughput_fps"] = est_fps
         with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
             json.dump(ooc_res_dict, f, indent=2)
+
+    else:
+        print(
+            """DataflowOutputType.OOC_SYNTH not in requested outputs,
+            skipping step_out_of_context_synthesis."""
+        )
     return model
 
 
@@ -1011,6 +1094,11 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
 
+    else:
+        print(
+            "DataflowOutputType.BITFILE not in requested outputs, skipping step_synthesize_bitfile."
+        )
+
     return model
 
 
@@ -1029,6 +1117,11 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
             dirs_exist_ok=True,
             copy_function=shutil.copyfile,
         )
+    else:
+        print(
+            """DataflowOutputType.DEPLOYMENT_PACKAGE not in requested outputs,
+            skipping step_deployment_package."""
+        )
     return model
 
 
@@ -1036,14 +1129,27 @@ def step_loop_rolling(model, cfg):
     """Roll a repeating sequence of layers into a loop. PyTorch metadata node hierarchy
     is used to indicate the loop structure."""
 
-    if cfg.loop_body_hierarchy is not None:
-        print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
-        model = model.transform(FoldConstants())
-        loop_extraction = LoopExtraction(cfg.loop_body_hierarchy)
-        model = model.transform(loop_extraction)
-        model = model.transform(LoopRolling(loop_extraction.loop_body_template))
+    if cfg.mlo:
+        if cfg.loop_body_range is not None:
+            # set node metadata like loop rolling would expect
+            node_metadata = {
+                "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+                "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+            }
+            model = model.transform(SetLoopBoundary(node_metadata, cfg.loop_body_range))
+        else:
+            print(
+                """MLO is selected but no loop range for the subgraph is specified,
+                this might cause an error during loop rolling."""
+            )
+        if cfg.loop_body_hierarchy is not None:
+            print(f"Running Loop Rolling on {cfg.loop_body_hierarchy} hierarchy")
+            loop_extraction = LoopExtraction(cfg.loop_body_hierarchy)
+            model = model.transform(loop_extraction)
+            model = model.transform(LoopRolling(loop_extraction.loop_body_template))
+            move("loop-body-template.onnx", cfg.output_dir + "/loop-body-template.onnx")
     else:
-        print("No loop_body_hierarchy specified, skipping Loop Rolling step")
+        print("MLO not selected, skipping step_loop_rolling.")
 
     return model
 

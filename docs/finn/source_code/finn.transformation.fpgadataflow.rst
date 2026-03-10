@@ -254,6 +254,14 @@ finn.transformation.fpgadataflow.set\_folding
   :undoc-members:
   :show-inheritance:
 
+finn.transformation.fpgadataflow.set\_loop\_boundary
+-------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.set_loop_boundary
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 finn.transformation.fpgadataflow.specialize\_layers
 -------------------------------------------------------
 

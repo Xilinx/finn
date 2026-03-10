@@ -49,7 +49,7 @@ class AnnotateCycles(Transformation):
             if is_hls_node(node) or is_rtl_node(node):
                 op_inst = getHWCustomOp(node, model)
                 cycles = op_inst.get_exp_cycles()
-                op_inst.set_nodeattr("cycles_estimate", cycles)
+                op_inst.set_nodeattr("cycles_estimate", int(cycles))
             elif node.op_type == "StreamingDataflowPartition":
                 # recurse into model to manually annotate per-layer cycles
                 sdp_model_filename = getHWCustomOp(node, model).get_nodeattr("model")

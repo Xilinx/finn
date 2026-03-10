@@ -78,6 +78,7 @@ NUMPY_REFERENCES = {
     "ElementwiseBitwiseAnd": np.bitwise_and,
     "ElementwiseBitwiseOr": np.bitwise_or,
     "ElementwiseBitwiseXor": np.bitwise_xor,
+    "ElementwiseMax": np.maximum,
     # TODO: "ElementwiseBitShift": np.left_shift / np.right_shift
     # TODO: "ElementwisePow": np.power
 }
@@ -342,7 +343,7 @@ def test_elementwise_binary_operation_stitched_ip(
     o_expected = numpy_reference(lhs, rhs)
 
     # node-by-node rtlsim
-    o_produced = execute_onnx(model, context)[model.graph.output[0].name]
+    o_produced = execute_onnx(model, context)[model.get_first_global_out()]
 
     if out_dtype == "FLOAT16":
         # Equivalence checking is more relaxed for arithmetic operations in fp16
@@ -367,16 +368,16 @@ def test_elementwise_binary_operation_stitched_ip(
     # Tensor names might have changed during the test, so assembling an updated context dict
     io_dict = {}
     if not initializers:
-        io_dict[model.graph.input[0].name] = lhs
+        io_dict[model.get_first_global_in()] = lhs
         io_dict[model.graph.input[1].name] = rhs
     elif len(initializers) == 1:
         if initializers[0] == "in_x":
-            io_dict[model.graph.input[0].name] = rhs
+            io_dict[model.get_first_global_in()] = rhs
         elif initializers[0] == "in_y":
-            io_dict[model.graph.input[0].name] = lhs
+            io_dict[model.get_first_global_in()] = lhs
     # stitched-ip rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
-    o_produced = execute_onnx(model, io_dict)[model.graph.output[0].name]
+    o_produced = execute_onnx(model, io_dict)[model.get_first_global_out()]
 
     if out_dtype == "FLOAT16":
         # Equivalence checking is more relaxed for arithmetic operations in fp16

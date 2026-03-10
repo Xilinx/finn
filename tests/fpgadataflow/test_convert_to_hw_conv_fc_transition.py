@@ -215,7 +215,7 @@ def test_convert_to_hw_conv_fc_transition(conv_config, depthwise, use_reshape):
 
     # check for correct execution
     x = gen_finn_dt_tensor(idt, input_shape)
-    inp_dict = {model.graph.input[0].name: x}
+    inp_dict = {model.get_first_global_in(): x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
     num_transpose = len(new_model.get_nodes_by_op_type("Transpose"))

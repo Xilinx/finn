@@ -948,7 +948,7 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
 
         # update attributes and perform sanity check
         original_buffer_depth = self.get_buffer_depth()
-        self.set_nodeattr("IFMDim", ifm_dim)
+        self.set_nodeattr("IFMDim", list(ifm_dim))
         self.set_nodeattr("OFMDim", ofm_dim)
         self.set_nodeattr("Stride", stride)
         self.set_nodeattr("Dilation", dilation)

@@ -258,8 +258,8 @@ def test_fpgadataflow_thresholding(
     if not input_data_type.is_integer():
         x = (x * EXPAND_FLOAT_RANGE).astype(input_data_type.to_numpy_dt())
 
-    input_dict = {model.graph.input[0].name: x}
-    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     if output_data_type == DataType["BIPOLAR"]:
         # binary to bipolar
@@ -268,7 +268,7 @@ def test_fpgadataflow_thresholding(
     model = model.transform(InferThresholdingLayer())
 
     # Perform functional validation of the InferThresholdingLayer transform
-    y_produced = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
     assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
 
     # Transform to the specified implementation style, either the
@@ -302,7 +302,7 @@ def test_fpgadataflow_thresholding(
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
 
-    y_produced = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
     assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
 
     if exec_mode == "rtlsim":
@@ -373,8 +373,8 @@ def test_fpgadataflow_thresholding_stitched_ip(
     # calculate reference output
     x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
 
-    input_dict = {model.graph.input[0].name: x}
-    y_expected = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
 
     model = model.transform(InferThresholdingLayer())
 

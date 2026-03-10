@@ -110,7 +110,7 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 
     # initialize model
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(model.graph.output[0].name, odt)
+    model.set_tensor_datatype(model.get_first_global_out(), odt)
     model.set_tensor_datatype("W", wdt)
 
     w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch, ofm_ch, k, k])

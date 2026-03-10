@@ -504,20 +504,24 @@ class MVAU(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
+            # Assume that thresholds values are integers from RoundAndClipThresholds
+            # during streamlining
             threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-            # set threshold datatype (and accumulator datatype implicitly)
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
+            # Use double precision for threshold comparisons to prevent overflow
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            acc_min_fp = np.float64(acc_min)
+            acc_max_fp = np.float64(acc_max)
             # clip threshold values
-            if max_threshold > acc_max or min_threshold < acc_min:
+            if max_threshold > acc_max_fp or min_threshold < acc_min_fp:
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
                 threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-                min_threshold = thresholds.min()
-                max_threshold = thresholds.max()
-            acc_min = min(min_threshold, acc_min)
-            acc_max = max(max_threshold, acc_max)
+                min_threshold = np.float64(thresholds.min())
+                max_threshold = np.float64(thresholds.max())
+            acc_min = min(min_threshold, acc_min_fp)
+            acc_max = max(max_threshold, acc_max_fp)
 
         # if the acc_range is always greater than 0, then acc_max <= 2^P - 1
         if acc_min >= 0:
@@ -1004,7 +1008,8 @@ class MVAU(HWCustomOp):
                     "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, win_name)
                 )
                 # dynamic loader
-                dynld_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
+                ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
+                dyn_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/")
                 file_suffix = "_dynamic_load_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1013,8 +1018,8 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
-                    dynld_rtllib_dir + "ram_p_c.sv",
-                    dynld_rtllib_dir + "dynamic_load.sv",
+                    ram_rtllib_dir + "ram_p_c.sv",
+                    dyn_rtllib_dir + "dynamic_load.sv",
                 ]
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]
@@ -1023,6 +1028,10 @@ class MVAU(HWCustomOp):
             elif self.get_nodeattr("mlo_max_iter"):
                 # instantiate a fetch weights component and connect it to the IP
                 mlo_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mlo/")
+                reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
+                ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
+                dwc_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/dwc/hdl/")
+                dma_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/cdma/")
                 file_suffix = "_fetch_weights_wrapper.v"
                 # automatically find memstream verilog component in code generation directory
                 for fname in os.listdir(code_gen_dir):
@@ -1031,26 +1040,27 @@ class MVAU(HWCustomOp):
                 strm_tmpl_name = strm_tmpl[:-2]
                 sourcefiles = [
                     os.path.join(code_gen_dir, strm_tmpl),
+                    reg_rtllib_dir + "skid.sv",
+                    ram_rtllib_dir + "ram_p_c.sv",
+                    dwc_rtllib_dir + "axis_adapter.v",
+                    dwc_rtllib_dir + "axis_fifo_adapter.sv",
+                    dwc_rtllib_dir + "axis_fifo.v",
                     mlo_rtllib_dir + "fetch_weights.sv",
                     mlo_rtllib_dir + "local_weight_buffer.sv",
                 ]
-                # add files from common dir
-                for file in os.listdir(mlo_rtllib_dir + "common/"):
-                    if file.endswith(".sv") or file.endswith(".svh") or file.endswith(".v"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "common/", file))
                 # add files from cdma dir
-                for file in os.listdir(mlo_rtllib_dir + "cdma/"):
+                for file in os.listdir(dma_rtllib_dir):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_a/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir, file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_a/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_a", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_u/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_a/", file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_u/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_u/", file))
-                for file in os.listdir(mlo_rtllib_dir + "cdma/cdma_x/"):
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_u/", file))
+                for file in os.listdir(dma_rtllib_dir + "cdma_x/"):
                     if file.endswith(".sv") or file.endswith(".svh"):
-                        sourcefiles.append(os.path.join(mlo_rtllib_dir + "cdma/cdma_x/", file))
+                        sourcefiles.append(os.path.join(dma_rtllib_dir + "cdma_x/", file))
 
                 for f in sourcefiles:
                     cmd += ["add_files -copy_to %s -norecurse %s" % (source_target, f)]

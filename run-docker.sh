@@ -180,7 +180,17 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build \
+    -f docker/Dockerfile.finn \
+    --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
+    --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD \
+    --build-arg LOCAL_XRT=$LOCAL_XRT \
+    --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA \
+    --build-arg GROUP_ID=$DOCKER_GID \
+    --build-arg GROUPNAME=$DOCKER_GNAME \
+    --build-arg USERNAME=$DOCKER_UNAME \
+    --build-arg USER_UID=$DOCKER_UID \
+    .
   cd $OLD_PWD
 fi
 
@@ -211,10 +221,6 @@ DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
 # https://adaptivesupport.amd.com/s/article/63253?language=en_US
 DOCKER_EXEC+="-e XILINX_LOCAL_USER_DATA=no "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
-  DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
-  DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
-  DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
-  DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
   DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
   DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
 else

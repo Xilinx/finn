@@ -214,7 +214,7 @@ def rtlsim_exec_cppxsi(
         outstream_iters.append(np.prod(oshape_folded[:-1]))
 
     # retrieve the number of inputs from execution_context
-    n_inferences = execution_context[model.graph.input[0].name]
+    n_inferences = execution_context[model.get_first_global_in()]
     ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
     assert not (
         ifnames is None

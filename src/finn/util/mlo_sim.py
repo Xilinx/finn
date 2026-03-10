@@ -31,16 +31,13 @@
 # aximm simulation tasks for handling the aximm interfaces.
 
 import numpy as np
-
-try:
-    from finn_xsi.sim_engine import SimEngine
-except ModuleNotFoundError:
-    SimEngine = None
-
 from qonnx.core.modelwrapper import ModelWrapper
 from typing import Callable
 
+from finn import xsi
 from finn.util.basic import getHWCustomOp
+
+SimEngine = xsi.SimEngine if xsi.is_available() else None
 
 
 def is_mlo(model: ModelWrapper) -> bool:

@@ -67,6 +67,8 @@ from finn.util.basic import get_liveness_threshold_cycles, getHWCustomOp
 
 finnxsi = xsi if xsi.is_available() else None
 
+finnxsi = xsi if xsi.is_available() else None
+
 
 def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
     np.random.seed(0)

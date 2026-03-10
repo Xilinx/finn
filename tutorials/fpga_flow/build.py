@@ -59,7 +59,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     inp_data = inp_data.reshape(batchsize, -1)
     # query the parallelism-dependent folded input shape from the
     # node consuming the graph input
-    inp_name = model.graph.input[0].name
+    inp_name = model.get_first_global_in()
     inp_node = getHWCustomOp(model.find_consumer(inp_name), model)
     inp_shape_folded = list(inp_node.get_folded_input_shape())
     inp_stream_width = inp_node.get_instream_width_padded()
@@ -76,7 +76,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     np.savetxt(sim_output_dir + "/input.dat", inp_data_packed, fmt="%s", delimiter="\n")
     # load expected output and calculate folded shape
     exp_out = np.load("expected_output.npy")
-    out_name = model.graph.output[0].name
+    out_name = model.get_first_global_out()
     out_node = getHWCustomOp(model.find_producer(out_name), model)
     out_shape_folded = list(out_node.get_folded_output_shape())
     out_stream_width = out_node.get_outstream_width_padded()

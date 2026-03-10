@@ -1,69 +1,62 @@
-// Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
-//
-// This file is subject to the Xilinx Design License Agreement located
-// in the LICENSE.md file in the root directory of this repository.
-//
-// This file contains confidential and proprietary information of Xilinx, Inc.
-// and is protected under U.S. and international copyright and other
-// intellectual property laws.
-//
-// DISCLAIMER
-// This disclaimer is not a license and does not grant any rights to the materials
-// distributed herewith. Except as otherwise provided in a valid license issued to
-// you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
-// MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
-// DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
-// INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
-// FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
-// in contract or tort, including negligence, or under any other theory of
-// liability) for any loss or damage of any kind or nature related to, arising
-// under or in connection with these materials, including for any direct, or any
-// indirect, special, incidental, or consequential loss or damage (including loss
-// of data, profits, goodwill, or any type of loss or damage suffered as a result
-// of any action brought by a third party) even if such damage or loss was
-// reasonably foreseeable or Xilinx had been advised of the possibility of the
-// same.
-//
-// CRITICAL APPLICATIONS
-// Xilinx products are not designed or intended to be fail-safe, or for use in
-// any application requiring failsafe performance, such as life-support or safety
-// devices or systems, Class III medical devices, nuclear facilities, applications
-// related to the deployment of airbags, or any other applications that could lead
-// to death, personal injury, or severe property or environmental damage
-// (individually and collectively, "Critical Applications"). Customer assumes the
-// sole risk and liability of any use of Xilinx products in Critical Applications,
-// subject only to applicable laws and regulations governing limitations on product
-// liability.
-//
-// THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+/******************************************************************************
+ * Copyright (C) 2024, Advanced Micro Devices, Inc.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *
+ *  2. Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *
+ *  3. Neither the name of the copyright holder nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *****************************************************************************/
 
 module fetch_weights #(
-    parameter int unsigned              PE,
-    parameter int unsigned              SIMD,
-    parameter int unsigned              MH,
-    parameter int unsigned              MW,
-    parameter int unsigned              N_REPS,
-    parameter int unsigned              WEIGHT_WIDTH = 8,
+    int unsigned              PE,
+    int unsigned              SIMD,
+    int unsigned              MH,
+    int unsigned              MW,
+    int unsigned              N_REPS,
+    int unsigned              WEIGHT_WIDTH = 8,
 
-    parameter int unsigned              ADDR_BITS = 64,
-    parameter int unsigned              DATA_BITS = 256,
-    parameter int unsigned              LEN_BITS = 32,
-    parameter int unsigned              IDX_BITS = 16,
+    int unsigned              ADDR_BITS = 64,
+    int unsigned              DATA_BITS = 256,
+    int unsigned              LEN_BITS = 32,
+    int unsigned              IDX_BITS = 16,
 
-    parameter int unsigned              N_LAYERS,
+    int unsigned              N_LAYERS,
 
-    parameter int unsigned              QDEPTH = 8,
-    parameter int unsigned              EN_OREG = 1,
-    parameter int unsigned              N_DCPL_STGS = 1,
-    parameter int unsigned              DBG = 0,
+    int unsigned              QDEPTH = 8,
+    int unsigned              EN_OREG = 1,
+    int unsigned              N_DCPL_STGS = 1,
+    int unsigned              DBG = 0,
 
     // Safely deducible parameters
-    parameter                          DS_BITS_BA = (SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	parameter                          WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-    parameter logic[ADDR_BITS-1:0]     LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
+    int unsigned              DS_BITS_BA = (SIMD*WEIGHT_WIDTH+7)/8 * 8,
+	int unsigned              WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+    logic[ADDR_BITS-1:0]      LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
 ) (
-    input  wire                         aclk,
-    input  wire                         aresetn,
+    input  logic                        aclk,
+    input  logic                        aresetn,
 
     output logic                        m_done,
 
@@ -116,6 +109,8 @@ module fetch_weights #(
     output logic[WS_BITS_BA-1:0]        m_axis_tdata
 );
 
+localparam int unsigned WMAT_SIZE = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+
 // Offsets
 logic [N_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
 for(genvar i = 0; i < N_LAYERS; i++) begin
@@ -139,7 +134,7 @@ Q_srl #(
 );
 
 assign q_dma_addr = l_offsets[q_idx_out_tdata];
-assign q_dma_len = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+assign q_dma_len = WMAT_SIZE;
 
 // DMA
 logic axis_dma_tvalid;
@@ -190,11 +185,13 @@ logic[DS_BITS_BA-1:0] axis_dwc_tdata;
 logic[(DS_BITS_BA)/8-1:0] axis_dwc_tkeep;
 logic axis_dwc_tlast;
 
-axis_dwc #(
-    .S_DATA_BITS(DATA_BITS), .M_DATA_BITS(DS_BITS_BA)
+axis_fifo_adapter #(
+    .S_DATA_WIDTH(DATA_BITS), .M_DATA_WIDTH(DS_BITS_BA)
 ) inst_dwc (
-    .aclk(aclk), .aresetn(aresetn),
+    .clk(aclk), .rst(~aresetn),
+    .pause_req('0), .s_axis_tid('0), .s_axis_tdest('0), .s_axis_tuser('0),
     .s_axis_tvalid(axis_dma_tvalid), .s_axis_tready(axis_dma_tready), .s_axis_tdata(axis_dma_tdata), .s_axis_tkeep(axis_dma_tkeep), .s_axis_tlast(axis_dma_tlast),
+    .pause_ack(), .m_axis_tid(), .m_axis_tdest(), .m_axis_tuser(),
     .m_axis_tvalid(axis_dwc_tvalid), .m_axis_tready(axis_dwc_tready), .m_axis_tdata(axis_dwc_tdata), .m_axis_tkeep(axis_dwc_tkeep), .m_axis_tlast(axis_dwc_tlast)
 );
 
@@ -213,12 +210,12 @@ local_weight_buffer #(
 
 // Reg slice
 if(EN_OREG) begin
-    axis_reg_array_rtl #(
-        .DATA_BITS(WS_BITS_BA), .N_STAGES(N_DCPL_STGS)
+    skid #(
+        .DATA_WIDTH(WS_BITS_BA), .FEED_STAGES(N_DCPL_STGS)
     ) inst_oreg (
-        .aclk(aclk), .aresetn(aresetn),
-        .s_axis_tvalid(axis_lwb_tvalid), .s_axis_tready(axis_lwb_tready), .s_axis_tdata(axis_lwb_tdata),
-        .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready), .m_axis_tdata(m_axis_tdata)
+        .clk(aclk), .rst(~aresetn),
+        .ivld(axis_lwb_tvalid), .irdy(axis_lwb_tready), .idat(axis_lwb_tdata),
+        .ovld(m_axis_tvalid), .ordy(m_axis_tready), .odat(m_axis_tdata)
     );
 end else begin
     assign m_axis_tvalid = axis_lwb_tvalid;

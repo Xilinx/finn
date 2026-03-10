@@ -39,6 +39,8 @@ from finn.util.fpgadataflow import SUPPORTED_BACKENDS
 
 finnxsi = xsi if xsi.is_available() else None
 
+finnxsi = xsi if xsi.is_available() else None
+
 
 class HWCustomOp(CustomOp):
     """HWCustomOp class all custom ops that can be implemented with either

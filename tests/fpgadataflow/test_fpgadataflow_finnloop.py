@@ -1,7 +1,9 @@
 import pytest
 
 import numpy as np
-import onnx
+import os
+import re
+from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -42,6 +44,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
     RemoveShallowFIFOs,
     SplitLargeFIFOs,
 )
+from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import make_build_dir
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -155,6 +158,8 @@ def make_loop_modelwrapper(
                 "PE": 2,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
+                "cpp_interface": "hls_vector",
+                "hls_style": "freerunning",
             },
         ),
         create_node(
@@ -371,23 +376,185 @@ def create_chained_loop_bodies(
             eltw_param_dtype=eltw_param_dtype,
             name_suffix=name_suffix,
         )
-        for node in loop_body_model.graph.node:
-            node.metadata_props.append(
-                onnx.StringStringEntryProto(
-                    key="pkg.torch.onnx.name_scopes", value=f"['', 'layers.{num_copies-(i+1)}']"
-                )
-            )
-            node.metadata_props.append(
-                onnx.StringStringEntryProto(
-                    key="pkg.torch.onnx.class_hierarchy", value=f"['TestModule', '{node.name}']"
-                )
-            )
-
         loop_body_models.append(loop_body_model)
 
     return loop_body_models
 
 
+# dimensions
+@pytest.mark.parametrize("dim", [16])
+# iteration count, number of models chained together
+@pytest.mark.parametrize("iteration", [3])
+# elementwise operation
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
+# elementwise shape
+@pytest.mark.parametrize("rhs_shape", [[1], [16]])
+# eltwise param dtype
+@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
+# tail node
+@pytest.mark.parametrize("tail_node", [False, True])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo(
+    dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
+):
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
+    )
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": "INT8",
+                "rhs_dtype": "INT8",
+                "out_dtype": "INT9",
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", DataType["INT8"])
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference by first copying the model and running cppsim
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+
+    # generate reference io pair
+    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    tmp_output_dir = make_build_dir("build_mlo")
+
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # steps are skipped because test model created with HLS and RTL layers
+    steps = [
+        # "step_qonnx_to_finn",
+        # "step_tidy_up",
+        # "step_streamline",
+        # "step_convert_to_hw",
+        "step_create_dataflow_partition",
+        # "step_specialize_layers",
+        "step_loop_rolling",
+        "step_target_fps_parallelization",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        target_fps=1000,
+        synth_clk_period_ns=10.0,
+        board="V80",
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[9]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # check if expected files are there
+    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
+    report_dir = tmp_output_dir + "/report"
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_config_alternatives.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_cycles.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/estimate_layer_resources.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts_FINNLoop_0.json")
+    assert os.path.isfile(report_dir + "/op_and_param_counts.json")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+
+    verif_dir = tmp_output_dir + "/verification_output"
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+
+    # also run dcp generation for a subset of the test parameters
+    # this extends the test run time quite a lot
+    # so only do for 2 of the scenarios
+
+    if (
+        elemwise_optype == "ElementwiseMul_hls"
+        and rhs_shape == [1]
+        and eltw_param_dtype == "FLOAT32"
+    ):
+        # launch another build just to test dcp generation
+        cfg = replace(
+            cfg,
+            start_step="step_create_stitched_ip",
+            stitched_ip_gen_dcp=True,
+            verify_steps=[],
+        )
+        build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+        # check if stitched IP dcp is there
+        assert os.path.isfile(
+            tmp_output_dir + "/stitched_ip/finn_design.dcp"
+        ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
+
+
+# Debug test for manual loop transformation steps below
+# This test is intentionally not marked for CI
+# Use test_finnloop_end2end_mlo instead
+# If required, to run manually:
+# pytest tests/fpgadataflow/test_fpgadataflow_finnloop.py::test_fpgadataflow_finnloop
+
+
+# helper functions
 def prepare_loop_ops_for_ipgen_step1(node, fpga_part, clk_ns):
     node_inst = getCustomOp(node)
     loop_model = node_inst.get_nodeattr("body")
@@ -442,12 +609,24 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 @pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
-@pytest.mark.fpgataflow
-@pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.slow
+# Note: fpgadataflow marker removed to prevent CI auto-discovery
 def test_fpgadataflow_finnloop(
     dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
+    """Manual step-by-step test for FINNLoop transformations.
+
+    This test manually applies each transformation step for debugging purposes.
+    For automated CI testing, use test_finnloop_end2end_mlo instead, which uses
+    the build system and represents the actual end-to-end workflow.
+    """
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
     loop_body_models = create_chained_loop_bodies(
         dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
     )
@@ -493,6 +672,14 @@ def test_fpgadataflow_finnloop(
     io_dict = {model.graph.input[0].name: x}
     y_dict = oxe.execute_onnx(model, io_dict)
     y_ref = y_dict[model.graph.output[0].name]
+
+    # set loop boundary
+    node_metadata = {
+        "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
+        "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
+    }
+    node_range = (model.graph.node[0], model.graph.node[9])
+    model = model.transform(SetLoopBoundary(node_metadata, node_range))
 
     # loop extraction and rolling
     loop_extraction = LoopExtraction(hierarchy_list=[["", "layers.0"]])
@@ -576,119 +763,3 @@ def test_fpgadataflow_finnloop(
     rtlsim_exec(model, io_dict, pre_hook=mlo_prehook)
     y_prod = io_dict[model.graph.output[0].name]
     assert (y_prod == y_ref).all()
-
-
-# dimensions
-@pytest.mark.parametrize("dim", [16])
-# iteration count, number of models chained together
-@pytest.mark.parametrize("iteration", [3])
-# elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
-# elementwise shape
-@pytest.mark.parametrize("rhs_shape", [[1], [16]])
-# eltwise param dtype
-@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
-# tail node
-@pytest.mark.parametrize("tail_node", [True])
-@pytest.mark.fpgataflow
-@pytest.mark.vivado
-@pytest.mark.slow
-def test_finnloop_end2end_mlo(
-    dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
-):
-    loop_body_models = create_chained_loop_bodies(
-        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
-    )
-    model = loop_body_models[0]
-    for m in loop_body_models[1:]:
-        model = model.transform(MergeONNXModels(m))
-
-    if tail_node:
-        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
-        tr_node = create_node(
-            "ElementwiseAdd_hls",
-            [model.graph.output[0].name, "tail_add"],
-            ["tail_outp"],
-            "Add_tail",
-            {
-                "lhs_shape": [1, 3, 3, dim],
-                "rhs_shape": [1],
-                "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": "INT8",
-                "rhs_dtype": "INT8",
-                "out_dtype": "INT9",
-            },
-        )
-        model.graph.node.insert(len(model.graph.node), tr_node)
-        model.graph.value_info.append(model.graph.output[0])
-        model.graph.output.pop(0)
-        model.graph.output.append(tail_outp)
-        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
-        model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", DataType["INT8"])
-
-    # cleanup
-    model = model.transform(RemoveUnusedTensors())
-    model = model.transform(InferShapes())
-    model = model.transform(InferDataTypes())
-
-    # Generate reference by first copying the model and running cppsim
-    model_ref = model.transform(PrepareCppSim())
-    model_ref = model_ref.transform(CompileCppSim())
-    model_ref = model_ref.transform(SetExecMode("cppsim"))
-    # generate reference io pair
-    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
-    io_dict = {model_ref.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model_ref, io_dict)
-    y_ref = y_dict[model_ref.graph.output[0].name]
-
-    tmp_output_dir = make_build_dir("build_mlo")
-
-    np.save(tmp_output_dir + "/input.npy", x)
-    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
-
-    model.save(tmp_output_dir + "/mlo_model.onnx")
-
-    steps = [
-        # "step_qonnx_to_finn",
-        # "step_tidy_up",
-        # "step_streamline",
-        # "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        # "step_specialize_layers",
-        "step_loop_rolling",
-        "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
-        "step_measure_rtlsim_performance",
-        "step_out_of_context_synthesis",
-        "step_synthesize_bitfile",
-        "step_make_driver",
-        "step_deployment_package",
-    ]
-
-    cfg = build_cfg.DataflowBuildConfig(
-        output_dir=tmp_output_dir,
-        steps=steps,
-        target_fps=1000,
-        synth_clk_period_ns=10.0,
-        board="V80",
-        rtlsim_batch_size=100,
-        standalone_thresholds=True,
-        loop_body_hierarchy=[["", "layers.0"]],
-        verify_steps=verif_steps,
-        verify_input_npy=tmp_output_dir + "/input.npy",
-        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
-        # stitched_ip_gen_dcp=True,
-        generate_outputs=[
-            # build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-            build_cfg.DataflowOutputType.STITCHED_IP,
-            # build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-        ],
-    )
-    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)

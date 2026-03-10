@@ -123,6 +123,17 @@ class FoldQuantWeights(Transformation):
                                 f"at node: {target_node}."
                             )
 
+                        # if quant node from bias,
+                        # throw error because only weights can be folded for Conv and ConvTranspose
+                        if (
+                            target_node.op_type in ["Conv", "ConvTranspose"]
+                            and len(target_node.input) > 2
+                        ):
+                            assert (
+                                n.output[0] != target_node.input[2]
+                            ), f"""Can't fold {target_node.op_type} bias,
+                            please run ExtractBiasFromConv first."""
+
                         # For both mul and Add:
                         # Move the scale factor behind the next operator
                         scale = model.get_initializer(n.input[1])
@@ -143,6 +154,19 @@ class FoldQuantWeights(Transformation):
                             if len(scale.shape) > 1:
                                 assert (
                                     np.prod(scale.shape[1:]) == 1
+                                ), "Can't fold scale beyond per-out-channel granularity"
+                            # collect all scaling in channels dim (since we constrain)
+                            conv_out_shape[1] = -1
+                            scale = scale.reshape(conv_out_shape)
+
+                        # Reshape scale for ConvTranpose if required
+                        if target_node.op_type == "ConvTranspose" and len(scale.shape) > 0:
+                            conv_out_shape = [1] * len(target_output_shape)
+                            # only support per-output channel scaling
+                            # (i.e. all scale shape elems besides 1st must be 1s)
+                            if len(scale.shape) > 1:
+                                assert (
+                                    np.prod(scale.shape[2:]) == 1 and scale.shape[0] == 1
                                 ), "Can't fold scale beyond per-out-channel granularity"
                             # collect all scaling in channels dim (since we constrain)
                             conv_out_shape[1] = -1
@@ -188,8 +212,6 @@ class FoldQuantWeights(Transformation):
                             [succ_output_name],
                         )
                         graph.node.insert(node_ind, mul_node)
-                        if hasattr(n, "metadata_props"):
-                            mul_node.metadata_props.extend(n.metadata_props)
 
                         if target_node.op_type in add_like_nodes:
                             # Move the scale factor behind also in-front of
@@ -235,8 +257,6 @@ class FoldQuantWeights(Transformation):
                                 [act_mul_tensor.name],
                             )
                             graph.node.insert(node_ind, div_node)
-                            if hasattr(n, "metadata_props"):
-                                div_node.metadata_props.extend(n.metadata_props)
 
                     # remove old node
                     graph.node.remove(n)

@@ -26,11 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    import finn_xsi.adapter as finnxsi
-except ModuleNotFoundError:
-    finnxsi = None
-
 import pytest
 
 import numpy as np
@@ -42,6 +37,7 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
+from finn import xsi
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -50,6 +46,8 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.basic import getHWCustomOp
+
+finnxsi = xsi if xsi.is_available() else None
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -197,7 +195,7 @@ def test_runtime_thresholds_read(impl_style, idt_act_cfg, cfg, narrow, per_tenso
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx = {model.graph.input[0].name: in_tensor}
+    exec_ctx = {model.get_first_global_in(): in_tensor}
     extracted_weight_stream = []
 
     def read_weights(sim):
@@ -316,7 +314,7 @@ def test_runtime_thresholds_write(impl_style, idt_act_cfg, cfg, narrow, per_tens
     in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ch]))
     in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
 
-    exec_ctx_write = {model.graph.input[0].name: in_tensor}
+    exec_ctx_write = {model.get_first_global_in(): in_tensor}
 
     def write_weights(sim):
         addr = 0

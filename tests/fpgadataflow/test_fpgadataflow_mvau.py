@@ -45,6 +45,7 @@ from qonnx.util.basic import (
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
+from finn import xsi
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.rtlsim_exec import rtlsim_exec
@@ -66,6 +67,8 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.util.basic import getHWCustomOp, is_versal
+
+finnxsi = xsi if xsi.is_available() else None
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -633,6 +636,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
             addr += 4
         sim.write_axilite("s_axilite_0", iter(writes))
         sim.run()
+        finnxsi.reset_rtlsim(sim)
 
     extracted_weight_stream = []
 
@@ -890,9 +894,9 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
 
-    inpA_name = model.graph.input[0].name
+    inpA_name = model.get_first_global_in()
     inpB_name = model.graph.input[1].name
-    outp_name = model.graph.output[0].name
+    outp_name = model.get_first_global_out()
 
     # Create MatMul & obtain golden reference output
     inpTensor_A = gen_finn_dt_tensor(

@@ -270,13 +270,13 @@ def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
     # move from dataset_loader layout to ONNX layout: NHWC -> NCHW
     testx = testx.transpose(0, 3, 1, 2)
     model = load_test_checkpoint_or_skip(model_chkpt)
-    iname = model.graph.input[0].name
-    oname = model.graph.output[0].name
+    iname = model.get_first_global_in()
+    oname = model.get_first_global_out()
     if parent_chkpt is None:
         ishape = model.get_tensor_shape(iname)
     else:
         parent_model = ModelWrapper(parent_chkpt)
-        parent_iname = parent_model.graph.input[0].name
+        parent_iname = parent_model.get_first_global_in()
         ishape = parent_model.get_tensor_shape(parent_iname)
     ok = 0
     nok = 0
@@ -504,7 +504,7 @@ class TestEnd2End:
     def test_add_pre_and_postproc(self, topology, wbits, abits, board):
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "import_and_tidy")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        global_inp_name = model.graph.input[0].name
+        global_inp_name = model.get_first_global_in()
         ishape = model.get_tensor_shape(global_inp_name)
         # preprocessing: torchvision's ToTensor divides uint8 inputs by 255
         totensor_pyt = ToTensor()
@@ -521,7 +521,7 @@ class TestEnd2End:
         pre_model = pre_model.transform(FoldConstants())
         model = model.transform(MergeONNXModels(pre_model))
         # add input quantization annotation: UINT8 for all BNN-PYNQ models
-        global_inp_name = model.graph.input[0].name
+        global_inp_name = model.get_first_global_in()
         model.set_tensor_datatype(global_inp_name, DataType["UINT8"])
         # postprocessing: insert Top-1 node at the end
         model = model.transform(InsertTopK(k=1))
