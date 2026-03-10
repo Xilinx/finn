@@ -77,11 +77,6 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
-            elif optype == "LayerNorm":
-                if _layernorm_rtl_possible(node, model):
-                    return "rtl"
-                else:
-                    return "hls"
             elif optype in ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"]:
                 if _elementwise_rtl_possible(node, fpgapart):
                     return "rtl"
@@ -162,17 +157,6 @@ def _determine_impl_style(node, fpgapart, model):
                 )
                 warnings.warn(warn_str)
                 return "hls"
-        elif optype == "LayerNorm":
-            if _layernorm_rtl_possible(node, model):
-                return "rtl"
-            else:
-                warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant.""" % (
-                    node.name,
-                )
-                warnings.warn(warn_str)
-                return "hls"
-
         elif optype == "LayerNorm":
             if _layernorm_rtl_possible(node, fpgapart):
                 return "rtl"
