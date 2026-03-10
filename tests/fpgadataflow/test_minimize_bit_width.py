@@ -376,7 +376,7 @@ def test_minimize_accumulator_width_threshold_boundary_values(tdt: DataType):
     model.set_tensor_datatype("outp", DataType["UINT2"])
     model.set_tensor_datatype("thresh", tdt)
 
-    inst = getCustomOp(model.graph.node[0])
+    inst = getHWCustomOp(model.graph.node[0])
     result_dt = inst.minimize_accumulator_width(model)
 
     assert result_dt is not None
@@ -473,7 +473,7 @@ def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType
 
     model = model.transform(MinimizeAccumulatorWidth())
 
-    inst = getCustomOp(model.graph.node[0])
+    inst = getHWCustomOp(model.graph.node[0])
     result_adt = DataType[inst.get_nodeattr("accDataType")]
 
     assert result_adt is not None, "Accumulator data type should be set"

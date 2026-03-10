@@ -235,15 +235,6 @@ def _dwc_determine_impl_style(node, model=None):
         return "hls"
 
 
-def _layernorm_rtl_possible(node, model):
-    node_inst = getHWCustomOp(node, model)
-    idt = node_inst.get_input_datatype(0)
-    if idt.is_integer() or idt.is_fixed_point():
-        return False
-    else:
-        return True
-
-
 def _mvu_rtl_possible(n, fpgapart, model):
     # Checks whether RTL-based MVU is supported
     # Currently, for DSP48 we only support computations up to
@@ -316,7 +307,7 @@ def _elementwise_rtl_possible(n, fpgapart):
     if not is_versal(fpgapart):
         return False
 
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n)
     lhs_dtype = node_inst.get_input_datatype(0)
     rhs_dtype = node_inst.get_input_datatype(1)
     out_dtype = node_inst.get_output_datatype(0)
@@ -349,7 +340,7 @@ def _layernorm_rtl_possible(n, fpgapart):
     # Currently, we only support float32 inputs and versal fabric
     if not is_versal(fpgapart):
         return False
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n)
     idt = node_inst.get_input_datatype(0)
     if idt != "FLOAT32":
         return False

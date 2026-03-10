@@ -995,7 +995,6 @@ class ElementwiseBitShift_hls(
 
 
 # Derive a specialization to implement elementwise minimum of two inputs
-@register_custom_op
 class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
     # CapWords convention
     ElementwiseBinaryOperation_hls,
@@ -1038,7 +1037,6 @@ static inline T clip(T const  x, TLo const  lo, THi const  hi) {
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
-# @register_custom_op
 # class ElementwisePow_hls(
 #     # CapWords convention
 #     ElementwiseBinaryOperation_hls, elementwise_binary.ElementwisePow
@@ -1047,7 +1045,6 @@ static inline T clip(T const  x, TLo const  lo, THi const  hi) {
 
 
 # Derive a specialization to implement elementwise maximum of two inputs
-@register_custom_op
 class ElementwiseMax_hls(
     # CapWords convention
     ElementwiseBinaryOperation_hls,

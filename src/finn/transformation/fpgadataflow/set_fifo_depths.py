@@ -461,7 +461,7 @@ class InsertAndSetFIFODepths(Transformation):
                 # change back and reset implementation
                 if node.op_type in extw_optypes:
                     if node.name in modified_extw_nodes:
-                        node_inst = getCustomOp(node)
+                        node_inst = getHWCustomOp(node, model)
                         node_inst.set_nodeattr("mem_mode", "external")
                         reset_implementation(node_inst)
                         modified_extw_nodes.remove(node.name)

@@ -769,7 +769,6 @@ def float2int(x, y, bitwidth, narrow, signed):
 # or as ternary (if we take in the min/max values as inputs)
 # Derive a specialization to implement elementwise conversion of float values
 # to integers of a particular specification (bitwidth, signedness, narrow_range)
-@register_custom_op
 class ElementwiseFloat2Int(ElementwiseBinaryOperation):
     # Defines attributes which must be present on this node
     def get_nodeattr_types(self):
@@ -827,7 +826,6 @@ class ElementwiseFloat2Int(ElementwiseBinaryOperation):
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
-# @register_custom_op
 # class ElementwisePow(ElementwiseBinaryOperation):
 #     # Specialize to implement the power operation of left hand side and
 #     # right hand side input
@@ -835,7 +833,6 @@ class ElementwiseFloat2Int(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise maximum of two inputs
-@register_custom_op
 class ElementwiseMax(ElementwiseBinaryOperation):
     @property
     def npy_op(self) -> np.ufunc:
