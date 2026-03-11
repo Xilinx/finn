@@ -10,6 +10,7 @@ import numpy as np
 import os
 import shutil
 
+from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import roundup_to_integer_multiple
@@ -44,12 +45,39 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         )
         return my_attrs
 
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt elementwise binary operator for loop body execution.
+
+        When an elementwise operator is placed inside a loop, parameters that
+        are indexed per iteration (PARAMETER type) need to be received as
+        streaming inputs rather than embedded constants. This method changes
+        the lhs_style/rhs_style attributes from "const" to "input" as needed.
+        """
+        from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
+
+        # If rhs (input[1]) is a PARAMETER (streamed per iteration),
+        # change its style to "input"
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            if self.rhs_style == "const":
+                self.set_nodeattr("rhs_style", "input")
+
+        # Similarly for lhs if needed
+        if len(input_types) > 0 and input_types[0] == LoopBodyInputType.PARAMETER:
+            if self.lhs_style == "const":
+                self.set_nodeattr("lhs_style", "input")
+
     def generate_hdl(self, model, fpgapart, clk):
         rhs_style = self.get_nodeattr("rhs_style")
-        assert (
-            rhs_style == "const"
-        ), """rhs is not const input, error during specialize layers.
-        Try setting the preferred_impl_style to hls"""
+        mlo = self.get_nodeattr("mlo_max_iter")
+
+        # MLO mode allows rhs to be "input" for parameter streaming
+        if not mlo:
+            assert (
+                rhs_style == "const"
+            ), """rhs is not const input and MLO is not enabled.
+            Try setting the preferred_impl_style to hls or enabling MLO"""
+
         assert (
             self.get_nodeattr("mem_mode") == "internal_decoupled"
         ), "Only internal_decoupled mode is supported for rtl elementwise ops"
@@ -103,6 +131,43 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             f"{code_gen_dir}{top_module}.v",
         ]
 
+    def get_verilog_top_module_intf_names(self):
+        """
+        Return the interface names for the Verilog top module.
+
+        For RTL elementwise operations, this includes handling for MLO mode
+        where the rhs parameter may be streamed as an input.
+        """
+        # Start collecting interface names in a dictionary starting with clock and reset
+        intf_names = {"clk": ["ap_clk"], "rst": ["ap_rst_n"]}
+
+        # AXI stream input interfaces
+        intf_names["s_axis"] = []
+
+        # If the left-hand-side is provided as runtime input interface names need to be inserted
+        if self.lhs_style == "input":
+            intf_names["s_axis"] += [("in0_V", self.get_instream_width_padded(ind=0))]
+
+        # If the right-hand-side is provided as runtime input interface names need to be inserted
+        # (This includes MLO mode where adapt_for_loop_body changes rhs_style to "input")
+        if self.rhs_style == "input":
+            assert self.get_nodeattr("mlo_max_iter") > 0, (
+                "rhs_style is 'input' but MLO is not enabled. "
+                "RTL elementwise ops require MLO to be enabled for input rhs_style."
+            )
+            intf_names["s_axis"] += [("in1_V", self.get_instream_width_padded(ind=1))]
+
+        # AXI stream output interfaces
+        intf_names["m_axis"] = [("out0_V", self.get_outstream_width_padded(ind=0))]
+
+        # No AXI-MM, AXI-Lite or protocol-less interfaces
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+
+        # Return the interface name dictionary
+        return intf_names
+
     def code_generation_ipi(self):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
@@ -113,6 +178,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
         dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
         din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
+        mlo = self.get_nodeattr("mlo_max_iter")
+
         cmd.append("create_bd_cell -type hier %s" % node_name)
         cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
         cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
@@ -124,6 +191,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "create_bd_intf_pin -mode Slave "
             "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
         )
+
+        # MLO mode: Create additional input interface for streamed parameters
+        if mlo and self.rhs_style == "input":
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/in1_V" % node_name
+            )
 
         # instantiate the RTL block
         self.instantiate_ip(cmd)
@@ -187,6 +261,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk2x]"
             % (node_name, clk_name, node_name, strm_inst)
         )
+        # MLO mode: connect external in1_V to memstream input
+        if mlo and self.rhs_style == "input":
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/in1_V] "
+                "[get_bd_intf_pins %s/%s/s_axis_0]" % (node_name, node_name, strm_inst)
+            )
+        # Connect memstream output to core input
         cmd.append(
             "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
             "[get_bd_intf_pins %s/%s/in1_V]" % (node_name, strm_inst, node_name, node_name)
@@ -216,13 +297,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         for f in sourcefiles:
             cmd.append("add_files -copy_to %s -norecurse %s" % (source_target, f))
 
-        if self.get_nodeattr("rhs_style") == "const":
-            cmd.append(
-                "create_bd_cell -type hier -reference %s /%s/%s"
-                % (top_module, node_name, node_name)
-            )
-        else:
-            cmd.append("create_bd_cell -type hier -reference %s %s" % (top_module, node_name))
+        # Always create the core inside the hierarchical wrapper
+        cmd.append(
+            "create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name)
+        )
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -266,8 +344,12 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             rhs_width = self.get_instream_width(ind=1)
 
             mem_mode = self.get_nodeattr("mem_mode")
+            mlo = self.get_nodeattr("mlo_max_iter")
             lhs_decoupled = self.lhs_style == "const" and mem_mode == "internal_decoupled"
-            rhs_decoupled = self.rhs_style == "const" and mem_mode == "internal_decoupled"
+            # MLO mode: stream RHS when it's marked as input (from adapt_for_loop_body)
+            rhs_decoupled = (self.rhs_style == "const" and mem_mode == "internal_decoupled") or (
+                self.rhs_style == "input" and mlo
+            )
 
             if self.lhs_style == "input" or lhs_decoupled:
                 io_dict["inputs"]["in0"] = npy_to_rtlsim_input(lhs_filename, lhs_dtype, lhs_width)
@@ -350,7 +432,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         raise NotImplementedError("Subclasses must implement _get_rtl_op_name")
 
 
-class ElementwiseAdd_rtl(ElementwiseBinary_rtl):
+class ElementwiseAdd_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseAdd):
     """RTL implementation of elementwise addition for FLOAT32."""
 
     _operation = "Add", np.add, "({0} + {1})", '"ADD"'
@@ -359,7 +441,7 @@ class ElementwiseAdd_rtl(ElementwiseBinary_rtl):
         return '"ADD"'
 
 
-class ElementwiseSub_rtl(ElementwiseBinary_rtl):
+class ElementwiseSub_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseSub):
     """RTL implementation of elementwise subtraction for FLOAT32."""
 
     _operation = "Sub", np.subtract, "({0} - {1})", '"SUB"'
@@ -368,7 +450,7 @@ class ElementwiseSub_rtl(ElementwiseBinary_rtl):
         return '"SUB"'
 
 
-class ElementwiseMul_rtl(ElementwiseBinary_rtl):
+class ElementwiseMul_rtl(ElementwiseBinary_rtl, elementwise_binary.ElementwiseMul):
     """RTL implementation of elementwise multiplication for FLOAT32."""
 
     _operation = "Mul", np.multiply, "({0} * {1})", '"MUL"'
