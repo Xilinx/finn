@@ -589,6 +589,7 @@ class LoopRolling(Transformation):
                 except (KeyError, AttributeError):
                     # Operator doesn't need adaptation or doesn't support it
                     pass
+            getHWCustomOp(loop_node).set_nodeattr("body", loop_body.graph)
 
         model = model_wrapper.transform(FoldConstants(), apply_to_subgraphs=True)
 
