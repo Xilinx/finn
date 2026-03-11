@@ -1997,6 +1997,14 @@ class InferElementwiseBinaryOperation(Transformation):
                     model.get_initializer(in0) is None or model.get_initializer(in1) is None
                 ), """Both inputs are constant,
                     please run FoldConstants from qonnx.transformation.fold_constants first."""
+                if model.get_initializer(in0) is None:
+                    lhs_style = "input"
+                else:
+                    lhs_style = "const"
+                if model.get_initializer(in1) is None:
+                    rhs_style = "input"
+                else:
+                    rhs_style = "const"
                 result = node.output[0]
 
                 # Need to "lift" potential scalar inputs to rank-1 tensors
@@ -2023,6 +2031,8 @@ class InferElementwiseBinaryOperation(Transformation):
                     lhs_dtype=str(idt0),
                     rhs_dtype=str(idt1),
                     out_dtype=str(odt0),
+                    lhs_style=lhs_style,
+                    rhs_style=rhs_style,
                 )
                 graph.node.insert(index + 1, new_node)
                 graph.node.remove(node)
