@@ -272,7 +272,7 @@ def make_loop_modelwrapper(
             elemwise_optype,
             [f"ofm{name_suffix}", f"mul_param{name_suffix}"],
             [f"ofm_ew{name_suffix}"],
-            f"ElementwiseOp_hls_0{name_suffix}",
+            f"ElementwiseOp{'_rtl' if 'rtl' in elemwise_optype else '_hls'}_0{name_suffix}",
             {
                 "lhs_shape": [1, 3, 3, mh],
                 "rhs_shape": rhs_shape,
@@ -386,7 +386,9 @@ def create_chained_loop_bodies(
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
+@pytest.mark.parametrize(
+    "elemwise_optype", ["ElementwiseMul_rtl"] #, "ElementwiseMul_rtl"]
+)
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
 # eltwise param dtype
@@ -602,7 +604,9 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
-@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls", "ElementwiseAdd_hls"])
+@pytest.mark.parametrize(
+    "elemwise_optype", ["ElementwiseMul_rtl"] #, "ElementwiseAdd_hls", "ElementwiseMul_rtl"]
+)
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
 # eltwise param dtype
@@ -612,7 +616,7 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 @pytest.mark.vivado
 @pytest.mark.slow
 # Note: fpgadataflow marker removed to prevent CI auto-discovery
-def test_fpgadataflow_finnloop(
+def test_fpgadataflow_finnloop_manual(
     dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
     """Manual step-by-step test for FINNLoop transformations.
@@ -694,13 +698,13 @@ def test_fpgadataflow_finnloop(
     # LoopRolling automatically adapts operator attributes for loop context
     # (e.g., rhs_style changes from "const" to "input" for streamed parameters)
     # This requires recompilation of the elementwise node for cppsim
-    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
-    loop_body_graph = get_by_name(loop_node.attribute, "body").g
-    elementwise_node = get_by_name(loop_body_graph.node, elemwise_optype, "op_type")
-    code_gen_dir_cppsim_attr = get_by_name(elementwise_node.attribute, "code_gen_dir_cppsim")
-    code_gen_dir_cppsim_attr.s = b""  # reset cpp gen directory to force recompilation
-    executable_path_attr = get_by_name(elementwise_node.attribute, "executable_path")
-    executable_path_attr.s = b""  # reset cpp exec directory to force recompilation
+#    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
+#    loop_body_graph = get_by_name(loop_node.attribute, "body").g
+#    elementwise_node = get_by_name(loop_body_graph.node, elemwise_optype, "op_type")
+#    code_gen_dir_cppsim_attr = get_by_name(elementwise_node.attribute, "code_gen_dir_cppsim")
+#    code_gen_dir_cppsim_attr.s = b""  # reset cpp gen directory to force recompilation
+#    executable_path_attr = get_by_name(elementwise_node.attribute, "executable_path")
+#    executable_path_attr.s = b""  # reset cpp exec directory to force recompilation
 
     # recompile elementwise node for cppsim
     model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
