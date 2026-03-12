@@ -724,8 +724,8 @@ class VVAU(HWCustomOp):
                 bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
                 inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-                # get computed threshold datatype from attribute
-                tdt = DataType[self.get_nodeattr("accDataType")]
+                # get computed threshold datatype from tensor
+                tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 
                 assert np.vectorize(tdt.allowed)(
                     threshold_tensor
