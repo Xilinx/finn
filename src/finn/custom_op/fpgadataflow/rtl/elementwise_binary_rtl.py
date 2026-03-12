@@ -418,10 +418,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         return int(base_wmem * num_w_reps)
 
     def calc_numInputVectors(self):
-        if self.get_nodeattr("rhs_style") == "const":
-            folded_lhs = self.get_folded_input_shape(0)
-            if len(folded_lhs) >= 2:
-                return list(folded_lhs[:-1])
+        folded_lhs = self.get_folded_input_shape(0)
+        if len(folded_lhs) >= 2:
+            return list(folded_lhs[:-1])
         return [1]
 
     def minimize_weight_bit_width(self, model):
