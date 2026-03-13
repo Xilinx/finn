@@ -1798,14 +1798,23 @@ class InferHWSoftmax(Transformation):
         return (model, graph_modified)
 
 
+def skip_first_node_transpose(model, node):
+    """Default filter for InferShuffle: skip Transpose if it's the first node in the graph.
+    This is useful for image classification networks where the first transpose converts
+    NCHW to NHWC layout for data preprocessing."""
+    return node != model.graph.node[0]
+
+
 class InferShuffle(Transformation):
     """
     Find transpose layers with (optionally) reshape layers around them
     and convert them into a shuffle operator
     """
 
-    def __init__(self):
+    def __init__(self, _filter=skip_first_node_transpose):
         super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter
 
     def _is_streaming_ptranspose(self, perm, shape):
         """
@@ -1825,6 +1834,9 @@ class InferShuffle(Transformation):
         graph_modified = False
         for node_ind, n in enumerate(graph.node, start=1):
             if n.op_type == "Transpose":
+                # Apply filter function to decide whether to convert this node
+                if not self._filter(model, n):
+                    continue
                 to_remove = [n]
 
                 new_in_tensor = None
@@ -1985,6 +1997,14 @@ class InferElementwiseBinaryOperation(Transformation):
                     model.get_initializer(in0) is None or model.get_initializer(in1) is None
                 ), """Both inputs are constant,
                     please run FoldConstants from qonnx.transformation.fold_constants first."""
+                if model.get_initializer(in0) is None:
+                    lhs_style = "input"
+                else:
+                    lhs_style = "const"
+                if model.get_initializer(in1) is None:
+                    rhs_style = "input"
+                else:
+                    rhs_style = "const"
                 result = node.output[0]
 
                 # Need to "lift" potential scalar inputs to rank-1 tensors
@@ -2011,6 +2031,8 @@ class InferElementwiseBinaryOperation(Transformation):
                     lhs_dtype=str(idt0),
                     rhs_dtype=str(idt1),
                     out_dtype=str(odt0),
+                    lhs_style=lhs_style,
+                    rhs_style=rhs_style,
                 )
                 graph.node.insert(index + 1, new_node)
                 graph.node.remove(node)

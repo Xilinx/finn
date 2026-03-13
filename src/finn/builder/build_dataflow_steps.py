@@ -535,10 +535,18 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(InferDataLayouts())
 
     # Shuffle inference (should come after InferDataLayouts and handles Transpose+Reshape patterns)
-    model = apply_if_relevant(
-        model, ["Transpose"], to_hw.InferShuffle(), "shuffle/transpose layers"
-    )
-
+    # InferShuffle skips first Transpose by default; override to convert all if disabled
+    if cfg.infer_shuffle_skip_first:
+        model = apply_if_relevant(
+            model, ["Transpose"], to_hw.InferShuffle(), "shuffle/transpose layers"
+        )
+    else:
+        model = apply_if_relevant(
+            model,
+            ["Transpose"],
+            to_hw.InferShuffle(_filter=lambda *_: True),
+            "shuffle/transpose layers",
+        )
     return model
 
 

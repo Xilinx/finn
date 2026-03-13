@@ -501,20 +501,24 @@ class MVAU(HWCustomOp):
         # if the thresholds can be used to determine range, then adjust the range
         # according to the known values of the thresholds
         if thresholds is not None:
+            # Assume that thresholds values are integers from RoundAndClipThresholds
+            # during streamlining
             threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-            # set threshold datatype (and accumulator datatype implicitly)
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
+            # Use double precision for threshold comparisons to prevent overflow
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            acc_min_fp = np.float64(acc_min)
+            acc_max_fp = np.float64(acc_max)
             # clip threshold values
-            if max_threshold > acc_max or min_threshold < acc_min:
+            if max_threshold > acc_max_fp or min_threshold < acc_min_fp:
                 warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, acc_min, acc_max)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
                 threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-                min_threshold = thresholds.min()
-                max_threshold = thresholds.max()
-            acc_min = min(min_threshold, acc_min)
-            acc_max = max(max_threshold, acc_max)
+                min_threshold = np.float64(thresholds.min())
+                max_threshold = np.float64(thresholds.max())
+            acc_min = min(min_threshold, acc_min_fp)
+            acc_max = max(max_threshold, acc_max_fp)
 
         # if the acc_range is always greater than 0, then acc_max <= 2^P - 1
         if acc_min >= 0:

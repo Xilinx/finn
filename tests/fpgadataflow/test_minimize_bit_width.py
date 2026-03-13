@@ -317,3 +317,173 @@ def test_minimize_accumulator_width(
                     assert (
                         cur_adt.bitwidth() % 8
                     ) == 0, "bit width of last node needs to be divisible by 8"
+
+
+@pytest.mark.parametrize("tdt", [DataType["INT16"], DataType["INT24"], DataType["INT32"]])
+@pytest.mark.fpgadataflow
+def test_minimize_accumulator_width_threshold_boundary_values(tdt: DataType):
+    """Test minimize_accumulator_width with boundary threshold values to ensure
+    deterministic behavior across systems by avoiding float32 type mixing."""
+
+    idt = DataType["INT15"]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1, 1, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, 4])
+
+    boundary_thresholds = np.array(
+        [
+            [tdt.max() - 1, tdt.max() - 2, tdt.max() - 3],
+            [tdt.min(), tdt.min() + 1, tdt.min() + 2],
+            [tdt.max() - 7, tdt.max() - 6, tdt.max() - 5],
+            [tdt.min() + 7, tdt.min() + 6, tdt.min() + 5],
+        ],
+        dtype=np.float32,
+    )
+
+    node = helper.make_node(
+        "Thresholding",
+        ["inp", "thresh"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        NumChannels=4,
+        PE=1,
+        inputDataType=idt.name,
+        weightDataType=tdt.name,
+        outputDataType="UINT2",
+        numInputVectors=[1, 1, 1],
+        numSteps=3,
+    )
+
+    graph = helper.make_graph(
+        nodes=[node],
+        name="threshold_test",
+        inputs=[inp],
+        outputs=[outp],
+        initializer=[
+            helper.make_tensor(
+                "thresh",
+                TensorProto.FLOAT,
+                boundary_thresholds.shape,
+                boundary_thresholds.flatten(),
+            )
+        ],
+    )
+
+    model = helper.make_model(graph, producer_name="threshold-boundary-test")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", DataType["UINT2"])
+    model.set_tensor_datatype("thresh", tdt)
+
+    inst = getCustomOp(model.graph.node[0])
+    result_dt = inst.minimize_accumulator_width(model)
+
+    assert result_dt is not None
+
+    threshold_tensor = inst.get_hw_compatible_threshold_tensor(boundary_thresholds)
+    assert np.vectorize(result_dt.allowed)(threshold_tensor).all()
+
+    assert result_dt.bitwidth() >= tdt.bitwidth()
+
+
+@pytest.mark.parametrize("tdt", [DataType["INT16"], DataType["INT24"], DataType["INT32"]])
+@pytest.mark.fpgadataflow
+def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType):
+    """Test minimize_accumulator_width with MVAU with integrated thresholding and boundary
+    threshold values to ensure deterministic behavior across systems by avoiding float32
+    type mixing.
+
+    :param tdt: (DataType) The data type for the thresholds
+    """
+    wdt = DataType["INT8"]
+    idt = DataType["INT8"]
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 4])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 8])
+
+    n_steps = idt.get_num_possible_values() - 1
+    boundary_thresholds = np.zeros((8, n_steps), dtype=np.float32)
+
+    # Mix boundary values
+    for i in range(8):
+        if i % 3 == 0:
+            # Near maximum
+            boundary_thresholds[i] = np.linspace(tdt.max() - n_steps, tdt.max() - 1, n_steps)
+        elif i % 3 == 1:
+            # Near minimum
+            boundary_thresholds[i] = np.linspace(tdt.min(), tdt.min() + n_steps - 1, n_steps)
+        else:
+            # Mid-range
+            mid_point = (tdt.max() + tdt.min()) // 2
+            boundary_thresholds[i] = np.linspace(
+                mid_point - n_steps // 2, mid_point + n_steps // 2, n_steps
+            )
+
+    boundary_thresholds = np.sort(boundary_thresholds, axis=1)
+
+    node = helper.make_node(
+        "MVAU",
+        ["inp", "weights", "thresh"],
+        ["outp"],
+        domain="finn.custom_op.fpgadataflow",
+        backend="fpgadataflow",
+        MW=4,
+        MH=8,
+        SIMD=1,
+        PE=1,
+        inputDataType=idt.name,
+        outputDataType=idt.name,
+        weightDataType=wdt.name,
+        ActVal=tdt.min(),
+        noActivation=0,
+        binaryXnorMode=0,
+    )
+
+    weights = gen_finn_dt_tensor(wdt, (4, 8))
+
+    graph = helper.make_graph(
+        nodes=[node],
+        name="mvau_threshold_boundary_test",
+        inputs=[inp],
+        outputs=[outp],
+        initializer=[
+            helper.make_tensor(
+                "weights",
+                TensorProto.FLOAT,
+                weights.shape,
+                weights.flatten(),
+            ),
+            helper.make_tensor(
+                "thresh",
+                TensorProto.FLOAT,
+                boundary_thresholds.shape,
+                boundary_thresholds.flatten(),
+            ),
+        ],
+    )
+
+    model = helper.make_model(graph, producer_name="mvau-threshold-boundary-test")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+    model.set_tensor_datatype("weights", wdt)
+    model.set_tensor_datatype("thresh", tdt)
+
+    model = model.transform(MinimizeAccumulatorWidth())
+
+    inst = getCustomOp(model.graph.node[0])
+    result_adt = DataType[inst.get_nodeattr("accDataType")]
+
+    assert result_adt is not None, "Accumulator data type should be set"
+
+    final_thresholds = model.get_initializer("thresh")
+    threshold_tensor = inst.get_hw_compatible_threshold_tensor(final_thresholds)
+
+    assert np.vectorize(result_adt.allowed)(
+        threshold_tensor
+    ).all(), f"Thresholds cannot be expressed with {result_adt}"
+
+    assert result_adt.min() <= final_thresholds.min(), "Accumulator cannot represent min threshold"
+    assert result_adt.max() >= final_thresholds.max(), "Accumulator cannot represent max threshold"
