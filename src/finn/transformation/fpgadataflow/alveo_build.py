@@ -546,7 +546,7 @@ class SlashLink(Transformation):
         model.set_metadata_prop("bitfile", str(vbin_path))
 
         if self.build_hardware:
-            report_path = link_dir / "linker" / "results" / "finn" / "report_utilization_finn.xml"
+            report_path = link_dir / "finn.vbin.prj" / "report_utilization_finn.xml"
             assert (
                 report_path.is_file()
             ), f"SLASH linking failed, no report generated. Check {log_path} for details."
