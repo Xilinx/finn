@@ -410,7 +410,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     def apply_if_relevant(model, op_types, transform, desc=""):
         # Check if any of the relevant op types exist in the model
         if any(len(model.get_nodes_by_op_type(op_type)) > 0 for op_type in op_types):
-            if desc and cfg.verbose:
+            if desc:
                 print(f"Converting {desc}...")
             model = model.transform(transform)
         return model
@@ -425,14 +425,13 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
             "threshold layers (standalone)",
         )
     else:
-        if cfg.verbose:
-            print(
-                """standalone_thresholds are set to False.
-                Please be aware that this means the MVAUs might be implemented in HLS
-                because the RTL variant doesn't support the merge of
-                MatMul + MultiThreshold into one layer. If you would like to have the RTL variant,
-                please set standalone_thresholds to True."""
-            )
+        print(
+            """standalone_thresholds are set to False.
+            Please be aware that this means the MVAUs might be implemented in HLS
+            because the RTL variant doesn't support the merge of
+            MatMul + MultiThreshold into one layer. If you would like to have the RTL variant,
+            please set standalone_thresholds to True."""
+        )
 
     # Matrix-vector operations
     model = apply_if_relevant(
@@ -524,8 +523,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
-    if cfg.verbose:
-        print("Checking for graph forks (duplicate streams)...")
+    print("Checking for graph forks (duplicate streams)...")
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
 
     # Cleanup and post-processing transformations
