@@ -445,16 +445,6 @@ class SlashLink(Transformation):
         # create a temporary folder for the project and check out SLASH
         link_dir = Path(make_build_dir(prefix="slash_link_proj_"))
         model.set_metadata_prop("slash_link_proj", str(link_dir))
-        checkout_cmd = [
-            "git",
-            "clone",
-            "-b",
-            "dev",
-            "--recurse-submodules",
-            "https://github.com/JOOpdenhoevel/SLASH.git",
-            str(link_dir),
-        ]
-        subprocess.run(checkout_cmd, check=True)
 
         # generate config file for SLASH
         config = ["[connectivity]\n"]
@@ -531,35 +521,24 @@ class SlashLink(Transformation):
         with open(config_path, "w") as f:
             f.writelines(config)
 
-        # Write build script
-        build_script_path = link_dir / "build.sh"
-        with open(build_script_path, "w") as f:
-            kernels = " ".join(str(path) for path in component_xml_paths)
-            pltfm = "hw" if self.build_hardware else "sim"
-            f.write(
-                f"""
-                #!/bin/bash
-                cd {link_dir}/linker/resources/base/iprepo/hbm_bandwidth
-                make
-                cd {link_dir}/linker/resources/base/iprepo/traffic_producer
-                make
-                cd {link_dir}/linker/src
-                python3 main.py --cfg {config_path} -p finn --kernels {kernels} --platform {pltfm}
-            """
-            )
+        # Construct the linker invocation
+        vbin_path = link_dir / "finn.vbin"
+        command = [
+            "v80++",
+            "link",
+            "--config",
+            str(config_path),
+            "--platform",
+            "hw" if self.build_hardware else "sim",
+            "--out",
+            str(vbin_path),
+            "--kernels",
+        ] + [str(path) for path in component_xml_paths]
 
-        # Run the build script
+        # Run the linker
         log_path = link_dir / "slash.log"
         with open(log_path, "w") as log_file:
-            subprocess.run(
-                ["bash", build_script_path], check=True, stdout=log_file, stderr=log_file
-            )
-
-        vbin_path = link_dir / "linker" / "results" / "finn"
-        if self.build_hardware:
-            vbin_path = vbin_path / "finn_hw.vbin"
-        else:
-            vbin_path = vbin_path / "sim" / "finn_sim.vbin"
+            subprocess.run(command, check=True, stdout=log_file, stderr=log_file)
 
         assert (
             vbin_path.is_file()

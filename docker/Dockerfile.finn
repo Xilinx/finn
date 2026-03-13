@@ -82,6 +82,10 @@ RUN apt-get update && \
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
+# Install v80++
+RUN --mount=type=bind,source="deps/v80++_0.1_all.deb",target="/tmp/v80++_0.1_all.deb" \
+    apt-get install -y "/tmp/v80++_0.1_all.deb"
+
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
     wget -U 'Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.27 Safari/537.17' "https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb" -O /tmp/$XRT_DEB_VERSION.deb; fi
