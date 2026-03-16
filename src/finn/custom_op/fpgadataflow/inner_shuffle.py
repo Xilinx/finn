@@ -101,8 +101,8 @@ class InnerShuffle(HWCustomOp):
         """
         in_shape = self.get_nodeattr("in_shape")
         simd = self.get_nodeattr("SIMD")
-        I = in_shape[-2]
-        J = in_shape[-1]
-        page_size = I * J // simd
+        I_dim = in_shape[-2]
+        J_dim = in_shape[-1]
+        page_size = I_dim * J_dim // simd
         total_elems = int(np.prod(in_shape)) // simd
         return 2 * total_elems + page_size

@@ -36,16 +36,10 @@ class _NestSim:
             self.R_INNER = R and (self.C > 0) and (self.C * self.N <= W)
             self.inner = _NestSim(self.R_INNER, self.C, *rest[2:])
             self._rp_rewind = (self.N - 1) * self.C + self.inner._rp_rewind
-            self._fp_rewind = (
-                (self.N - 1) * self.C + self.inner._fp_rewind
-                if self.R_INNER
-                else 0
-            )
+            self._fp_rewind = (self.N - 1) * self.C + self.inner._fp_rewind if self.R_INNER else 0
             self.terminal_rp_inc = W - self._rp_rewind
             self.cnt = self.N - 2
-            self.max_rp_retract = max(
-                -self.terminal_rp_inc, self.inner.max_rp_retract
-            )
+            self.max_rp_retract = max(-self.terminal_rp_inc, self.inner.max_rp_retract)
 
     def tick(self):
         if self.is_terminal:
@@ -172,7 +166,7 @@ class OuterShuffle(HWCustomOp):
         # Derive output shape and loop coefficients from input shape and perm
         out_shape = [in_shape[p] for p in perm]
         adjusted = in_shape + [1]
-        input_strides = [int(np.prod(adjusted[i + 1:])) for i in range(len(in_shape))]
+        input_strides = [int(np.prod(adjusted[i + 1 :])) for i in range(len(in_shape))]
         loop_coeffs = [input_strides[p] for p in perm]
 
         # Apply SIMD folding to innermost dimension
@@ -186,9 +180,7 @@ class OuterShuffle(HWCustomOp):
         # Create Nest simulation and compute buffer size
         nest = _NestSim(True, total_elems, *tuple(interleaved))
         WP_DELAY = 4
-        addr_bits = max(1, math.ceil(math.log2(
-            max(1, nest.max_rp_retract + WP_DELAY + 2)
-        )))
+        addr_bits = max(1, math.ceil(math.log2(max(1, nest.max_rp_retract + WP_DELAY + 2))))
         buf_size = 1 << addr_bits
 
         # Pipeline II: BRAM (depth <= 262144) achieves II=1;

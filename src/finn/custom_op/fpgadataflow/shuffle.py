@@ -9,8 +9,8 @@
 
 import numpy as np
 import warnings
-from operator import itemgetter
 from onnx import helper
+from operator import itemgetter
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 
@@ -142,9 +142,9 @@ class Shuffle(HWCustomOp):
         (stages are pipelined, so throughput is limited by the slowest).
         """
         from finn.transformation.fpgadataflow.transpose_decomposition import (
+            _is_inner_shuffle,
             decompose_transpose_with_constraints,
             shuffle_perfect_loopnest_coeffs,
-            _is_inner_shuffle,
         )
 
         transpose_in_shape = list(self.get_nodeattr("transpose_in_shape"))
@@ -180,9 +180,7 @@ class Shuffle(HWCustomOp):
                 )
             else:
                 # OuterShuffle
-                loop_coeffs = shuffle_perfect_loopnest_coeffs(
-                    shape=current_shape, perm=P
-                )
+                loop_coeffs = shuffle_perfect_loopnest_coeffs(shape=current_shape, perm=P)
                 tmp_node = helper.make_node(
                     "OuterShuffle",
                     ["tmp_in"],
