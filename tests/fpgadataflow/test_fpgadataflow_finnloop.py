@@ -101,14 +101,65 @@ def make_loop_modelwrapper(
     eltw_param_dtype="INT8",
     name_suffix="",
 ):
-    elemwise_output_dtype = (
-        DataType["FLOAT32"] if eltw_param_dtype == "FLOAT32" else DataType["INT32"]
-    )
-    thresholding_input_dtype = (
-        DataType["FLOAT32"] if eltw_param_dtype == "FLOAT32" else DataType["INT32"]
-    )
+    is_float = eltw_param_dtype == "FLOAT32"
 
-    # Tensor Initialization with Separate Names
+    if is_float:
+        # RTL elementwise (float-only): single ElementwiseMul_rtl node.
+        # Thresholding RTL cannot produce IEEE 754 floats (it outputs integer
+        # threshold indices), so the FLOAT32 model uses only the elementwise
+        # node with FLOAT32 input/output to directly test memstream SETS cycling.
+        EltwParam = gen_finn_dt_tensor(DataType["FLOAT32"], rhs_shape)
+
+        ofm_shape = [1, 3, 3, mh]
+        nodes = [
+            create_node(
+                elemwise_optype,
+                [f"ifm{name_suffix}", f"mul_param{name_suffix}"],
+                [f"ofm{name_suffix}"],
+                f"ElementwiseOp_rtl_0{name_suffix}",
+                {
+                    "lhs_shape": ofm_shape,
+                    "rhs_shape": rhs_shape,
+                    "out_shape": ofm_shape,
+                    "lhs_dtype": "FLOAT32",
+                    "rhs_dtype": "FLOAT32",
+                    "out_dtype": "FLOAT32",
+                    "PE": 2,
+                    "lhs_style": "input",
+                    "rhs_style": "const",
+                    "mem_mode": "internal_decoupled",
+                },
+            ),
+        ]
+
+        ifm_info = create_tensor_info(f"ifm{name_suffix}", ofm_shape)
+        ofm_info = create_tensor_info(f"ofm{name_suffix}", ofm_shape)
+
+        loop_body = helper.make_graph(
+            nodes=nodes,
+            name=f"eltwise_graph{name_suffix}",
+            inputs=[ifm_info],
+            outputs=[ofm_info],
+        )
+
+        loop_body_model = qonnx_make_model(
+            loop_body, producer_name=f"loop-body-model{name_suffix}"
+        )
+        loop_body_model = ModelWrapper(loop_body_model)
+
+        loop_body_model.set_initializer(f"mul_param{name_suffix}", EltwParam)
+        loop_body_model.set_tensor_datatype(
+            f"mul_param{name_suffix}", DataType["FLOAT32"]
+        )
+        loop_body_model.set_tensor_datatype(f"ifm{name_suffix}", DataType["FLOAT32"])
+        loop_body_model.set_tensor_datatype(f"ofm{name_suffix}", DataType["FLOAT32"])
+
+        return loop_body_model
+
+    # INT path: full model with DuplicateStreams, two branches, AddStreams
+    elemwise_output_dtype = DataType["INT32"]
+    thresholding_input_dtype = DataType["INT32"]
+
     W0 = gen_finn_dt_tensor(dtype, (mw, mh))
     W1 = gen_finn_dt_tensor(dtype, (mw, mh))
     W2 = gen_finn_dt_tensor(dtype, (mh, mh))
@@ -121,15 +172,9 @@ def make_loop_modelwrapper(
     T2 = np.sort(
         generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
-
-    T3_dtype = DataType["FLOAT32"] if eltw_param_dtype == "FLOAT32" else dtype
+    T3_dtype = dtype
     T3 = np.sort(
-        generate_random_threshold_values(
-            T3_dtype,
-            1,
-            dtype.get_num_possible_values() - 1,
-        ),
-        axis=1,
+        generate_random_threshold_values(T3_dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
     EltwParam = gen_finn_dt_tensor(DataType[eltw_param_dtype], rhs_shape)
 
@@ -385,14 +430,13 @@ def create_chained_loop_bodies(
 @pytest.mark.parametrize("dim", [16])
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
-# elementwise operation
+# elementwise op + param dtype: RTL requires FLOAT32, HLS uses INT8
 @pytest.mark.parametrize(
-    "elemwise_optype", ["ElementwiseMul_rtl"] #, "ElementwiseMul_rtl"]
+    "elemwise_optype,eltw_param_dtype",
+    [("ElementwiseMul_hls", "INT8"), ("ElementwiseMul_rtl", "FLOAT32")],
 )
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
-# eltwise param dtype
-@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
 @pytest.mark.fpgadataflow
@@ -407,17 +451,25 @@ def test_finnloop_end2end_mlo(
     year, minor = int(match.group(1)), int(match.group(2))
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    is_float = eltw_param_dtype == "FLOAT32"
     loop_body_models = create_chained_loop_bodies(
         dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
     )
+    nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
     for m in loop_body_models[1:]:
         model = model.transform(MergeONNXModels(m))
 
     if tail_node:
         tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        if is_float:
+            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "FLOAT32", "FLOAT32", "FLOAT32"
+            tail_optype = "ElementwiseAdd_rtl"
+        else:
+            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "INT8", "INT8", "INT9"
+            tail_optype = "ElementwiseAdd_hls"
         tr_node = create_node(
-            "ElementwiseAdd_hls",
+            tail_optype,
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
@@ -425,34 +477,42 @@ def test_finnloop_end2end_mlo(
                 "lhs_shape": [1, 3, 3, dim],
                 "rhs_shape": [1],
                 "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": "INT8",
-                "rhs_dtype": "INT8",
-                "out_dtype": "INT9",
+                "lhs_dtype": tail_lhs_dtype,
+                "rhs_dtype": tail_rhs_dtype,
+                "out_dtype": tail_out_dtype,
             },
         )
         model.graph.node.insert(len(model.graph.node), tr_node)
         model.graph.value_info.append(model.graph.output[0])
         model.graph.output.pop(0)
         model.graph.output.append(tail_outp)
-        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
+        tail_param_dtype = DataType["FLOAT32"] if is_float else DataType["INT8"]
+        AddtailParam = gen_finn_dt_tensor(tail_param_dtype, [1])
         model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", DataType["INT8"])
+        model.set_tensor_datatype("tail_add", tail_param_dtype)
 
     # cleanup
     model = model.transform(RemoveUnusedTensors())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
 
-    # Generate reference by first copying the model and running cppsim
-    model_ref = model.transform(PrepareCppSim())
-    model_ref = model_ref.transform(CompileCppSim())
-    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    # Generate reference output
+    input_dtype = DataType["FLOAT32"] if is_float else DataType["INT8"]
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    if is_float:
+        # FLOAT32 path: cppsim not available for RTL elementwise, use Python exec
+        from test_eltwise_rtl_mlo_minimal import execute_model_python
 
-    # generate reference io pair
-    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
-    io_dict = {model_ref.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model_ref, io_dict)
-    y_ref = y_dict[model_ref.graph.output[0].name]
+        io_dict = {model.graph.input[0].name: x}
+        y_dict = execute_model_python(model, io_dict)
+        y_ref = y_dict[model.graph.output[0].name]
+    else:
+        model_ref = model.transform(PrepareCppSim())
+        model_ref = model_ref.transform(CompileCppSim())
+        model_ref = model_ref.transform(SetExecMode("cppsim"))
+        io_dict = {model_ref.graph.input[0].name: x}
+        y_dict = oxe.execute_onnx(model_ref, io_dict)
+        y_ref = y_dict[model_ref.graph.output[0].name]
 
     tmp_output_dir = make_build_dir("build_mlo")
 
@@ -480,6 +540,11 @@ def test_finnloop_end2end_mlo(
         "step_create_stitched_ip",
     ]
 
+    # FLOAT32/RTL path has no HLS nodes, skip cppsim verification
+    active_verif_steps = (
+        ["node_by_node_rtlsim", "stitched_ip_rtlsim"] if is_float else verif_steps
+    )
+
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         steps=steps,
@@ -490,8 +555,8 @@ def test_finnloop_end2end_mlo(
         standalone_thresholds=True,
         mlo=True,
         loop_body_hierarchy=[["", "layers.0"]],
-        loop_body_range=(model.graph.node[0], model.graph.node[9]),
-        verify_steps=verif_steps,
+        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        verify_steps=active_verif_steps,
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
         generate_outputs=[
@@ -515,15 +580,37 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
-    assert os.path.isfile(
-        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
+    if not is_float:
+        assert os.path.isfile(
+            verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
+        ), f"Check npy files in {verif_dir}"
     assert os.path.isfile(
         verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
     assert os.path.isfile(
         verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
+
+    # Assert RTL elementwise node is present when expected
+    if is_float:
+        import qonnx.custom_op.registry as registry
+        from qonnx.core.modelwrapper import ModelWrapper as MW
+
+        built_model = MW(tmp_output_dir + "/mlo_model.onnx")
+
+        def _has_rtl_elementwise(m):
+            for n in m.graph.node:
+                if n.op_type.startswith("Elementwise") and "_rtl" in n.op_type:
+                    return True
+                if n.op_type == "FINNLoop":
+                    body = registry.getCustomOp(n).get_nodeattr("body")
+                    if _has_rtl_elementwise(body):
+                        return True
+            return False
+
+        assert _has_rtl_elementwise(built_model), (
+            "No RTL elementwise node found — test is not exercising RTL path"
+        )
 
     # also run dcp generation for a subset of the test parameters
     # this extends the test run time quite a lot
@@ -603,14 +690,13 @@ def prepare_loop_ops_for_ipgen_step2(node, fpga_part, clk_ns):
 @pytest.mark.parametrize("dim", [16])
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
-# elementwise operation
+# elementwise op + param dtype: RTL requires FLOAT32, HLS uses INT8
 @pytest.mark.parametrize(
-    "elemwise_optype", ["ElementwiseMul_rtl"] #, "ElementwiseAdd_hls", "ElementwiseMul_rtl"]
+    "elemwise_optype,eltw_param_dtype",
+    [("ElementwiseMul_hls", "INT8"), ("ElementwiseMul_rtl", "FLOAT32")],
 )
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1], [16]])
-# eltwise param dtype
-@pytest.mark.parametrize("eltw_param_dtype", ["INT8", "FLOAT32"])
 # tail node
 @pytest.mark.parametrize("tail_node", [False, True])
 @pytest.mark.vivado
@@ -631,17 +717,25 @@ def test_fpgadataflow_finnloop_manual(
     year, minor = int(match.group(1)), int(match.group(2))
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    is_float = eltw_param_dtype == "FLOAT32"
     loop_body_models = create_chained_loop_bodies(
         dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
     )
+    nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
     for m in loop_body_models[1:]:
         model = model.transform(MergeONNXModels(m))
 
     if tail_node:
         tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        if is_float:
+            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "FLOAT32", "FLOAT32", "FLOAT32"
+            tail_optype = "ElementwiseAdd_rtl"
+        else:
+            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "INT8", "INT8", "INT9"
+            tail_optype = "ElementwiseAdd_hls"
         tr_node = create_node(
-            "ElementwiseAdd_hls",
+            tail_optype,
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
@@ -649,40 +743,47 @@ def test_fpgadataflow_finnloop_manual(
                 "lhs_shape": [1, 3, 3, dim],
                 "rhs_shape": [1],
                 "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": "INT8",
-                "rhs_dtype": "INT8",
-                "out_dtype": "INT9",
+                "lhs_dtype": tail_lhs_dtype,
+                "rhs_dtype": tail_rhs_dtype,
+                "out_dtype": tail_out_dtype,
             },
         )
         model.graph.node.insert(len(model.graph.node), tr_node)
         model.graph.value_info.append(model.graph.output[0])
         model.graph.output.pop(0)
         model.graph.output.append(tail_outp)
-        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
+        tail_param_dtype = DataType["FLOAT32"] if is_float else DataType["INT8"]
+        AddtailParam = gen_finn_dt_tensor(tail_param_dtype, [1])
         model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", DataType["INT8"])
+        model.set_tensor_datatype("tail_add", tail_param_dtype)
 
     # cleanup
     model = model.transform(RemoveUnusedTensors())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
 
-    # cppsim preparation
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("cppsim"))
-    # generate reference io pair
+    # Generate reference output
     x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
-    io_dict = {model.graph.input[0].name: x}
-    y_dict = oxe.execute_onnx(model, io_dict)
-    y_ref = y_dict[model.graph.output[0].name]
+    if is_float:
+        from test_eltwise_rtl_mlo_minimal import execute_model_python
+
+        io_dict = {model.graph.input[0].name: x}
+        y_dict = execute_model_python(model, io_dict)
+        y_ref = y_dict[model.graph.output[0].name]
+    else:
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        io_dict = {model.graph.input[0].name: x}
+        y_dict = oxe.execute_onnx(model, io_dict)
+        y_ref = y_dict[model.graph.output[0].name]
 
     # set loop boundary
     node_metadata = {
         "pkg.torch.onnx.name_scopes": "['', 'layers.0']",
         "pkg.torch.onnx.class_hierarchy": "['TestModule', 'test']",
     }
-    node_range = (model.graph.node[0], model.graph.node[9])
+    node_range = (model.graph.node[0], model.graph.node[nodes_per_body - 1])
     model = model.transform(SetLoopBoundary(node_metadata, node_range))
 
     # loop extraction and rolling

@@ -82,6 +82,13 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             self.get_nodeattr("mem_mode") == "internal_decoupled"
         ), "Only internal_decoupled mode is supported for rtl elementwise ops"
 
+        # eltwisef core operates on floats (all dtypes must be FLOAT32)
+        for attr in ("lhs_dtype", "rhs_dtype", "out_dtype"):
+            val = self.get_nodeattr(attr)
+            assert val == "FLOAT32", (
+                f"RTL elementwise requires FLOAT32 dtypes, got {attr}={val}"
+            )
+
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_params(model, code_gen_dir)
 
@@ -302,6 +309,17 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "create_bd_cell -type hier -reference %s /%s/%s" % (top_module, node_name, node_name)
         )
 
+    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None, pre_hook=None):
+        n_inps = np.prod(self.get_folded_input_shape(0)[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [i for i in range(n_inps)],
+                "in1": [i for i in range(n_inps)],
+            },
+            "outputs": {"out0": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict, pre_hook=pre_hook)
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "rtlsim":
@@ -384,10 +402,24 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         folded_weight_shape = self.get_folded_input_shape(1)
         weight_tensor = weights.reshape(folded_weight_shape).copy()
 
+        # When broadcasting the last axis (rhs_shape[-1]==1), replicate the
+        # scalar value across PE lanes so memstream provides PE values per cycle
+        if self.broadcast_last_axis and weight_tensor.shape[-1] == 1:
+            weight_tensor = np.tile(weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,))
+
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.calc_numInputVectors())
+            base_wmem = super().calc_wmem()
+            mlo = self.get_nodeattr("mlo_max_iter")
+            if mlo and base_wmem > 1:
+                # In MLO mode, tile only enough to match per-iteration
+                # consumption (num_w_reps entries).  base_wmem entries
+                # already exist, so tile by num_w_reps / base_wmem.
+                tile_factor = int(num_w_reps // base_wmem)
+            else:
+                tile_factor = int(num_w_reps)
             weight_tensor = np.tile(
-                weight_tensor, (num_w_reps,) + (1,) * (len(folded_weight_shape) - 1)
+                weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
             )
 
         export_wdt = self.get_input_datatype(1)
@@ -397,13 +429,18 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if weight_file_mode == "decoupled_verilog_dat":
             shape = weight_tensor.shape
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, shape[-1]), export_wdt, weight_width_padded, prefix=""
+                weight_tensor.reshape(1, -1, shape[-1]),
+                export_wdt,
+                weight_width_padded,
+                reverse_inner=True,
+                prefix="",
             )
         else:
             weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, folded_weight_shape[-1]),
+                weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
                 export_wdt,
                 weight_width_padded,
+                reverse_inner=True,
                 prefix="",
             )
 
@@ -415,6 +452,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
     def calc_wmem(self):
         base_wmem = super().calc_wmem()
         num_w_reps = np.prod(self.calc_numInputVectors())
+        mlo = self.get_nodeattr("mlo_max_iter")
+        if mlo:
+            return int(num_w_reps)
         return int(base_wmem * num_w_reps)
 
     def calc_numInputVectors(self):

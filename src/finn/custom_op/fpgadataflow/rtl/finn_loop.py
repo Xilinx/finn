@@ -250,9 +250,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         if not check_if_cycles_annotated:
             loop_body = loop_body.transform(AnnotateCycles())
 
-        return loop_body.analysis(dataflow_performance)["critical_path_cycles"] * self.get_nodeattr(
-            "iteration"
-        )
+        iteration = self.get_nodeattr("iteration")
+        body_cycles = loop_body.analysis(dataflow_performance)["critical_path_cycles"]
+        overhead_per_iter = 40
+        return (body_cycles + overhead_per_iter) * iteration
 
     def get_outstream_width(self, ind=0):
         loop_body = self.get_nodeattr("body")
