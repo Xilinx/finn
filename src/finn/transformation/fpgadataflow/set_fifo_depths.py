@@ -310,6 +310,9 @@ class InsertAndSetFIFODepths(Transformation):
             "Thresholding_rtl",
             "ElementwiseAdd_hls",
             "ElementwiseMul_hls",
+            "ElementwiseAdd_rtl",
+            "ElementwiseMul_rtl",
+            "ElementwiseSub_rtl",
         ]
         modified_mlo_nodes = []
         for node in model.graph.node:
@@ -375,6 +378,10 @@ class InsertAndSetFIFODepths(Transformation):
                             dummy_threshs = np.sort(dummy_threshs, axis=1)
                         model.set_initializer(param_input, dummy_threshs)
                         self.ind_map[node.onnx_node.name] = ind
+                        # For elementwise ops, temporarily set rhs_style to const
+                        # since we converted the parameter to an initializer
+                        if node.onnx_node.op_type.startswith("Elementwise"):
+                            node.set_nodeattr("rhs_style", "const")
                     self.mlo_max_iter = mlo_max_iter
                     reset_implementation(node)
         # insert stream infrastructure (DWC/FIFO)
@@ -486,6 +493,7 @@ class InsertAndSetFIFODepths(Transformation):
             model.graph.input.insert(self.ind_map[node.name], param_input_vi)
             model.graph.value_info.remove(param_input_vi)
             if node.op_type.startswith("Elementwise"):
+                # Restore rhs_style to "input" (it must have been "input" for MLO nodes)
                 node_inst.set_nodeattr("rhs_style", "input")
             reset_implementation(node_inst)
             modified_mlo_nodes.remove(node.name)
