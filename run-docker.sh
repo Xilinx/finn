@@ -79,6 +79,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
+: ${V80PP_DEB_PACKAGE=""}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
@@ -181,6 +182,7 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
     --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
     --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD \
     --build-arg LOCAL_XRT=$LOCAL_XRT \
+    --build-arg V80PP_DEB_PACKAGE=$V80PP_DEB_PACKAGE \
     --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA \
     --build-arg GROUP_ID=$DOCKER_GID \
     --build-arg GROUPNAME=$DOCKER_GNAME \
