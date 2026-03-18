@@ -11,7 +11,7 @@ Quickstart
 2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest`` to verify your installation.
-5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup` or :ref:`Alveo first-time setup` for board setup.
+5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup`, :ref:`Vitis-based Alveo first-time setup`, or :ref:`Slash-based Alveo first-time setup` for board setup.
 6. Optionally, set up a `Vivado/Vitis license`_.
 7. All done! See :ref:`Running FINN in Docker` for the various options on how to run the FINN compiler.
 
@@ -98,8 +98,9 @@ The most relevant are summarized below:
 
 * (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
 * (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.2``)
-* (required for Alveo) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
-* (required for Alveo) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
+* (required for Vitis) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
+* (required for Vitis) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
+* (required for Slash) ``V80PP_DEB_PACKAGE`` specifies the .deb to be installed for Slash's v80++ linker.
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
@@ -125,7 +126,7 @@ Supported FPGA Hardware
 =======================
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx-AMD FPGA as part of a larger system. It’s up to you to take the FINN-generated accelerator (what we call “stitched IP” in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as Alveo cards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Kria SOM, Ultra96, ZCU102 and ZCU104 boards, as well as UltraScale+-based Alveo datacenter accelerator cards.
 
 PYNQ board first-time setup
 ****************************
@@ -145,9 +146,9 @@ Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` wit
 5. Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
 
 
-Alveo first-time setup
-**********************
-We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PC where the Alveo card is installed. These two can be the same PC, or connected over the network -- FINN includes some utilities to make it easier to test on remote PCs too. Prior to first usage, you need to set up both the host and the target in the following manner:
+Vitis-based Alveo first-time setup
+**********************************
+The Vitis toolchain targets UltraScale and UltraScale+-based Alveo cards, such as the U250. We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PC where the Alveo card is installed. These two can be the same PC, or connected over the network -- FINN includes some utilities to make it easier to test on remote PCs too. Prior to first usage, you need to set up both the host and the target in the following manner:
 
 On the target side:
 
@@ -164,8 +165,38 @@ On the host side:
 1. Install Vitis 2022.2 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
-5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
-6. Done!
+4. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
+5. Done!
+
+Slash-based Alveo first-time setup
+***********************************
+The Slash toolchain targets Versal-based Alveo cards such as the V80 using the V80++
+linker. We use *host* to refer to the PC running the FINN Docker environment, which will
+build the accelerator and package it up, and *target* to refer to the PC where the V80
+card is installed. These two can be the same PC, or connected over the network.
+
+Prior to first usage, you need to build the Slash packages from source and set up both
+the host and the target. Please refer to the `Slash GitHub repository
+<https://github.com/Xilinx/slash>`_ for instructions on how to build all Slash packages,
+including the ``v80++`` linker package.
+
+On the target side:
+
+1. Install all Slash runtime packages as described in the `Slash GitHub repository
+   <https://github.com/Xilinx/slash>`_.
+2. Done!
+
+On the host side:
+
+1. Build the ``v80++`` Debian package from the `Slash GitHub repository
+   <https://github.com/Xilinx/slash>`_ and copy it to a location accessible on the host.
+2. Set the ``V80PP_DEB_PACKAGE`` environment variable to the path of the ``v80++``
+   Debian package (e.g. ``export V80PP_DEB_PACKAGE=/path/to/v80++.deb``). The package
+   will be installed into the Docker image when ``run-docker.sh`` builds it.
+3. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_.
+   Copy your private key to the ``finn/ssh_keys`` folder on the host to get
+   password-less deployment and remote execution.
+4. Done!
 
 Vivado/Vitis license
 *********************
@@ -195,7 +226,7 @@ strong hardware:
 * **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
   able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html#memory>`_
   for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
-  For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
+  For targeting Alveo parts with Vitis or Slash, at least 64 GB RAM is recommended.
 
 * **CPU.** FINN can parallelize HLS synthesis and several other operations for different
   layers, so using a multi-core CPU is recommended. However, this should be balanced
