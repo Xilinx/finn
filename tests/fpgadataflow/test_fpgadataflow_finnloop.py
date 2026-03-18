@@ -457,14 +457,8 @@ def test_finnloop_end2end_mlo(
 
     if tail_node:
         tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
-        if is_float:
-            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "FLOAT32", "FLOAT32", "FLOAT32"
-            tail_optype = "ElementwiseAdd_rtl"
-        else:
-            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "INT8", "INT8", "INT9"
-            tail_optype = "ElementwiseAdd_hls"
         tr_node = create_node(
-            tail_optype,
+            "ElementwiseAdd_hls",
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
@@ -472,19 +466,18 @@ def test_finnloop_end2end_mlo(
                 "lhs_shape": [1, 3, 3, dim],
                 "rhs_shape": [1],
                 "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": tail_lhs_dtype,
-                "rhs_dtype": tail_rhs_dtype,
-                "out_dtype": tail_out_dtype,
+                "lhs_dtype": "INT8",
+                "rhs_dtype": "INT8",
+                "out_dtype": "INT9",
             },
         )
         model.graph.node.insert(len(model.graph.node), tr_node)
         model.graph.value_info.append(model.graph.output[0])
         model.graph.output.pop(0)
         model.graph.output.append(tail_outp)
-        tail_param_dtype = DataType["FLOAT32"] if is_float else DataType["INT8"]
-        AddtailParam = gen_finn_dt_tensor(tail_param_dtype, [1])
+        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
         model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", tail_param_dtype)
+        model.set_tensor_datatype("tail_add", DataType["INT8"])
 
     # cleanup
     model = model.transform(RemoveUnusedTensors())
@@ -709,14 +702,8 @@ def test_fpgadataflow_finnloop_manual(
 
     if tail_node:
         tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
-        if is_float:
-            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "FLOAT32", "FLOAT32", "FLOAT32"
-            tail_optype = "ElementwiseAdd_rtl"
-        else:
-            tail_lhs_dtype, tail_rhs_dtype, tail_out_dtype = "INT8", "INT8", "INT9"
-            tail_optype = "ElementwiseAdd_hls"
         tr_node = create_node(
-            tail_optype,
+            "ElementwiseAdd_hls",
             [model.graph.output[0].name, "tail_add"],
             ["tail_outp"],
             "Add_tail",
@@ -724,19 +711,18 @@ def test_fpgadataflow_finnloop_manual(
                 "lhs_shape": [1, 3, 3, dim],
                 "rhs_shape": [1],
                 "out_shape": [1, 3, 3, dim],
-                "lhs_dtype": tail_lhs_dtype,
-                "rhs_dtype": tail_rhs_dtype,
-                "out_dtype": tail_out_dtype,
+                "lhs_dtype": "INT8",
+                "rhs_dtype": "INT8",
+                "out_dtype": "INT9",
             },
         )
         model.graph.node.insert(len(model.graph.node), tr_node)
         model.graph.value_info.append(model.graph.output[0])
         model.graph.output.pop(0)
         model.graph.output.append(tail_outp)
-        tail_param_dtype = DataType["FLOAT32"] if is_float else DataType["INT8"]
-        AddtailParam = gen_finn_dt_tensor(tail_param_dtype, [1])
+        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
         model.set_initializer("tail_add", AddtailParam)
-        model.set_tensor_datatype("tail_add", tail_param_dtype)
+        model.set_tensor_datatype("tail_add", DataType["INT8"])
 
     # cleanup
     model = model.transform(RemoveUnusedTensors())
