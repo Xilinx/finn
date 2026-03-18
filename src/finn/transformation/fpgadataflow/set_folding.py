@@ -144,6 +144,7 @@ class SetFolding(Transformation):
             "StreamingSplit_hls",
             "StreamingConcat_hls",
             "LayerNorm_rtl",
+            "Shuffle",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
