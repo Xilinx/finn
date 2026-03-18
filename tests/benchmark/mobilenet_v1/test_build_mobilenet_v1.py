@@ -25,7 +25,7 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
 build_fd = "tests/benchmark/"
-output_dir = make_build_dir("build_mobilenet-v1_")
+output_dir = make_build_dir("build_mobilenet_v1_")
 
 # model
 model_name = "mobilenetv1-w4a4"
@@ -115,8 +115,8 @@ def platform_to_shell(platform):
 
 
 def configure_build(board):
-    f_file = f"{build_fd}mobilenet-v1/folding_config/mobilenet_folding_config_{board}"
-    sl_file = f"{build_fd}mobilenet-v1/specialize_layers_config/mobilenet_specialize_layers_{board}"
+    f_file = f"{build_fd}mobilenet_v1/folding_config/mobilenet_folding_config_{board}"
+    sl_file = f"{build_fd}mobilenet_v1/specialize_layers_config/mobilenet_specialize_layers_{board}"
     cfg = build_cfg.DataflowBuildConfig(
         generate_outputs=build_outputs,
         output_dir=output_dir,
