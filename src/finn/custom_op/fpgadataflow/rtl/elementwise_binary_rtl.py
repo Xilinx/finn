@@ -85,9 +85,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         # eltwisef core operates on floats (all dtypes must be FLOAT32)
         for attr in ("lhs_dtype", "rhs_dtype", "out_dtype"):
             val = self.get_nodeattr(attr)
-            assert val == "FLOAT32", (
-                f"RTL elementwise requires FLOAT32 dtypes, got {attr}={val}"
-            )
+            assert val == "FLOAT32", f"RTL elementwise requires FLOAT32 dtypes, got {attr}={val}"
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.generate_params(model, code_gen_dir)
@@ -405,7 +403,9 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         # When broadcasting the last axis (rhs_shape[-1]==1), replicate the
         # scalar value across PE lanes so memstream provides PE values per cycle
         if self.broadcast_last_axis and weight_tensor.shape[-1] == 1:
-            weight_tensor = np.tile(weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,))
+            weight_tensor = np.tile(
+                weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
+            )
 
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.calc_numInputVectors())
