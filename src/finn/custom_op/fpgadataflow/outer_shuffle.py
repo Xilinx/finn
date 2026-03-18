@@ -9,6 +9,8 @@
 
 import math
 import numpy as np
+import os
+import re
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -183,10 +185,17 @@ class OuterShuffle(HWCustomOp):
         addr_bits = max(1, math.ceil(math.log2(max(1, nest.max_rp_retract + WP_DELAY + 2))))
         buf_size = 1 << addr_bits
 
-        # Pipeline II: BRAM (depth <= 262144) achieves II=1;
-        # URAM (depth > 262144) has read latency=3, forcing II=3.
-        URAM_DEPTH_THRESHOLD = 262144
-        pipeline_ii = 3 if buf_size > URAM_DEPTH_THRESHOLD else 1
+        # Check vivado version
+        vivado_path = os.environ.get("XILINX_VIVADO")
+        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+        year, minor = int(match.group(1)), int(match.group(2))
+        if (year, minor) < (2024, 2):
+            pipeline_ii = 1
+        else:
+            # Pipeline II: BRAM (depth <= 262144) achieves II=1;
+            # URAM (depth > 262144) has read latency=3, forcing II=3.
+            URAM_DEPTH_THRESHOLD = 262144
+            pipeline_ii = 3 if buf_size > URAM_DEPTH_THRESHOLD else 1
 
         # Simulate the input_gen pipeline at II=1.
         # Models the wp delay pipeline, finite buffer backpressure,
