@@ -16,7 +16,7 @@ from qonnx.transformation.general import (
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
-from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -446,7 +446,6 @@ def test_finnloop_end2end_mlo(
     year, minor = int(match.group(1)), int(match.group(2))
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
-    is_float = eltw_param_dtype == "FLOAT32"
     loop_body_models = create_chained_loop_bodies(
         dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
     )
@@ -555,37 +554,15 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
-    if not is_float:
-        assert os.path.isfile(
-            verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
-        ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
     assert os.path.isfile(
         verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
     assert os.path.isfile(
         verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
-
-    # Assert RTL elementwise node is present when expected
-    if is_float:
-        import qonnx.custom_op.registry as registry
-        from qonnx.core.modelwrapper import ModelWrapper as MW
-
-        built_model = MW(tmp_output_dir + "/mlo_model.onnx")
-
-        def _has_rtl_elementwise(m):
-            for n in m.graph.node:
-                if n.op_type.startswith("Elementwise") and "_rtl" in n.op_type:
-                    return True
-                if n.op_type == "FINNLoop":
-                    body = registry.getCustomOp(n).get_nodeattr("body")
-                    if _has_rtl_elementwise(body):
-                        return True
-            return False
-
-        assert _has_rtl_elementwise(
-            built_model
-        ), "No RTL elementwise node found — test is not exercising RTL path"
 
     # also run dcp generation for a subset of the test parameters
     # this extends the test run time quite a lot
@@ -691,7 +668,6 @@ def test_fpgadataflow_finnloop_manual(
     year, minor = int(match.group(1)), int(match.group(2))
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
-    is_float = eltw_param_dtype == "FLOAT32"
     loop_body_models = create_chained_loop_bodies(
         dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
     )
@@ -731,19 +707,12 @@ def test_fpgadataflow_finnloop_manual(
 
     # Generate reference output
     x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
-    if is_float:
-        from test_eltwise_rtl_mlo_minimal import execute_model_python
-
-        io_dict = {model.graph.input[0].name: x}
-        y_dict = execute_model_python(model, io_dict)
-        y_ref = y_dict[model.graph.output[0].name]
-    else:
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
-        model = model.transform(SetExecMode("cppsim"))
-        io_dict = {model.graph.input[0].name: x}
-        y_dict = oxe.execute_onnx(model, io_dict)
-        y_ref = y_dict[model.graph.output[0].name]
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    io_dict = {model.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model, io_dict)
+    y_ref = y_dict[model.graph.output[0].name]
 
     # set loop boundary
     node_metadata = {
@@ -766,13 +735,13 @@ def test_fpgadataflow_finnloop_manual(
     # LoopRolling automatically adapts operator attributes for loop context
     # (e.g., rhs_style changes from "const" to "input" for streamed parameters)
     # This requires recompilation of the elementwise node for cppsim
-    #    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
-    #    loop_body_graph = get_by_name(loop_node.attribute, "body").g
-    #    elementwise_node = get_by_name(loop_body_graph.node, elemwise_optype, "op_type")
-    #    code_gen_dir_cppsim_attr = get_by_name(elementwise_node.attribute, "code_gen_dir_cppsim")
-    #    code_gen_dir_cppsim_attr.s = b""  # reset cpp gen directory to force recompilation
-    #    executable_path_attr = get_by_name(elementwise_node.attribute, "executable_path")
-    #    executable_path_attr.s = b""  # reset cpp exec directory to force recompilation
+    loop_node = model.get_nodes_by_op_type("FINNLoop")[0]
+    loop_body_graph = get_by_name(loop_node.attribute, "body").g
+    elementwise_node = get_by_name(loop_body_graph.node, elemwise_optype, "op_type")
+    code_gen_dir_cppsim_attr = get_by_name(elementwise_node.attribute, "code_gen_dir_cppsim")
+    code_gen_dir_cppsim_attr.s = b""  # reset cpp gen directory to force recompilation
+    executable_path_attr = get_by_name(elementwise_node.attribute, "executable_path")
+    executable_path_attr.s = b""  # reset cpp exec directory to force recompilation
 
     # recompile elementwise node for cppsim
     model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
