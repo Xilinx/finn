@@ -24,17 +24,17 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
-build_flow_folder = "tests/benchmark/"
+build_fd = "tests/benchmark/"
 output_dir = make_build_dir("build_mobilenet-v1_")
 
 # model
 model_name = "mobilenetv1-w4a4"
-model_file = build_flow_folder + "models/%s_pre_post_tidy_opset-11.onnx" % model_name
+model_file = build_fd + "models/%s_pre_post_tidy_opset-11.onnx" % model_name
 
 
 # verification parameters
-verify_input_npy = build_flow_folder + "verification_io/" + model_name + "_input.npy"
-verify_expected_output_npy = build_flow_folder + "verification_io/" + model_name + "_output.npy"
+verify_input_npy = build_fd + "verification_io/" + model_name + "_input.npy"
+verify_expected_output_npy = build_fd + "verification_io/" + model_name + "_output.npy"
 
 verif_steps = [
     "finn_onnx_python",
@@ -73,7 +73,7 @@ def select_build_steps(platform):
             "step_set_fifo_depths",
             "step_create_stitched_ip",
             "step_synthesize_bitfile",
-            "step_make_pynq_driver",
+            "step_make_driver",
             "step_deployment_package",
         ]
     elif platform in ["U250"]:
@@ -92,7 +92,7 @@ def select_build_steps(platform):
             "step_create_stitched_ip",
             step_mobilenet_slr_floorplan,
             "step_synthesize_bitfile",
-            "step_make_pynq_driver",
+            "step_make_driver",
             "step_deployment_package",
         ]
 
@@ -115,19 +115,18 @@ def platform_to_shell(platform):
 
 
 def configure_build(board):
+    f_file = f"{build_fd}mobilenet-v1/folding_config/mobilenet_folding_config_{board}"
+    sl_file = f"{build_fd}mobilenet-v1/specialize_layers_config/mobilenet_specialize_layers_{board}"
     cfg = build_cfg.DataflowBuildConfig(
         generate_outputs=build_outputs,
         output_dir=output_dir,
         steps=select_build_steps(board),
-        folding_config_file=f"""{build_flow_folder}mobilenet-v1/
-            folding_config/mobilenet_folding_config_{board}.json""",
+        folding_config_file=f_file + ".json",
         synth_clk_period_ns=select_clk_period(board),
         board=board,
         shell_flow_type=platform_to_shell(board),
         auto_fifo_depths=False,
-        stitched_ip_gen_dcp=True,
-        specialize_layers_config_file=f"""{build_flow_folder}mobilenet-v1/
-            specialize_layers_config/mobilenet_specialize_layers_{board}.json""",
+        specialize_layers_config_file=sl_file + ".json",
         verify_steps=verif_steps,
         verify_input_npy=verify_input_npy,
         verify_expected_output_npy=verify_expected_output_npy,
@@ -141,7 +140,7 @@ def configure_build(board):
 @pytest.mark.parametrize(
     "board",
     [
-        pytest.param("ZCU102", marks=pytest.mark.xfail(reason="not tested")),
+        "ZCU102",
         pytest.param("ZCU104", marks=pytest.mark.xfail(reason="not tested")),
         pytest.param("U250", marks=pytest.mark.xfail(reason="not tested")),
     ],
