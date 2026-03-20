@@ -47,6 +47,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy, move
 
@@ -868,6 +869,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
+            # Clean up characterization attributes after FIFO sizing
+            for node in model.graph.node:
+                for attr_name in ["io_chrc_period", "io_chrc_in", "io_chrc_out"]:
+                    attr = get_by_name(node.attribute, attr_name)
+                    if attr is not None:
+                        node.attribute.remove(attr)
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
