@@ -46,6 +46,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.util.basic import get_by_name
 from qonnx.util.cleanup import cleanup_model
 from shutil import copy, move
 
@@ -407,44 +408,148 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert eligible nodes to `HWCustomOp` subclasses that represent HW
     layers. Which nodes and particular configurations can be converted to HW
     is limited, see the source code of the `convert_to_hw` module for more.
-    In the end am empty json file is created which can be used to set user specific
+    In the end an empty json file is created which can be used to set user specific
     preferred implementation styles for each node."""
 
+    # Helper function to conditionally apply transformation
+    def apply_if_relevant(model, op_types, transform, desc=""):
+        # Check if any of the relevant op types exist in the model
+        if any(len(model.get_nodes_by_op_type(op_type)) > 0 for op_type in op_types):
+            if desc:
+                print(f"Converting {desc}...")
+            model = model.transform(transform)
+        return model
+
+    # Thresholding layers (standalone mode)
     if cfg.standalone_thresholds:
-        # doing this first causes all threshold layers to be standalone
-        model = model.transform(to_hw.InferThresholdingLayer())
+        # Doing this first causes all threshold layers to be standalone
+        model = apply_if_relevant(
+            model,
+            ["MultiThreshold"],
+            to_hw.InferThresholdingLayer(),
+            "threshold layers (standalone)",
+        )
     else:
         print(
             """standalone_thresholds are set to False.
-            Please be aware that this means the MVAUs will be implemented in HLS
+            Please be aware that this means the MVAUs might be implemented in HLS
             because the RTL variant doesn't support the merge of
             MatMul + MultiThreshold into one layer. If you would like to have the RTL variant,
             please set standalone_thresholds to True."""
         )
-    # needed for bipolar MatMul layers
-    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
-    # needed for non-bipolar MatMul layers
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    # TopK to LabelSelect
-    model = model.transform(to_hw.InferLabelSelectLayer())
-    # input quantization (if any) as standalone threshold
-    model = model.transform(to_hw.InferThresholdingLayer())
-    # needed for convolutions -- TODO always exec?
-    need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
-    if need_conv:
-        model = model.transform(to_hw.InferPool())
-        model = model.transform(to_hw.InferConvInpGen())
-        model = model.transform(RemoveCNVtoFCFlatten())
-    # get rid of Tranpose -> Tranpose identity seq
+
+    # Matrix-vector operations
+    model = apply_if_relevant(
+        model,
+        ["XnorPopcountMatMul"],
+        to_hw.InferBinaryMatrixVectorActivation(),
+        "binary matmul layers",
+    )
+    model = apply_if_relevant(
+        model, ["MatMul"], to_hw.InferQuantizedMatrixVectorActivation(), "quantized matmul layers"
+    )
+    model = apply_if_relevant(
+        model, ["MatMul"], to_hw.InferVectorVectorActivation(), "vector-vector activation"
+    )
+
+    # Classification/output layers
+    model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
+
+    # Input quantization (if any) as standalone threshold
+    model = apply_if_relevant(
+        model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
+    )
+
+    # Convolution-related transformations
+    model = apply_if_relevant(
+        model, ["MaxPool", "AveragePool"], to_hw.InferPool(), "pooling layers"
+    )
+    model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
+    # If ConvInpGen derived, run remove cnv to fc flatten transform
+    model = apply_if_relevant(
+        model, ["ConvolutionInputGenerator"], RemoveCNVtoFCFlatten(), "Flatten"
+    )
+
+    # Streaming operations
+    model = apply_if_relevant(model, ["Add"], to_hw.InferAddStreamsLayer(), "add streams")
+    model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
+    model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
+
+    # Elementwise operations
+    model = apply_if_relevant(
+        model,
+        [
+            "Mul",
+            "Div",
+            "Sub",
+            "Add",
+            "And",
+            "Or",
+            "Xor",
+            "Equal",
+            "Less",
+            "LessOrEqual",
+            "Greater",
+            "GreaterOrEqual",
+        ],
+        to_hw.InferElementwiseBinaryOperation(),
+        "elementwise binary operations",
+    )
+    model = apply_if_relevant(
+        model, ["Relu"], to_hw.InferReLUAsElementwiseMax(), "ReLU as elementwise max"
+    )
+
+    # Upsampling and resizing
+    model = apply_if_relevant(model, ["Upsample"], to_hw.InferUpsample(), "upsample layers")
+
+    # Global pooling
+    model = apply_if_relevant(
+        model, ["GlobalAveragePool"], to_hw.InferGlobalAccPoolLayer(), "global pooling"
+    )
+
+    # Lookup layers
+    model = apply_if_relevant(model, ["Gather"], to_hw.InferLookupLayer(), "lookup layers")
+
+    # Activation functions
+    model = apply_if_relevant(model, ["Softmax"], to_hw.InferHWSoftmax(), "softmax layers")
+
+    # Normalization layers
+    model = apply_if_relevant(
+        model, ["LayerNormalization"], to_hw.InferLayerNorm(), "layer normalization"
+    )
+
+    # Cropping layers
+    model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
+
+    # Quantization layers
+    model = apply_if_relevant(
+        model, ["Quant"], to_hw.InferQuantAsFloat2Int(), "quantization as float to int"
+    )
+
+    # Graph topology transformations (always check - not based on op_type)
+    # DuplicateStreams: detects forks where tensors have multiple consumers
+    print("Checking for graph forks (duplicate streams)...")
+    model = model.transform(to_hw.InferDuplicateStreamsLayer())
+
+    # Cleanup and post-processing transformations
+    # Get rid of Transpose -> Transpose identity sequences
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+
+    # Shuffle inference (should come after InferDataLayouts and handles Transpose+Reshape patterns)
     # InferShuffle skips first Transpose by default; override to convert all if disabled
     if cfg.infer_shuffle_skip_first:
-        model = model.transform(to_hw.InferShuffle())
+        model = apply_if_relevant(
+            model, ["Transpose"], to_hw.InferShuffle(), "shuffle/transpose layers"
+        )
     else:
-        model = model.transform(to_hw.InferShuffle(_filter=lambda *_: True))
-
+        model = apply_if_relevant(
+            model,
+            ["Transpose"],
+            to_hw.InferShuffle(_filter=lambda *_: True),
+            "shuffle/transpose layers",
+        )
     return model
 
 
@@ -585,12 +690,6 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     else:
         print("No folding config json provided, skipping step_apply_folding_config.")
 
-    if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
-        # prepare cppsim
-        model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
-        model = model.transform(CompileCppSim(), apply_to_subgraphs=True)
-        model = model.transform(SetExecMode("cppsim"), apply_to_subgraphs=True)
-        verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
     return model
 
 
@@ -672,11 +771,25 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth(), apply_to_subgraphs=True)
         model = model.transform(MinimizeAccumulatorWidth(), apply_to_subgraphs=True)
-        model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
         # make sure the changed datatypes are propagated through the network
         model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
     else:
-        print("minimize_bit_width set to False, skipping step_minimize_bit_width.")
+        print("minimize_bit_width set to False, only run RoundAndClipThresholds.")
+    # Always run RoundAndClipThresholds after accumulator widths are determined
+    model = model.transform(RoundAndClipThresholds(), apply_to_subgraphs=True)
+    model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+    # Run MinimizeWeightBitWidth again to minimize threshold datatypes after rounding/clipping
+    if cfg.minimize_bit_width:
+        model = model.transform(MinimizeWeightBitWidth(), apply_to_subgraphs=True)
+        model = model.transform(InferDataTypes(), apply_to_subgraphs=True)
+
+    if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
+        # prepare cppsim
+        model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
+        model = model.transform(CompileCppSim(), apply_to_subgraphs=True)
+        model = model.transform(SetExecMode("cppsim"), apply_to_subgraphs=True)
+        verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
+
     return model
 
 
@@ -760,6 +873,12 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
+            # Clean up characterization attributes after FIFO sizing
+            for node in model.graph.node:
+                for attr_name in ["io_chrc_period", "io_chrc_in", "io_chrc_out"]:
+                    attr = get_by_name(node.attribute, attr_name)
+                    if attr is not None:
+                        node.attribute.remove(attr)
             model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())

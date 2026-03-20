@@ -28,6 +28,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from torch import nn
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferShuffle
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -468,6 +469,14 @@ def test_rtlsim_shuffle_layer(shuffle_param, datatype, simd):
 
     y_hw = oxe.execute_onnx(model, input_t)[out_name]
     assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
+
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert exp_cycles != 0
 
 
 @pytest.mark.parametrize(

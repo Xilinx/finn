@@ -9,7 +9,10 @@
 
 import numpy as np
 import warnings
+from onnx import helper
+from operator import itemgetter
 from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -129,3 +132,75 @@ class Shuffle(HWCustomOp):
         fold = int(normal_ishape[-1] / simd)
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        """Estimate cycles by decomposing into Inner/OuterShuffle stages.
+
+        Decomposes the transpose into a sequence of hardware-constrained
+        operations (inner_shuffle / outer_shuffle), creates temporary nodes
+        for each stage, and returns the MAX of their cycle estimates
+        (stages are pipelined, so throughput is limited by the slowest).
+        """
+        from finn.transformation.fpgadataflow.transpose_decomposition import (
+            _is_inner_shuffle,
+            decompose_transpose_with_constraints,
+            shuffle_perfect_loopnest_coeffs,
+        )
+
+        transpose_in_shape = list(self.get_nodeattr("transpose_in_shape"))
+        perm = list(self.get_nodeattr("perm"))
+        simd = self.get_nodeattr("SIMD")
+        data_type = self.get_nodeattr("data_type")
+
+        P_list, operation_types = decompose_transpose_with_constraints(
+            perm, transpose_in_shape, simd
+        )
+
+        if len(P_list) == 0:
+            return 0
+
+        stage_cycles = []
+        current_shape = list(transpose_in_shape)
+
+        for step_idx, (P, op_type) in enumerate(zip(P_list, operation_types)):
+            out_shape = list(itemgetter(*P)(current_shape))
+
+            if _is_inner_shuffle(P, current_shape):
+                # InnerShuffle: in_shape = current_shape
+                tmp_node = helper.make_node(
+                    "InnerShuffle",
+                    ["tmp_in"],
+                    ["tmp_out"],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    in_shape=current_shape,
+                    data_type=data_type,
+                    SIMD=simd,
+                    name=f"tmp_inner_{step_idx}",
+                )
+            else:
+                # OuterShuffle
+                loop_coeffs = shuffle_perfect_loopnest_coeffs(shape=current_shape, perm=P)
+                tmp_node = helper.make_node(
+                    "OuterShuffle",
+                    ["tmp_in"],
+                    ["tmp_out"],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    in_shape=current_shape,
+                    transpose_in_shape=current_shape,
+                    perm=P,
+                    out_shape=out_shape,
+                    transpose_out_shape=out_shape,
+                    data_type=data_type,
+                    loop_coeffs=loop_coeffs,
+                    SIMD=simd,
+                    NumChannels=current_shape[-1],
+                    name=f"tmp_outer_{step_idx}",
+                )
+
+            inst = getCustomOp(tmp_node)
+            stage_cycles.append(inst.get_exp_cycles())
+            current_shape = out_shape
+
+        return max(stage_cycles)
