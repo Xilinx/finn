@@ -161,14 +161,14 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
 @pytest.mark.parametrize(
     "ishape,simd",
     [
-        ([1, 4], 4),    # NN=1  -> rsqrt genII1 (3 DSPs)
-        ([1, 10], 5),   # NN=2  -> rsqrt genII2 (2 DSPs)
-        ([1, 18], 6),   # NN=3  -> rsqrt genInterleave
-        ([1, 42], 7),   # NN=6  -> rsqrt genInterleave
-        ([1, 64], 8),   # NN=8  -> rsqrt genInterleave
-        ([1, 81], 9),   # NN=9  -> rsqrt genOverlapped
-        ([1, 100], 10), # NN=10 -> rsqrt genOverlapped
-        ([1, 44], 4),   # NN=11 -> rsqrt genOverlapped
+        ([1, 4], 4),  # NN=1  -> rsqrt genII1 (3 DSPs)
+        ([1, 10], 5),  # NN=2  -> rsqrt genII2 (2 DSPs)
+        ([1, 18], 6),  # NN=3  -> rsqrt genInterleave
+        ([1, 42], 7),  # NN=6  -> rsqrt genInterleave
+        ([1, 64], 8),  # NN=8  -> rsqrt genInterleave
+        ([1, 81], 9),  # NN=9  -> rsqrt genOverlapped
+        ([1, 100], 10),  # NN=10 -> rsqrt genOverlapped
+        ([1, 44], 4),  # NN=11 -> rsqrt genOverlapped
     ],
 )
 def test_fpgadataflow_rtl_layernorm_low_simd_ratio(idt, ishape, simd):
