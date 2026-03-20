@@ -97,6 +97,7 @@ def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
     ["node_by_node", pytest.param("stitched_ip", marks=pytest.mark.xfail(reason="sim bug"))],
 )
 def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
+    """Test RTL LayerNorm with N/SIMD > 12 (original regime)."""
     model = create_layernorm_model(
         idt, ishape, has_scale=True, has_bias=True, epsilon=9.999999960041972e-13
     )
@@ -151,6 +152,67 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         exp_cycles = exp_cycles_dict[model.graph.node[0].name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+@pytest.mark.parametrize("idt", [DataType["FLOAT32"]])
+@pytest.mark.parametrize(
+    "ishape,simd",
+    [
+        ([1, 4], 4),    # NN=1  -> rsqrt genII1 (3 DSPs)
+        ([1, 10], 5),   # NN=2  -> rsqrt genII2 (2 DSPs)
+        ([1, 18], 6),   # NN=3  -> rsqrt genInterleave
+        ([1, 42], 7),   # NN=6  -> rsqrt genInterleave
+        ([1, 64], 8),   # NN=8  -> rsqrt genInterleave
+        ([1, 81], 9),   # NN=9  -> rsqrt genOverlapped
+        ([1, 100], 10), # NN=10 -> rsqrt genOverlapped
+        ([1, 44], 4),   # NN=11 -> rsqrt genOverlapped
+    ],
+)
+def test_fpgadataflow_rtl_layernorm_low_simd_ratio(idt, ishape, simd):
+    """Test RTL LayerNorm with N/SIMD <= 12, exercising the new rsqrt strategies."""
+    model = create_layernorm_model(
+        idt, ishape, has_scale=True, has_bias=True, epsilon=9.999999960041972e-13
+    )
+
+    # reference calculation
+    input = gen_finn_dt_tensor(idt, ishape)
+    input_t = {model.graph.input[0].name: input}
+
+    y_ref = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(ExtractNormScaleBias())
+
+    model = model.transform(to_hw.InferLayerNorm())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    input_t = {model.graph.input[0].name: input}
+
+    y_hw = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+    assert np.allclose(y_ref, y_hw, rtol=1e-3, atol=2**-4)
+
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "LayerNorm_rtl", "LayerNorm wasn't converted to RTL Layer"
+
+    getCustomOp(model.graph.node[0]).set_nodeattr("SIMD", simd)
+
+    # Execute node-by-node RTL simulation
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    input_t = {model.graph.input[0].name: input}
+
+    y_rtl = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
+
+    assert np.allclose(y_ref, y_rtl, rtol=1e-3, atol=2**-4)
 
 
 @pytest.mark.fpgadataflow

@@ -43,7 +43,6 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             n % simd == 0
         ), """Requirement N (last dim) divisable by SIMD is violated.
             Please set SIMD to a different value"""
-        assert n // simd > 12, "N/SIMD must be larger than 12 for rsqrt throughput."
         code_gen_dict = {
             "$N$": int(n),
             "$SIMD$": int(simd),
@@ -132,8 +131,6 @@ class LayerNorm_rtl(LayerNorm, RTLBackend):
             n % simd == 0
         ), """Requirement N (last dim) divisable by SIMD is violated.
             Please set SIMD to a different value"""
-        assert n // simd > 12, "N/SIMD must be larger than 12 for rsqrt throughput."
-
         val_queue_len_0 = n // simd + math.ceil(math.log2(simd)) * 2 + 7
         val_queue_len_1 = n // simd + math.ceil(math.log2(simd)) * 2 + 24
         exp_cycles = val_queue_len_0 + val_queue_len_1 + np.prod(idim) // simd + 5
