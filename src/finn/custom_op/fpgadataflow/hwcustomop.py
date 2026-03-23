@@ -228,12 +228,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
+        # Use the larger of expected cycles or liveness threshold
+        exp_cycles = self.get_exp_cycles()
+        liveness_threshold = get_liveness_threshold_cycles()
+        effective_threshold = max(exp_cycles, liveness_threshold)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
-            liveness_threshold=get_liveness_threshold_cycles(),
+            liveness_threshold=effective_threshold,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -481,6 +485,7 @@ class HWCustomOp(CustomOp):
             txns_in[k] = sim.trace_stream(k + sname)
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
+        # For characterization, use period as liveness threshold directly
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
@@ -488,6 +493,7 @@ class HWCustomOp(CustomOp):
             sname=sname,
             liveness_threshold=period,
         )
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
         assert (
             total_cycle_count <= period
         ), """Total cycle count from rtl simulation is higher than
