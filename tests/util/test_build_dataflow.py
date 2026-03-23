@@ -31,11 +31,11 @@ import pytest
 
 import numpy as np
 import os
+from qonnx.core.modelwrapper import ModelWrapper
 from shutil import copytree
 
 from finn.builder.build_dataflow import build_dataflow_directory
 from finn.util.basic import make_build_dir
-from qonnx.core.modelwrapper import ModelWrapper
 
 
 @pytest.mark.slow
@@ -90,6 +90,6 @@ def test_end2end_build_dataflow_directory():
         # Check that node-by-node rtlsim waveforms were created for each node
         node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
         for node in model.graph.node:
-            assert os.path.isfile(node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"), (
-                f"Missing waveform for node {node.name} in batch {i}"
-            )
+            assert os.path.isfile(
+                node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
+            ), f"Missing waveform for node {node.name} in batch {i}"

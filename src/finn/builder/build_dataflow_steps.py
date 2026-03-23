@@ -837,17 +837,17 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        model = model.transform(PrepareRTLSim())
-        model = model.transform(SetExecMode("rtlsim"))
         if cfg.verify_save_rtlsim_waveforms:
             verify_out_dir = cfg.output_dir + "/verification_output"
             waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
             os.makedirs(waveform_dir, exist_ok=True)
             abspath = os.path.abspath(waveform_dir)
-            # Set rtlsim_trace on each node for node-by-node simulation
+            # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
             for node in model.graph.node:
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
+        model = model.transform(PrepareRTLSim())
+        model = model.transform(SetExecMode("rtlsim"))
         verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
