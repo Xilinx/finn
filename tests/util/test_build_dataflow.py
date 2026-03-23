@@ -31,6 +31,7 @@ import pytest
 
 import numpy as np
 import os
+from qonnx.core.modelwrapper import ModelWrapper
 from shutil import copytree
 
 from finn.builder.build_dataflow import build_dataflow_directory
@@ -70,6 +71,10 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/report/post_synth_resources.json")
     # verification outputs
     verif_batchsize = np.load(target_dir + "/input.npy").shape[0]
+    # Load model to get node names for waveform verification
+    intermediate_models_dir = output_dir + "/intermediate_models"
+    model = ModelWrapper(intermediate_models_dir + "/step_hw_ipgen.onnx")
+
     for i in range(verif_batchsize):
         verify_out_dir = output_dir + "/verification_output"
         assert os.path.isfile(verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy")
@@ -77,4 +82,14 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_node_by_node_rtlsim_{i}_SUCCESS.npy")
         assert os.path.isfile(verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy")
-        assert os.path.isfile(verify_out_dir + f"/verify_rtlsim_{i}.wdb")
+
+        # Check stitched IP rtlsim waveform in its subfolder
+        stitched_waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+        assert os.path.isfile(stitched_waveform_dir + f"/verify_rtlsim_{i}.wdb")
+
+        # Check that node-by-node rtlsim waveforms were created for each node
+        node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
+        for node in model.graph.node:
+            assert os.path.isfile(
+                node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
+            ), f"Missing waveform for node {node.name} in batch {i}"
