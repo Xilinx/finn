@@ -101,6 +101,8 @@ RUN pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 --extra-ind
 RUN pip install pygments==2.14.0
 RUN pip install ipykernel==6.21.2
 RUN pip install jupyter==1.0.0 --ignore-installed
+# anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
+RUN pip install 'anyio<4.13'
 RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.7.0  --ignore-installed
 RUN pip install pytest-dependency==0.5.1
