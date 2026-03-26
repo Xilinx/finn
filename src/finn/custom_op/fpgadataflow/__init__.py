@@ -53,7 +53,6 @@ def register_custom_op(cls):
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
-from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -94,7 +93,6 @@ custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
 custom_op["AddStreams"] = AddStreams
-custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["Crop"] = Crop
 custom_op["DuplicateStreams"] = DuplicateStreams

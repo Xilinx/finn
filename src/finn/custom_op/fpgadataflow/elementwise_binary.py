@@ -352,9 +352,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             # generation
             self.set_nodeattr("lhs_style", "const")
             lhs_dtype = self.get_input_datatype(0)
-            # ignore minimization for floats
-            if not lhs_dtype.get_canonical_name().startswith("FLOAT"):
-                if lhs_dtype.is_integer():
+            # Check if values are integer-valued (even if stored as FLOAT)
+            lhs_is_integer = lhs_dtype.is_integer() or (lhs.astype(np.int32) == lhs).all()
+            # ignore minimization for floats (unless they contain integer values)
+            if not lhs_dtype.get_canonical_name().startswith("FLOAT") or lhs_is_integer:
+                if lhs_is_integer:
                     # Minimum and maximum "weight" on the left hand side, determining
                     # the range of values which needs to be represented
                     _min = lhs.min()
@@ -390,9 +392,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             # generation
             self.set_nodeattr("rhs_style", "const")
             rhs_dtype = self.get_input_datatype(1)
-            # ignore minimization for floats
-            if not rhs_dtype.get_canonical_name().startswith("FLOAT"):
-                if rhs_dtype.is_integer():
+            # Check if values are integer-valued (even if stored as FLOAT)
+            rhs_is_integer = rhs_dtype.is_integer() or (rhs.astype(np.int32) == rhs).all()
+            # ignore minimization for floats (unless they contain integer values)
+            if not rhs_dtype.get_canonical_name().startswith("FLOAT") or rhs_is_integer:
+                if rhs_is_integer:
                     # Minimum and maximum "weight" on the left hand side, determining
                     # the range of values which needs to be represented
                     _min = rhs.min()
