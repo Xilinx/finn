@@ -16,7 +16,6 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
 
 build_flow_folder = "tests/benchmark/"
-output_dir = make_build_dir("build_cybersecurity-mlp_")
 
 # model
 model_name = "unsw_nb15-mlp-w2a2"
@@ -46,7 +45,7 @@ build_outputs = [
 ]
 
 
-def configure_build(board):
+def configure_build(board, output_dir):
     if board in ["AUP-ZU3_8GB"]:
         cfg = build_cfg.DataflowBuildConfig(
             generate_outputs=build_outputs,
@@ -97,8 +96,9 @@ def test_cybersecuritymlp(board):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("build_cybersecurity-mlp_")
     # Run build flow
-    cfg = configure_build(board)
+    cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there

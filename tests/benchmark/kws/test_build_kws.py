@@ -22,7 +22,6 @@ from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.util.basic import make_build_dir
 
 build_fd = "tests/benchmark/"
-output_dir = make_build_dir("build_kws_")
 
 # Add two custom steps, one to add a TopK node at the end and
 # one to remove the Transpose + Flatten between the first and the second layer
@@ -75,7 +74,7 @@ build_outputs = [
 
 
 # Configure build
-def configure_build(board):
+def configure_build(board, output_dir):
     f_file = f"{build_fd}kws/folding_config/kws_folding_config_{board}"
     sl_file = f"{build_fd}kws/specialize_layers_config/kws_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
@@ -109,8 +108,10 @@ def test_kws(board):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("build_kws_")
+
     # Run build flow
-    cfg = configure_build(board)
+    cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there

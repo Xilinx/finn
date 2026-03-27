@@ -16,7 +16,6 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import alveo_default_platform, make_build_dir
 
 build_fd = os.environ["FINN_ROOT"] + "/tests/benchmark/"
-output_dir = make_build_dir("build_bnn-pynq_")
 
 
 # model
@@ -70,7 +69,7 @@ def platform_to_shell(platform):
         raise Exception("Unknown platform, can't determine ShellFlowType")
 
 
-def configure_build(board, model):
+def configure_build(board, model, output_dir):
     shell_flow_type = platform_to_shell(board)
     if shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
         vitis_platform = alveo_default_platform[board]
@@ -141,8 +140,10 @@ def test_bnnpynq(board, model):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("build_bnn-pynq_")
+
     # Run build flow
-    cfg = configure_build(board, model)
+    cfg = configure_build(board, model, output_dir)
     model_file = get_model_file(model)
     build.build_dataflow_cfg(model_file, cfg)
 

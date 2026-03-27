@@ -37,7 +37,6 @@ def step_convert_final_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 build_flow_folder = "tests/benchmark/"
-output_dir = make_build_dir("build_vgg10-radioml_")
 
 # model
 model_name = "radioml_w4a4_small_tidy"
@@ -90,7 +89,7 @@ build_steps = [
 ]
 
 
-def configure_build(board):
+def configure_build(board, output_dir):
     cfg = build_cfg.DataflowBuildConfig(
         generate_outputs=build_outputs,
         output_dir=output_dir,
@@ -125,8 +124,10 @@ def test_vgg10radioml(board):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("vgg10-radioml_")
+
     # Run build flow
-    cfg = configure_build(board)
+    cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there

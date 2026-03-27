@@ -24,7 +24,6 @@ import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import alveo_default_platform, make_build_dir
 
 build_flow_folder = "tests/benchmark/"
-output_dir = make_build_dir("build_resnet50_")
 
 # model
 model_name = "resnet50_w1a2"
@@ -72,7 +71,7 @@ resnet50_build_steps = [
 ]
 
 
-def configure_build(board):
+def configure_build(board, output_dir):
     cfg = build_cfg.DataflowBuildConfig(
         steps=resnet50_build_steps,
         generate_outputs=build_outputs,
@@ -111,8 +110,10 @@ def test_resnet50(board):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("build_resnet50_")
+
     # Run build flow
-    cfg = configure_build(board)
+    cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there

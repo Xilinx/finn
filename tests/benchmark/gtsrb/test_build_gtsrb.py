@@ -41,7 +41,6 @@ from finn.builder.build_dataflow_config import default_build_dataflow_steps
 from finn.util.basic import make_build_dir
 
 build_fd = "tests/benchmark/"
-output_dir = make_build_dir("build_gtsrb_")
 
 
 def custom_step_add_preproc(model, cfg):
@@ -104,7 +103,7 @@ build_outputs = [
 ]
 
 
-def configure_build(board):
+def configure_build(board, output_dir):
     f_file = f"{build_fd}gtsrb/folding_config/gtsrb_folding_config_{board}"
     sl_file = f"{build_fd}gtsrb/specialize_layers_config/gtsrb_specialize_layers"
     cfg = build_cfg.DataflowBuildConfig(
@@ -137,8 +136,10 @@ def test_gtsrb(board):
     elif board != "AUP-ZU3_8GB" and (year, minor) != (2022, 2):
         pytest.skip("""Vivado version 2022.2 needed.""")
 
+    output_dir = make_build_dir("build_gtsrb_")
+
     # Run build flow
-    cfg = configure_build(board)
+    cfg = configure_build(board, output_dir)
     build.build_dataflow_cfg(model_file, cfg)
 
     # Check if the ezxpected output products are there
