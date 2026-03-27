@@ -139,13 +139,19 @@ class Thresholding(HWCustomOp):
             # Use double precision for intermediate calculations to prevent overflow
             min_threshold = np.float64(thresholds.min())
             max_threshold = np.float64(thresholds.max())
+            # Check if input datatype is signed
+            input_is_signed = self.get_input_datatype(0).signed()
             if min_threshold < 0:
                 if abs(min_threshold) > max_threshold:
                     tdt = DataType.get_smallest_possible(min_threshold)
                 else:
                     tdt = DataType.get_smallest_possible(-max_threshold - 1)
             else:
-                tdt = DataType.get_smallest_possible(max_threshold)
+                # If input is signed, use signed threshold datatype even if thresholds are positive
+                if input_is_signed:
+                    tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                else:
+                    tdt = DataType.get_smallest_possible(max_threshold)
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)

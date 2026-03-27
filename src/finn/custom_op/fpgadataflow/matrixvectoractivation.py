@@ -556,13 +556,20 @@ class MVAU(HWCustomOp):
                 # Use double precision for intermediate calculations to prevent overflow
                 min_threshold = np.float64(thresholds.min())
                 max_threshold = np.float64(thresholds.max())
+                # Check if accumulator datatype is signed
+                acc_is_signed = acc_dt.signed()
                 if min_threshold < 0:
                     if abs(min_threshold) > max_threshold:
                         tdt = DataType.get_smallest_possible(min_threshold)
                     else:
                         tdt = DataType.get_smallest_possible(-max_threshold - 1)
                 else:
-                    tdt = DataType.get_smallest_possible(max_threshold)
+                    # If accumulator is signed,
+                    # use signed threshold datatype even if thresholds are positive
+                    if acc_is_signed:
+                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                    else:
+                        tdt = DataType.get_smallest_possible(max_threshold)
                 # Update threshold datatype
                 model.set_tensor_datatype(self.onnx_node.input[2], tdt)
 
