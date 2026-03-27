@@ -62,7 +62,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarMulPastConv,
     MoveScalarMulPastMatMul,
 )
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 
@@ -92,7 +91,6 @@ class Streamline(Transformation):
             AbsorbMulIntoMultiThreshold(),
             Absorb1BitMulIntoMatMul(),
             Absorb1BitMulIntoConv(),
-            RoundAndClipThresholds(),
         ]
         for trn in streamline_transformations:
             model = model.transform(trn)

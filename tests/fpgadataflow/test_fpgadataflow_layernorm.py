@@ -29,6 +29,9 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -94,7 +97,7 @@ def create_layernorm_model(idt, ishape, has_scale, has_bias, epsilon):
 @pytest.mark.parametrize("simd", [1, 2])
 @pytest.mark.parametrize(
     "sim_style",
-    ["node_by_node", pytest.param("stitched_ip", marks=pytest.mark.xfail(reason="sim bug"))],
+    ["node_by_node", "stitched_ip"],
 )
 def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
     model = create_layernorm_model(
@@ -119,6 +122,7 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
     y_hw = oxe.execute_onnx(model, input_t)[model.graph.output[0].name]
     assert np.allclose(y_ref, y_hw, rtol=1e-3, atol=2**-4)
 
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
 
@@ -132,7 +136,9 @@ def test_fpgadataflow_rtl_layernorm(idt, ishape, simd, sim_style):
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
+
     elif sim_style == "stitched_ip":
+        # Set debug waveform for stitched IP
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
@@ -187,6 +193,7 @@ def test_fpgadataflow_hls_layernorm(idt, ishape, simd, sim_style):
     assert np.allclose(y_ref, y_hw, rtol=1e-3, atol=2**-4)
 
     getCustomOp(model.graph.node[0]).set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(SpecializeLayers(test_fpga_part))
     model = model.transform(GiveUniqueNodeNames())
 
