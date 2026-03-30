@@ -125,7 +125,6 @@ class SetFolding(Transformation):
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
-            "AddStreams_hls",
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
             "Thresholding_hls",

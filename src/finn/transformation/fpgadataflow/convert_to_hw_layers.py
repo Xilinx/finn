@@ -340,88 +340,27 @@ class InferUpsample(Transformation):
 
 
 class InferAddStreamsLayer(Transformation):
-    """Convert any Add into a AddStreams HW layer."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
+
+    AddStreams functionality is now covered by ElementwiseAdd operations
+    (with both inputs as streaming). This wrapper is kept for backward compatibility.
+
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "Add":
-                in0 = node.input[0]
-                in1 = node.input[1]
-                result = node.output[0]
-                in0_shape = model.get_tensor_shape(in0)
-                in1_shape = model.get_tensor_shape(in1)
-                in0_static = not (model.get_initializer(in0) is None)
-                in1_static = not (model.get_initializer(in1) is None)
-
-                # skip if different shapes on inputs
-                if in0_shape != in1_shape:
-                    continue
-                # skip if any of inputs have initializers
-                # (this node is meant for adding two dynamic streams)
-                if in0_static or in1_static:
-                    continue
-
-                idt0 = model.get_tensor_datatype(in0)
-                idt1 = model.get_tensor_datatype(in1)
-
-                # skip conversion for layers with float input
-                if not idt0.is_integer() or not idt1.is_integer():
-                    continue
-
-                # check layout and convert if necessary
-                in0_layout = model.get_tensor_layout(in0)
-                in1_layout = model.get_tensor_layout(in1)
-                result_layout = model.get_tensor_layout(result)
-
-                if in0_layout == DataLayout.NCHW:
-                    in0 = nchw_to_nhwc(in0, model, node_ind)
-                    node_ind += 1
-                    in0_shape = model.get_tensor_shape(in0)
-
-                if in1_layout == DataLayout.NCHW:
-                    in1 = nchw_to_nhwc(in1, model, node_ind)
-                    node_ind += 1
-                    in1_shape = model.get_tensor_shape(in1)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-
-                if result_layout == DataLayout.NCHW:
-                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # now safe to assume num_channels is size of last dimension
-                num_channels = int(in0_shape[-1])
-                # create node with no parallelization first
-                pe = 1
-
-                # create and insert new AddStreams node
-                new_node = helper.make_node(
-                    "AddStreams",
-                    [in0, in1],
-                    [result],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_channels,
-                    PE=pe,
-                    inputDataTypes=[idt0.name, idt1.name],
-                    numInputVectors=in0_shape[:-1],
-                    name="AddStreams_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old node
-                graph.node.remove(node)
-                graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+        warnings.warn(
+            "InferAddStreamsLayer is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "AddStreams is being replaced by ElementwiseAdd operations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferDuplicateStreamsLayer(Transformation):
@@ -1888,6 +1827,38 @@ class InferElementwiseBinaryOperation(Transformation):
                 idt0 = model.get_tensor_datatype(in0)
                 idt1 = model.get_tensor_datatype(in1)
                 odt0 = model.get_tensor_datatype(result)
+
+                # For constant inputs with FLOAT32 type, check if values are
+                # actually integers and infer the smallest FINN datatype.
+                if lhs_style == "const":
+                    lhs_init = model.get_initializer(in0)
+                    if (
+                        idt0 == DataType["FLOAT32"]
+                        and (lhs_init == lhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = lhs_init.min(), lhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt0 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in0, idt0)
+
+                if rhs_style == "const":
+                    rhs_init = model.get_initializer(in1)
+                    if (
+                        idt1 == DataType["FLOAT32"]
+                        and (rhs_init == rhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = rhs_init.min(), rhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt1 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in1, idt1)
+
+                # If both inputs are integers, set output to INT32 as default.
+                # MinimizeAccumulatorWidth will optimize this later.
+                if idt0.is_integer() and idt1.is_integer():
+                    odt0 = DataType["INT32"]
+                    model.set_tensor_datatype(result, odt0)
 
                 new_node = helper.make_node(
                     f"Elementwise{node.op_type}",

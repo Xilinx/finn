@@ -211,7 +211,7 @@ Constraints to folding factors per layer
    * - **Layers**
      - **Parameters**
      - **Constraints**
-   * - Addstreams
+   * - Addstreams (deprecated, use ElementwiseBinary)
      - PE
      - inp_channels % PE == 0
    * - ChannelwiseOp (deprecated, use ElementwiseBinary)
