@@ -226,7 +226,7 @@ Constraints to folding factors per layer
    * - ElementwiseBinary
      - PE
      - last_dim % PE == 0
-   * - StreamingEltwise
+   * - StreamingEltwise (deprecated, use ElementwiseBinary)
      - PE
      - inp_channels % PE == 0
    * - FMPadding

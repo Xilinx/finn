@@ -512,6 +512,44 @@ class ElementwiseSub(ElementwiseBinaryOperation):
         return DataType[f"INT{out_width}"]
 
 
+# Derive a specialization to implement elementwise absolute difference of two inputs
+@register_custom_op
+class ElementwiseAbsDiff(ElementwiseBinaryOperation):
+    # Specialize to implement the absolute difference operation of left hand side
+    # and right hand side input
+    @property
+    def npy_op(self):
+        # NumPy doesn't have a built-in absdiff, so we use a lambda
+        return lambda a, b: np.abs(a - b)
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        return "({0} > {1} ? {0} - {1} : {1} - {0})"
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    # Derives the output data type - AbsDiff result is always unsigned for integers
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # If either input is floating-point, output is the same float type
+        if self.lhs_dtype in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+            return self.lhs_dtype
+        if self.rhs_dtype in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+            return self.rhs_dtype
+        # For integers: get the width of the data types of the inputs
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        max_width = max(lhs_width, rhs_width)
+        # The absolute difference needs one extra bit to hold the difference
+        # before taking the absolute value, but the result is always unsigned
+        out_width = max_width + 1
+        # AbsDiff result is always unsigned for integer types
+        return DataType[f"UINT{out_width}"]
+
+
 # Derive a specialization to implement elementwise multiplication of two inputs
 @register_custom_op
 class ElementwiseMul(ElementwiseBinaryOperation):

@@ -71,7 +71,6 @@ from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
 )
-from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
@@ -91,7 +90,6 @@ custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
 custom_op["StreamingSplit_hls"] = StreamingSplit_hls
-custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["Thresholding_hls"] = Thresholding_hls
 custom_op["TLastMarker_hls"] = TLastMarker_hls
