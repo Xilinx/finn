@@ -171,7 +171,7 @@
     "MVAU_14": {
       "preferred_impl_style": "rtl"
     },
-    "ChannelwiseOp_0": {
+    "ElementwiseAdd_0": {
       "preferred_impl_style": "hls"
     },
     "LabelSelect_0": {

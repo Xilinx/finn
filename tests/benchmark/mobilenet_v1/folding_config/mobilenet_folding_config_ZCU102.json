@@ -614,7 +614,7 @@
       "mem_mode": "internal_decoupled",
       "runtime_writeable_weights": 0
     },
-    "ChannelwiseOp_hls_0": {
+    "ElementwiseAdd_hls_0": {
       "PE": 1,
       "ram_style": "distributed"
     },

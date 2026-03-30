@@ -428,7 +428,7 @@
       "ram_style": "block",
       "mem_mode": "internal_decoupled"
     },
-    "ChannelwiseOp_hls_0": {
+    "ElementwiseAdd_hls_0": {
       "PE": 1,
       "ram_style": "distributed"
     },
