@@ -119,8 +119,14 @@ class InsertTLastMarker(Transformation):
                     if inp_idx > 0:
                         if first_node.op_type.startswith("MVAU") and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width(1))
-                        elif first_node.op_type.startswith("AddStreams") and inp_idx == 1:
-                            stream_width = int(custom_op.get_instream_width())
+                        elif (
+                            first_node.op_type.startswith("ElementwiseAdd")
+                            and inp_idx == 1
+                            and custom_op.get_nodeattr("lhs_style") == "input"
+                            and custom_op.get_nodeattr("rhs_style") == "input"
+                        ):
+                            # only handle ElementwiseAdd with two dynamic inputs (not const)
+                            stream_width = int(custom_op.get_instream_width(1))
                         else:
                             raise Exception("No method to determine stream width")
                     else:

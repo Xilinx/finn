@@ -124,29 +124,40 @@ class Thresholding(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def minimize_accumulator_width(self, model):
-        "Minimize threshold width ('accumulator width' here due to convention)"
+    def minimize_weight_bit_width(self, model):
+        """Minimize threshold datatype bitwidth based on actual threshold values"
+        This function should not round or clip the threshold values,
+        that is done in RoundAndClipThresholds."""
+
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
             return DataType[self.get_nodeattr("weightDataType")]
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         # TODO: extend this for fixed point
-        if self.get_input_datatype(0).is_integer():
-            # minimize threshold width only if input is an integer
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            min_input = self.get_input_datatype(0).min()
-            max_input = self.get_input_datatype(0).max()
-            # get range required by threshold values
-            tdt_min = min(min_input, min_threshold)
-            tdt_max = max(max_input, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
+        if self.get_input_datatype(0).is_integer() and self.get_input_datatype(1).is_integer():
+            # minimize threshold width only if input and thresholds are integer
+            # Use double precision for intermediate calculations to prevent overflow
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            # Check if input datatype is signed
+            input_is_signed = self.get_input_datatype(0).signed()
+            if min_threshold < 0:
+                if abs(min_threshold) > max_threshold:
+                    tdt = DataType.get_smallest_possible(min_threshold)
                 else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
+                    tdt = DataType.get_smallest_possible(-max_threshold - 1)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max)
+                # If input is signed, use signed threshold datatype even if thresholds are positive
+                if input_is_signed:
+                    tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                else:
+                    tdt = DataType.get_smallest_possible(max_threshold)
+
+            # Temp fix until addressed in RTL
+            # If threshold datatype is smaller than input datatype, use input datatype
+            idt = self.get_input_datatype(0)
+            if tdt.bitwidth() < idt.bitwidth():
+                tdt = idt
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)
