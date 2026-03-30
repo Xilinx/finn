@@ -73,21 +73,27 @@ class DeriveCharacteristic(NodeLocalTransformation):
         (model, run_again) = super().apply(model)
         if not self.manual_bypass:
             return (model, run_again)
-        # apply manual fix for DuplicateStreams and AddStreams for
+        # apply manual fix for DuplicateStreams and ElementwiseAdd for
         # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("AddStreams_hls")
+        addstrm_nodes = model.get_nodes_by_op_type("ElementwiseAdd_hls")
         for addstrm_node in addstrm_nodes:
+            # skip ElementwiseAdd nodes that have constant inputs (not two streams)
+            addstrm_inst = registry.getCustomOp(addstrm_node)
+            if addstrm_inst.get_nodeattr("lhs_style") != "input":
+                continue
+            if addstrm_inst.get_nodeattr("rhs_style") != "input":
+                continue
             # we currently only support the case where one branch is
             # a bypass
             b0 = model.find_producer(addstrm_node.input[0])
             b1 = model.find_producer(addstrm_node.input[1])
             if (b0 is None) or (b1 is None):
-                warnings.warn("Found unsupported AddStreams, skipping")
+                warnings.warn("Found unsupported ElementwiseAdd, skipping")
                 return (model, run_again)
             b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
             b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
             if (not b0_is_bypass) and (not b1_is_bypass):
-                warnings.warn("Found unsupported AddStreams, skipping")
+                warnings.warn("Found unsupported ElementwiseAdd, skipping")
                 return (model, run_again)
             ds_node = b0 if b0_is_bypass else b1
             comp_branch_last = b1 if b0_is_bypass else b0
@@ -100,7 +106,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
             comp_branch_last = registry.getCustomOp(comp_branch_last)
             comp_branch_first = registry.getCustomOp(comp_branch_first)
             # for DuplicateStreams, use comp_branch_first's input characterization
-            # for AddStreams, use comp_branch_last's output characterization
+            # for ElementwiseAdd, use comp_branch_last's output characterization
             period = comp_branch_first.get_nodeattr("io_chrc_period")
             comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[: 2 * period]
             comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[2 * period :]
