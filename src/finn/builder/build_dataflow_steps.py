@@ -467,7 +467,10 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Convolution-related transformations
     model = apply_if_relevant(
-        model, ["MaxPool", "AveragePool", "MaxPoolNHWC"], to_hw.InferPool(), "pooling layers"
+        model,
+        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
+        to_hw.InferPool(),
+        "pooling layers",
     )
     model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
     # If ConvInpGen derived, run remove cnv to fc flatten transform
