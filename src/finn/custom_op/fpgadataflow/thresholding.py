@@ -152,6 +152,12 @@ class Thresholding(HWCustomOp):
                     tdt = DataType.get_smallest_possible(-max_threshold - 1)
                 else:
                     tdt = DataType.get_smallest_possible(max_threshold)
+
+            # Temp fix until addressed in RTL
+            # If threshold datatype is smaller than input datatype, use input datatype
+            idt = self.get_input_datatype(0)
+            if tdt.bitwidth() < idt.bitwidth():
+                tdt = idt
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)
