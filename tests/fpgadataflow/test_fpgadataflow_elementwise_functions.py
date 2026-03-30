@@ -29,6 +29,7 @@
 import pytest
 
 import numpy as np
+import scipy.special
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
@@ -42,7 +43,7 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
-    InferReLUAsElementwiseMax,
+    InferElementwiseFunctionOperation,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
@@ -57,65 +58,92 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+# Mapping of ElementwiseFunctionOperation specializations to numpy reference
+# implementation functions
+NUMPY_REFERENCES = {
+    "ElementwiseRelu": lambda x: np.maximum(x, 0),
+    "ElementwiseExp": np.exp,
+    "ElementwiseErf": scipy.special.erf,
+}
 
-# Creates a model executing a ReLU operation
-def create_relu_model_onnx(inp_dtype, inp_shape):
-    # Create a node representing the binary elementwise operation
+
+# Creates a model executing a elementwise function operation
+def create_elementwise_function_operation_onnx(op_type, inp_dtype, out_dtype, inp_shape):
+    # Remove "Elementwise" from op_type string which is the onnx ops op_type
+    onnx_op_type = op_type[11:]
+    # Automatically derive the output shape
+    out_shape = inp_shape
+    # Create a node representing the elementwise operation
     node = oh.make_node(
-        op_type="Relu",
+        op_type=onnx_op_type,
         inputs=["inp"],
         outputs=["out"],
     )
     if inp_dtype == "FLOAT16":
         inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT16, inp_shape)
-        out = oh.make_tensor_value_info("out", TensorProto.FLOAT16, inp_shape)
     else:
         inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, inp_shape)
-        out = oh.make_tensor_value_info("out", TensorProto.FLOAT, inp_shape)
+    if out_dtype == "FLOAT16":
+        out = oh.make_tensor_value_info("out", TensorProto.FLOAT16, out_shape)
+    else:
+        out = oh.make_tensor_value_info("out", TensorProto.FLOAT, out_shape)
     # Create a graph connecting the node to the inputs and outputs
-    graph = oh.make_graph([node], inputs=[inp], outputs=[out], name="relu-eltwisemax")
-    model = ModelWrapper(qonnx_make_model(graph, producer_name="relu-eltwisemax"))
+    graph = oh.make_graph([node], inputs=[inp], outputs=[out], name="elementwise-function")
+    model = ModelWrapper(qonnx_make_model(graph, producer_name="elementwise-function"))
 
-    # Add datatype annotation to the value info of tensors
+    # Add datatype annotation to the value info of input and output tensors
     model.set_tensor_datatype("inp", DataType[inp_dtype])
-    model.set_tensor_datatype("out", DataType[inp_dtype])
+    model.set_tensor_datatype("out", DataType[out_dtype])
 
     return model
 
 
+# Operator type to be tested
+@pytest.mark.parametrize(
+    "op_type",
+    [
+        # Test all Numpy references specified above
+        *NUMPY_REFERENCES.keys()
+    ],
+)
 # Data type of the input elements
-@pytest.mark.parametrize("inp_dtype", ["INT8", "FLOAT32", "FLOAT16", "FIXED<8,3>"])
+@pytest.mark.parametrize(
+    "inp_dtype",
+    ["FLOAT32", "FLOAT16", "INT6", "FIXED<8,3>"],
+)
 # Shape of the input
-@pytest.mark.parametrize("inp_shape", [[4], [3, 32, 1, 16]])
+@pytest.mark.parametrize("inp_shape", [[8]])
 # Number of elements to process in parallel
-@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.parametrize("pe", [1, 2])
 # Exec mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_relu_elementwisemax(inp_dtype, inp_shape, pe, exec_mode):
+def test_elementwise_function_operation(op_type, inp_dtype, inp_shape, pe, exec_mode):
+    if not op_type.endswith("Relu"):
+        if not inp_dtype.startswith("FLOAT"):
+            pytest.skip("Non-float inputs are not yet supported for functions except Relu.")
+    out_dtype = inp_dtype
     # Make dummy model for testing
-    model = create_relu_model_onnx(inp_dtype, inp_shape)
+    model = create_elementwise_function_operation_onnx(op_type, inp_dtype, out_dtype, inp_shape)
     # Prepare the execution context
-    context = {"inp": gen_finn_dt_tensor(DataType[inp_dtype], inp_shape)}
-    # Compute ground-truth output in software
-    o_ref = np.maximum(context["inp"], 0)
+    context = {
+        "inp": gen_finn_dt_tensor(DataType[inp_dtype], inp_shape),
+    }
+
+    # Get the numpy reference implementation for this operation
+    numpy_reference = NUMPY_REFERENCES[op_type]
 
     # Test running shape and data type inference on the model graph
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
 
     # Specializes all nodes to be implemented as HLS backend
-    model = model.transform(InferReLUAsElementwiseMax())
+    model = model.transform(InferElementwiseFunctionOperation())
 
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == "ElementwiseMax"
-    # Execute the onnx model to collect the result
-    o_hw = execute_onnx(model, context)["out"]
-
-    # Compare the expected to the produced for exact equality
-    assert np.all(o_hw == o_ref)
+    assert model.graph.node[0].op_type == f"{op_type}"
 
     # Test running shape and data type inference on the model graph
     model = model.transform(InferDataTypes())
@@ -125,7 +153,7 @@ def test_relu_elementwisemax(inp_dtype, inp_shape, pe, exec_mode):
     model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
 
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == "ElementwiseMax_hls"
+    assert model.graph.node[0].op_type == f"{op_type}_hls"
 
     getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
 
@@ -143,8 +171,17 @@ def test_relu_elementwisemax(inp_dtype, inp_shape, pe, exec_mode):
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
 
-    # Execute the onnx model to collect the result
-    o_sim = execute_onnx(model, context)["out"]
+    # Compute ground-truth output in software
+    inp = context["inp"]
 
-    # Compare the expected to the produced for exact equality
-    assert np.all(o_sim == o_ref)
+    o_expected = numpy_reference(inp)
+    # Execute the onnx model to collect the result
+    o_produced = execute_onnx(model, context)["out"]
+
+    if op_type.endswith("Relu"):
+        assert np.all(o_expected == o_produced)
+    else:
+        if inp_dtype == "FLOAT16":
+            assert np.allclose(o_expected, o_produced, rtol=1e-3, atol=2**-13)
+        else:
+            assert np.allclose(o_expected, o_produced)

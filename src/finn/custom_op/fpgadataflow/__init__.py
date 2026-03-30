@@ -52,6 +52,7 @@ def register_custom_op(cls):
 # Import the submodule containing specializations of ElementwiseBinaryOperation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
+import finn.custom_op.fpgadataflow.elementwise_functions
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
