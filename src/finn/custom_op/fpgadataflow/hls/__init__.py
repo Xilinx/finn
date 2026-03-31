@@ -29,10 +29,6 @@
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
-# Import all HLS custom ops - they will be discovered automatically via namespace
-import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls
-from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
-from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
 from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
@@ -40,6 +36,7 @@ from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStream
 
 # Also import ElementwiseBinary variants
 from finn.custom_op.fpgadataflow.hls.elementwise_binary_hls import (
+    ElementwiseAbsDiff_hls,
     ElementwiseAdd_hls,
     ElementwiseAnd_hls,
     ElementwiseBinaryOperation_hls,
@@ -71,7 +68,6 @@ from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
 )
-from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls

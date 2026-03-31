@@ -211,10 +211,10 @@ Constraints to folding factors per layer
    * - **Layers**
      - **Parameters**
      - **Constraints**
-   * - Addstreams
+   * - Addstreams (deprecated, use ElementwiseBinary)
      - PE
      - inp_channels % PE == 0
-   * - ChannelwiseOp
+   * - ChannelwiseOp (deprecated, use ElementwiseBinary)
      - PE
      - channels % PE == 0
    * - ConvolutionInputGenerator
@@ -223,7 +223,10 @@ Constraints to folding factors per layer
    * - DuplicateStreams
      - PE
      - channels % PE == 0
-   * - StreamingEltwise
+   * - ElementwiseBinary
+     - PE
+     - last_dim % PE == 0
+   * - StreamingEltwise (deprecated, use ElementwiseBinary)
      - PE
      - inp_channels % PE == 0
    * - FMPadding

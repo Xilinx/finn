@@ -30,9 +30,6 @@
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
-# Import all custom ops - they will be discovered automatically via namespace
-from finn.custom_op.fpgadataflow.addstreams import AddStreams
-from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -42,6 +39,7 @@ from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 
 # Also import ElementwiseBinary variants
 from finn.custom_op.fpgadataflow.elementwise_binary import (
+    ElementwiseAbsDiff,
     ElementwiseAdd,
     ElementwiseAnd,
     ElementwiseBinaryOperation,
@@ -78,7 +76,6 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
-from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
