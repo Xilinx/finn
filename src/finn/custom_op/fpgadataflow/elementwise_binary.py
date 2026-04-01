@@ -911,6 +911,25 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     def rtl_op(self) -> str:
         return None
 
+    # Override minimize_weight_bit_width to prevent type incompatibility
+    def minimize_weight_bit_width(self, model: ModelWrapper):
+        # For comparison operations like max/min, both operands must have
+        # compatible types. Don't minimize if one side is float and the
+        # minimized constant would become integer.
+        lhs_dtype = self.get_input_datatype(0)
+        rhs_dtype = self.get_input_datatype(1)
+
+        # If either side is float16/float32, keep both sides as-is
+        # to avoid comparison incompatibility (half vs ap_int)
+        if lhs_dtype.get_canonical_name() in [
+            "FLOAT16",
+            "FLOAT32",
+        ] or rhs_dtype.get_canonical_name() in ["FLOAT16", "FLOAT32"]:
+            # Skip minimization, keep datatypes as set by InferReLUAsElementwiseMax
+            return
+        # Otherwise, use the parent class minimization
+        super().minimize_weight_bit_width(model)
+
     def _derive_out_dtype(self, model: ModelWrapper):
         if self.lhs_dtype.get_canonical_name().startswith(
             "FLOAT"
