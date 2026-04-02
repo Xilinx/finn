@@ -161,6 +161,7 @@ def make_single_multithresholding_modelwrapper(
     [
         (DataType["INT8"], DataType["INT25"]),
         (DataType["UINT5"], DataType["UINT8"]),
+        (DataType["INT8"], DataType["INT7"]),
         (DataType["FLOAT32"], DataType["FLOAT32"]),
         (DataType["FLOAT16"], DataType["FLOAT16"]),
         (DataType["FIXED<6,2>"], DataType["FIXED<8,4>"]),
