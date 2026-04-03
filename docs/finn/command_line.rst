@@ -132,16 +132,16 @@ build configuration), and are detailed below.
 
   * ``report/ooc_synth_and_timing.json`` -- resources and achievable clock frequency from out-of-context synthesis
 
-* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado and/or Vitis to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
+* :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.BITFILE` will run Vivado (for Zynq), Vitis, or Slash to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
 
-  * ``bitfile/finn-accel.(bit|xclbin)`` -- generated bitfile depending on platform
+  * ``bitfile/finn-accel.(bit|xclbin|vbin)`` -- generated bitfile depending on platform
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.PYNQ_DRIVER` will generate a PYNQ Python driver that can be used to interface the generated accelerator:
 
-  * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Alveo platforms to launch the accelerator
+  * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Vitis Alveo platforms to launch the accelerator
 
 * :py:mod:`finn.builder.build_dataflow_config.DataflowOutputType.DEPLOYMENT_PACKAGE`:
 

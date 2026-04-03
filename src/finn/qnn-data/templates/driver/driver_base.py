@@ -63,7 +63,7 @@ class FINNExampleOverlay(Overlay):
         bitfile_name: str
             Path to accelerator .bit/.xclbin file
         platform: str
-            FINN platform type, either "alveo" or "zynq-iodma"
+            FINN platform type, either "vitis-xrt" or "zynq-iodma"
         io_shape_dict: dict
             Dictionary with particulars of the generated accelerator
         batch_size: int
@@ -96,11 +96,11 @@ class FINNExampleOverlay(Overlay):
         if "output_dma_name" in io_shape_dict.keys():
             for odma_name in io_shape_dict["output_dma_name"]:
                 self.odma.append(getattr(self, odma_name))
-                if self.platform == "alveo":
+                if self.platform == "vitis-xrt":
                     self.odma_handle.append(None)
         else:
             self.odma = [self.odma0]
-            if self.platform == "alveo":
+            if self.platform == "vitis-xrt":
                 self.odma_handle.append(None)
         if self.platform == "zynq-iodma":
             # set the clock frequency as specified by user during transformations
@@ -199,7 +199,7 @@ class FINNExampleOverlay(Overlay):
                 layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
-                    if self.platform == "alveo":
+                    if self.platform == "vitis-xrt":
                         # Pynq for Alveo uses tinynumpy under the hood. There is a bug when going
                         # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
                         # convert the tinynumpy.ndarray to a list and then copy the list to a
@@ -273,7 +273,7 @@ class FINNExampleOverlay(Overlay):
             self.ibuf_packed_device = None
         if self.obuf_packed_device is not None:
             self.obuf_packed_device = None
-        cacheable = {"alveo": False, "zynq-iodma": True}[self.platform]
+        cacheable = {"vitis-xrt": False, "zynq-iodma": True}[self.platform]
         self.ibuf_packed_device = []
         self.obuf_packed_device = []
         self.obuf_packed = []
@@ -375,7 +375,7 @@ class FINNExampleOverlay(Overlay):
                 )
                 self.idma[i].write(0x1C, batch_size)
                 self.idma[i].write(0x00, 1)
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             for o in range(self.num_outputs):
                 assert self.odma_handle[o] is None, "Output DMA %d is already running" % o
             for i in range(self.num_inputs):
@@ -398,7 +398,7 @@ class FINNExampleOverlay(Overlay):
                 status = self.odma[o].read(0x00)
                 while status & 0x2 == 0:
                     status = self.odma[o].read(0x00)
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             assert all([x is not None for x in self.odma_handle]), "No odma_handle to wait on"
             for o in range(self.num_outputs):
                 self.odma_handle[o].wait()
@@ -455,7 +455,7 @@ class FINNExampleOverlay(Overlay):
             )
         if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
-        elif self.platform == "alveo":
+        elif self.platform == "vitis-xrt":
             res["fclk[mhz]"] = self.clock_dict["clock0"]["frequency"]
         res["batch_size"] = self.batch_size
         # also benchmark driver-related overheads
