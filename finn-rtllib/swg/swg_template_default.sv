@@ -112,12 +112,20 @@ module $TOP_MODULE_NAME$_impl #(
     // Add a sign bit even to (most) unsigned counters and Window_buffer_read_addr_reg,
     // so we can use automatic sign extension and simplify calculations w/ signed increment.
     // Alternatively, we could manually sign-extend and shave off a bit here or there.
-    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
+
+    //                                                                                          v ReadingLast     v ReadingDone
+    logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1; // -1, 0, 1, ..., LAST_READ_ELEM-1, LAST_READ_ELEM
+    logic  ReadingLast = LAST_READ_ELEM == 0;
+    logic  ReadingDone = 0;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
-    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
-    logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
+
+    //                                                               v PositionZero
+    logic [$clog2(ELEM_PER_WINDOW)-1:0]  Position_in_window = 0;  // 0, 1, ..., ELEM_PER_WINDOW-1
+    logic  PositionZero = 1;
+
+    logic [$clog2(BUF_ELEM_TOTAL)+1-1:0]  Window_buffer_read_addr_reg = 0;
+    logic [$clog2(BUF_ELEM_TOTAL)  -1:0]  Window_buffer_write_addr_reg = 0;
 
     // Control signals/registers
     logic  Write_cmd    = 0;
@@ -128,9 +136,8 @@ module $TOP_MODULE_NAME$_impl #(
     logic  Fetching_done = 0;
     uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
 
-    uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
     uwire  read_cmd =
-        !reading_done && ( // if there is still an input element left to read
+        !ReadingDone && ( // if there is still an input element left to read
             Fetching_done || ( // if fetching is done (e.g. for skipped rows at FM end due to stride)
                 $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(First_elem_next_window) &&
                 $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(Current_elem)
@@ -155,9 +162,15 @@ module $TOP_MODULE_NAME$_impl #(
     always_ff @(posedge ap_clk) begin
         if(!ap_rst_n) begin
             Newest_buffered_elem <= -1;
+            ReadingLast <= LAST_READ_ELEM == 0;
+            ReadingDone <= 0;
+
             Current_elem <= 0;
             First_elem_next_window <= 0;
+
             Position_in_window <= 0;
+            PositionZero <= 1;
+
             Window_buffer_read_addr_reg <= 0;
             Window_buffer_write_addr_reg <= 0;
             Fetching_done <= 0;
@@ -165,18 +178,22 @@ module $TOP_MODULE_NAME$_impl #(
             Writing_done <= 0;
         end
         else begin
-            if (read_ok) begin
-                Window_buffer_write_addr_reg <= (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)? 0 : Window_buffer_write_addr_reg + 1;
-                Newest_buffered_elem <= Newest_buffered_elem+1;
+            automatic logic  nbe_rst = 0;
+            automatic logic  nbe_inc = 0;
 
-                if (Newest_buffered_elem == LAST_READ_ELEM-1) begin
-                    Window_buffer_write_addr_reg <= 0;
-                end
-                //check if this is the last read cycle (reading_done will be true afterwards)
-                if ((Newest_buffered_elem == LAST_READ_ELEM-1) && Writing_done) begin
+            if (read_ok) begin
+                automatic logic  wa_rst = ReadingLast ||
+                    ((~Window_buffer_write_addr_reg & (BUF_ELEM_TOTAL-1)) == 0); // (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)
+                Window_buffer_write_addr_reg <= Window_buffer_write_addr_reg - (wa_rst? Window_buffer_write_addr_reg : -1);
+
+                nbe_inc = 1;
+
+                //check if this is the last read cycle (ReadingDone will be true afterwards)
+                if(ReadingLast && Writing_done) begin
                     //start processing of next FM if writing is done already (possible due to unused input elements at the tail end)
                     //todo: allow for read overlapping between feature maps (i.e., reading first elements from next FM while still writing last window of current FM)
-                    Newest_buffered_elem <= -1;
+                    nbe_rst = 1;
+
                     Current_elem <= 0;
                     Window_buffer_read_addr_reg <= 0;
                     First_elem_next_window <= 0;
@@ -186,6 +203,8 @@ module $TOP_MODULE_NAME$_impl #(
             end
 
             if (fetch_cmd) begin
+                automatic logic  wrap_position;
+
                 //count up to track which element index is about to be read from the buffer, and where it is located within the buffer
                 //use increment value calculated by controller
 
@@ -197,11 +216,12 @@ module $TOP_MODULE_NAME$_impl #(
                 Window_buffer_read_addr_reg <= ra + ra_correct;
 
                 //keep track where we are within a window
-                Position_in_window <= (Position_in_window != ELEM_PER_WINDOW - 1)? Position_in_window+1 : 0;
+                wrap_position = (~Position_in_window & (ELEM_PER_WINDOW - 1)) == 0;
+                Position_in_window <= Position_in_window + (wrap_position? -ELEM_PER_WINDOW+1 : 1);
+                PositionZero <= wrap_position;
 
                 //update first element of next window to allow buffer overwrite up until that point
-                if (Position_in_window == 0)
-                    First_elem_next_window <= First_elem_next_window + tail_incr;
+                First_elem_next_window <= First_elem_next_window + (PositionZero? tail_incr : 0);
 
                 //check if this is the last write cycle (Writing_done will be true afterwards)
                 if (Current_elem == LAST_WRITE_ELEM)
@@ -216,21 +236,29 @@ module $TOP_MODULE_NAME$_impl #(
                 Write_cmd <= fetch_cmd;
             end
 
-            if (write_ok)
+            if(write_ok) begin
                 Write_cmd <= fetch_cmd;
 
-            if (write_ok && Fetching_done) begin
-                //check if this is the last write cycle (Writing_done will be true afterwards)
-                if (reading_done || (read_ok && (Newest_buffered_elem == LAST_READ_ELEM - 1))) begin
-                    //start processing of next FM if reading is done already, or completes in the same cycle
-                    Newest_buffered_elem <= -1;
-                    Current_elem <= 0;
-                    Window_buffer_read_addr_reg <= 0;
-                    First_elem_next_window <= 0;
-                    Fetching_done <= 0;
-                end else
-                    Writing_done <= 1;
+                if(Fetching_done) begin
+                    //check if this is the last write cycle (Writing_done will be true afterwards)
+                    if(ReadingDone || (read_ok && ReadingLast)) begin
+                        //start processing of next FM if reading is done already, or completes in the same cycle
+                        nbe_rst = 1;
+
+                        Current_elem <= 0;
+                        Window_buffer_read_addr_reg <= 0;
+                        First_elem_next_window <= 0;
+                        Fetching_done <= 0;
+                    end
+                    else  Writing_done <= 1;
+                end
             end
+
+            Newest_buffered_elem <= Newest_buffered_elem + (nbe_rst? ~Newest_buffered_elem : nbe_inc);
+            ReadingLast <= nbe_rst? LAST_READ_ELEM == 0 : !nbe_inc? ReadingLast :
+                            // Newest_buffered_elem == LAST_READ_ELEM-1 in the next cycle knowing we only get there by increments
+                            ((~Newest_buffered_elem & (LAST_READ_ELEM-2)) == 0) && !ReadingLast && !Newest_buffered_elem[$left(Newest_buffered_elem)];
+            ReadingDone <= nbe_rst?                   0 : !nbe_inc? ReadingDone : ReadingLast;
         end
     end
 
