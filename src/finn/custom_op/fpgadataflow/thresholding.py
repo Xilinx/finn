@@ -141,7 +141,14 @@ class Thresholding(HWCustomOp):
             max_threshold = np.float64(thresholds.max())
             # Check if input datatype is signed
             input_is_signed = self.get_input_datatype(0).signed()
-            if min_threshold < 0:
+            # Special case: all thresholds are zero
+            # get_smallest_possible(-1) returns BIPOLAR which can't represent 0
+            if min_threshold == max_threshold == 0:
+                if input_is_signed:
+                    tdt = DataType["INT2"]
+                else:
+                    tdt = DataType["UINT1"]
+            elif min_threshold < 0:
                 if abs(min_threshold) > max_threshold:
                     tdt = DataType.get_smallest_possible(min_threshold)
                 else:
