@@ -77,13 +77,11 @@ def generate_edge_threshold_values(
     dt_max = data_type.max()
 
     # Replace first and last threshold per channel with min and max
-    for ch in range(num_input_channels):
-        if num_steps >= 2:
+    # if num_steps >=2
+    if num_steps >= 2:
+        for ch in range(num_input_channels):
             thresholds[ch, 0] = dt_min
             thresholds[ch, -1] = dt_max
-        elif num_steps == 1:
-            # Single threshold: randomly choose min or max
-            thresholds[ch, 0] = dt_min if np.random.random() < 0.5 else dt_max
 
     return thresholds.astype(np.float32)
 
