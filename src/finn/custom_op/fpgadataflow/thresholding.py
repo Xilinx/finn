@@ -125,9 +125,15 @@ class Thresholding(HWCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def minimize_weight_bit_width(self, model):
-        """Minimize threshold datatype bitwidth based on actual threshold values"
+        """Minimize threshold datatype bitwidth based on actual threshold values.
         This function should not round or clip the threshold values,
-        that is done in RoundAndClipThresholds."""
+        that is done in RoundAndClipThresholds.
+
+        Note: If the threshold datatype ends up smaller than the input datatype,
+        the RTL implementation will saturate inputs to the threshold datatype range.
+        To ensure correct comparisons, the threshold datatype must be able to represent
+        [min_threshold - 1 : max_threshold] so saturated inputs don't incorrectly
+        match boundary thresholds."""
 
         thresholds = model.get_initializer(self.onnx_node.input[1])
         if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
@@ -141,6 +147,9 @@ class Thresholding(HWCustomOp):
             max_threshold = np.float64(thresholds.max())
             # Check if input datatype is signed
             input_is_signed = self.get_input_datatype(0).signed()
+            input_bitwidth = self.get_input_datatype(0).bitwidth()
+
+            # First, compute the smallest datatype that can represent the thresholds
             if min_threshold < 0:
                 if abs(min_threshold) > max_threshold:
                     tdt = DataType.get_smallest_possible(min_threshold)
@@ -152,6 +161,23 @@ class Thresholding(HWCustomOp):
                     tdt = DataType.get_smallest_possible(-max_threshold - 1)
                 else:
                     tdt = DataType.get_smallest_possible(max_threshold)
+
+            # If threshold datatype is smaller than input datatype, we need to ensure
+            # it can represent [min_threshold - 1 : max_threshold] to handle RTL
+            # saturation correctly when inputs are outside threshold range
+            if tdt.bitwidth() < input_bitwidth:
+                min_required = min_threshold - 1
+                max_required = max_threshold
+                if min_required < 0:
+                    if abs(min_required) > max_required:
+                        tdt = DataType.get_smallest_possible(min_required)
+                    else:
+                        tdt = DataType.get_smallest_possible(-max_required - 1)
+                else:
+                    if input_is_signed:
+                        tdt = DataType.get_smallest_possible(-max_required - 1)
+                    else:
+                        tdt = DataType.get_smallest_possible(max_required)
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)

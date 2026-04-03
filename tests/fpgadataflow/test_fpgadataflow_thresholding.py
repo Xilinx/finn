@@ -45,6 +45,9 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -304,6 +307,7 @@ def test_fpgadataflow_thresholding(
     inst.set_nodeattr("PE", pe)
     if round_thresh is True:
         model = model.transform(RoundAndClipThresholds())
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
 
     if impl_style == "hls":
@@ -410,6 +414,7 @@ def test_fpgadataflow_thresholding_stitched_ip(
     inst.set_nodeattr("mem_mode", "internal_decoupled")
     inst.set_nodeattr("ram_style", ram_style)
 
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
     # Run stitched-ip RTLsim to have memstream in the test loop
     model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
