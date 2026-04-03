@@ -1,5 +1,5 @@
 # Copyright (C) 2020-2022, Xilinx, Inc.
-# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2022-2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -57,6 +57,7 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
 from finn.custom_op.fpgadataflow.crop import Crop
+from finn.custom_op.fpgadataflow.deconvolution import Deconvolution
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
@@ -91,6 +92,7 @@ custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
+custom_op["Deconvolution"] = Deconvolution
 custom_op["Crop"] = Crop
 custom_op["DuplicateStreams"] = DuplicateStreams
 custom_op["FMPadding"] = FMPadding
