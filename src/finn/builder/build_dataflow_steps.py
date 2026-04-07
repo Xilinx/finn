@@ -224,10 +224,19 @@ def verify_step(
             np.save(verification_output_fn, out_npy)
 
         if cfg.verify_save_rtlsim_waveforms:
+            # Handle model-level waveform (stitched IP rtlsim)
             wdb_path = model.get_metadata_prop("rtlsim_trace")
             if wdb_path is not None and os.path.isfile(wdb_path):
                 new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
                 shutil.move(wdb_path, new_wdb_path)
+            # Handle node-level waveforms (only for node-by-node rtlsim)
+            if step_name == "node_by_node_rtlsim":
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_wdb_path = node_inst.get_nodeattr("rtlsim_trace")
+                    if node_wdb_path is not None and os.path.isfile(node_wdb_path):
+                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % b)
+                        shutil.move(node_wdb_path, new_node_wdb_path)
 
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
@@ -458,7 +467,10 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Convolution-related transformations
     model = apply_if_relevant(
-        model, ["MaxPool", "AveragePool", "MaxPoolNHWC"], to_hw.InferPool(), "pooling layers"
+        model,
+        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
+        to_hw.InferPool(),
+        "pooling layers",
     )
     model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
     # If ConvInpGen derived, run remove cnv to fc flatten transform
@@ -467,7 +479,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Streaming operations
-    model = apply_if_relevant(model, ["Add"], to_hw.InferAddStreamsLayer(), "add streams")
     model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
     model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
 
@@ -828,6 +839,15 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        if cfg.verify_save_rtlsim_waveforms:
+            verify_out_dir = cfg.output_dir + "/verification_output"
+            waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
+            os.makedirs(waveform_dir, exist_ok=True)
+            abspath = os.path.abspath(waveform_dir)
+            # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
+            for node in model.graph.node:
+                node_inst = getCustomOp(node)
+                node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
         model = model.transform(PrepareRTLSim())
         model = model.transform(SetExecMode("rtlsim"))
         verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
@@ -1007,8 +1027,9 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         )
         if cfg.verify_save_rtlsim_waveforms:
             verify_out_dir = cfg.output_dir + "/verification_output"
-            os.makedirs(verify_out_dir, exist_ok=True)
-            abspath = os.path.abspath(verify_out_dir)
+            waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+            os.makedirs(waveform_dir, exist_ok=True)
+            abspath = os.path.abspath(waveform_dir)
             verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
         if is_mlo(model):
             verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
