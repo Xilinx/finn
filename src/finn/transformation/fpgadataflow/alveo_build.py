@@ -497,6 +497,7 @@ class SlashLink(Transformation):
                 if node_mem_port == "":
                     mem_type = "HBM"
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                config.append(f"sp={instance_name}.m_axi_gmem0:{node_mem_port}")
 
             # connect streams
             if producer is not None:
