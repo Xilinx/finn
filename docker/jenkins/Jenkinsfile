@@ -1,19 +1,27 @@
 pipeline {
   agent none
+  options {
+    timeout(time: 72, unit: 'HOURS')
+  }
   parameters {
     booleanParam(name: 'fpgadataflow', defaultValue: false, description: 'Run fpgadataflow tests')
     booleanParam(name: 'sanity', defaultValue: true, description: 'Run sanity hardware and unit tests')
     booleanParam(name: 'end2end', defaultValue: false, description: 'Run end2end tests')
   }
   stages {
-    stage('Prune docker') {
+    stage('Build Docker Image') {
       agent {
         label 'finn-build'
+      }
+      environment {
+        FINN_DOCKER_PREBUILT = "0"
       }
       steps {
         script {
           // Prune old docker containers
           sh "docker system prune -a -f"
+          // Pre-build Docker image so parallel stages don't race on image creation
+          sh "./run-docker.sh echo 'Docker image build complete'"
         }
       }
     }
@@ -72,7 +80,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Multiple markers with pytest needs its own script
-                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_sanity_ut")
+                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}", "-n ${env.NUM_PYTEST_WORKERS} --dist worksteal --cov --cov-report=html:coverage_sanity_ut")
                 sh './run-docker.sh ./run-tests.sh'
 
                 // Stash the test results file(s)
