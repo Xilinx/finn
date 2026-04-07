@@ -14,14 +14,27 @@ pipeline {
         label 'finn-build'
       }
       environment {
+        // Override any DSL-level FINN_DOCKER_PREBUILT setting — this
+        // stage must always build so the image exists for test stages
         FINN_DOCKER_PREBUILT = "0"
       }
       steps {
         script {
           // Prune old docker containers
           sh "docker system prune -a -f"
-          // Pre-build Docker image so parallel stages don't race on image creation
+          // Build Docker image so parallel stages don't each rebuild it
           sh "./run-docker.sh echo 'Docker image build complete'"
+          // If FINN_DOCKER_SHARED_DIR is set, export the image so other
+          // agents can load it via run-docker.sh instead of rebuilding
+          if (env.FINN_DOCKER_SHARED_DIR) {
+            def dockerTag = sh(returnStdout: true, script: '''
+              XRT_DEB_VERSION="${XRT_DEB_VERSION:-xrt_202220.2.14.354_22.04-amd64-xrt}"
+              echo "xilinx/finn:$(git describe --always --tags --dirty).${XRT_DEB_VERSION}"
+            ''').trim()
+            sh "mkdir -p ${env.FINN_DOCKER_SHARED_DIR}"
+            sh "echo '${dockerTag}' > ${env.FINN_DOCKER_SHARED_DIR}/finn-docker-tag.txt"
+            sh "bash -c 'set -o pipefail; docker save \"${dockerTag}\" | gzip > ${env.FINN_DOCKER_SHARED_DIR}/finn-docker-image.tar.gz'"
+          }
         }
       }
     }
