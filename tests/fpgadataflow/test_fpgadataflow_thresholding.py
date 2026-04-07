@@ -83,7 +83,11 @@ def generate_edge_threshold_values(
             thresholds[ch, 0] = dt_min
             thresholds[ch, -1] = dt_max
 
-    return thresholds.astype(np.float32)
+    # For FLOAT16, preserve the dtype; otherwise convert to float32
+    if data_type == DataType["FLOAT16"]:
+        return thresholds.astype(np.float16)
+    else:
+        return thresholds.astype(np.float32)
 
 
 def generate_edge_input_tensor(data_type, shape):
@@ -110,7 +114,12 @@ def generate_edge_input_tensor(data_type, shape):
     # Shuffle to distribute edge cases throughout
     np.random.shuffle(flat_values)
 
-    return flat_values.reshape(shape)
+    reshaped = flat_values.reshape(shape)
+    # For FLOAT16, ensure the array is actually float16
+    if data_type == DataType["FLOAT16"]:
+        return reshaped.astype(np.float16)
+    else:
+        return reshaped
 
 
 def sort_thresholds_increasing(thresholds):
