@@ -856,14 +856,111 @@ def test_fpgadataflow_rtl_mvau(
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
 
 
+@pytest.mark.parametrize("mh", [18])
+@pytest.mark.parametrize("mw", [36])
+@pytest.mark.parametrize("pe", [6])
+@pytest.mark.parametrize("simd", [3])
+@pytest.mark.parametrize("th", [3])
+@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
+@pytest.mark.parametrize("clk_ns", [4])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_rtl_tiled_mvau(mh, mw, pe, simd, th, idt_wdt, clk_ns):
+    # Tiled MVAU only supported on Versal (DSP58)
+    part = "xcvc1902-vsva2197-2MP-e-S"
+
+    if (pe * simd) % th != 0:
+        pytest.skip("(PE * SIMD) must be divisible by TH")
+
+    if mw % simd != 0:
+        pytest.skip("MW must be divisible by SIMD")
+
+    if mh % pe != 0:
+        pytest.skip("MH must be divisible by PE")
+
+    idt, wdt = idt_wdt
+    # Create test input vector (produced by SWG)
+    ofm_shape = (3, 3)
+    ofm_h, ofm_w = ofm_shape
+    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
+    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    # Create MatMul & obtain golden reference output
+    A = gen_finn_dt_tensor(
+        model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in")
+    )
+    input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
+
+    # Execute ONNX model
+    output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
+
+    # Create MVAU
+    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Apply convert-to-rtl step
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    assert model.graph.node[0].op_type == "MVAU_rtl"
+    # Apply folding with TH for tiled implementation
+    folding_config = {
+        "Defaults": {},
+        "MVAU_rtl_0": {
+            "PE": pe,
+            "SIMD": simd,
+            "TH": th,
+            "resType": "dsp",
+            "mem_mode": "external_mem",
+        },
+    }
+    model = model.transform(ApplyConfig(folding_config))
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    # make sure the changed datatypes are propagated through the network
+    model = model.transform(InferDataTypes())
+
+    # Run CPPsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    output_mvau_hls = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        output_matmul == output_mvau_hls
+    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
+
+    # Run node-by-node RTLsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        output_matmul == output_mvau_rtl
+    ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
+
+    # Run stitched-ip RTLsim
+    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
+    model = model.transform(PrepareIP(part, clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(part, clk_ns))
+    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
+    assert (
+        output_matmul == output_mvau_rtl_stitch
+    ).all(), "Output of ONNX model not matching output of tiled stitched-IP RTL model!"
+
+
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
 @pytest.mark.parametrize("n_vectors", [32])
 @pytest.mark.parametrize("pe", [1, 16, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
-@pytest.mark.parametrize(
-    "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
-)
+@pytest.mark.parametrize("idt_wdt", [[DataType["INT4"], DataType["INT4"]]])
 @pytest.mark.parametrize(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
 )

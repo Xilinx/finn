@@ -95,6 +95,7 @@ class CreateStitchedIP(Transformation):
         self.vitis = vitis
         self.signature = signature
         self.has_aximm = False
+        self.aximm_weight_files = {}
         self.aximm_idx = 0
         self.has_m_axis = False
         self.m_axis_idx = 0
@@ -186,94 +187,51 @@ class CreateStitchedIP(Transformation):
             )
             self.intf_names["axilite"].append(ext_if_name)
 
-        if not node_inst.get_nodeattr("mlo_max_iter"):
-            if node.op_type == "FINNLoop":
-                for mm_intf_name in aximm_intf_name:
-                    self.connect_cmds.append(
-                        "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                        % (inst_name, mm_intf_name[0])
-                    )
-                    self.connect_cmds.append(
-                        "set_property name %s [get_bd_intf_ports %s_0]"
-                        % (mm_intf_name[0], mm_intf_name[0])
-                    )
-                    self.connect_cmds.append("assign_bd_address")
-
-                    if mm_intf_name[0] == "m_axi_hbm":
-                        seg_name = "%s/%s/SEG_%s_Reg" % (
-                            inst_name,
-                            mm_intf_name[0],
-                            mm_intf_name[0],
-                        )
-                    else:
-                        seg_name = "%s/%s/SEG_%s_Reg" % (
-                            inst_name,
-                            mm_intf_name[0],
-                            mm_intf_name[0],
-                        )
-                    self.connect_cmds.append(
-                        "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
-                    )
-                    # TODO should propagate this information from the node instead of 256M
-                    self.connect_cmds.append(
-                        "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
-                    )
-                    self.intf_names["aximm"].append((mm_intf_name[0], mm_intf_name[1]))
-                    self.has_aximm = True
-                    self.aximm_idx += 1
-
-            elif len(aximm_intf_name) != 0:
-                self.connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                    % (inst_name, aximm_intf_name[0][0])
-                )
-                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
-                self.connect_cmds.append(
-                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
-                )
-                self.connect_cmds.append("assign_bd_address")
-                seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
-                self.connect_cmds.append(
-                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
-                )
-                # TODO should propagate this information from the node instead of 4G
-                self.connect_cmds.append(
-                    "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
-                )
-                self.intf_names["aximm"].append((ext_if_name, aximm_intf_name[0][1]))
-                self.has_aximm = True
-                self.aximm_idx += 1
-        else:
+        is_mlo = node_inst.get_nodeattr("mlo_max_iter")
+        if is_mlo:
             self.is_mlo = True
-            for mm_intf_name in aximm_intf_name:
+
+        for mm_intf_name in aximm_intf_name:
+            self.connect_cmds.append(
+                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, mm_intf_name[0])
+            )
+
+            # Determine external interface name and address segment path
+            if node.op_type == "FINNLoop":
+                ext_if_name = mm_intf_name[0]
                 self.connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                    % (inst_name, mm_intf_name[0])
+                    "set_property name %s [get_bd_intf_ports %s_0]" % (ext_if_name, ext_if_name)
                 )
-                # ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
-                # ext_if_name = f"m_axi_{inst_name}"
-                idx = inputs.index(node.input[1])
-                ext_if_name = f"m_axi_MVAU_id_{idx}"
+                seg_name = "%s/%s/SEG_%s_Reg" % (inst_name, ext_if_name, ext_if_name)
+            else:
+                # Derive a unique name from graph input index or instance name
+                if node.input[1] in inputs:
+                    idx = inputs.index(node.input[1])
+                    ext_if_name = f"m_axi_MVAU_id_{idx}"
+                else:
+                    ext_if_name = f"m_axi_{inst_name}_{self.aximm_idx}"
                 self.connect_cmds.append(
                     "set_property name %s [get_bd_intf_ports axi_mm_0]" % (ext_if_name)
                 )
-                self.connect_cmds.append("assign_bd_address")
-
                 seg_name = "%s/%s_fetch_weights/axi_mm/SEG_%s_Reg" % (
                     inst_name,
                     inst_name,
                     ext_if_name,
                 )
-                self.connect_cmds.append(
-                    "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
-                )
-                # TODO should propagate this information from the node instead of 256M
-                self.connect_cmds.append(
-                    "set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name)
-                )
-                self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
-                self.has_aximm = True
-                self.aximm_idx += 1
+
+            self.connect_cmds.append("assign_bd_address")
+            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
+            # TODO should propagate this information from the node instead of 256M
+            self.connect_cmds.append("set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name))
+            self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
+            # Track weight data files for AXI-MM simulation
+            if not node.op_type == "FINNLoop":
+                code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
+                npy_path = os.path.join(code_gen_dir, "input_1.npy")
+                if os.path.isfile(npy_path):
+                    self.aximm_weight_files[ext_if_name] = npy_path
+            self.has_aximm = True
+            self.aximm_idx += 1
 
     def connect_m_axis_external(self, node, idx=None):
         inst_name = node.name
@@ -536,6 +494,10 @@ class CreateStitchedIP(Transformation):
         block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
         model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
         model.set_metadata_prop("vivado_stitch_ifnames", json.dumps(self.intf_names))
+        if self.aximm_weight_files:
+            model.set_metadata_prop(
+                "vivado_stitch_aximm_weights", json.dumps(self.aximm_weight_files)
+            )
         tcl.append(
             (
                 "ipx::package_project -root_dir %s/ip -vendor %s "

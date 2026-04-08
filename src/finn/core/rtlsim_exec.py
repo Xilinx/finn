@@ -358,6 +358,24 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
 
     # reset and call rtlsim, including any pre/post hooks
     finnxsi.reset_rtlsim(sim)
+
+    # automatically load AXI-MM weight images for external_mem nodes
+    aximm_weights_json = model.get_metadata_prop("vivado_stitch_aximm_weights")
+    if aximm_weights_json is not None:
+        import json
+
+        aximm_weights = json.loads(aximm_weights_json)
+        for aximm_name, npy_path in aximm_weights.items():
+            weight_npy = np.load(npy_path)
+            # Pack weight values (int8 etc.) into a flat byte array for AXI-MM
+            # Each element is one weight; pack them LSB-first per line
+            weight_bytes = []
+            for line in weight_npy.reshape(-1, weight_npy.shape[-1]):
+                for val in line:
+                    weight_bytes.append(int(val) & 0xFF)
+            weight_data = np.array(weight_bytes, dtype=np.uint8)
+            sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
+
     if pre_hook is not None:
         pre_hook(sim)
     n_cycles = finnxsi.rtlsim_multi_io(
