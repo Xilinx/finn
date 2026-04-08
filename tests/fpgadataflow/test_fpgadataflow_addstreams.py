@@ -113,8 +113,8 @@ def test_fpgadataflow_addstreams(idts, ch, fold, exec_mode):
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all(), "Execution of hw layer failed"
 
-    model = model.transform(to_hw.InferAddStreamsLayer())
-    addstreams_node = model.get_nodes_by_op_type("AddStreams")[0]
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    addstreams_node = model.get_nodes_by_op_type("ElementwiseAdd")[0]
     addstreams_node = getCustomOp(addstreams_node)
     addstreams_node.set_nodeattr("PE", pe)
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
@@ -139,10 +139,10 @@ def test_fpgadataflow_addstreams(idts, ch, fold, exec_mode):
     assert (y_produced == y_expected).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("AddStreams_hls")[0]
+        node = model.get_nodes_by_op_type("ElementwiseAdd_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0

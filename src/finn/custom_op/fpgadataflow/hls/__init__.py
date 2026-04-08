@@ -53,8 +53,6 @@ def register_custom_op(cls):
 # Import the submodule containing specializations of ElementwiseBinaryOperation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls
-from finn.custom_op.fpgadataflow.hls.addstreams_hls import AddStreams_hls
-from finn.custom_op.fpgadataflow.hls.channelwise_op_hls import ChannelwiseOp_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
 from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
@@ -73,7 +71,6 @@ from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,
 )
-from finn.custom_op.fpgadataflow.hls.streamingeltwise_hls import StreamingEltwise_hls
 from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
@@ -81,8 +78,6 @@ from finn.custom_op.fpgadataflow.hls.vectorvectoractivation_hls import VVAU_hls
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
-custom_op["AddStreams_hls"] = AddStreams_hls
-custom_op["ChannelwiseOp_hls"] = ChannelwiseOp_hls
 custom_op["CheckSum_hls"] = CheckSum_hls
 custom_op["Crop_hls"] = Crop_hls
 custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
@@ -95,7 +90,6 @@ custom_op["Lookup_hls"] = Lookup_hls
 custom_op["Pool_hls"] = Pool_hls
 custom_op["StreamingConcat_hls"] = StreamingConcat_hls
 custom_op["StreamingSplit_hls"] = StreamingSplit_hls
-custom_op["StreamingEltwise_hls"] = StreamingEltwise_hls
 custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
 custom_op["Thresholding_hls"] = Thresholding_hls
 custom_op["TLastMarker_hls"] = TLastMarker_hls

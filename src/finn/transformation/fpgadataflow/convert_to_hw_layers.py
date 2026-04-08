@@ -340,88 +340,27 @@ class InferUpsample(Transformation):
 
 
 class InferAddStreamsLayer(Transformation):
-    """Convert any Add into a AddStreams HW layer."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
+
+    AddStreams functionality is now covered by ElementwiseAdd operations
+    (with both inputs as streaming). This wrapper is kept for backward compatibility.
+
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "Add":
-                in0 = node.input[0]
-                in1 = node.input[1]
-                result = node.output[0]
-                in0_shape = model.get_tensor_shape(in0)
-                in1_shape = model.get_tensor_shape(in1)
-                in0_static = not (model.get_initializer(in0) is None)
-                in1_static = not (model.get_initializer(in1) is None)
-
-                # skip if different shapes on inputs
-                if in0_shape != in1_shape:
-                    continue
-                # skip if any of inputs have initializers
-                # (this node is meant for adding two dynamic streams)
-                if in0_static or in1_static:
-                    continue
-
-                idt0 = model.get_tensor_datatype(in0)
-                idt1 = model.get_tensor_datatype(in1)
-
-                # skip conversion for layers with float input
-                if not idt0.is_integer() or not idt1.is_integer():
-                    continue
-
-                # check layout and convert if necessary
-                in0_layout = model.get_tensor_layout(in0)
-                in1_layout = model.get_tensor_layout(in1)
-                result_layout = model.get_tensor_layout(result)
-
-                if in0_layout == DataLayout.NCHW:
-                    in0 = nchw_to_nhwc(in0, model, node_ind)
-                    node_ind += 1
-                    in0_shape = model.get_tensor_shape(in0)
-
-                if in1_layout == DataLayout.NCHW:
-                    in1 = nchw_to_nhwc(in1, model, node_ind)
-                    node_ind += 1
-                    in1_shape = model.get_tensor_shape(in1)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-
-                if result_layout == DataLayout.NCHW:
-                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # now safe to assume num_channels is size of last dimension
-                num_channels = int(in0_shape[-1])
-                # create node with no parallelization first
-                pe = 1
-
-                # create and insert new AddStreams node
-                new_node = helper.make_node(
-                    "AddStreams",
-                    [in0, in1],
-                    [result],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_channels,
-                    PE=pe,
-                    inputDataTypes=[idt0.name, idt1.name],
-                    numInputVectors=in0_shape[:-1],
-                    name="AddStreams_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old node
-                graph.node.remove(node)
-                graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+        warnings.warn(
+            "InferAddStreamsLayer is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "AddStreams is being replaced by ElementwiseAdd operations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferDuplicateStreamsLayer(Transformation):
@@ -571,157 +510,27 @@ class InferDuplicateStreamsLayer(Transformation):
 
 
 class InferChannelwiseLinearLayer(Transformation):
-    """Convert any channel-wise Add/Mul into a HW layer."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
 
-    def get_smallest_possible(self, vals):
-        """Returns smallest (fewest bits) possible DataType that can represent
-        value. Prefers unsigned integers where possible."""
-        vals = np.array(vals, dtype=np.float64)
-        for v in vals:
-            assert int(v) == v, "Error float value"
+    ChannelwiseOp functionality is now covered by ElementwiseBinary operations
+    (Add/Mul with const mode). This wrapper is kept for backward compatibility.
 
-        for k in DataType.get_accumulator_dt_cands():
-            dt = DataType[k]
-
-            if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
-                # not currently supported
-                continue
-
-            if (dt.min() <= vals).all() and (vals <= dt.max()).all():
-                return dt
-
-        warnings.warn(
-            """InferChannelwiseLinearLayer: Output values may not be
-        representable with supported data types.
-        Setting maximum width data type available.
-        This will lead to errors if there are no constrains on the input
-        """
-        )
-
-        if (0 <= vals).all():
-            return DataType["UINT64"]
-        else:
-            return DataType["INT64"]
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "Add" or node.op_type == "Mul":
-                # assuming input[0] is dynamic
-                ll_input = node.input[0]
-                ll_output = node.output[0]
-                ll_in_shape = model.get_tensor_shape(ll_input)
-
-                # check if input 1 has an initializer
-                ll_const = node.input[1]
-                if ll_const is not None:
-                    ll_cinit = model.get_initializer(ll_const)
-                    if ll_cinit is None:
-                        # input 1 is also dynamic
-                        continue
-                else:
-                    continue
-
-                # get number of channels and channel index from input
-                ll_in_layout = model.get_tensor_layout(ll_input)
-                if ll_in_layout == DataLayout.NHWC or ll_in_layout == DataLayout.NC:
-                    ch_index = -1
-                    ch = ll_in_shape[-1]
-                elif ll_in_layout == DataLayout.NCHW:
-                    ch_index = 1
-                    ch = ll_in_shape[1]
-                else:
-                    continue
-
-                # check if the shape of initializer is compatible
-                ll_cinit_shape = list(ll_cinit.shape)
-                if np.prod(ll_cinit_shape) == 1:
-                    warnings.warn("Broadcasting " + str(node.op_type) + "(" + node.name + ")")
-                    ll_cinit = np.full((ch), ll_cinit.flatten()[0])
-                elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
-                    # parameter shape not compatible with Channelwise
-                    continue
-
-                # check initializer contains integers as floats
-                if not (ll_cinit.astype(np.int32) == ll_cinit).all():
-                    continue
-                # all initializer conditions are met
-
-                # check inputs
-                idt = model.get_tensor_datatype(ll_input)
-                if not idt.is_integer():
-                    # skip conversion for layers with float input
-                    continue
-
-                # check layout of inputs/outputs, and convert if needed
-                # check layout and convert if necessary
-                if ll_in_layout == DataLayout.NCHW:
-                    ll_input = nchw_to_nhwc(ll_input, model, node_ind)
-                    node_ind += 1
-                    ll_in_shape = model.get_tensor_shape(ll_input)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-                ll_output_layout = model.get_tensor_layout(ll_output)
-                if ll_output_layout == DataLayout.NCHW:
-                    ll_output = nchw_to_nhwc(ll_output, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # get parameter data type
-                param_min = min(ll_cinit.flatten())
-                param_max = max(ll_cinit.flatten())
-                pdt = self.get_smallest_possible([param_min, param_max])
-
-                # set function and determine output data type
-                if node.op_type == "Add":
-                    func = "add"
-                    out_min = idt.min() + param_min
-                    out_max = idt.max() + param_max
-                    odt = self.get_smallest_possible([out_min, out_max])
-                elif node.op_type == "Mul":
-                    func = "mul"
-                    possible_limits = []
-                    possible_limits += [idt.min() * param_min]
-                    possible_limits += [idt.min() * param_max]
-                    possible_limits += [idt.max() * param_min]
-                    possible_limits += [idt.max() * param_max]
-                    odt = self.get_smallest_possible(possible_limits)
-
-                model.set_initializer(ll_const, ll_cinit.reshape(ch))
-                model.set_tensor_datatype(ll_output, odt)
-
-                # create node with no parallelization first
-                pe = 1
-                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
-                # create and insert node
-                new_node = helper.make_node(
-                    "ChannelwiseOp",
-                    [ll_input, ll_const],
-                    [ll_output],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    Func=func,
-                    NumChannels=ch,
-                    PE=pe,
-                    inputDataType=idt.name,
-                    paramDataType=pdt.name,
-                    outputDataType=odt.name,
-                    numInputVectors=list(ll_in_shape[:-1]),
-                    name="ChannelwiseOp_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old node
-                graph.node.remove(node)
-                graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
+        warnings.warn(
+            "InferChannelwiseLinearLayer is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "ChannelwiseOp is being replaced by ElementwiseBinary operations.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferLabelSelectLayer(Transformation):
@@ -1247,99 +1056,28 @@ class InferSplitLayer(Transformation):
 
 
 class InferStreamingEltwise(Transformation):
-    """Convert eltwise Add, Sub or Sub -> Abs to StreamingEltwise layer
-    with AddEltwise, SubEltwise or AbsDiffEltwise op."""
+    """
+    DEPRECATED: This transformation is deprecated and now redirects to
+    InferElementwiseBinaryOperation.
+
+    StreamingEltwise functionality is now covered by ElementwiseSub and
+    ElementwiseAbsDiff operations (with both inputs as streaming).
+    This wrapper is kept for backward compatibility.
+
+    The ElementwiseBinary operations provide the same functionality with additional
+    features like broadcasting support and more operation types.
+    """
 
     def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type in ["Sub", "Add"]:
-                in0 = node.input[0]
-                in1 = node.input[1]
-                result = node.output[0]
-                in0_shape = model.get_tensor_shape(in0)
-                in1_shape = model.get_tensor_shape(in1)
-                in0_static = not (model.get_initializer(in0) is None)
-                in1_static = not (model.get_initializer(in1) is None)
-
-                # skip if different shapes on inputs
-                if in0_shape != in1_shape:
-                    continue
-                # skip if any of inputs have initializers
-                # (this node is meant for two dynamic streams)
-                if in0_static or in1_static:
-                    continue
-
-                idt0 = model.get_tensor_datatype(in0)
-                idt1 = model.get_tensor_datatype(in1)
-
-                # skip conversion for layers with float input
-                if not (idt0.is_integer() and idt1.is_integer()):
-                    continue
-
-                eltwiseOp = node.op_type
-                nodes_to_remove = [node]
-                if node.op_type == "Sub":
-                    # look for a downstream Abs node
-                    res_consumer = model.find_consumer(result)
-                    if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
-                        eltwiseOp = "AbsDiff"
-                        result = res_consumer.output[0]
-                        nodes_to_remove.append(res_consumer)
-
-                # check layout and convert if necessary
-                in0_layout = model.get_tensor_layout(in0)
-                in1_layout = model.get_tensor_layout(in1)
-                result_layout = model.get_tensor_layout(result)
-
-                if in0_layout == DataLayout.NCHW:
-                    in0 = nchw_to_nhwc(in0, model, node_ind)
-                    node_ind += 1
-                    in0_shape = model.get_tensor_shape(in0)
-
-                if in1_layout == DataLayout.NCHW:
-                    in1 = nchw_to_nhwc(in1, model, node_ind)
-                    node_ind += 1
-                    in1_shape = model.get_tensor_shape(in1)
-
-                # keep track of where we need to insert the HW Op
-                # it has to be ahead of the output transform
-                insert_point = node_ind
-
-                if result_layout == DataLayout.NCHW:
-                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
-                    node_ind += 1
-
-                # now safe to assume num_channels is size of last dimension
-                num_channels = int(in0_shape[-1])
-                # create node with no parallelization first
-                pe = 1
-
-                # create and insert new Eltwise node
-                new_node = helper.make_node(
-                    "StreamingEltwise",
-                    [in0, in1],
-                    [result],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=num_channels,
-                    PE=pe,
-                    inputDataType0=idt0.name,
-                    inputDataType1=idt1.name,
-                    eltwiseOp=eltwiseOp,
-                    numInputVectors=in0_shape[:-1],
-                    name="StreamingEltwise_" + node.name,
-                )
-                graph.node.insert(insert_point, new_node)
-                # remove old nodes
-                for nd in nodes_to_remove:
-                    graph.node.remove(nd)
-                graph_modified = True
-
-        return (model, graph_modified)
+        warnings.warn(
+            "InferStreamingEltwise is deprecated. "
+            "Use InferElementwiseBinaryOperation instead. "
+            "StreamingEltwise is being replaced by ElementwiseSub/ElementwiseAbsDiff.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Delegate to the new transformation
+        return InferElementwiseBinaryOperation().apply(model)
 
 
 class InferBinaryMatrixVectorActivation(Transformation):
@@ -1798,14 +1536,23 @@ class InferHWSoftmax(Transformation):
         return (model, graph_modified)
 
 
+def skip_first_node_transpose(model, node):
+    """Default filter for InferShuffle: skip Transpose if it's the first node in the graph.
+    This is useful for image classification networks where the first transpose converts
+    NCHW to NHWC layout for data preprocessing."""
+    return node != model.graph.node[0]
+
+
 class InferShuffle(Transformation):
     """
     Find transpose layers with (optionally) reshape layers around them
     and convert them into a shuffle operator
     """
 
-    def __init__(self):
+    def __init__(self, _filter=skip_first_node_transpose):
         super().__init__()
+        # Register the filter function as attribute
+        self._filter = _filter
 
     def _is_streaming_ptranspose(self, perm, shape):
         """
@@ -1825,6 +1572,9 @@ class InferShuffle(Transformation):
         graph_modified = False
         for node_ind, n in enumerate(graph.node, start=1):
             if n.op_type == "Transpose":
+                # Apply filter function to decide whether to convert this node
+                if not self._filter(model, n):
+                    continue
                 to_remove = [n]
 
                 new_in_tensor = None
@@ -1985,6 +1735,14 @@ class InferElementwiseBinaryOperation(Transformation):
                     model.get_initializer(in0) is None or model.get_initializer(in1) is None
                 ), """Both inputs are constant,
                     please run FoldConstants from qonnx.transformation.fold_constants first."""
+                if model.get_initializer(in0) is None:
+                    lhs_style = "input"
+                else:
+                    lhs_style = "const"
+                if model.get_initializer(in1) is None:
+                    rhs_style = "input"
+                else:
+                    rhs_style = "const"
                 result = node.output[0]
 
                 # Need to "lift" potential scalar inputs to rank-1 tensors
@@ -1999,8 +1757,56 @@ class InferElementwiseBinaryOperation(Transformation):
                 idt1 = model.get_tensor_datatype(in1)
                 odt0 = model.get_tensor_datatype(result)
 
+                # For constant inputs with FLOAT32 type, check if values are
+                # actually integers and infer the smallest FINN datatype.
+                if lhs_style == "const":
+                    lhs_init = model.get_initializer(in0)
+                    if (
+                        idt0 == DataType["FLOAT32"]
+                        and (lhs_init == lhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = lhs_init.min(), lhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt0 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in0, idt0)
+
+                if rhs_style == "const":
+                    rhs_init = model.get_initializer(in1)
+                    if (
+                        idt1 == DataType["FLOAT32"]
+                        and (rhs_init == rhs_init.astype(np.int64)).all()
+                    ):
+                        # Values are integers, find smallest datatype
+                        _min, _max = rhs_init.min(), rhs_init.max()
+                        _mag = _max if _min >= 0 else _min if (abs(_min) > _max) else (-_max - 1)
+                        idt1 = DataType.get_smallest_possible(_mag)
+                        model.set_tensor_datatype(in1, idt1)
+
+                # If both inputs are integers, set output to INT32 as default.
+                # MinimizeAccumulatorWidth will optimize this later.
+                if idt0.is_integer() and idt1.is_integer():
+                    odt0 = DataType["INT32"]
+                    model.set_tensor_datatype(result, odt0)
+
+                # Determine the operation type - check for Sub->Abs pattern (AbsDiff)
+                op_type = node.op_type
+                nodes_to_remove = [node]
+                if node.op_type == "Sub":
+                    # Look for a downstream Abs node to fuse into AbsDiff
+                    res_consumer = model.find_consumer(result)
+                    if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
+                        op_type = "AbsDiff"
+                        result = res_consumer.output[0]
+                        out_shape = model.get_tensor_shape(result)
+                        # Update output datatype - AbsDiff result is unsigned
+                        if idt0.is_integer() and idt1.is_integer():
+                            odt0 = DataType["UINT32"]
+                            model.set_tensor_datatype(result, odt0)
+                        nodes_to_remove.append(res_consumer)
+
                 new_node = helper.make_node(
-                    f"Elementwise{node.op_type}",
+                    f"Elementwise{op_type}",
                     [in0, in1],
                     [result],
                     domain="finn.custom_op.fpgadataflow",
@@ -2011,9 +1817,12 @@ class InferElementwiseBinaryOperation(Transformation):
                     lhs_dtype=str(idt0),
                     rhs_dtype=str(idt1),
                     out_dtype=str(odt0),
+                    lhs_style=lhs_style,
+                    rhs_style=rhs_style,
                 )
                 graph.node.insert(index + 1, new_node)
-                graph.node.remove(node)
+                for n in nodes_to_remove:
+                    graph.node.remove(n)
 
                 # Consider the graph to be modified, triggering exhaustive
                 # re-application of this transformation
