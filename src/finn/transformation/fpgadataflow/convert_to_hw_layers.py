@@ -252,6 +252,195 @@ class InferThresholdingLayer(Transformation):
         return (model, graph_modified)
 
 
+def _check_uniform_thresholds(thresholds, rtol=1e-3):
+    """Check if thresholds have uniform (equal) step sizes per channel.
+
+    For requant conversion, thresholds must be uniform (equal step sizes)
+    within each channel. Different channels may have different step sizes.
+
+    Args:
+        thresholds: numpy array of shape (num_channels, num_thresholds)
+        rtol: relative tolerance for comparing step sizes
+
+    Returns:
+        tuple: (is_uniform, step_sizes, first_thresholds) where:
+            - is_uniform: True if all channels have uniform steps
+            - step_sizes: array of step size per channel
+            - first_thresholds: array of first threshold per channel
+    """
+    num_channels = thresholds.shape[0]
+    num_thresholds = thresholds.shape[1]
+
+    if num_thresholds < 2:
+        # Single threshold, trivially uniform with step=1
+        return True, np.ones(num_channels), thresholds[:, 0]
+
+    step_sizes = []
+    first_thresholds = []
+    is_uniform = True
+
+    for ch in range(num_channels):
+        ch_thresholds = np.sort(thresholds[ch])
+        diffs = np.diff(ch_thresholds)
+
+        if len(diffs) > 0:
+            step_size = diffs[0]
+            step_sizes.append(step_size)
+            first_thresholds.append(ch_thresholds[0])
+
+            # Check if all steps are equal (within tolerance)
+            if not np.allclose(diffs, step_size, rtol=rtol):
+                is_uniform = False
+        else:
+            step_sizes.append(1.0)
+            first_thresholds.append(ch_thresholds[0])
+
+    return is_uniform, np.array(step_sizes), np.array(first_thresholds)
+
+
+class InferRequantLayer(Transformation):
+    """Convert MultiThreshold nodes with uniform thresholds to Requant.
+
+    For MultiThreshold nodes where all channels have uniform (equal-step) thresholds,
+    the comparison-based threshold lookup can be replaced with a simpler
+    requantization operation:
+
+        output = clip(round(input * scale + bias), min, max)
+
+    where:
+        scale = 1.0 / step_size
+        bias = 0.5 - first_threshold / step_size
+
+    This transformation is optional and provides an alternative implementation
+    to InferThresholdingLayer. The Requant node can then be specialized to
+    either HLS or RTL backend.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MultiThreshold":
+                mt_input = node.input[0]
+                mt_threshold = node.input[1]
+                mt_output = node.output[0]
+                mt_in_shape = model.get_tensor_shape(mt_input)
+                mt_thres_shape = model.get_tensor_shape(mt_threshold)
+
+                idt = model.get_tensor_datatype(mt_input)
+                odt = model.get_tensor_datatype(mt_output)
+
+                # Only infer layers where input is integer, fixed-point, or float
+                idt_ok = (
+                    idt.is_integer()
+                    or idt.is_fixed_point()
+                    or idt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+                )
+                if not idt_ok:
+                    continue
+
+                # Get threshold values
+                thresholds = model.get_initializer(mt_threshold)
+                if thresholds is None:
+                    warnings.warn(
+                        f"{node.name}: Thresholds not found as initializer. "
+                        "Cannot infer RequantLayer."
+                    )
+                    continue
+
+                # Check if thresholds are uniform (per channel)
+                is_uniform, step_sizes, first_thresholds = _check_uniform_thresholds(thresholds)
+
+                if not is_uniform:
+                    # Thresholds are not uniform, cannot use requant
+                    continue
+
+                # Check MultiThreshold out_scale and out_bias
+                mt_inst = getCustomOp(node)
+                out_scale = mt_inst.get_nodeattr("out_scale")
+                out_bias = mt_inst.get_nodeattr("out_bias")
+
+                if out_scale != 1.0:
+                    warnings.warn(
+                        f"{node.name}: MultiThreshold out_scale must be 1 for "
+                        "RequantLayer conversion."
+                    )
+                    continue
+
+                # Compute requant scale and bias per channel
+                # For uniform thresholds: output = floor((input - T0) / step) + 1
+                # which is equivalent to: round(input * (1/step) + (0.5 - T0/step))
+                scales = 1.0 / step_sizes
+                biases = 0.5 - first_thresholds / step_sizes
+
+                # Adjust for out_bias (ActVal in Thresholding)
+                biases = biases + out_bias
+
+                # Determine narrow range from number of thresholds
+                # Full range: num_thresholds = 2^bitwidth - 1
+                # Narrow range: num_thresholds = 2^bitwidth - 2
+                num_thresholds = mt_thres_shape[1]
+                bitwidth = odt.bitwidth()
+                expected_full_range = 2**bitwidth - 1
+                narrow = 1 if num_thresholds < expected_full_range else 0
+
+                # Check layout and convert if necessary
+                mt_in_layout = model.get_tensor_layout(mt_input)
+                if mt_in_layout == DataLayout.NCHW:
+                    mt_input = nchw_to_nhwc(mt_input, model, node_ind)
+                    node_ind += 1
+                    mt_in_shape = model.get_tensor_shape(mt_input)
+
+                # Keep track of where we need to insert the HW Op
+                insert_point = node_ind
+                mt_output_layout = model.get_tensor_layout(mt_output)
+                if mt_output_layout == DataLayout.NCHW:
+                    mt_output = nchw_to_nhwc(mt_output, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # Now safe to assume number of channels is in last dimension
+                num_channels = int(mt_in_shape[-1])
+
+                # Create scale and bias tensors as initializers
+                scale_tensor = scales.astype(np.float32)
+                bias_tensor = biases.astype(np.float32)
+
+                scale_name = f"{node.name}_scale"
+                bias_name = f"{node.name}_bias"
+
+                model.set_initializer(scale_name, scale_tensor)
+                model.set_initializer(bias_name, bias_tensor)
+
+                # Create the Requant node
+                new_node = helper.make_node(
+                    "Requant",
+                    [mt_input, scale_name, bias_name],
+                    [mt_output],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    NumChannels=num_channels,
+                    PE=1,
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(mt_in_shape[:-1]),
+                    narrow=narrow,
+                    name="Requant_" + node.name,
+                )
+
+                graph.node.insert(insert_point, new_node)
+                # Remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 
