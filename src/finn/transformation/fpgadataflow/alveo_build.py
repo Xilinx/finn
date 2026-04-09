@@ -495,9 +495,9 @@ class SlashLink(Transformation):
             if producer is None or consumer is None or consumer == []:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
-                    mem_type = "HBM"
-                    node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                config.append(f"sp={instance_name}.m_axi_gmem0:{node_mem_port}")
+                    node_mem_port = f"HBM{mem_idx}"
+                    mem_idx += 1
+                config.append(f"sp={instance_name}.m_axi_gmem0:{node_mem_port}\n")
 
             # connect streams
             if producer is not None:
