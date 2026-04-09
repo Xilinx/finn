@@ -50,6 +50,7 @@ RUN apt-get update && \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libpixman-1-0 \
     nano \
     zsh \
     rsync \

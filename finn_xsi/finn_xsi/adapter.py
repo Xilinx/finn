@@ -45,7 +45,10 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         }
         verilog_header_incl_str = " ".join(["--include " + x for x in verilog_headers])
 
-        for src_line in source_list:
+        # sort src list so that configs are loaded first
+        pattern = "swg_pkg"
+        srcs_list = sorted(source_list, key=lambda s: (pattern not in s, s))
+        for src_line in srcs_list:
             if src_line.endswith(".v"):
                 f.write(f"verilog work {verilog_header_incl_str} {src_line}\n")
             elif src_line.endswith(".vhd"):
@@ -80,6 +83,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "floating_point_v7_1_18",
         "floating_point_v7_1_15",
         "floating_point_v7_1_19",
+        "floating_point_v7_1_21",
+        "floating_point_v7_0_26",
     ]
 
     cmd_xelab = [
