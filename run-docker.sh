@@ -56,6 +56,11 @@ if [ -z "$PLATFORM_REPO_PATHS" ];then
   recho "This is required to be able to use Vitis-based Alveo PCIe cards."
 fi
 
+if [ -z "$V80PP_DEB_PACKAGE" ];then
+  recho "Please set V80PP_DEB_PACKAGE pointing to the SLASH v80++ .deb package."
+  recho "This is required to be able to use the Alveo V80 card."
+fi
+
 DOCKER_GID=$(id -g)
 DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
