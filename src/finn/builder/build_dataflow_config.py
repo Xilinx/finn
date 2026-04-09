@@ -34,8 +34,8 @@ from dataclasses_json import dataclass_json
 from enum import Enum
 from typing import Any, List, Optional
 
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, part_map
+from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
+from finn.util.basic import part_map, vitis_default_platform
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -51,6 +51,7 @@ class ShellFlowType(str, Enum):
 
     VIVADO_ZYNQ = "vivado_zynq"
     VITIS_ALVEO = "vitis_alveo"
+    SLASH_ALVEO = "slash_alveo"
 
 
 class DataflowOutputType(str, Enum):
@@ -333,6 +334,10 @@ class DataflowBuildConfig:
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
 
+    #: Whether to build a simulation image instead of a full hardware image.
+    #: Currently only supported by the SLASH_VRT shell flow.
+    enable_hw_sim: Optional[bool] = False
+
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
@@ -402,7 +407,9 @@ class DataflowBuildConfig:
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-            return "alveo"
+            return "vitis-xrt"
+        elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            return "slash-vrt"
         else:
             raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 
@@ -442,7 +449,7 @@ class DataflowBuildConfig:
         if self.vitis_platform is not None:
             return self.vitis_platform
         elif (self.vitis_platform is None) and (self.board is not None):
-            return alveo_default_platform[self.board]
+            return vitis_default_platform[self.board]
         else:
             raise Exception(
                 "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
