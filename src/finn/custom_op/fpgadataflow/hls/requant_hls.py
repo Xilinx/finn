@@ -155,7 +155,7 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
             #pragma HLS ARRAY_PARTITION variable=out_buf complete dim=1
 
             for (unsigned fold = 0; fold < TOTAL_FOLD; fold++) {{
-                #pragma HLS PIPELINE II=1
+                #pragma HLS PIPELINE II=1 style=flp
 
                 // Read packed input and unpack using Slice
                 InPacked in_packed = in0_V.read();
@@ -165,6 +165,7 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
 
                 for (unsigned p = 0; p < PE; p++) {{
                     #pragma HLS UNROLL
+                    #pragma HLS INLINE recursive
                     // Get input value from slice
                     TI in_val = in_slice(p, 0);
 
