@@ -82,31 +82,54 @@ class Requant_rtl(Requant, RTLBackend):
         scales_sv = format_sv_array(scale_reshaped)
         biases_sv = format_sv_array(bias_reshaped)
 
-        # Read template
-        template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/requant_wrapper_template.sv"
-        )
-        with open(template_path, "r") as f:
-            template = f.read()
+        # Calculate stream widths (byte-aligned)
+        in_stream_width = ((pe * k + 7) // 8) * 8
+        out_stream_width = ((pe * n + 7) // 8) * 8
 
-        # Fill in template
         top_module_name = self.get_verilog_top_module_name()
-        code = template
-        code = code.replace("$TOP_MODULE_NAME$", top_module_name)
-        code = code.replace("$VERSION$", str(version))
-        code = code.replace("$K$", str(k))
-        code = code.replace("$N$", str(n))
-        code = code.replace("$C$", str(num_channels))
-        code = code.replace("$PE$", str(pe))
-        code = code.replace("$SCALES$", scales_sv)
-        code = code.replace("$BIASES$", biases_sv)
+        rtllib_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/requant/hdl/"
 
-        # Write output file
-        output_path = os.path.join(code_gen_dir, top_module_name + ".sv")
-        with open(output_path, "w") as f:
-            f.write(code)
+        # Generate SystemVerilog implementation module (with _impl suffix)
+        sv_template_path = rtllib_dir + "requant_wrapper_template.sv"
+        with open(sv_template_path, "r") as f:
+            sv_template = f.read()
+
+        sv_code = sv_template
+        sv_code = sv_code.replace("$TOP_MODULE_NAME$", top_module_name)
+        sv_code = sv_code.replace("$VERSION$", str(version))
+        sv_code = sv_code.replace("$K$", str(k))
+        sv_code = sv_code.replace("$N$", str(n))
+        sv_code = sv_code.replace("$C$", str(num_channels))
+        sv_code = sv_code.replace("$PE$", str(pe))
+        sv_code = sv_code.replace("$SCALES$", scales_sv)
+        sv_code = sv_code.replace("$BIASES$", biases_sv)
+        sv_code = sv_code.replace("$IN_STREAM_WIDTH$", str(in_stream_width))
+        sv_code = sv_code.replace("$OUT_STREAM_WIDTH$", str(out_stream_width))
+
+        sv_output_path = os.path.join(code_gen_dir, top_module_name + "_impl.sv")
+        with open(sv_output_path, "w") as f:
+            f.write(sv_code)
+
+        # Generate Verilog stub wrapper (for IP packaging - must be .v)
+        v_template_path = rtllib_dir + "requant_wrapper_template.v"
+        with open(v_template_path, "r") as f:
+            v_template = f.read()
+
+        v_code = v_template
+        v_code = v_code.replace("$TOP_MODULE_NAME$", top_module_name)
+        v_code = v_code.replace("$IN_STREAM_WIDTH$", str(in_stream_width))
+        v_code = v_code.replace("$OUT_STREAM_WIDTH$", str(out_stream_width))
+
+        v_output_path = os.path.join(code_gen_dir, top_module_name + ".v")
+        with open(v_output_path, "w") as f:
+            f.write(v_code)
 
         self.set_nodeattr("gen_top_module", top_module_name)
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stitch ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
 
     def get_rtl_file_list(self, abspath=False):
         """Return list of RTL files needed for this node."""
@@ -117,14 +140,14 @@ class Requant_rtl(Requant, RTLBackend):
             rtllib_dir + "queue.sv",
             rtllib_dir + "requant.sv",
             rtllib_dir + "requant_axi.sv",
-            rtllib_dir + "requant_top.sv",
         ]
 
-        # Add generated wrapper
+        # Add generated wrappers (Verilog stub + SystemVerilog impl)
         top_module = self.get_nodeattr("gen_top_module")
         if top_module == "":
             top_module = self.get_verilog_top_module_name()
-        rtl_files.append(os.path.join(code_gen_dir, top_module + ".sv"))
+        rtl_files.append(os.path.join(code_gen_dir, top_module + "_impl.sv"))
+        rtl_files.append(os.path.join(code_gen_dir, top_module + ".v"))
 
         if abspath:
             return rtl_files
@@ -132,18 +155,7 @@ class Requant_rtl(Requant, RTLBackend):
             return [os.path.basename(f) for f in rtl_files]
 
     def code_generation_ipi(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-        sourcefiles = [
-            "queue.sv",
-            "requant.sv",
-            "requant_axi.sv",
-            "requant_top.sv",
-        ]
-
-        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".sv")
-
-        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+        sourcefiles = self.get_rtl_file_list(abspath=True)
 
         cmd = []
         for f in sourcefiles:
