@@ -36,6 +36,14 @@ class Requant_hls(Requant, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def get_exp_cycles(self):
+        """Returns expected number of cycles for execution.
+
+        Adds a constant offset to account for HLS pipeline initialization overhead.
+        """
+        hls_overhead = 10
+        return Requant.get_exp_cycles(self) + hls_overhead
+
     def generate_params(self, model, path):
         """Generate scale and bias parameter arrays as HLS header file."""
         code_gen_dir = path

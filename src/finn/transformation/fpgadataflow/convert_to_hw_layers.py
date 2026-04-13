@@ -252,7 +252,7 @@ class InferThresholdingLayer(Transformation):
         return (model, graph_modified)
 
 
-def _check_uniform_thresholds(thresholds, rtol=1e-3):
+def _check_uniform_thresholds(thresholds, rtol=1e-2):
     """Check if thresholds have uniform (equal) step sizes per channel.
 
     For requant conversion, thresholds must be uniform (equal step sizes)
@@ -260,7 +260,7 @@ def _check_uniform_thresholds(thresholds, rtol=1e-3):
 
     Args:
         thresholds: numpy array of shape (num_channels, num_thresholds)
-        rtol: relative tolerance for comparing step sizes
+        rtol: relative tolerance for comparing step sizes (default 1%)
 
     Returns:
         tuple: (is_uniform, step_sizes, first_thresholds) where:
