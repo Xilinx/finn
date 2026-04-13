@@ -1,208 +1,12 @@
-# FINN Style Guide
+# FINN HDL Style Guide
 
 ## Purpose and Scope
 
-This guide covers coding standards for all languages used in the FINN project:
-- **Python** (FINN compiler, transformations, analysis)
+This guide covers coding standards for hardware description languages used in FINN:
 - **C++/HLS** (finn-hlslib operators)
 - **SystemVerilog** (finn-rtllib components)
 
 Following these standards ensures consistency across the codebase and makes code easier to read, review, and maintain.
-
----
-
-## Python Style
-
-### General Principles
-
-- Follow **PEP 8** ([https://peps.python.org/pep-0008/](https://peps.python.org/pep-0008/))
-- Follow **Google Python Style Guide** for docstrings ([https://google.github.io/styleguide/pyguide.html](https://google.github.io/styleguide/pyguide.html))
-- Use **pre-commit hooks** (already configured in `.pre-commit-config.yaml`)
-
-### Naming Conventions
-
-#### Classes
-**Pattern**: PascalCase with descriptive names
-
-**Examples**:
-```python
-StreamingConcat      # HWCustomOp subclass
-StreamingFIFO        # HWCustomOp subclass
-Pool_hls             # HLS implementation (note _hls suffix)
-FMPadding_rtl        # RTL implementation (note _rtl suffix)
-MakeZYNQProject      # Transformation class
-InsertDWC            # Transformation class
-AnnotateResources    # Analysis class
-```
-
-**Convention**:
-- `*_hls` suffix indicates HLS backend implementation
-- `*_rtl` suffix indicates RTL backend implementation
-- Transformation classes use imperative names (verbs)
-
-#### Functions and Methods
-**Pattern**: snake_case with prefix-based grouping
-
-**Common prefixes**:
-- `get_*`: Getters - `get_nodeattr_types()`, `get_input_datatype()`, `get_folded_input_shape()`, `get_instream_width()`
-- `set_*`: Setters - `set_nodeattr()`, `set_tensor_datatype()`, `set_tensor_shape()`
-- `infer_*`: Inference methods - `infer_node_datatype()`, `infer_shapes()`
-- `execute_*`: Execution methods - `execute_node()`, `execute_onnx()`
-- `_private_method`: Underscore prefix for private/internal methods
-
-**Examples**:
-```python
-def get_nodeattr_types(self):
-    """Define node attribute schema."""
-    ...
-
-def get_folded_input_shape(self, ind=0):
-    """Return folded input shape with explicit PE dimension."""
-    ...
-
-def _suitable_node(node):
-    """Internal helper to check if node is suitable for transformation."""
-    ...
-```
-
-#### Variables
-**Pattern**: snake_case with domain-specific abbreviations
-
-**Standard abbreviations** (use consistently):
-- `idt` - Input datatype
-- `odt` - Output datatype
-- `wdt` - Weight datatype
-- `pe` - Processing Elements
-- `simd` - SIMD parallelism factor
-- `node` - ONNX node
-- `graph` - ONNX graph
-- `model` - ModelWrapper instance
-- `ind` - Index
-- `ishape` - Input shape
-- `oshape` - Output shape
-- `vecs` - Vectors
-- `cf` - Channel fold
-- `fxn` - Function
-
-**Example**:
-```python
-idt = self.get_input_datatype()
-odt = self.get_output_datatype()
-pe = self.get_nodeattr("PE")
-simd = self.get_nodeattr("SIMD")
-fold = num_channels // pe
-```
-
-### Import Organization
-
-**Use isort** (configured in pre-commit):
-
-1. Standard library imports
-2. Third-party imports (numpy, onnx, qonnx, brevitas)
-3. Local finn imports
-
-**Example**:
-```python
-import math
-import warnings
-from copy import deepcopy
-
-import numpy as np
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-
-from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.transformation.base import Transformation
-```
-
-### Docstring Style
-
-**Required**: All public classes, methods, and functions
-
-**Format**: Google Python Style Guide format
-
-**Full docstring example**:
-```python
-def execute_onnx(model, input_dict, return_full_exec_context=False):
-    """Executes given ONNX ModelWrapper with given named inputs.
-
-    Args:
-        model: ONNX ModelWrapper instance to execute
-        input_dict: Dictionary mapping input names to numpy arrays
-        return_full_exec_context: If True, return all intermediate tensors
-            in addition to final outputs
-
-    Returns:
-        Dictionary of output tensors if return_full_exec_context is False,
-        otherwise dictionary of all tensors including intermediates
-
-    Raises:
-        ValueError: If input_dict is missing required inputs
-    """
-```
-
-**One-liner for simple methods**:
-```python
-def get_n_inputs(self):
-    """Returns number of input streams."""
-    return len(self.get_nodeattr("ChannelsPerStream"))
-
-def calc_tmem(self):
-    """Calculates and returns TMEM (NumChannels / PE)."""
-    return self.get_nodeattr("NumChannels") // self.get_nodeattr("PE")
-```
-
-### Type Hints
-
-**Adoption encouraged** as part of ongoing refactoring:
-- Add type hints to **new code** and functions being modified
-- Focus on public API functions, transformations, and CustomOp methods
-- Use for ModelWrapper parameters and complex return types
-- Improves IDE support, documentation clarity, and early error detection
-
-**Example**:
-```python
-from typing import Dict, Tuple, Optional
-from qonnx.core.modelwrapper import ModelWrapper
-
-def get_driver_shapes(model: ModelWrapper) -> Dict[str, Tuple]:
-    """Extract driver tensor shapes from model."""
-    ...
-
-def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
-    """Apply transformation to model.
-
-    Returns:
-        Tuple of (modified model, transformation_applied_flag)
-    """
-    ...
-```
-
-**Guidelines**:
-- Use `typing` module for complex types (Dict, List, Tuple, Optional, Union)
-- Don't add type hints just for the sake of it; focus on clarity
-- Balance between helpful type information and readability
-
-### Error Handling
-
-- Use **assertions with descriptive messages** for invariant checks
-- Use **exceptions with clear error messages** for runtime errors
-- Include context (node names, values) in error messages
-
-**Good examples**:
-```python
-assert len(consumers) == 1, (
-    f"{n.name}: HW node with fan-out higher than 1 cannot be stitched"
-)
-
-assert num_channels % pe == 0, (
-    f"PE ({pe}) must divide NumChannels ({num_channels})"
-)
-
-raise Exception(f"Unrecognized mode '{mode}' for AnnotateResources")
-
-raise ValueError(f"Expected positive SIMD value, got {simd}")
-```
 
 ---
 
@@ -353,6 +157,17 @@ void Thresholding_Batch(hls::stream<TI> &in,
 1. System HLS headers (`<hls_stream.h>`, `<ap_int.h>`)
 2. Standard library headers if needed
 3. Local finn-hlslib headers
+
+### File Headers
+
+All HLS source files should include the copyright header with SPDX identifier:
+
+```cpp
+// Copyright (C) 2026, Advanced Micro Devices, Inc.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+```
 
 ---
 
@@ -586,39 +401,16 @@ input ap_clk;
 
 ### Design Patterns
 
-For detailed design patterns (counters, binary reduction trees, elastic buffers), refer to the full AMD FinnLib SystemVerilog Style Guide document.
-
 **Key pattern**: Use sign bit of counters for completion signaling:
 ```systemverilog
 logic signed [$clog2(N-1):0] Cnt = N-2;  // N-2, ..., 1, 0, -1
 uwire complete = Cnt[$left(Cnt)];  // Sign bit signals completion
 ```
 
----
-
-## Common Patterns Across All Languages
-
 ### File Headers
 
-All source files should include the copyright header with SPDX identifier:
+All SystemVerilog source files should include the copyright header with SPDX identifier:
 
-**Python**:
-```python
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
-```
-
-**HLS/C++**:
-```cpp
-// Copyright (C) 2026, Advanced Micro Devices, Inc.
-// All rights reserved.
-//
-// SPDX-License-Identifier: BSD-3-Clause
-```
-
-**SystemVerilog**:
 ```systemverilog
 // Copyright (C) 2026, Advanced Micro Devices, Inc.
 // All rights reserved.
@@ -626,9 +418,11 @@ All source files should include the copyright header with SPDX identifier:
 // SPDX-License-Identifier: BSD-3-Clause
 ```
 
-### Naming Domain-Specific Concepts
+---
 
-Use these abbreviations **consistently across Python, HLS, and SystemVerilog**:
+## Domain-Specific Abbreviations
+
+Use these abbreviations **consistently across HLS and SystemVerilog**:
 
 - **PE** - Processing Elements
 - **SIMD** - Single Instruction Multiple Data
@@ -640,29 +434,29 @@ Use these abbreviations **consistently across Python, HLS, and SystemVerilog**:
 - **OFM** - Output Feature Map
 - **TMEM** - Threshold Memory (NumChannels / PE)
 
-### Comments
+---
+
+## Comments
 
 - Use comments to explain **why**, not **what**
 - Complex algorithms should have block comments explaining approach
 - Avoid obvious comments
 
 **Bad**:
-```python
-simd = 8  # Set SIMD to 8
+```cpp
+// Set SIMD to 8
+unsigned int SIMD = 8;
 ```
 
 **Good**:
-```python
-simd = 8  # Limit parallelism to match BRAM port constraints
+```cpp
+// Limit parallelism to match BRAM port constraints
+unsigned int SIMD = 8;
 ```
 
 ---
 
 ## References
-
-### Python
-- [PEP 8 – Style Guide for Python Code](https://peps.python.org/pep-0008/)
-- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
 
 ### HLS
 - [Xilinx Vitis HLS User Guide (UG1399)](https://docs.xilinx.com/r/en-US/ug1399-vitis-hls)
@@ -674,8 +468,7 @@ simd = 8  # Limit parallelism to match BRAM port constraints
 
 ## Enforcement
 
-- **Python**: Pre-commit hooks enforce black, flake8, isort (see `.pre-commit-config.yaml`)
 - **HLS**: Manual code review
-- **SystemVerilog**: Manual code review (consider future linter integration)
+- **SystemVerilog**: Manual code review
 
 When in doubt, follow existing patterns in the codebase and consult with maintainers during PR review.
