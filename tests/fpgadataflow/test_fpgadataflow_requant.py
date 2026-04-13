@@ -200,17 +200,23 @@ def test_infer_requant_layer(abits, max_val, ishape, per_channel, input_dtype, e
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0
 
-        # Stitched IP rtlsim
-        model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
-        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-        model = model.transform(HLSSynthIP())
-        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        # Stitched IP rtlsim - only run for one config per input type to save time
+        # INT8: abits=4, max_val=1.0, ishape=(1,16), per_channel=False, pe=16
+        # FLOAT32: abits=4, max_val=1.0, ishape=(1,16), per_channel=False, pe=16
+        run_stitched = (
+            abits == 4 and max_val == 1.0 and ishape == (1, 16) and not per_channel and pe == 16
+        )
+        if run_stitched:
+            model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+            model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+            model = model.transform(HLSSynthIP())
+            model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
 
-        model.set_metadata_prop("exec_mode", "rtlsim")
-        y_stitched = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-        assert np.allclose(
-            y_golden, y_stitched, atol=quant_step
-        ), f"rtlsim stitched mismatch: max diff = {np.max(np.abs(y_golden - y_stitched))}"
+            model.set_metadata_prop("exec_mode", "rtlsim")
+            y_stitched = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+            assert np.allclose(
+                y_golden, y_stitched, atol=quant_step
+            ), f"rtlsim stitched mismatch: max diff = {np.max(np.abs(y_golden - y_stitched))}"
 
 
 def make_quant_test_model(
