@@ -110,6 +110,21 @@ Base Layer (Backend-Agnostic)
 - ``get_instream_width()`` / ``get_outstream_width()`` - Stream widths in bits
 - ``execute_node()`` - Python execution for verification
 
+Node Attribute Best Practices
+------------------------------
+
+**When to add node attributes:**
+
+- Only add node attributes for information that **cannot be easily computed** from other attributes or the graph
+- Computed values should be **methods**, not stored attributes
+- Choose appropriate scope: node attributes are layer-specific; use transformation parameters for global config
+
+**Example:**
+
+- **Store**: ``NumChannels``, ``PE`` (fundamental layer-specific parameters)
+- **Compute**: ``TMEM = NumChannels / PE`` (implement as ``get_tmem()`` method)
+- **Don't store**: Clock period as a node attribute (global parameter, pass to transformations instead)
+
 HLS Backend Variant
 ====================
 
@@ -231,7 +246,6 @@ Create tests in ``tests/fpgadataflow/test_<layer>.py`` covering:
 See Also
 ========
 
-- :doc:`node-attributes` - When to add node attributes
 - :doc:`hls-layers` - Detailed HLS code generation guide
 - :doc:`rtl-layers` - Detailed RTL code generation guide
 - :doc:`specialization-rules` - HLS vs RTL selection rules
