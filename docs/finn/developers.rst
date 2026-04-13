@@ -116,6 +116,20 @@ checks and fixes. In some cases pre-commit won't be able to fix the issues and
 you may have to fix it manually, then run `git commit` once again.
 The checks are configured in .pre-commit-config.yaml under the repo root.
 
+Coding Standards
+================
+
+FINN follows specific coding conventions for Python, HLS/C++, and SystemVerilog code.
+Please refer to the `STYLE_GUIDE.md <https://github.com/Xilinx/finn/blob/dev/STYLE_GUIDE.md>`_
+in the repository root for detailed guidelines on:
+
+* Python naming conventions, docstrings, type hints, and error handling
+* HLS/C++ template parameters, function naming, and pragma usage
+* SystemVerilog module structure, signal naming, and design patterns
+
+Following these standards ensures consistency across the codebase and makes code
+easier to read, review, and maintain.
+
 Testing
 ========
 
