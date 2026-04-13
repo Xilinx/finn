@@ -199,39 +199,41 @@ class MakeCPPDriver(Transformation):
         bitfile_path = model.get_metadata_prop("bitfile")
         assert bitfile_path is not None, "Bitfile missing, please run SlashLink first!"
 
-        return {
-            "bdf": "Change me!",
-            "bitfile": bitfile_path,
-            "name": "MainDevice",
-            "idmas": [
-                {
-                    "kernelName": name,
-                    "normalShape": shape_normal,
-                    "foldedShape": shape_folded,
-                    "packedShape": shaped_packed,
-                }
-                for (name, shape_normal, shape_folded, shaped_packed) in zip(
-                    driver_shapes["idma_names"],
-                    driver_shapes["ishape_normal"],
-                    driver_shapes["ishape_folded"],
-                    driver_shapes["ishape_packed"],
-                )
-            ],
-            "odmas": [
-                {
-                    "kernelName": name,
-                    "normalShape": shape_normal,
-                    "foldedShape": shape_folded,
-                    "packedShape": shaped_packed,
-                }
-                for (name, shape_normal, shape_folded, shaped_packed) in zip(
-                    driver_shapes["odma_names"],
-                    driver_shapes["oshape_normal"],
-                    driver_shapes["oshape_folded"],
-                    driver_shapes["oshape_packed"],
-                )
-            ],
-        }
+        return [
+            {
+                "bdf": "Change me!",
+                "bitfile": bitfile_path,
+                "name": "MainDevice",
+                "idmas": [
+                    {
+                        "kernelName": name,
+                        "normalShape": shape_normal,
+                        "foldedShape": shape_folded,
+                        "packedShape": shaped_packed,
+                    }
+                    for (name, shape_normal, shape_folded, shaped_packed) in zip(
+                        driver_shapes["idma_names"],
+                        driver_shapes["ishape_normal"],
+                        driver_shapes["ishape_folded"],
+                        driver_shapes["ishape_packed"],
+                    )
+                ],
+                "odmas": [
+                    {
+                        "kernelName": name,
+                        "normalShape": shape_normal,
+                        "foldedShape": shape_folded,
+                        "packedShape": shaped_packed,
+                    }
+                    for (name, shape_normal, shape_folded, shaped_packed) in zip(
+                        driver_shapes["odma_names"],
+                        driver_shapes["oshape_normal"],
+                        driver_shapes["oshape_folded"],
+                        driver_shapes["oshape_packed"],
+                    )
+                ],
+            }
+        ]
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         driver_shapes: Dict = get_driver_shapes(model)
