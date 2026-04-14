@@ -86,9 +86,46 @@ class MuxCYPredAdder(GateAbsorptionCounter):
                          Shape((len(self.gates)+1) * [1]))
 
     def build_hardware(self):
-        # TODO: Implement 7-series gate absorption using LUT6_2 + CARRY4
-        # Needs CARRY4 wiring similar to MuxCYRippleSum but for multi-column case
-        raise NotImplementedError("MuxCYPredAdder.build_hardware() not yet implemented for 7-series")
+        """7-Series horizontal multi-column gate absorption using LUT6_2.
+
+        Similar to VersalPredAdder but uses LUT6_2 with swapped predicate order.
+        Each column has 2 gates, each LUT computes: sum = p1 XOR p2 XOR carry_in
+        """
+        from ..primitives import LUT6_2
+        from ..nodes import Constant
+
+        luts = []
+        for i in range(len(self.gates)):
+            p1 = self.gates[i][0]
+            p2 = self.gates[i][1]
+            # LUT6_2: predO5→O5, predO6→O6 (no swap, unlike the misleading comments elsewhere)
+            # Match VersalPredAdder pattern: sum first, carry second
+            lut = LUT6_2.fromPred(
+                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: fa_sum(p1(A0,A1), p2(A2,A3), A4),    # predO5 → O5 (sum)
+                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: fa_carry(p1(A0,A1), p2(A2,A3), A4), # predO6 → O6 (carry)
+            )
+
+            # Connect inputs (same pattern as Versal)
+            self.input_wires[i][0].connect_to(lut.I0)
+            self.input_wires[i][1].connect_to(lut.I2)
+            self.input_wires_complementary[i][0].connect_to(lut.I1)
+            self.input_wires_complementary[i][1].connect_to(lut.I3)
+
+            # Sum output for this column (O5, not O6!)
+            lut.O5.connect_to(self.output_wires[i][0])
+            luts.append(lut)
+
+        # First LUT needs carry-in = 0
+        Constant("1'b0").connect_to(luts[0].I4)
+
+        # Carry chain: previous carry → next carry-in (O6, not O5!)
+        for p, n in zip(luts, luts[1:]):
+            p.O6.connect_to(n.I4)
+
+        # Final carry-out (O6, not O5!)
+        luts[-1].O6.connect_to(self.output_wires[len(luts)][0])
+
+        self.instances += luts
 
 class VersalPredAdderCandidate(GateAbsorptionCounterCandidate):
     def extend_to_fit(self, inputs: Shape, 
@@ -193,7 +230,7 @@ class MuxCYRippleSum(GateAbsorptionCounter):
         super().__init__(Shape([len(gates)]), Shape([1, (len(gates)+1)//2]))
 
     def build_hardware(self):
-        from ..primitives import LUT6_2, CARRY4
+        from ..primitives import LUT6_2
         from ..nodes import Constant
 
         luts = []
@@ -201,27 +238,16 @@ class MuxCYRippleSum(GateAbsorptionCounter):
             p1 = self.gates[2*i]
             p2 = (self.gates[2*i+1] if len(self.gates) > 2*i+1
                   else lambda A0,A1: False)
-            # Match MuxCYPredAdder pattern: O5 = generate, O6 = full sum
-            # Gates use I0/I1 (p1) and I2/I3 (p2), carry-in on I4 (since I3 is used by p2)
+            # Match Versal RippleSumPredAdder pattern with full-adder logic
+            # Gates use I0/I1 (p1) and I2/I3 (p2), carry-in on I4
+            # Try swapping: O5 = sum, O6 = carry (opposite of naming)
             lut = LUT6_2.fromPred(
-                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: p1(A0,A1) & p2(A2,A3),  # O5 = generate (CARRY4.DI)
-                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: p1(A0,A1) ^ p2(A2,A3),  # O6 = propagate (CARRY4.S)
+                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: fa_sum(p1(A0,A1), p2(A2,A3), A4),    # O5 = sum (SWAPPED!)
+                lambda A0,A1,A2,A3,A4,A5,p1=p1,p2=p2: fa_carry(p1(A0,A1), p2(A2,A3), A4),  # O6 = carry (SWAPPED!)
             )
             luts.append(lut)
 
-        # Create CARRY4 for carry chain
-        c4s = [CARRY4() for _ in range((len(luts) + 3) // 4)]
-        dis = [el for c4 in c4s for el in c4.DI.elements]
-        ss = [el for c4 in c4s for el in c4.S.elements]
-        os = [el for c4 in c4s for el in c4.O.elements]
-        cis = [c4.CI for c4 in c4s]
-        cos = [el for c4 in c4s for el in c4.CO.elements]
-
-        # Connect CARRY4 chains
-        for c4p, c4n in zip(c4s, c4s[1:]):
-            c4p.CO.elements[-1].connect_to(c4n.CI)
-
-        # Connect wires to LUT inputs
+        # Connect gate inputs to LUT inputs (same as Versal)
         for i, (w1, w2) in enumerate(zip(self.input_wires[0],
                                          self.input_wires_complementary[0])):
             if i % 2 == 0:
@@ -231,23 +257,19 @@ class MuxCYRippleSum(GateAbsorptionCounter):
                 w1.connect_to(luts[i//2].I2)
                 w2.connect_to(luts[i//2].I3)
 
-        # Connect LUT outputs to CARRY4
-        for i, lut in enumerate(luts):
-            lut.O5.connect_to(dis[i])    # Generate → CARRY4.DI
-            lut.O6.connect_to(ss[i])     # Propagate → CARRY4.S
+        # First LUT needs carry-in = 0
+        Constant("1'b0").connect_to(luts[0].I4)
 
-        # Carry chain lookahead: previous generate → next LUT I4
+        # Carry chain: previous carry-out → next carry-in (same as Versal)
         for p, n in zip(luts, luts[1:]):
             p.O5.connect_to(n.I4)
 
-        Constant("1'b0").connect_to(cis[0])
+        # Connect outputs (same as Versal): final carry + sum bits
+        luts[-1].O5.connect_to(self.output_wires[0][0])  # Final carry-out
+        for i, lut in enumerate(luts):
+            lut.O6.connect_to(self.output_wires[1][i])   # Sum bits
 
-        # Connect outputs
-        cos[len(luts)-1].connect_to(self.output_wires[0][0])
-        for i in range(len(luts)):
-            os[i].connect_to(self.output_wires[1][i])
-
-        self.instances += luts + c4s
+        self.instances += luts
 
 class SinglePredCandidate(GateAbsorptionCounterCandidate):
     def extend_to_fit(self, inputs: Shape,

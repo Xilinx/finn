@@ -46,10 +46,10 @@ class Versal(Target):
     def __init__(self):
         self.counter_candidates = [
             TenSixCandidate(),
-            FACandidate(), 
-            RippleSumCandidate(), 
+            FACandidate(),
+            RippleSumCandidate(),
             DualRailRippleSumCandidate(),
-            FiveTwoCandidate(), 
+            FiveTwoCandidate(),
             SixThreeCandidate(),
             VersalAtomCascadeCandidate()
         ]
@@ -66,7 +66,7 @@ class SevenSeries(Target):
                                    SixThreeCandidate(), MuxCYAtomCascadeCandidate()]
         self.final_adder = MuxCYTernaryAdder
         self.absorbing_counter_candidates = [
-            # MuxCYRippleSumCandidate(),  # TODO: Fix CARRY4.O wiring - still produces wrong results
-            # MuxCYPredAdderCandidate(),  # TODO: build_hardware() not implemented
-            SinglePredCandidate(),
+            MuxCYPredAdderCandidate(),   # Horizontal multi-column absorption (2 gates/column)
+            MuxCYRippleSumCandidate(),   # Vertical single-column absorption (multiple gates)
+            SinglePredCandidate(),       # Fallback for single-gate columns
         ]
