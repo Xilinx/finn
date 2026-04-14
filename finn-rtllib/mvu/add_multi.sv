@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Pipelined multi-input adder tree.
+ * @brief	Pipelined multi-input adder using LUT-based compressors.
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *****************************************************************************/
 
