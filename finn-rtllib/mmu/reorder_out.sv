@@ -29,7 +29,7 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
- 
+
 module reorder_out #(
     int unsigned  W,
     int unsigned  XC,
@@ -242,7 +242,7 @@ always_comb begin
         if(curr_wrY_C > curr_rdY_C) begin
             cond_go = 1'b1;
         end
-    end 
+    end
 end
 
 // -- DP

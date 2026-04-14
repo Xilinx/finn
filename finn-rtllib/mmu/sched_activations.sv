@@ -124,7 +124,7 @@ module sched_activations #(
 		if (ovld && ordy) begin
             // Read from queue
             for(int i = 0; i < CLEN; i++) begin
-               q_out_tready[i] = valid_C[i]; 
+               q_out_tready[i] = valid_C[i];
             end
 
 			// Shift ctrl

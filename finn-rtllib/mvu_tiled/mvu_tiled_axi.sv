@@ -67,7 +67,7 @@ module mvu_tiled_axi #(
 
 	parameter COMPUTE_CORE = "mvu_vvu_8sx9_dsp58",
 	int unsigned N_DCPL_STAGES = 2,
-    
+
 	// Safely deducible parameters
 	localparam int unsigned  WSIMD = (PE * SIMD) / TH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH    = WSIMD * WEIGHT_WIDTH,
@@ -155,7 +155,7 @@ module mvu_tiled_axi #(
 		.TH(TH), .WSIMD(WSIMD),
 		.N_DCPL_STAGES(N_DCPL_STAGES)
 	) inst_weights_buff_tile (
-		.clk(ap_clk), .rst(rst), 
+		.clk(ap_clk), .rst(rst),
 		.ivld(s_axis_weights_tvalid), .irdy(s_axis_weights_tready), .idat(s_axis_weights_tdata),
 		.ovld(wvld), .ordy(wrdy), .odat(wdat)
 	);
@@ -198,7 +198,7 @@ module mvu_tiled_axi #(
         //
         // Compute Unit
         //
-        
+
         case(COMPUTE_CORE)
         "mvu_vvu_8sx9_dsp58": begin : core
             cu_mvau_tiled #(
@@ -210,7 +210,7 @@ module mvu_tiled_axi #(
                 .clk(ap_clk), .rst(rst), .en(dsp_en),
 				.ivld(istb), .ilast(dsp_last), .w(dsp_w), .a(dsp_a),
 				.ovld(dsp_vld), .p(dsp_p)
-            );  
+            );
         end
 		default: initial begin
 			$error("Unrecognized COMPUTE_CORE '%s'", COMPUTE_CORE);
@@ -263,7 +263,7 @@ module mvu_tiled_axi #(
 	assign	m_axis_int_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
 
 	//-------------------- Output reordering --------------------\\
-	
+
 	if(OUT_TILED == 0) begin
 		reorder_out #(.W(OUTPUT_STREAM_WIDTH_BA), .XC(MH/PE), .YC(TH)) inst_reorder_out (
 			.clk(ap_clk), .rst(rst),

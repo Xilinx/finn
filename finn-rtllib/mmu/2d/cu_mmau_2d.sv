@@ -36,7 +36,7 @@ module cu_mmau_2d #(
     int unsigned PE,
     int unsigned CLEN,
     int unsigned CU_SIMD,
-    
+
     int unsigned ACTIVATION_WIDTH,
     int unsigned WEIGHT_WIDTH,
 	int unsigned ACCU_WIDTH,
@@ -63,7 +63,7 @@ module cu_mmau_2d #(
     output logic [PE-1:0][ACCU_WIDTH-1:0] m_axis_tdata
   );
 
-	
+
 // Startup Recovery Watchdog
 //  The DSP slice needs 100ns of recovery time after initial startup before
 //  being able to ingest input properly. This watchdog discovers violating
@@ -95,11 +95,11 @@ module cu_mmau_2d #(
     for(genvar i = 0; i < CLEN; i++) begin
         assign Ac[i][0] = a[i];
         assign Ac_last[i][0] = ilast[i];
-    end 
+    end
 
     for(genvar i = 0; i < PE; i++) begin
         assign Wc[0][i] = w[i];
-    end 
+    end
 
 	always_ff @(posedge clk) begin
 		if(rst) begin
@@ -115,7 +115,7 @@ module cu_mmau_2d #(
                     Wc[i][j] <= '0;
                 end
             end
-        end 
+        end
             for(int i = 0; i < CLEN; i++) begin
                 for(int j = 1; j < PE; j++) begin
                     if(ivld) begin
@@ -181,7 +181,7 @@ module cu_mmau_2d #(
 
 
         for (genvar i = 0; i < CLEN; i++) begin
-            for (genvar j = 0; j < PE; j++) begin           
+            for (genvar j = 0; j < PE; j++) begin
                 always_comb begin
                     Mc_int_sum[i][j] = 0;
 
@@ -216,7 +216,7 @@ module cu_mmau_2d #(
         logic [CLEN-1:0][PE-1:0][23:0] Wc_int;
 
         for (genvar i = 0; i < CLEN; i++) begin
-            for (genvar j = 0; j < PE; j++) begin   
+            for (genvar j = 0; j < PE; j++) begin
 
                 for (genvar k = 0; k < CU_SIMD; k++) begin
                     assign Ac_int[i][j][9*k +: 9] =
@@ -372,7 +372,7 @@ module cu_mmau_2d #(
             end
         end
     end
-    
+
     for(genvar i = 0; i < CLEN; i++) begin
         for(genvar j = 0; j < PE; j++) begin
             if(i == CLEN-1) begin
@@ -420,7 +420,7 @@ module cu_mmau_2d #(
     end
 
     collect_out_2d #(
-        .PE(PE), 
+        .PE(PE),
         .ACCU_WIDTH(ACCU_WIDTH)
     ) inst_collect_out (
         .clk(clk), .rst(rst),

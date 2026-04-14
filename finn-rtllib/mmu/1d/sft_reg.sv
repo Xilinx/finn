@@ -18,7 +18,7 @@ module sft_reg #(
         end
     end
 
-    // The tool sees this lack of reset and constant index 
+    // The tool sees this lack of reset and constant index
     // and maps it to an SRL16 automatically.
     assign dout = shift_pipe[N-1];
 

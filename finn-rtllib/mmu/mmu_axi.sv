@@ -53,12 +53,12 @@ module mmu_axi #(
 	bit FORCE_BEHAVIOURAL = 0,
 
 	int unsigned N_DCPL_STAGES = 2,
-    
+
 	// Safely deducible parameters
 	localparam int unsigned  CLEN = (SIMD + CU_SIMD-1)/ CU_SIMD,
 	localparam int unsigned  WSIMD = PE * CU_SIMD,
 	localparam int unsigned  ASIMD = CLEN * CU_SIMD,
-	
+
 	localparam int unsigned  WEIGHT_STREAM_WIDTH    = WSIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = SIMD * ACTIVATION_WIDTH,
@@ -117,7 +117,7 @@ module mmu_axi #(
 	localparam int unsigned N_TRS_OP = SF * NF * N_VECTORS;
     localparam int unsigned N_TRS_EP = (GEMM_TYPE == "mmau_1d") ? CLEN-1 + CLEN-1 + DSP_STAGES + 2 :
                                                                   CLEN-1 + CLEN-1 + DSP_STAGES + PE;
-    
+
 // Input replay
 // ---------------------------------------------------------------------
 	logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] adat_s0;
@@ -136,7 +136,7 @@ module mmu_axi #(
 		.ovld(act_s0_tvalid), .ordy(act_s0_tready), .odat(act_s0_tdata), .olast(act_s0_tlast)
 	);
 
-    if (ASIMD > SIMD) 
+    if (ASIMD > SIMD)
         assign act_s0_tdata_mod[ASIMD-1:SIMD] = '0;
 	assign act_s0_tdata_mod[SIMD-1:0] = act_s0_tdata[SIMD-1:0];
 
@@ -200,7 +200,7 @@ end
         .en(en),
         .s_act_tvalid(act_s1_tvalid), .s_act_tready(act_s1_tready), .s_act_tdata(act_s1_tdata), .s_act_tlast(act_s1_tlast),
         .m_act_tdata(act_s2_tdata), .m_act_tlast(act_s2_tlast),
-        .s_wgt_tvalid(wgt_s1_tvalid), .s_wgt_tready(wgt_s1_tready), .s_wgt_tdata(wgt_s1_tdata), 
+        .s_wgt_tvalid(wgt_s1_tvalid), .s_wgt_tready(wgt_s1_tready), .s_wgt_tdata(wgt_s1_tdata),
         .m_wgt_tdata(wgt_s2_tdata),
         .m_tvalid(s2_tvalid)
     );
@@ -233,7 +233,7 @@ end else begin
         .m_axis_tvalid(p_tvalid), .m_axis_tready(p_tready), .m_axis_tdata(p_tdata)
     );
 end
-    
+
 
 // Reorder
 // ---------------------------------------------------------------------

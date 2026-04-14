@@ -50,9 +50,9 @@ module acc_stage #(
     output logic                                            oval
 );
 
-// 
+//
 // Adder tree
-// 
+//
 
 localparam integer TREE_HEIGHT = $clog2(CHAINLEN);
 localparam integer ADD_LAT = TREE_HEIGHT + 1;
@@ -69,7 +69,7 @@ for(genvar i = 0; i < PE; i++) begin
 		.clk(clk),
 		.rst(rst),
         .en(en),
-		
+
 		.idat(idat[i]),
 		.iacc(dat_acc[i]),
 		.odat(dat_int[i])
@@ -108,9 +108,9 @@ assign val_int = val[ADD_LAT];
 assign last_int = last[ADD_LAT];
 assign inc_acc = val[ADD_LAT-1];
 
-// 
+//
 // Accumulation
-// 
+//
 
 localparam integer TH_BITS = $clog2(TH);
 
@@ -163,7 +163,7 @@ end
 
 always_comb begin
     fifo_in_tvalid = prep ? 1'b1 : (en ? val_int : 1'b0);
-    fifo_in_tdata = prep ? 0 : (last_int ? 0 : dat_int); 
+    fifo_in_tdata = prep ? 0 : (last_int ? 0 : dat_int);
 end
 
 assign dat_acc = fifo_out_tdata;

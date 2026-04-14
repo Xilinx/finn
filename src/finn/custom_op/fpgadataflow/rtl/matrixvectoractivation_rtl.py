@@ -366,9 +366,7 @@ class MVAU_rtl(MVAU, RTLBackend):
     def prepare_codegen_default(self, fpgapart, clk):
         gemm_type = self.get_nodeattr("gemm_type")
         if gemm_type in ("mmau_1d", "mmau_2d"):
-            template_path = (
-                os.environ["FINN_ROOT"] + "/finn-rtllib/mmu/mmu_axi_wrapper.v"
-            )
+            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mmu/mmu_axi_wrapper.v"
         elif self.get_nodeattr("TH") > 1:
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled/mvu_tiled_axi_wrapper.v"

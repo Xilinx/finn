@@ -124,7 +124,7 @@ else begin
     end
 
     assign add_sf = add_s[TREE_HEIGHT][0];
-end 
+end
 
 logic signed [ACCU_WIDTH-1:0] odat_int = '0;
 

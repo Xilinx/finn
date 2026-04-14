@@ -81,7 +81,7 @@ logic [WSIMD-1:0][WEIGHT_WIDTH-1:0] idat_int;
 
 // Ireg
 skid #(.DATA_WIDTH(WSIMD*WEIGHT_WIDTH), .FEED_STAGES(1)) inst_ireg (
-    .clk(clk), .rst(rst), 
+    .clk(clk), .rst(rst),
     .ivld(ivld), .irdy(irdy), .idat(idat),
     .ovld(ivld_int), .ordy(irdy_int), .odat(idat_int)
 );
@@ -252,7 +252,7 @@ end
 
 // Oreg
 skid #(.DATA_WIDTH(PE*SIMD*WEIGHT_WIDTH), .FEED_STAGES(N_DCPL_STAGES)) inst_oreg (
-    .clk(clk), .rst(rst), 
+    .clk(clk), .rst(rst),
     .ivld(ovld_int), .irdy(ordy_int), .idat(odat_int),
     .ovld(ovld), .ordy(ordy), .odat(odat)
 );

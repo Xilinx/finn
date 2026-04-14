@@ -73,7 +73,7 @@ logic ivld_int;
 logic irdy_int;
 
 skid #(.DATA_WIDTH(W), .FEED_STAGES(1)) isnt_input_reg (
-    .clk(clk), .rst(rst), 
+    .clk(clk), .rst(rst),
     .ivld(ivld), .irdy(irdy), .idat(idat),
     .ovld(ivld_int), .ordy(irdy_int), .odat(idat_int)
 );
@@ -277,7 +277,7 @@ always_comb begin
             if(curr_wrY_C > curr_rdY_C) begin
                 cond_go = 1'b1;
             end
-        end 
+        end
     end else begin
         if(curr_wrY_C > curr_rdY_C) begin
             cond_go = 1'b1;
@@ -286,7 +286,7 @@ always_comb begin
             if(curr_wrX_C > curr_rdX_C) begin
                 cond_go = 1'b1;
             end
-        end 
+        end
     end
 end
 

@@ -82,7 +82,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
         if downstream.op_type.startswith("MVAU"):
             mvau_hbm_weights[idx] = {}
             mvau_hbm_weights[idx]["name"] = lb_inp.name
-            code_gen_dir = finnloop_op.get_nodeattr('code_gen_dir_ipgen')
+            code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
             npy_file = f"{code_gen_dir}/input1_MVAU_rtl_id_{idx}.npy"
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
             mvau_op = getCustomOp(downstream)
@@ -103,7 +103,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
                 n_iters = len(flat) // words_per_iter
                 weight_bytes = []
                 for it in range(n_iters):
-                    for row in flat[it * words_per_iter:(it + 1) * words_per_iter]:
+                    for row in flat[it * words_per_iter : (it + 1) * words_per_iter]:
                         for val in row:
                             weight_bytes.append(int(val) & 0xFF)
                     # Pad to layer_offs boundary

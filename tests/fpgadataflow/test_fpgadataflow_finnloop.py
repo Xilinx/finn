@@ -455,8 +455,16 @@ def make_single_mvau_loop_body(
 
 
 def create_chained_loop_bodies(
-    mw, mh, num_copies, elemwise_optype="ElementwiseMul_hls", rhs_shape=[1], eltw_param_dtype="INT8",
-    mvau_pe=2, mvau_simd=2, mvau_th=1, helper_pe=2,
+    mw,
+    mh,
+    num_copies,
+    elemwise_optype="ElementwiseMul_hls",
+    rhs_shape=[1],
+    eltw_param_dtype="INT8",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
 ):
     loop_body_models = []
 
@@ -677,8 +685,16 @@ def test_finnloop_end2end_mlo_tiled(
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
     loop_body_models = create_chained_loop_bodies(
-        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype,
-        mvau_pe=mvau_pe, mvau_simd=mvau_simd, mvau_th=mvau_th, helper_pe=helper_pe,
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        mvau_pe=mvau_pe,
+        mvau_simd=mvau_simd,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
     )
     model = loop_body_models[0]
     for m in loop_body_models[1:]:
@@ -789,9 +805,7 @@ def test_finnloop_end2end_mlo_tiled(
                             bus = 0
                             for j, v in enumerate(row):
                                 bus |= (int(v) & 0xFF) << (j * 8)
-                            tf.write(
-                                f"[{i:3d}] {dec}  | {hx}  | 0x{bus:0{arr.shape[-1]*2}x}\n"
-                            )
+                            tf.write(f"[{i:3d}] {dec}  | {hx}  | 0x{bus:0{arr.shape[-1]*2}x}\n")
                     print(f"DEBUG: weight dump -> {txt_path}")
                 for f in sorted(glob.glob(code_gen_dir + "/memblock_*.dat")):
                     base = os.path.basename(f).replace(".dat", "")
@@ -817,6 +831,7 @@ def test_finnloop_end2end_mlo_tiled(
     assert os.path.isfile(
         verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
+
 
 # Debug test for manual loop transformation steps below
 # This test is intentionally not marked for CI

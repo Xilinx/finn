@@ -29,7 +29,7 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  *****************************************************************************/
- 
+
 module fetch_weights #(
     int unsigned              PE,
     int unsigned              SIMD,
@@ -195,7 +195,7 @@ if(TH > 1) begin
 
             ST_DMA:
                 state_N = (cnt_dma_C == N_REPS-1) && dma_tready ? ST_IDLE : ST_DMA;
-        
+
         endcase
     end
 
@@ -213,7 +213,7 @@ if(TH > 1) begin
                 if(q_idx_out_tvalid) begin
                     idx_N = q_idx_out_tdata;
                 end
-            end 
+            end
 
             ST_DMA: begin
                 dma_tvalid = 1'b1;
@@ -221,7 +221,7 @@ if(TH > 1) begin
                     cnt_dma_N = cnt_dma_C + 1;
                 end
             end
-            
+
         endcase
     end
 

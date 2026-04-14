@@ -36,7 +36,7 @@ module cu_mmau_1d #(
     int unsigned PE,
     int unsigned CLEN,
     int unsigned CU_SIMD,
-    
+
     int unsigned ACTIVATION_WIDTH,
     int unsigned WEIGHT_WIDTH,
 	int unsigned ACCU_WIDTH,
@@ -62,7 +62,7 @@ module cu_mmau_1d #(
     input  logic m_axis_tready,
     output logic [PE-1:0][ACCU_WIDTH-1:0] m_axis_tdata
   );
-	
+
 // Startup Recovery Watchdog
 //  The DSP slice needs 100ns of recovery time after initial startup before
 //  being able to ingest input properly. This watchdog discovers violating
@@ -97,7 +97,7 @@ module cu_mmau_1d #(
             assign Wc_int[0][i][8*k +: 8] =
                 PAD_BITS_WEIGHT == 0 ? Wc[0][i][WEIGHT_WIDTH*k+:WEIGHT_WIDTH] : { {PAD_BITS_WEIGHT{Wc[0][i][k*WEIGHT_WIDTH+WEIGHT_WIDTH-1]}}, Wc[0][i][k*WEIGHT_WIDTH+:WEIGHT_WIDTH] };
         end
-    end 
+    end
 
     /*
 	always_ff @(posedge clk) begin
@@ -169,7 +169,7 @@ module cu_mmau_1d #(
                 end
             end
 
-            for (genvar j = 0; j < PE; j++) begin           
+            for (genvar j = 0; j < PE; j++) begin
                 always_comb begin
                     Mc_int_sum[i][j] = 0;
 
@@ -209,9 +209,9 @@ module cu_mmau_1d #(
                     SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? a[i][k] : { {PAD_BITS_ACT{a[i][k][ACTIVATION_WIDTH-1]}}, a[i][k] }
                         : PAD_BITS_ACT == 0 ? a[i][k] : { {PAD_BITS_ACT{1'b0}}, a[i][k] } ;
             end
-            
 
-            for (genvar j = 0; j < PE; j++) begin   
+
+            for (genvar j = 0; j < PE; j++) begin
                /* for (genvar k = 0; k < CU_SIMD; k++) begin
                     assign Wc_int[i][j][8*k +: 8] =
                         PAD_BITS_WEIGHT == 0 ? Wc[i][j][WEIGHT_WIDTH*k+:WEIGHT_WIDTH] : { {PAD_BITS_WEIGHT{Wc[i][j][k*WEIGHT_WIDTH+WEIGHT_WIDTH-1]}}, Wc[i][j][k*WEIGHT_WIDTH+:WEIGHT_WIDTH] };
@@ -343,7 +343,7 @@ module cu_mmau_1d #(
                     .RSTP(rst)                          // 1-bit input: Reset for PREG
                 );
 
-                
+
                 if(i % CC_LEN == CC_LEN-1) begin
                     sft_reg #(
                         .N(CC_LEN)
@@ -378,7 +378,7 @@ module cu_mmau_1d #(
                     end else begin
                         Pc[i] <= Lc[i][DSP_PIPELINE_STAGES] ?  pout[i] : Pc[i+1];
                         Pc_vld[i] <= Lc[i][DSP_PIPELINE_STAGES] ? 1'b1 : Pc_vld[i+1];
-                    end 
+                    end
                 end
             end
         end
@@ -391,7 +391,7 @@ module cu_mmau_1d #(
     assign p = Pc[0];
 
     collect_out_1d #(
-        .PE(PE), 
+        .PE(PE),
         .ACCU_WIDTH(ACCU_WIDTH)
     ) inst_collect_out (
         .clk(clk), .rst(rst),
