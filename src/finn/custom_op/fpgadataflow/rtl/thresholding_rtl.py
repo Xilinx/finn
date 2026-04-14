@@ -523,3 +523,51 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     with open(thresh_file, "w") as f:
                         for val in threshs:
                             f.write(val + "\n")
+
+    def minimize_weight_bit_width(self, model):
+        """Minimize threshold datatype, with RTL-specific adjustments.
+
+        The RTL implementation saturates inputs to the threshold datatype range
+        when the threshold datatype is narrower than the input datatype. To ensure
+        correct comparisons at saturation boundaries, the threshold datatype must
+        be able to represent [min_threshold - 1 : max_threshold]."""
+        # First, call the base class implementation
+        tdt = super().minimize_weight_bit_width(model)
+
+        # Check if we need RTL-specific adjustments
+        idt = self.get_input_datatype(0)
+        if not idt.is_integer() or not tdt.is_integer():
+            return tdt
+
+        # If threshold datatype is smaller than input datatype, we need to ensure
+        # it can represent min_threshold - 1 to handle RTL saturation correctly
+        if tdt.bitwidth() < idt.bitwidth():
+            thresholds = model.get_initializer(self.onnx_node.input[1])
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            min_required = min_threshold - 1
+            max_required = max_threshold
+
+            # Compute the new datatype that can represent the extended range
+            if min_required < 0:
+                if abs(min_required) > max_required:
+                    new_tdt = DataType.get_smallest_possible(min_required)
+                else:
+                    new_tdt = DataType.get_smallest_possible(-max_required - 1)
+            else:
+                if idt.signed():
+                    new_tdt = DataType.get_smallest_possible(-max_required - 1)
+                else:
+                    new_tdt = DataType.get_smallest_possible(max_required)
+
+            # Only update if the new datatype is wider
+            if new_tdt.bitwidth() > tdt.bitwidth():
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
+                assert np.vectorize(new_tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds can't be expressed with type %s" % str(new_tdt)
+                self.set_nodeattr("weightDataType", new_tdt.name)
+                model.set_tensor_datatype(self.onnx_node.input[1], new_tdt)
+                return new_tdt
+
+        return tdt

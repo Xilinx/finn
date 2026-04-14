@@ -532,9 +532,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Cropping layers
     model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
-    # Quantization layers
+    # Quantization layers (Quant nodes with scale=1, zeropt=0 or uniform MultiThreshold)
     model = apply_if_relevant(
-        model, ["Quant"], to_hw.InferQuantAsFloat2Int(), "quantization as float to int"
+        model, ["Quant", "MultiThreshold"], to_hw.InferRequantLayer(), "quantization as requant"
     )
 
     # Graph topology transformations (always check - not based on op_type)

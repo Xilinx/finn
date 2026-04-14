@@ -64,6 +64,7 @@ from finn.custom_op.fpgadataflow.hls.lookup_hls import Lookup_hls
 from finn.custom_op.fpgadataflow.hls.matrixvectoractivation_hls import MVAU_hls
 from finn.custom_op.fpgadataflow.hls.outer_shuffle_hls import OuterShuffle_hls
 from finn.custom_op.fpgadataflow.hls.pool_hls import Pool_hls
+from finn.custom_op.fpgadataflow.hls.requant_hls import Requant_hls
 from finn.custom_op.fpgadataflow.hls.split_hls import StreamingSplit_hls
 from finn.custom_op.fpgadataflow.hls.streamingdatawidthconverter_hls import (
     StreamingDataWidthConverter_hls,

@@ -126,7 +126,7 @@ class Thresholding(HWCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def minimize_weight_bit_width(self, model):
-        """Minimize threshold datatype bitwidth based on actual threshold values"
+        """Minimize threshold datatype bitwidth based on actual threshold values.
         This function should not round or clip the threshold values,
         that is done in RoundAndClipThresholds."""
 
@@ -142,7 +142,14 @@ class Thresholding(HWCustomOp):
             max_threshold = np.float64(thresholds.max())
             # Check if input datatype is signed
             input_is_signed = self.get_input_datatype(0).signed()
-            if min_threshold < 0:
+            # Special case: all thresholds are zero
+            # get_smallest_possible(-1) returns BIPOLAR which can't represent 0
+            if min_threshold == max_threshold == 0:
+                if input_is_signed:
+                    tdt = DataType["INT2"]
+                else:
+                    tdt = DataType["UINT1"]
+            elif min_threshold < 0:
                 if abs(min_threshold) > max_threshold:
                     tdt = DataType.get_smallest_possible(min_threshold)
                 else:
@@ -153,12 +160,6 @@ class Thresholding(HWCustomOp):
                     tdt = DataType.get_smallest_possible(-max_threshold - 1)
                 else:
                     tdt = DataType.get_smallest_possible(max_threshold)
-
-            # Temp fix until addressed in RTL
-            # If threshold datatype is smaller than input datatype, use input datatype
-            idt = self.get_input_datatype(0)
-            if tdt.bitwidth() < idt.bitwidth():
-                tdt = idt
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)
