@@ -8,6 +8,49 @@ This guide covers coding standards for hardware description languages used in FI
 
 Following these standards ensures consistency across the codebase and makes code easier to read, review, and maintain.
 
+## General Principles (All HDL)
+
+### File Headers
+
+All HDL source files (HLS/C++ and SystemVerilog) must include a copyright header with SPDX identifier:
+
+**C++/HLS**:
+```cpp
+// Copyright (C) 2026, Advanced Micro Devices, Inc.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+```
+
+**SystemVerilog**:
+```systemverilog
+// Copyright (C) 2026, Advanced Micro Devices, Inc.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+```
+
+### Comments
+
+**Purpose**: Explain **why**, not **what**
+
+- Use comments to explain design decisions, algorithms, and non-obvious constraints
+- Avoid obvious comments that repeat what the code does
+- Complex algorithms should have block comments explaining the approach
+- Hardware-specific considerations (timing, resource usage) should be documented
+
+**Good**:
+```cpp
+// Limit parallelism to match BRAM port constraints
+simd = 8;
+```
+
+**Bad**:
+```cpp
+// Set SIMD to 8
+simd = 8;
+```
+
 ---
 
 ## HLS/C++ Style (finn-hlslib)
@@ -158,303 +201,156 @@ void Thresholding_Batch(hls::stream<TI> &in,
 2. Standard library headers if needed
 3. Local finn-hlslib headers
 
-### File Headers
-
-All HLS source files should include the copyright header with SPDX identifier:
-
-```cpp
-// Copyright (C) 2026, Advanced Micro Devices, Inc.
-// All rights reserved.
-//
-// SPDX-License-Identifier: BSD-3-Clause
-```
-
 ---
 
 ## SystemVerilog Style (finn-rtllib)
 
-### General Principles
+These guidelines are strict but not religious. Deviations are possible but must be rare and always accompanied by an explanatory comment in the sources.
 
-- Follow **IEEE 1800-2017 SystemVerilog** standard
-- Use **SystemVerilog features** (logic, typedef, struct, enum) over Verilog-2001
-- Prioritize **synthesizability** and **timing closure**
+The use of `` `default_nettype none`` is encouraged.
 
-### 1. Indentation
+## Naming
 
-- **Structural indentation** uses **tabulators (tabs)**
-- **Alignment within lines** uses **spaces**
-- Tab size is implementation-defined but irrelevant (tabs only for indentation)
+Signals that represent registers are named in capital camel case. They are always initialized. The initialization value must be identical to the value assigned in the reset branch of the corresponding always_ff block. If the reset value is semantically irrelevant, `'x` is used in both places, granting the synthesis tool full freedom in control set assignment.
 
-### 2. Time
+Signals that represent combinatorial compute are named in lower snake case. Their pure declarations have no initializer. For simple combinatorial computations by a single expression, continuous assigns are preferred over always_comb blocks. If all inputs to such a computation are available at the point of declaration, a uwire declaration fused with an immediate continuous assignment is used. The declaration as a uwire net is preferred over a logic variable if allowed by the use of the signal, i.e. when it is not the target of a procedural assignment.
 
-- No explicit settings for time unit or scale
-- Timed delays only used for simulation (not synthesis)
-- Each delay specified with explicit unit
+Generic parameters and localparams are named in all-capital snake case. Don't use the parameter keyword for typed generics. Use unsigned types whenever semantically sensible. Width, precision, count, offset, and version generics are typically typed as int unsigned. Only localparams that are referenced by port declarations belong in the parameter list; all others are declared in the module body.
 
-**Example**:
-```systemverilog
-logic clk = 0;
-always #5ns clk = !clk;
+Type definitions use a `_t` suffix. Enum types may use `_e` instead. Types should be declared in the smallest meaningful scope, i.e. within a module if no other module relies on them.
+
+Signedness follows semantics: quantities that can represent negative numeric values are declared signed consistently at ports and typedefs, while control data and widths stay unsigned.
+
+## Ports
+
+Modules use ANSI port declarations. Ports are grouped logically, typically starting with the control set (clock and reset), and keeping related signals together regardless of direction (e.g. all signals associated with a stream).
+
+Non-AXI modules use a simplified port naming scheme: `idat`/`ivld`/`irdy` for input streams and `odat`/`ovld`/`ordy` for output streams, where `irdy` is an output (this module can accept input) and `ordy` is an input (downstream can accept output). The clock input is named `clk`, the reset `rst`.
+
+Modules designated for instantiation by the Vivado IP Integrator use standard AXI-Stream port naming: `s_axis_<name>_tdata`, `s_axis_<name>_tvalid`, `s_axis_<name>_tready`, etc. for slave interfaces, and `m_axis_<name>_` prefixes for master interfaces. These modules use `aclk` and `aresetn` as clock and reset.
+
+## Resets
+
+Resets are always synchronous. Non-AXI modules use active-high `rst`. AXI IP Integrator modules use active-low `aresetn`.
+
+## Formatting
+
+Tabs are used for indentation, one tab per indentation level. Tab-indented assign keywords are separated from their assignment expressions by another tab. Assign keywords that are the single-line body of a block statement such as an if-statement or a for-loop are followed by two spaces instead. Tabs may not be used for visual alignment if such alignment would depend on a specific tab size.
+
+Separate parameter or variable names from their type by at least two spaces in a declaration. If equivalent elements in declarations on subsequent lines line up closely already, align them completely. In these cases, also align the elements of index range specifications. Right-align bounds if padding is needed.
+
+The ternary operator is preferred over if-else constructs. The `?` follows the condition without a preceding space (`cond? a : b`). A space before `?` is only used for vertical alignment in multi-decision expressions where several ternaries share a column. Non-trivial conditions (compound expressions with operators) are parenthesized: `(a && b)? c : d`.
+
+If-else branches and loop bodies do not enclose single-line statements that are not particularly long in begin-end blocks.
+
+## Numeric Literals
+
+Numeric literals avoid size specifications unless required by context. Literals of small values whose purpose is not a bit pattern should be decimal. A decimal base is not explicitly identified. A zero vector of a known size is produced by a sized literal rather than by a repetition of a single-bit zero. In concatenations/aggregations, retain explicit element widths when needed to avoid ambiguity.
+
+Examples:
+- `3` — not `32'd3` (small value, not a bit pattern)
+- `8'd0` — not `{8{1'b0}}` (zero vector of known size via sized literal)
+- `4'b1010` — bit pattern, explicit size and base appropriate
+
+## Procedural Blocks
+
+Use `always_ff` for sequential logic and `always_comb` for combinatorial logic. Plain `always` blocks are banned with one exception: clock generation in testbenches (e.g. `always #5ns clk = !clk;`).
+
+## Generate Blocks
+
+Generate blocks of any kind should be labeled if they extend over more than a few lines.
+
+## Assertions
+
+Assertions are used for simulation-time checks. Violations should typically be reported as `$error`.
+
+Static parameter validation that must also be caught by synthesis tools uses `$error`/`$finish` in `initial` blocks rather than `assert` since synthesis tools may ignore assert statements.
+
+## Code Organization
+
+A module body is organized into sections separated by `//===` banner comments. Each section implements a self-contained piece of the dataflow, e.g. a pipeline stage.
+
+The code within each section is organized as follows:
+(a) Declaration of all signals representing outputs computed by the section for the consumption by others.
+(b) Derivation of combinatorial refinements of processed inputs if needed. Single-line uwire declarations with a fused continuous assignment are preferred.
+(c) Description of the sequential logic updating the state of the section.
+(d) If needed, a refining combinatorial derivation of the outputs of the section.
+If there are signals that only facilitate the internal communication between these steps, an `if(1)` block is used to scope them locally. This construction is preferred over unmotivated begin-end blocks, which are not supported by Vivado. Signal declarations are not batched at the beginning of this block but happen as late as possible. Between sections, give a preference to input rather than output refinements.
+
+## Operator Ordering: MUX before ADD
+
+When a conditional selects between advancing a value or keeping it, prefer MUX-then-ADD over ADD-then-MUX. That is, mux the addend and feed a single adder rather than computing both sums and muxing the results. An input MUX can typically be merged into the same LUT level that implements the addition. A terminal MUX always costs an extra LUT level.
+
+Preferred: `result = base + (sel ? inc : 0)`
+Avoid: `result = sel ? (base + inc) : base`
+
+The same principle applies to any associative operator (subtraction, OR-combine, etc.) where one branch is the identity element.
+
+## Free-Running Pipeline
+
+A free-running pipeline implements a continuously progressing pipelined dataflow computation without means to stall the pipeline due to backpressure or by an enable signal. A data item is typically accompanied by a valid indication flowing through the pipeline in sync with it. The input is fed by the signal pair `idat` carrying the data and `ivld` indicating a valid input. The respective outputs are `odat` and `ovld`.
+
+Each pipeline stage is a section following the general code organization described above.
+
+## Skills
+
+### Pipelined Binary Reduction Tree
+
+A generically-sized binary reduction tree reduces `N` inputs to a single output using `N-1` pipelined binary operator nodes. The tree is represented as a flat array of `2*N-1` edges using heap-style indexing: the root is at index 0, and the children of node `i` are at `2*i+1` and `2*i+2`. Leaves occupy indices `N-1` through `2*N-1-1`.
+
+The structure is scoped within an `if(1)` block and organized in three sections:
+
+**(1) Tree array and leaf feed.** Declare the tree as `uwire edge_t tree[2*N-1]`. Feed each leaf from the input:
+
+```
+for(genvar  i = 0; i < N; i++) begin : genLeaves
+    assign  tree[N-1+i] = in[i];
+end : genLeaves
 ```
 
-### 3. Parameters
+**(2) Edge delay balancing.** When `N` is not a power of two, the tree has an incomplete leaf level. Leaves at shallower levels have shorter paths to the root and require delay compensation. This is computed by an elaboration-time function:
+- Mark each leaf that is not on the deepest level for one cycle of delay.
+- Propagate shared delays upward: if both children of a node carry a delay, remove them and assign the delay to the parent instead.
 
-- Names use **ALL_CAPS snake_case**
-- Parameters are **generally typed** (exception: auto-sizing string literals)
-- Module parameters only given **natural defaults**; avoid arbitrary pre-imposed choices
-
-**Example**:
-```systemverilog
-module memstream #(
-    int unsigned  DEPTH,
-    int unsigned  WIDTH,
-    parameter     INIT_FILE = "",
-    parameter     RAM_STYLE = "auto"
-)(
-    // Ports
-);
-    localparam int unsigned  WRAP_INC = 2**$clog2(DEPTH) - DEPTH + 1;
-    ...
-endmodule : memstream
 ```
-
-### 4. State (Registers)
-
-- Names use **initial-capital camel case** (e.g., `MyRegister`, `PipelineStage`)
-- Registers declared as **variables** (keyword `reg` never used; `var` keyword discouraged)
-- Registers **generally initialized**, making don't-care explicit by assigning `'x`
-- Registers **reset explicitly** to the same value they are initialized to
-- **Exception**: State in primitives incapable of reset (SRL, BRAM contents) - must be justified by comment
-- **Names introduced as module ports are never used for storing state**
-
-**Example**:
-```systemverilog
-typedef struct packed {
-    logic [7:0] op;
-    logic [31:0] val;
-} pipe_t;
-
-pipe_t P = '{ op: NOP, default: 'x };
-logic  Reval = 0;
-
-always_ff @(posedge clk) begin
-    if(rst) begin
-        P     <= '{ op: NOP, default: 'x };
-        Reval <= 0;
+typedef bit edge_delays_t[2*N-1];
+function edge_delays_t INIT_EDGE_DELAYS();
+    localparam int unsigned  LEVELS = 1+$clog2(N);
+    automatic edge_delays_t  d = '{ default: 0 };
+    for(int unsigned  i = N-1; i < 2*N-1; i++) begin
+        if($clog2(i+2) == LEVELS)  break;
+        d[i] = 1;
     end
-    else begin
-        P     <= p;
-        Reval <= (p.op ==? RB) && cs;
+    for(int unsigned  i = N-1; i > 0; i--) begin
+        if(d[2*i+1]) begin
+            d[2*i+1] = 0;
+            d[2*i+2] = 0;
+            d[i] = 1;
+        end
     end
-end
+    return  d;
+endfunction
+localparam edge_delays_t  EDGE_DELAYS = INIT_EDGE_DELAYS();
 ```
 
-### 5. Combinatorial Logic
+**(3) Inner nodes.** Generate `N-1` nodes, each computing `tree[i] = f(tree[2*i+1], tree[2*i+2])` for an abstract combinatorial function `f()`. Where `EDGE_DELAYS` indicates a balancing delay, a pipeline register is inserted on the corresponding input:
 
-- Names use **lower-case snake_case** (e.g., `mag_eq`, `cmp`, `ready_signal`)
-- Combinational signals declared as **unresolved `uwire`** wherever possible
-- Immediate continuous assignment at declaration preferred
-- Combinational signals computed in `always` blocks declared as **variables**
-- Combinational variables are **not initialized**
-
-**Example**:
-```systemverilog
-logic cmp;  // Variable for always block
-uwire mag_eq = Thresh[K-2:0] == P.val[K-2:0];
-uwire mag_le = Thresh[K-2:0] <= P.val[K-2:0];
-
-always_comb begin
-    unique case({Thresh[K-1], P.val[K-1]})
-        2'b00:   cmp = mag_le;
-        2'b01:   cmp = 0;
-        2'b10:   cmp = 1;
-        2'b11:   cmp = !mag_le || mag_eq;
-        default: cmp = 'x;
-    endcase
-end
+```
+for(genvar  i = 0; i < N-1; i++) begin : genNodes
+    uwire edge_t  a;
+    if(EDGE_DELAYS[2*i+2]) begin : genDelay
+        edge_t  Del = 'x;
+        always_ff @(posedge clk)  Del <= tree[2*i+2];
+        assign  a = Del;
+    end : genDelay
+    else begin : genDirect
+        assign  a = tree[2*i+2];
+    end : genDirect
+    assign  tree[i] = f(tree[2*i+1], a);
+end : genNodes
 ```
 
-### 6. Block Labels
-
-- Closings of block entities (`endmodule`, `endfunction`, `endtask`) are **labeled**
-- Non-trivial `begin ... end` blocks **should be labeled**
-- Generate blocks use **camel case** starting with prefix **"gen"**
-- Scoping blocks use **camel case** starting with prefix **"blk"**
-
-**Example**:
-```systemverilog
-module thresholding #(...)(...);
-    ...
-    if(1) begin : blkFeed
-        ...
-    end : blkFeed
-
-    for(genvar stage = 0; stage < N; stage++) begin : genStages
-        for(genvar pe = 0; pe < PE; pe++) begin : genPE
-            ...
-        end : genPE
-    end : genStages
-endmodule : thresholding
-```
-
-### 7. Scoping
-
-- Identifiers introduced in **smallest scope** of their use
-- Introduction of scoping blocks (`if(1) begin ... end`) encouraged for names of sole immediate local relevance
-
-### 8. Always Blocks
-
-- Always blocks **must be** `always_ff` or `always_comb`
-- **Exception**: Raw `always` blocks only for special needs (e.g., clock generation in testbenches)
-
-**Example**:
-```systemverilog
-always_ff @(posedge clk) begin
-    // Sequential logic
-end
-
-always_comb begin
-    // Combinatorial logic
-end
-```
-
-### 9. Case Statements
-
-- Case statements **must be explicitly** implemented by most restrictive applicable alternative
-- **Single-choice** case statements identified by `unique` keyword
-- **Wildcard matches** implemented by `casez` or `casex`
-
-**Example**:
-```systemverilog
-always_comb begin
-    unique case(state)
-        IDLE:   next_state = ACTIVE;
-        ACTIVE: next_state = DONE;
-        DONE:   next_state = IDLE;
-        default: next_state = 'x;
-    endcase
-end
-```
-
-### 10. Data Types
-
-- **Hardware signals** use **4-valued logic types** (`logic`, not `bit`)
-- **Parameters without hardware association** use **2-valued data types** (`int`, `bit`)
-- Use **role-specific typedefs**, **structs**, and **enums** (encouraged)
-- When domain knowledge available, use **most restrictive basic type** (e.g., `byte` over `int`)
-
-**Example**:
-```systemverilog
-typedef logic [31:0]  fp32;
-typedef fp32 [SIMD-1:0]  vfp32;
-
-typedef struct packed {
-    fp32   dat;
-    logic  vld;
-} edge_t;
-
-typedef enum logic [1:0] {
-    IDLE   = 2'b00,
-    ACTIVE = 2'b01,
-    DONE   = 2'b10
-} state_t;
-```
-
-### Port Naming Conventions
-
-**Clock/Reset**:
-- `clk` or `aclk` - Clock signal
-- `rst` or `aresetn` - Reset (active-low uses 'n' suffix)
-
-**Handshake Signals**:
-- `*vld` or `*valid` - Data validity
-- `*rdy` or `*ready` - Backpressure/ready
-- `*dat` or `*data` - Data payload
-
-**AXI Stream Example**:
-```systemverilog
-// Input stream
-input  logic [SIMD-1:0][31:0]  xdat,
-input  logic                   xvld,
-output logic                   xrdy,
-
-// Output stream
-output logic [SIMD-1:0][31:0]  ydat,
-output logic                   yvld,
-input  logic                   yrdy
-```
-
-**AXI-Lite Interface** (standard names):
-- Write Address: `awready`, `awvalid`, `awprot`, `awaddr`
-- Write Data: `wready`, `wvalid`, `wstrb`, `wdata`
-- Write Response: `bready`, `bvalid`, `bresp`
-- Read Address: `arready`, `arvalid`, `arprot`, `araddr`
-- Read Data: `rready`, `rvalid`, `rresp`, `rdata`
-
-### Xilinx-Specific Attributes
-
-```systemverilog
-(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
-(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-input ap_clk;
-```
-
-### Design Patterns
-
-**Key pattern**: Use sign bit of counters for completion signaling:
-```systemverilog
-logic signed [$clog2(N-1):0] Cnt = N-2;  // N-2, ..., 1, 0, -1
-uwire complete = Cnt[$left(Cnt)];  // Sign bit signals completion
-```
-
-### File Headers
-
-All SystemVerilog source files should include the copyright header with SPDX identifier:
-
-```systemverilog
-// Copyright (C) 2026, Advanced Micro Devices, Inc.
-// All rights reserved.
-//
-// SPDX-License-Identifier: BSD-3-Clause
-```
-
----
-
-## Domain-Specific Abbreviations
-
-Use these abbreviations **consistently across HLS and SystemVerilog**:
-
-- **PE** - Processing Elements
-- **SIMD** - Single Instruction Multiple Data
-- **MVAU** - Matrix Vector Activation Unit
-- **VVAU** - Vector Vector Activation Unit
-- **DWC** - Data Width Converter
-- **SWG** - Sliding Window Generator
-- **IFM** - Input Feature Map
-- **OFM** - Output Feature Map
-- **TMEM** - Threshold Memory (NumChannels / PE)
-
----
-
-## Comments
-
-- Use comments to explain **why**, not **what**
-- Complex algorithms should have block comments explaining approach
-- Avoid obvious comments
-
-**Bad**:
-```cpp
-// Set SIMD to 8
-unsigned int SIMD = 8;
-```
-
-**Good**:
-```cpp
-// Limit parallelism to match BRAM port constraints
-unsigned int SIMD = 8;
-```
-
----
+The root result is taken from `tree[0]`. The total tree latency is `$clog2(N)` cycles, assuming `f()` is registered at its output.
 
 ## References
 
