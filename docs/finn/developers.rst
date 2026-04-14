@@ -11,7 +11,7 @@ Prerequisites
 Before starting to do development on FINN it is a good idea to start
 with understanding the basics as a user. Going through all of the
 :ref:`tutorials` is strongly recommended if you haven't already done so.
-Additionally, please review the documentation available on :ref:`internals`.
+Additionally, please review the :ref:`concepts` documentation and the :doc:`/implementation/index`.
 
 Repository structure
 =====================
