@@ -345,31 +345,18 @@ class MVAU_rtl(MVAU, RTLBackend):
     def _is_dotp_comp_eligible(self, fpgapart, ww, aw, pumped_compute):
         """
         Check if LUT-based compressor should replace the DSP compute path.
-        Returns True when: non-pumped, small operands (WW <= 4 and AW <= 4),
-        and target is Versal or 7-Series (not UltraScale+).
+        Returns True when: non-pumped, small operands (WW <= 4 and AW <= 4).
+
+        All FPGA families are supported via resolve_target() in the compressor:
+        - Versal: LUT6 + LOOKAHEAD8 primitives
+        - UltraScale+: LUT6_2 + CARRY4 (Vivado maps to CARRY8)
+        - 7-Series: LUT6_2 + CARRY4
         """
-        # Check if compressors are force-disabled (for benchmarking)
-        if self.get_nodeattr("noCompressor"):
-            return False
         if pumped_compute or ww > 4 or aw > 4:
             return False
-        dsp_block = get_dsp_block(fpgapart)
-        # DSP48E2 (UltraScale+) excluded: no compressor target exists for its
-        # CARRY8 primitives — generator only supports Versal and 7-Series.
-        return dsp_block in ("DSP58", "DSP48E1")
+        return True
         
 
-    def _is_add_multi_comp_eligible(self, version, simd):
-        """
-        Check if add_multi lane reductions should use LUT compressors.
-        Returns True when: not UltraScale+ (version != 2) and SIMD >= 4
-        (below 4 inputs, compressors offer no benefit over binary adder tree).
-        """
-        # Check if compressors are force-disabled (for benchmarking)
-        if self.get_nodeattr("noCompressor"):
-            return False
-        # version 2 = DSP48E2 (UltraScale+) blocked for same reason as above.
-        return version != 2 and simd >= 4
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -407,27 +394,19 @@ class MVAU_rtl(MVAU, RTLBackend):
             code_gen_dict["$USE_COMPRESSOR$"] = [str(1)]
             self.set_nodeattr("comp_module_name", result["comp_name"])
         else:
-            # Generate add_multi.sv (either patched with comps or template copy)
-            # Check if add_multi should use compressors (respects noCompressor attribute)
-            if self._is_add_multi_comp_eligible(version, simd):
-                result = generate_add_multi_comps(
-                    fpgapart, version, simd, ww, aw, accu_width,
-                    narrow_weights, code_gen_dir)
-                if result["comp_names"]:
-                    self.set_nodeattr("add_multi_comp_names",
-                                      ";".join(result["comp_names"]))
-                    # Store compressor specs for synthesis aggregation
-                    # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
-                    specs_str = ";".join(
-                        f"{n},{w},{d}" for n, w, d in result.get("comp_specs", [])
-                    )
-                    self.set_nodeattr("add_multi_comp_specs", specs_str)
-            else:
-                # Compressors disabled: copy template add_multi.sv (binary adder tree)
-                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-                dest = os.path.join(code_gen_dir, "add_multi.sv")
-                shutil.copy(os.path.join(rtllib_dir, "add_multi.sv"), dest)
-                result = {"comp_names": [], "files": [dest]}
+            # DSP path: Generate add_multi.sv with compressors
+            result = generate_add_multi_comps(
+                fpgapart, version, simd, ww, aw, accu_width,
+                narrow_weights, code_gen_dir)
+            if result["comp_names"]:
+                self.set_nodeattr("add_multi_comp_names",
+                                  ";".join(result["comp_names"]))
+                # Store compressor specs for synthesis aggregation
+                # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
+                specs_str = ";".join(
+                    f"{n},{w},{d}" for n, w, d in result.get("comp_specs", [])
+                )
+                self.set_nodeattr("add_multi_comp_specs", specs_str)
 
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]

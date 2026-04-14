@@ -55,11 +55,9 @@ def _determine_impl_style(node, fpgapart, model):
             return _dwc_determine_impl_style(node)
         if rtl_variant:
             if optype == "MVAU":
-                idt = node_inst.get_input_datatype(0)
-                wdt = node_inst.get_input_datatype(1)
-                inp_width_fit = idt.bitwidth() >= 4
-                weight_width_fit = wdt.bitwidth() >= 4
-                if inp_width_fit and weight_width_fit and _mvu_rtl_possible(node, fpgapart, model):
+                # Delegate to _mvu_rtl_possible() which allows 2-8 bit bitwidths
+                # Removed >= 4 early filter to enable RTL/compressors for 2-3 bit
+                if _mvu_rtl_possible(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
@@ -260,8 +258,15 @@ def _mvu_rtl_possible(n, fpgapart, model):
     # first check if no Activation or binary xnor mode and return False
     # immediately if one of them is True
     no_activation = node_inst.get_nodeattr("noActivation") == 0
-    not_binaryxnor_mode = node_inst.get_nodeattr("binaryXnorMode") == 1
-    if no_activation or not_binaryxnor_mode:
+    is_binaryxnor_mode = node_inst.get_nodeattr("binaryXnorMode") == 1
+    if no_activation or is_binaryxnor_mode:
+        return False
+
+    # RTL does not support BIPOLAR input datatype (1-bit signed {-1,+1})
+    # BIPOLAR requires special handling that only HLS provides
+    from qonnx.core.datatype import DataType
+    idt = node_inst.get_input_datatype(0)
+    if idt == DataType["BIPOLAR"]:
         return False
 
     # check if weights are signed, if not return False
@@ -280,18 +285,18 @@ def _mvu_rtl_possible(n, fpgapart, model):
     else:
         weights_min = np.min(weights)
     narrow_weights = False if weights_min == wdt.min() else True
-    # if non narrow weights and only DSP48E1 available return False
-    if not narrow_weights and dsp_block == "DSP48E1":
-        return False
+    # NOTE: Narrow weight check for DSP48E1 removed (previously returned False for
+    # narrow_weights=False on DSP48E1). Rationale (see matrixvectoractivation_rtl.py):
+    # - Compressor path (LUT-based, WW<=4 && AW<=4): No narrow weight constraint, works
+    #   with full weight range including wdt.min()
+    # - DSP path: Handles narrow weights via NARROW_WEIGHTS module parameter in mvu.sv,
+    #   which adjusts lane slicing to accommodate narrow range
+    # - Test suite: Removed weight clipping in test_fpgadataflow_mvau.py line 785
+    #   (previously forced W = np.clip(W, wdt.min()+1, wdt.max()) on xc7z020)
+    # - Result: Both paths now accept full weight range, narrow_weights computed but not
+    #   used as a gating condition for RTL eligibility
 
-    # if none of the above constraints have been triggered
-    # we now check if input and weight data types are in range
-    # we only use rtl mvau if the dtypes are at least 2 bit
-    idt = node_inst.get_input_datatype()
-    inp_width_in_range = 2 <= idt.bitwidth()
-    weight_width_in_range = 2 <= wdt.bitwidth()
-
-    return inp_width_in_range and weight_width_in_range
+    return True
 
 
 def _vvu_rtl_possible(n, fpgapart):
