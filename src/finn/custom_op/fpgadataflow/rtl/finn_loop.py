@@ -88,6 +88,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "inputDataType": ("s", True, ""),
             # FINN output datatype
             "outputDataType": ("s", True, ""),
+            # Path to save per-iteration execution context (cppsim only).
+            # If non-empty, each iteration's full context is saved to this path.
+            "iteration_context_path": ("s", False, ""),
         }
         my_attrs.update(HWCustomOp.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -330,6 +333,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
             loop_body = self.get_nodeattr("body")
             # for each iteration run execution
             iteration = self.get_nodeattr("iteration")
+            iteration_context_path = self.get_nodeattr("iteration_context_path")
+            save_iteration_context = (
+                iteration_context_path is not None and iteration_context_path != ""
+            )
+            all_iteration_contexts = {}
             for i_iter in range(iteration):
                 # set the right parameters
                 input_dict = {}
@@ -341,7 +349,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
                         input_dict[loop_body.graph.input[i].name] = params[i_iter]
                 outp_dict = oxe.execute_onnx(loop_body, input_dict, return_full_exec_context=True)
                 inp_values = outp_dict[loop_body.graph.output[0].name]
+                # Save iteration context if enabled
+                if save_iteration_context:
+                    for tensor_name, tensor_val in outp_dict.items():
+                        # Skip empty tensor name (dummy entry for default values)
+                        if tensor_name:
+                            key = f"iter_{i_iter}_{tensor_name}"
+                            all_iteration_contexts[key] = tensor_val
             result = outp_dict[loop_body.graph.output[0].name]
+            # Save all iteration contexts to file
+            if save_iteration_context:
+                np.savez(iteration_context_path, **all_iteration_contexts)
         context[node.output[0]] = np.asarray(result, dtype=np.float32)
 
     def generate_hdl(self, model, fpgapart, clk):
