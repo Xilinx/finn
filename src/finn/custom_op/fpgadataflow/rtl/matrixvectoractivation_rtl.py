@@ -108,7 +108,14 @@ class MVAU_rtl(MVAU, RTLBackend):
 
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
                 num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-                num_w_reps = num_w_reps // self.get_nodeattr("TH")
+                gemm_type = self.get_nodeattr("gemm_type")
+                if gemm_type in ("mmau_1d", "mmau_2d"):
+                    simd = self.get_nodeattr("SIMD")
+                    cu_simd = self.get_nodeattr("CU_SIMD")
+                    clen = (simd + cu_simd - 1) // cu_simd
+                    num_w_reps = num_w_reps // clen
+                else:
+                    num_w_reps = num_w_reps // self.get_nodeattr("TH")
 
                 io_dict = {
                     "inputs": {"in0": inp, "in1": wei * num_w_reps},
@@ -161,8 +168,36 @@ class MVAU_rtl(MVAU, RTLBackend):
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
+        gemm_type = self.get_nodeattr("gemm_type")
         theight = self.get_nodeattr("TH")
-        if theight > 1:
+
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mmu/")
+            sourcefiles = [
+                "../fifo/hdl/Q_srl.v",
+                "../skid/skid.sv",
+                "../ram/ram_p_c.sv",
+                "mmu_axi.sv",
+                "replay_buff_mmau.sv",
+                "sched_activations.sv",
+                "en_global.sv",
+                "q_writer.sv",
+                "reorder_out.sv",
+            ]
+            if gemm_type == "mmau_1d":
+                sourcefiles += [
+                    "1d/cu_mmau_1d.sv",
+                    "1d/sched_weights_1d.sv",
+                    "1d/collect_out_1d.sv",
+                    "1d/sft_reg.sv",
+                ]
+            else:
+                sourcefiles += [
+                    "2d/cu_mmau_2d.sv",
+                    "2d/sched_weights_2d.sv",
+                    "2d/collect_out_2d.sv",
+                ]
+        elif theight > 1:
             rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
             sourcefiles = [
                 "../fifo/hdl/Q_srl.v",
@@ -329,7 +364,12 @@ class MVAU_rtl(MVAU, RTLBackend):
         self.set_nodeattr("ip_path", code_gen_dir)
 
     def prepare_codegen_default(self, fpgapart, clk):
-        if self.get_nodeattr("TH") > 1:
+        gemm_type = self.get_nodeattr("gemm_type")
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            template_path = (
+                os.environ["FINN_ROOT"] + "/finn-rtllib/mmu/mmu_axi_wrapper.v"
+            )
+        elif self.get_nodeattr("TH") > 1:
             template_path = (
                 os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled/mvu_tiled_axi_wrapper.v"
             )
@@ -362,12 +402,22 @@ class MVAU_rtl(MVAU, RTLBackend):
         )
         code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
 
+        # MMU-specific template variables
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            code_gen_dict["$GEMM_TYPE$"] = [gemm_type]
+            code_gen_dict["$CU_SIMD$"] = [str(self.get_nodeattr("CU_SIMD"))]
+            n_vectors = int(np.prod(self.get_nodeattr("numInputVectors")))
+            code_gen_dict["$N_VECTORS$"] = [str(n_vectors)]
+
         return template_path, code_gen_dict
 
     def get_rtl_file_list(self, abspath=False):
+        gemm_type = self.get_nodeattr("gemm_type")
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
-            if self.get_nodeattr("TH") > 1:
+            if gemm_type in ("mmau_1d", "mmau_2d"):
+                rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mmu/")
+            elif self.get_nodeattr("TH") > 1:
                 rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu_tiled/")
             else:
                 rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
@@ -375,7 +425,35 @@ class MVAU_rtl(MVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        if self.get_nodeattr("TH") > 1:
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            verilog_files = [
+                "../fifo/hdl/Q_srl.v",
+                "../skid/skid.sv",
+                "../ram/ram_p_c.sv",
+                "mmu_axi.sv",
+                "replay_buff_mmau.sv",
+                "sched_activations.sv",
+                "en_global.sv",
+                "q_writer.sv",
+                "reorder_out.sv",
+            ]
+            if gemm_type == "mmau_1d":
+                verilog_files += [
+                    "1d/cu_mmau_1d.sv",
+                    "1d/sched_weights_1d.sv",
+                    "1d/collect_out_1d.sv",
+                    "1d/sft_reg.sv",
+                ]
+            else:
+                verilog_files += [
+                    "2d/cu_mmau_2d.sv",
+                    "2d/sched_weights_2d.sv",
+                    "2d/collect_out_2d.sv",
+                ]
+            verilog_files = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
+            ] + [rtllib_dir + _ for _ in verilog_files]
+        elif self.get_nodeattr("TH") > 1:
             verilog_files = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
@@ -407,8 +485,15 @@ class MVAU_rtl(MVAU, RTLBackend):
         return verilog_files
 
     def get_verilog_paths(self):
+        gemm_type = self.get_nodeattr("gemm_type")
         verilog_paths = super().get_verilog_paths()
-        if self.get_nodeattr("TH") > 1:
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mmu")
+            if gemm_type == "mmau_1d":
+                verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mmu/1d")
+            else:
+                verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mmu/2d")
+        elif self.get_nodeattr("TH") > 1:
             verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu_tiled")
         else:
             verilog_paths.append(os.environ["FINN_ROOT"] + "/finn-rtllib/mvu")

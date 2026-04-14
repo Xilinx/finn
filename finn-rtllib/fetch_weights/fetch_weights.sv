@@ -58,7 +58,7 @@ module fetch_weights #(
     int unsigned              OWSIMD = (PE * SIMD) / TH,
     int unsigned              DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	int unsigned              WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-    logic[ADDR_BITS-1:0]      LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
+    logic[ADDR_BITS-1:0]      LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,

@@ -49,8 +49,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter   IDX_BITS = 16,
 
 	// Safely deducible parameters
-    parameter   IWSIMD = (TH > 1) ? ((PE*SIMD)/TH) : SIMD,
-    parameter   WSIMD = (PE * SIMD) / TH,
+    parameter   IWSIMD = $IWSIMD$,
+    parameter   WSIMD = $WSIMD$,
     parameter   DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	parameter	WS_BITS_BA = (WSIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
@@ -148,6 +148,7 @@ fetch_weights #(
     .PE(PE), .SIMD(SIMD), .TH(TH),
     .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
+    .IWSIMD(IWSIMD), .OWSIMD(WSIMD),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
     .N_LAYERS(N_LAYERS),
 `ifdef EN_MLO

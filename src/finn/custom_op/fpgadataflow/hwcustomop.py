@@ -359,8 +359,14 @@ class HWCustomOp(CustomOp):
                 mh = self.get_nodeattr("MH")
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
-                n_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 theight = self.get_nodeattr("TH")
+                gemm_type = self.get_nodeattr("gemm_type")
+                if gemm_type in ("mmau_1d", "mmau_2d"):
+                    cu_simd = self.get_nodeattr("CU_SIMD")
+                    clen = (simd + cu_simd - 1) // cu_simd
+                    n_reps = np.prod(self.get_nodeattr("numInputVectors")) // clen
+                else:
+                    n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
                 en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             else:
                 # Eltwise layers only have one parallelism parameter
@@ -377,6 +383,23 @@ class HWCustomOp(CustomOp):
             n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
+            # Compute IWSIMD and WSIMD for the fetch_weights wrapper
+            if self.onnx_node.op_type in ops:
+                gemm_type = self.get_nodeattr("gemm_type")
+                if gemm_type in ("mmau_1d", "mmau_2d"):
+                    cu_simd = self.get_nodeattr("CU_SIMD")
+                    iwsimd = pe * cu_simd
+                    wsimd = pe * cu_simd
+                elif theight > 1:
+                    iwsimd = (pe * simd) // theight
+                    wsimd = (pe * simd) // theight
+                else:
+                    iwsimd = simd
+                    wsimd = (pe * simd) // theight
+            else:
+                iwsimd = simd
+                wsimd = (pe * simd) // theight
+
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -388,6 +411,8 @@ class HWCustomOp(CustomOp):
                 "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_LAYERS$": [str(n_max_layers)],
                 "$TH$": [str(theight)],
+                "$IWSIMD$": [str(iwsimd)],
+                "$WSIMD$": [str(wsimd)],
                 "$EN_MLO$": [en_mlo],
                 "$DWC_MODULE_NAME$": [mname + "_dwc"],
             }

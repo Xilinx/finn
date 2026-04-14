@@ -254,12 +254,12 @@ class LoopExtraction(Transformation):
                 print("error: could not find metadata for node")
                 exit(1)
 
-            node.metadata_props["pkg.torch.onnx.name_scopes"] = mnode.metadata_props[
-                "pkg.torch.onnx.name_scopes"
-            ]
-            node.metadata_props["pkg.torch.onnx.class_hierarchy"] = mnode.metadata_props[
-                "pkg.torch.onnx.class_hierarchy"
-            ]
+            node.metadata_props["pkg.torch.onnx.name_scopes"] = mnode.metadata_props.get(
+                "pkg.torch.onnx.name_scopes", ""
+            )
+            node.metadata_props["pkg.torch.onnx.class_hierarchy"] = mnode.metadata_props.get(
+                "pkg.torch.onnx.class_hierarchy", ""
+            )
 
             assert P.add_node(node)
         graph.sort()

@@ -124,15 +124,16 @@ class MVAU(HWCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "pumpedMemory": ("i", False, 0, {0, 1}),
-            # Matrix unit activation type
-            "mua_type": (
-                "s",
-                False,
-                "vector",
-                {"mv", "mvt", "mm"},
-            ),
             # tiling
             "TH": ("i", False, 1),
+            # MMU parameters
+            "gemm_type": (
+                "s",
+                False,
+                "mvau",
+                {"mvau", "mvau_tiled", "mmau_1d", "mmau_2d"},
+            ),
+            "CU_SIMD": ("i", False, 3),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -273,12 +274,17 @@ class MVAU(HWCustomOp):
             wp = self.get_input_datatype(1).bitwidth()
             mem_mode = self.get_nodeattr("mem_mode")
             theight = self.get_nodeattr("TH")
+            gemm_type = self.get_nodeattr("gemm_type")
 
             match mem_mode:
                 case "dynamic":
                     width = pe * wp
                 case "external" | "external_mem" | "internal_decoupled":
-                    width = ((pe * simd) * wp) // theight
+                    if gemm_type in ("mmau_1d", "mmau_2d"):
+                        cu_simd = self.get_nodeattr("CU_SIMD")
+                        width = pe * cu_simd * wp
+                    else:
+                        width = ((pe * simd) * wp) // theight
                 case _:
                     width = 0
         elif ind == 2:
@@ -311,6 +317,7 @@ class MVAU(HWCustomOp):
         vecs = list(self.get_nodeattr("numInputVectors"))
         n_vecs = int(np.prod(vecs))
         theight = self.get_nodeattr("TH")
+        gemm_type = self.get_nodeattr("gemm_type")
 
         if ind == 0:
             # calculate shape of input 0
@@ -320,7 +327,11 @@ class MVAU(HWCustomOp):
                 case "dynamic":
                     folded_input_shape = (1, mw, nf, pe)
                 case "external" | "external_mem" | "internal_decoupled":
-                    folded_input_shape = (n_vecs, sf * nf, (simd * pe) // theight)
+                    if gemm_type in ("mmau_1d", "mmau_2d"):
+                        cu_simd = self.get_nodeattr("CU_SIMD")
+                        folded_input_shape = (n_vecs, sf * nf, pe * cu_simd)
+                    else:
+                        folded_input_shape = (n_vecs, sf * nf, (simd * pe) // theight)
                 case _:
                     raise Exception("Undefined input shape for requested input")
         else:
@@ -467,12 +478,21 @@ class MVAU(HWCustomOp):
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
+        th = self.get_nodeattr("TH")
         num_inp_vec = self.get_nodeattr("numInputVectors")
         mh = self.get_nodeattr("MH")
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
-        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        # Tiling/systolic reduces throughput
+        gemm_type = self.get_nodeattr("gemm_type")
+        if gemm_type in ("mmau_1d", "mmau_2d"):
+            cu_simd = self.get_nodeattr("CU_SIMD")
+            clen = (simd + cu_simd - 1) // cu_simd
+            exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * clen / mmv
+        else:
+            # TH>1 (tiling) reduces throughput by factor TH (tinner = PE*SIMD/TH)
+            exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) * th / mmv
         return int(exp_cycles)
 
     def minimize_accumulator_width(self, model):
@@ -736,7 +756,11 @@ class MVAU(HWCustomOp):
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             # tiling
-            tinner = (pe * simd) // self.get_nodeattr("TH")
+            gemm_type = self.get_nodeattr("gemm_type")
+            if gemm_type in ("mmau_1d", "mmau_2d"):
+                tinner = pe * self.get_nodeattr("CU_SIMD")
+            else:
+                tinner = (pe * simd) // self.get_nodeattr("TH")
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, tinner)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, tinner)
             if weight_file_mode == "decoupled_npy":
@@ -1087,12 +1111,14 @@ class MVAU(HWCustomOp):
                     ]
                     # Create Vivado axis_dwidth_converter IP
                     theight = self.get_nodeattr("TH")
+                    gemm_type = self.get_nodeattr("gemm_type")
                     wdt = self.get_input_datatype(1)
-                    iwsimd = (
-                        (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // theight
-                        if theight > 1
-                        else self.get_nodeattr("SIMD")
-                    )
+                    if gemm_type in ("mmau_1d", "mmau_2d"):
+                        iwsimd = self.get_nodeattr("PE") * self.get_nodeattr("CU_SIMD")
+                    elif theight > 1:
+                        iwsimd = (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // theight
+                    else:
+                        iwsimd = self.get_nodeattr("SIMD")
                     ds_bits_ba = ((iwsimd * wdt.bitwidth() + 7) // 8) * 8
                     dwc_ip_name = node_name + "_dwc"
                     s_bytes = 256 // 8

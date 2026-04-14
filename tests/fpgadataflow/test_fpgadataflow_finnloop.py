@@ -100,6 +100,10 @@ def make_loop_modelwrapper(
     rhs_shape=[1],
     eltw_param_dtype="INT8",
     name_suffix="",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
 ):
     elemwise_output_dtype = (
         DataType["FLOAT32"] if eltw_param_dtype == "FLOAT32" else DataType["INT32"]
@@ -155,7 +159,7 @@ def make_loop_modelwrapper(
             {
                 "NumChannels": mh,
                 "NumOutputStreams": 2,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
                 "cpp_interface": "hls_vector",
@@ -170,8 +174,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -188,7 +193,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_0{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -204,8 +209,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -222,7 +228,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_1{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -238,8 +244,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -256,7 +263,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_2{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -269,7 +276,7 @@ def make_loop_modelwrapper(
             [f"mt2_out{name_suffix}", f"mt1_out{name_suffix}"],
             [f"ofm{name_suffix}"],
             f"AddStreams_hls_0{name_suffix}",
-            {"NumChannels": mh, "PE": 2, "inputDataTypes": [dtype.name, dtype.name]},
+            {"NumChannels": mh, "PE": helper_pe, "inputDataTypes": [dtype.name, dtype.name]},
         ),
         create_node(
             elemwise_optype,
@@ -292,7 +299,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl4{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "numSteps": dtype.get_num_possible_values() - 1,
                 "inputDataType": thresholding_input_dtype.name,
                 "weightDataType": thresholding_input_dtype.name,
@@ -362,8 +369,94 @@ def make_loop_modelwrapper(
     return loop_body_model
 
 
+def make_single_mvau_loop_body(
+    mw,
+    mh,
+    dtype=DataType["INT8"],
+    name_suffix="",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
+):
+    """Create a minimal loop body with just MVAU_rtl -> Thresholding_rtl."""
+
+    W0 = gen_finn_dt_tensor(dtype, (mw, mh))
+    T0 = np.sort(
+        generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
+    )
+
+    nodes = [
+        create_node(
+            "MVAU_rtl",
+            [f"ifm{name_suffix}", f"weights0{name_suffix}"],
+            [f"mm0_out{name_suffix}"],
+            f"MVAU_rtl_0{name_suffix}",
+            {
+                "MW": mw,
+                "MH": mh,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
+                "inputDataType": "INT8",
+                "weightDataType": "INT8",
+                "outputDataType": "INT32",
+                "ActVal": 0,
+                "binaryXnorMode": 0,
+                "noActivation": 1,
+                "mem_mode": "external_mem",
+            },
+        ),
+        create_node(
+            "Thresholding_rtl",
+            [f"mm0_out{name_suffix}", f"thresh0{name_suffix}"],
+            [f"ofm{name_suffix}"],
+            f"Thresholding_rtl_0{name_suffix}",
+            {
+                "NumChannels": mh,
+                "PE": helper_pe,
+                "inputDataType": "INT32",
+                "weightDataType": "INT33",
+                "outputDataType": dtype.name,
+                "ActVal": int(dtype.min()),
+                "numSteps": dtype.get_num_possible_values() - 1,
+            },
+        ),
+    ]
+
+    loop_body = helper.make_graph(
+        nodes=nodes,
+        name=f"single_mvau_graph{name_suffix}",
+        inputs=[
+            create_tensor_info(f"ifm{name_suffix}", [1, 3, 3, mw]),
+            create_threshold(f"thresh0{name_suffix}", (1, dtype.get_num_possible_values() - 1)),
+        ],
+        outputs=[create_tensor_info(f"ofm{name_suffix}", (1, 3, 3, mh))],
+        value_info=[
+            create_tensor_info(f"mm0_out{name_suffix}", [1, 3, 3, mh]),
+        ],
+    )
+
+    loop_body_model = qonnx_make_model(loop_body, producer_name=f"single-mvau-body{name_suffix}")
+    loop_body_model = ModelWrapper(loop_body_model)
+
+    loop_body_model.set_initializer(f"weights0{name_suffix}", W0)
+    loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
+
+    for tensor in [
+        f"weights0{name_suffix}",
+        f"thresh0{name_suffix}",
+        f"ifm{name_suffix}",
+        f"ofm{name_suffix}",
+    ]:
+        loop_body_model.set_tensor_datatype(tensor, dtype)
+
+    return loop_body_model
+
+
 def create_chained_loop_bodies(
-    mw, mh, num_copies, elemwise_optype="ElementwiseMul_hls", rhs_shape=[1], eltw_param_dtype="INT8"
+    mw, mh, num_copies, elemwise_optype="ElementwiseMul_hls", rhs_shape=[1], eltw_param_dtype="INT8",
+    mvau_pe=2, mvau_simd=2, mvau_th=1, helper_pe=2,
 ):
     loop_body_models = []
 
@@ -378,6 +471,10 @@ def create_chained_loop_bodies(
             rhs_shape=rhs_shape,
             eltw_param_dtype=eltw_param_dtype,
             name_suffix=name_suffix,
+            mvau_pe=mvau_pe,
+            mvau_simd=mvau_simd,
+            mvau_th=mvau_th,
+            helper_pe=helper_pe,
         )
         loop_body_models.append(loop_body_model)
 
@@ -549,6 +646,177 @@ def test_finnloop_end2end_mlo(
             tmp_output_dir + "/stitched_ip/finn_design.dcp"
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
+
+# iteration count, number of models chained together
+@pytest.mark.parametrize("iteration", [3])
+# elementwise operation
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseMul_hls"])
+# elementwise shape
+@pytest.mark.parametrize("rhs_shape", [[1]])
+# eltwise param dtype
+@pytest.mark.parametrize("eltw_param_dtype", ["INT8"])
+# tail node
+@pytest.mark.parametrize("tail_node", [False])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_tiled(
+    iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
+):
+    """End-to-end MLO test with tiled MVAUs (TH>1)."""
+    dim = 12
+    mvau_pe = 6
+    mvau_simd = 3
+    mvau_th = 3
+    helper_pe = 6
+
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype,
+        mvau_pe=mvau_pe, mvau_simd=mvau_simd, mvau_th=mvau_th, helper_pe=helper_pe,
+    )
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": "INT8",
+                "rhs_dtype": "INT8",
+                "out_dtype": "INT9",
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(DataType["INT8"], [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", DataType["INT8"])
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference by first copying the model and running cppsim
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+
+    # generate reference io pair
+    x = gen_finn_dt_tensor(DataType["INT8"], (1, 3, 3, dim))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    tmp_output_dir = make_build_dir("build_mlo_tiled")
+
+    np.save(tmp_output_dir + "/input.npy", x)
+    np.save(tmp_output_dir + "/expected_output.npy", y_ref)
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # steps - skip step_target_fps_parallelization since PE/SIMD/TH already set
+    steps = [
+        "step_create_dataflow_partition",
+        "step_loop_rolling",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        target_fps=1000,
+        synth_clk_period_ns=10.0,
+        board="V80",
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[9]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_rtlsim_waveforms=True,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+
+    # Dump weight files for hardware debug
+    import glob
+
+    built_model = ModelWrapper(tmp_output_dir + "/mlo_model.onnx")
+    for node in built_model.graph.node:
+        if node.op_type == "FINNLoop":
+            fl_op = getCustomOp(node)
+            code_gen_dir = fl_op.get_nodeattr("code_gen_dir_ipgen")
+            if code_gen_dir and os.path.isdir(code_gen_dir):
+                for f in sorted(glob.glob(code_gen_dir + "/input1_*.npy")):
+                    arr = np.load(f)
+                    base = os.path.basename(f).replace(".npy", "")
+                    txt_path = tmp_output_dir + f"/weights_{base}.txt"
+                    with open(txt_path, "w") as tf:
+                        tf.write(f"# {f}\n# shape: {arr.shape}, dtype: {arr.dtype}\n")
+                        tf.write("# row | decimal_values | hex_bytes | bus_word\n\n")
+                        flat = arr.reshape(-1, arr.shape[-1])
+                        for i, row in enumerate(flat):
+                            dec = " ".join(f"{int(v):5d}" for v in row)
+                            hx = " ".join(f"{int(v) & 0xFF:02x}" for v in row)
+                            bus = 0
+                            for j, v in enumerate(row):
+                                bus |= (int(v) & 0xFF) << (j * 8)
+                            tf.write(
+                                f"[{i:3d}] {dec}  | {hx}  | 0x{bus:0{arr.shape[-1]*2}x}\n"
+                            )
+                    print(f"DEBUG: weight dump -> {txt_path}")
+                for f in sorted(glob.glob(code_gen_dir + "/memblock_*.dat")):
+                    base = os.path.basename(f).replace(".dat", "")
+                    txt_path = tmp_output_dir + f"/weights_{base}.txt"
+                    with open(txt_path, "w") as tf:
+                        tf.write(f"# {f}\n")
+                        with open(f) as df:
+                            for i, line in enumerate(df):
+                                tf.write(f"[{i:3d}] {line.strip()}\n")
+                    print(f"DEBUG: dat dump -> {txt_path}")
+
+    # check if expected files are there
+    assert os.path.isfile(tmp_output_dir + "/loop-body-template.onnx")
+    assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
+
+    verif_dir = tmp_output_dir + "/verification_output"
+    assert os.path.isfile(
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
+    assert os.path.isfile(
+        verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
+    ), f"Check npy files in {verif_dir}"
 
 # Debug test for manual loop transformation steps below
 # This test is intentionally not marked for CI
