@@ -66,14 +66,14 @@ class MakeCPPDriver(Transformation):
         if s in ["BINARY", "TERNARY", "BIPOLAR"]:
             return "Datatype" + s[0] + s[1:].lower()
         elif s.startswith("U"):
-            return "DatatypeUint<" + s.replace("UINT", "") + ">"
+            return "DatatypeUInt<" + s.replace("UINT", "") + ">"
         elif s.startswith("I"):
             return "DatatypeInt<" + s.replace("INT", "") + ">"
         elif "FLOAT" in s:
-            return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
-        elif "FIXED" in s:
-            return "DatatypeFixed" + s.replace("FIXED", "")
+            return "DatatypeFloat"
         else:
+            # TODO: Implement correct exporting for "DatatypeFixed",
+            # which needs two template arguments
             raise RuntimeError(f"Unknown datatype for C++ Driver:{s}")
 
     def __init__(
