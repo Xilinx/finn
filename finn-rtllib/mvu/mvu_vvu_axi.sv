@@ -64,6 +64,13 @@ module mvu_vvu_axi #(
 	bit FORCE_BEHAVIORAL = 0,
 	bit M_REG_LUT = 1,
 
+	// LUT-based compressor tree pipeline depth. This is set by default for maximum Pipelining (inbetween every stage).
+	int unsigned  COMP_PIPELINE_DEPTH = 1,
+
+	// Passed at generation time, whether compressors were generated if deemed worth it.
+	// Decides wether to use LUT-based compressors instead of DSPs.
+	bit USE_COMPRESSOR = 0,
+
 	// Safely deducible parameters
 	localparam int unsigned  WEIGHT_STREAM_WIDTH    = PE * SIMD * WEIGHT_WIDTH,
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
@@ -310,7 +317,19 @@ module mvu_vvu_axi #(
 		localparam int unsigned  A_WIDTH = 25 + 2*(VERSION > 1);     // Width of A datapath
 		localparam int unsigned  NUM_LANES = A_WIDTH == WEIGHT_WIDTH? 1 : 1 + (A_WIDTH - !NARROW_WEIGHTS - WEIGHT_WIDTH) / MIN_LANE_WIDTH;
 
-		if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
+		if(USE_COMPRESSOR) begin : genCompressor
+			dotp_comp #(
+				.PE(PE), .SIMD(DSP_SIMD),
+				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
+				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
+				.COMP_PIPELINE_DEPTH(COMP_PIPELINE_DEPTH)
+			) core (
+				.clk(ap_clk), .rst, .en('1),
+				.last(dsp_last), .zero(dsp_zero), .w(dsp_w), .a(dsp_a),
+				.vld(dsp_vld), .p(dsp_p)
+			);
+		end : genCompressor
+		else if(!IS_MVU || ((VERSION > 2) && (NUM_LANES <= 3) && (WEIGHT_WIDTH <= 8) && (ACTIVATION_WIDTH <= 9))) begin : genINT8
 			initial $info("Sidestepping to INT8 mode of DSP58 for %0dx%0d.", WEIGHT_WIDTH, ACTIVATION_WIDTH);
 			mvu_vvu_8sx9_dsp58 #(
 				.IS_MVU(IS_MVU),
@@ -343,11 +362,15 @@ module mvu_vvu_axi #(
 
 	if(1) begin : blkOutput
 		localparam int unsigned  CORE_PIPELINE_DEPTH =
-			VERSION == 3? 3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
-			/* else */    3 + $clog2(SIMD+1) + (SIMD == 1);
+			USE_COMPRESSOR? COMP_PIPELINE_DEPTH :
+			VERSION == 3?   3 + (SEGMENTLEN == 0? 0 : ((SIMD+2)/3 -1)/SEGMENTLEN) :
+			/* else */      3 + $clog2(SIMD+1) + (SIMD == 1);
 
-		// This is conservative and could be divided by a guaranteed minimum output interval, e.g. MW/SIMD.
-		localparam int unsigned  MAX_IN_FLIGHT = CORE_PIPELINE_DEPTH;
+		// Floor at the DSP-equivalent depth so the compressor path (shallow pipeline)
+		// still has enough output queue slots to absorb backpressure transients.
+		localparam int unsigned  DSP_PIPELINE_DEPTH = 3 + $clog2(SIMD+1) + (SIMD == 1);
+		localparam int unsigned  MAX_IN_FLIGHT =
+			CORE_PIPELINE_DEPTH > DSP_PIPELINE_DEPTH? CORE_PIPELINE_DEPTH : DSP_PIPELINE_DEPTH;
 		typedef logic [PE-1:0][ACCU_WIDTH-1:0]  output_t;
 
 		logic signed [$clog2(MAX_IN_FLIGHT+1):0]  OPtr = '1;	// -1 | 0, 1, ..., MAX_IN_FLIGHT
