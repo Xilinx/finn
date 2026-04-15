@@ -252,6 +252,266 @@ class InferThresholdingLayer(Transformation):
         return (model, graph_modified)
 
 
+def _check_uniform_thresholds(thresholds, rtol=1e-2):
+    """Check if thresholds have uniform (equal) step sizes per channel.
+
+    For requant conversion, thresholds must be uniform (equal step sizes)
+    within each channel. Different channels may have different step sizes.
+
+    Args:
+        thresholds: numpy array of shape (num_channels, num_thresholds)
+        rtol: relative tolerance for comparing step sizes (default 1%)
+
+    Returns:
+        tuple: (is_uniform, step_sizes, first_thresholds) where:
+            - is_uniform: True if all channels have uniform steps
+            - step_sizes: array of step size per channel
+            - first_thresholds: array of first threshold per channel
+    """
+    num_channels = thresholds.shape[0]
+    num_thresholds = thresholds.shape[1]
+
+    if num_thresholds < 2:
+        # Single threshold, trivially uniform with step=1
+        return True, np.ones(num_channels), thresholds[:, 0]
+
+    step_sizes = []
+    first_thresholds = []
+    is_uniform = True
+
+    for ch in range(num_channels):
+        ch_thresholds = np.sort(thresholds[ch])
+        diffs = np.diff(ch_thresholds)
+
+        if len(diffs) > 0:
+            step_size = diffs[0]
+            step_sizes.append(step_size)
+            first_thresholds.append(ch_thresholds[0])
+
+            # Check if all steps are equal (within tolerance)
+            if not np.allclose(diffs, step_size, rtol=rtol):
+                is_uniform = False
+        else:
+            step_sizes.append(1.0)
+            first_thresholds.append(ch_thresholds[0])
+
+    return is_uniform, np.array(step_sizes), np.array(first_thresholds)
+
+
+class InferRequantLayer(Transformation):
+    """Convert MultiThreshold or Quant nodes to Requant.
+
+    For MultiThreshold nodes where all channels have uniform (equal-step) thresholds,
+    the comparison-based threshold lookup can be replaced with a simpler
+    requantization operation:
+
+        output = clip(round(input * scale + bias), min, max)
+
+    where:
+        scale = 1.0 / step_size
+        bias = 0.5 - first_threshold / step_size
+
+    For Quant nodes with scale=1 and zeropt=0 (after ExtractQuantScaleZeroPt),
+    the operation simplifies to:
+
+        output = clip(round(input), min, max)
+
+    which is Requant with scale=1 and bias=0.
+
+    This transformation is optional and provides an alternative implementation
+    to InferThresholdingLayer. The Requant node can then be specialized to
+    either HLS or RTL backend.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+
+        for node in graph.node:
+            node_ind += 1
+
+            # Variables to be set by either MultiThreshold or Quant handling
+            inp_name = None
+            out_name = None
+            in_shape = None
+            idt = None
+            odt = None
+            scales = None
+            biases = None
+            narrow = None
+
+            if node.op_type == "MultiThreshold":
+                inp_name = node.input[0]
+                mt_threshold = node.input[1]
+                out_name = node.output[0]
+                in_shape = model.get_tensor_shape(inp_name)
+                mt_thres_shape = model.get_tensor_shape(mt_threshold)
+
+                idt = model.get_tensor_datatype(inp_name)
+                odt = model.get_tensor_datatype(out_name)
+
+                # Only infer layers where input is integer, fixed-point, or float
+                idt_ok = (
+                    idt.is_integer()
+                    or idt.is_fixed_point()
+                    or idt in [DataType["FLOAT32"], DataType["FLOAT16"]]
+                )
+                if not idt_ok:
+                    continue
+
+                # Get threshold values
+                thresholds = model.get_initializer(mt_threshold)
+                if thresholds is None:
+                    warnings.warn(
+                        f"{node.name}: Thresholds not found as initializer. "
+                        "Cannot infer RequantLayer."
+                    )
+                    continue
+
+                # Check if thresholds are uniform (per channel)
+                is_uniform, step_sizes, first_thresholds = _check_uniform_thresholds(thresholds)
+
+                if not is_uniform:
+                    # Thresholds are not uniform, cannot use requant
+                    continue
+
+                # Check MultiThreshold out_scale and out_bias
+                mt_inst = getCustomOp(node)
+                out_scale = mt_inst.get_nodeattr("out_scale")
+                out_bias = mt_inst.get_nodeattr("out_bias")
+
+                if out_scale != 1.0:
+                    warnings.warn(
+                        f"{node.name}: MultiThreshold out_scale must be 1 for "
+                        "RequantLayer conversion."
+                    )
+                    continue
+
+                # Compute requant scale and bias per channel
+                # For uniform thresholds: output = floor((input - T0) / step) + 1
+                # which is equivalent to: round(input * (1/step) + (0.5 - T0/step))
+                scales = 1.0 / step_sizes
+                biases = 0.5 - first_thresholds / step_sizes
+
+                # Adjust for out_bias (ActVal in Thresholding)
+                biases = biases + out_bias
+
+                # Determine narrow range from number of thresholds
+                # Full range: num_thresholds = 2^bitwidth - 1
+                # Narrow range: num_thresholds = 2^bitwidth - 2
+                num_thresholds = mt_thres_shape[1]
+                bitwidth = odt.bitwidth()
+                expected_full_range = 2**bitwidth - 1
+                narrow = 1 if num_thresholds < expected_full_range else 0
+
+            elif node.op_type == "Quant":
+                # Handle Quant nodes with scale=1 and zeropt=0
+                # (typically after ExtractQuantScaleZeroPt transformation)
+                node_inst = getCustomOp(node)
+
+                # Check rounding mode
+                rmode = node_inst.get_nodeattr("rounding_mode")
+                if rmode.upper() != "ROUND":
+                    continue
+
+                # Get scale, zeropt, bitwidth from initializers
+                scale = model.get_initializer(node.input[1])
+                if scale is None:
+                    continue
+                zeropt = model.get_initializer(node.input[2])
+                if zeropt is None:
+                    continue
+                bitwidth = model.get_initializer(node.input[3])
+                if bitwidth is None:
+                    continue
+
+                # Check scale=1 and zeropt=0
+                if not (np.all(scale == 1.0) and np.all(zeropt == 0.0)):
+                    # Need ExtractQuantScaleZeroPt first
+                    continue
+
+                # Extract bitwidth
+                if bitwidth.size != 1:
+                    continue
+                bitwidth = int(bitwidth.item())
+
+                inp_name = node.input[0]
+                out_name = node.output[0]
+                in_shape = model.get_tensor_shape(inp_name)
+
+                idt = model.get_tensor_datatype(inp_name)
+                odt = model.get_tensor_datatype(out_name)
+
+                # For Quant with scale=1, zeropt=0: output = clip(round(input), min, max)
+                # This is Requant with scale=1 and bias=0
+                num_channels = int(in_shape[-1])
+                scales = np.ones(num_channels, dtype=np.float32)
+                biases = np.zeros(num_channels, dtype=np.float32)
+
+                # Get narrow from Quant node attribute
+                narrow = node_inst.get_nodeattr("narrow")
+
+            else:
+                # Not a supported node type
+                continue
+
+            # Common code for both MultiThreshold and Quant
+
+            # Check layout and convert if necessary
+            in_layout = model.get_tensor_layout(inp_name)
+            if in_layout == DataLayout.NCHW:
+                inp_name = nchw_to_nhwc(inp_name, model, node_ind)
+                node_ind += 1
+                in_shape = model.get_tensor_shape(inp_name)
+
+            # Keep track of where we need to insert the HW Op
+            insert_point = node_ind
+            out_layout = model.get_tensor_layout(out_name)
+            if out_layout == DataLayout.NCHW:
+                out_name = nchw_to_nhwc(out_name, model, node_ind, reverse=True)
+                node_ind += 1
+
+            # Now safe to assume number of channels is in last dimension
+            num_channels = int(in_shape[-1])
+
+            # Create scale and bias tensors as initializers
+            scale_tensor = scales.astype(np.float32)
+            bias_tensor = biases.astype(np.float32)
+
+            scale_name = f"{node.name}_scale"
+            bias_name = f"{node.name}_bias"
+
+            model.set_initializer(scale_name, scale_tensor)
+            model.set_initializer(bias_name, bias_tensor)
+
+            # Create the Requant node
+            new_node = helper.make_node(
+                "Requant",
+                [inp_name, scale_name, bias_name],
+                [out_name],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                NumChannels=num_channels,
+                PE=1,
+                inputDataType=idt.name,
+                outputDataType=odt.name,
+                numInputVectors=list(in_shape[:-1]),
+                narrow=narrow,
+                name="Requant_" + node.name,
+            )
+
+            graph.node.insert(insert_point, new_node)
+            # Remove old node
+            graph.node.remove(node)
+            graph_modified = True
+
+        return (model, graph_modified)
+
+
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 
@@ -2139,119 +2399,3 @@ class InferCrop(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
-
-
-# Converts a scale=1 zeropt=0 Quant into ElementwiseFloat2Int
-class InferQuantAsFloat2Int(Transformation):
-    # Applies the transform to a whole model graph
-    def apply(self, model: ModelWrapper):  # noqa
-        # Get the model graph out of the model wrapper object
-        graph = model.graph
-        # Keep track of whether the graph has been modified
-        graph_modified = False
-        # Iterate all nodes in the graph keeping track of the index
-        for index, node in enumerate(graph.node):
-            if node.op_type == "Quant":
-                node_inst = getCustomOp(node)
-                rmode = node_inst.get_nodeattr("rounding_mode")
-                if rmode.upper() != "ROUND":
-                    # unsupported rounding mode
-                    continue
-                scale = model.get_initializer(node.input[1])
-                if scale is None:
-                    # dynamic scale not supported
-                    continue
-                zeropt = model.get_initializer(node.input[2])
-                if zeropt is None:
-                    # dynamic zeropt not supported
-                    continue
-                bitwidth = model.get_initializer(node.input[3])
-                if bitwidth is None:
-                    # dynamic bitwidth not supported
-                    continue
-                if bitwidth.size != 1:
-                    # non-scalar bitwidth not supported
-                    continue
-                bitwidth = bitwidth.item()
-                if int(bitwidth) != bitwidth:
-                    # fractional bitwidth not supported
-                    continue
-                bitwidth = int(bitwidth)
-                # determine the FINN DataType
-                unit_scale = np.all(scale == 1.0)
-                zero_zeropt = np.all(zeropt == 0.0)
-                if (not unit_scale) or (not zero_zeropt):
-                    # need unit scale and zero zeropt
-                    # (note: these can be extracted with a transformation)
-                    pass
-                # Transplant this operator into our FINN domain
-                node.domain = "finn.custom_op.fpgadataflow"
-                node.op_type = "ElementwiseFloat2Int"
-
-                # produce a second 0-valued input (unused but
-                # needed to keep appearance as binary eltwise op)
-                new_tname = model.make_new_valueinfo_name()
-                model.set_initializer(new_tname, np.asarray(0.0, dtype=np.float32))
-                idt = model.get_tensor_datatype(node.input[0])
-                model.set_tensor_datatype(new_tname, idt)
-                # remove all inputs excepts first, and a dummy 2nd input
-                node.input[:] = [node.input[0], new_tname]
-
-                # Now we can get the CustomOp wrapper instance providing easier
-                # attribute access
-                inst = getCustomOp(node)
-                # Set the backend attribute to mark this an operation supported
-                # to be implemented on an FPGA by FINN
-                inst.set_nodeattr("backend", "fpgadataflow")
-                # Need to "lift" potential scalar inputs to rank-1 tensors
-                lift_to_rank1(node.input[0], model)
-                lift_to_rank1(node.input[1], model)
-
-                # fmt: off
-                # Disable formatter. This is deliberately formatted to stay
-                # within 80 characters per line. Black, however, formats some
-                # lines going beyond this.
-
-                # Insert data type attributes from "context" into the CustomOp
-                # node
-                # TODO: Find a way to handle this via data type inference?
-                inst.set_nodeattr(
-                    "lhs_dtype", str(idt)
-                )
-                inst.set_nodeattr(
-                    "rhs_dtype", str(idt)
-                )
-                odt_name = str(model.get_tensor_datatype(node.output[0]))
-                inst.set_nodeattr(
-                    "out_dtype", odt_name
-                )
-                # set bitwidth as attribute
-                inst.set_nodeattr("bitwidth", bitwidth)
-                # Insert shape attributes from "context" into the CustomOp node
-                # TODO: Find a way to handle this via shape inference?
-                inst.set_nodeattr(
-                    "lhs_shape", model.get_tensor_shape(node.input[0])
-                )
-                inst.set_nodeattr(
-                    "rhs_shape", model.get_tensor_shape(node.input[1])
-                )
-                inst.set_nodeattr(
-                    "out_shape", model.get_tensor_shape(node.output[0])
-                )
-
-                # fmt: on
-
-                # Consider the graph to be modified, triggering exhaustive
-                # re-application of this transformation
-                graph_modified = True
-                # Exiting here triggers type and shape inference and cleanup
-                # after each transformed node. This helps QONNX to behave
-                # better / more consistent in certain cases...
-                break
-        # Re-do shape and data type annotations after potential changes to the
-        # model graph
-        model = model.transform(InferShapes())
-        model = model.transform(InferDataTypes())
-        # Return the transformed model and indicate whether the graph actually
-        # has been transformed
-        return model, graph_modified

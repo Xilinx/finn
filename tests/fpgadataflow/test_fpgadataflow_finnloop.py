@@ -543,6 +543,7 @@ def test_finnloop_end2end_mlo(
         verify_steps=verif_steps,
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_full_context=True,  # Enable per-iteration context saving
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
             build_cfg.DataflowOutputType.STITCHED_IP,
@@ -564,15 +565,39 @@ def test_finnloop_end2end_mlo(
     assert os.path.isfile(tmp_output_dir + "/stitched_ip/ip/component.xml")
 
     verif_dir = tmp_output_dir + "/verification_output"
+    # With verify_save_full_context=True, cppsim and node_by_node_rtlsim save as .npz
+    # stitched_ip_rtlsim with MLO uses rtlsim_pre_hook so it saves as .npy
     assert os.path.isfile(
-        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
+        verif_dir + "/verify_folded_hls_cppsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
     assert os.path.isfile(
-        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npy"
-    ), f"Check npy files in {verif_dir}"
+        verif_dir + "/verify_node_by_node_rtlsim_0_SUCCESS.npz"
+    ), f"Check npz files in {verif_dir}"
     assert os.path.isfile(
         verif_dir + "/verify_stitched_ip_rtlsim_0_SUCCESS.npy"
     ), f"Check npy files in {verif_dir}"
+
+    # Verify that the per-iteration context file was created for FINNLoop
+    iteration_context_files = [
+        f for f in os.listdir(verif_dir) if f.startswith("iteration_context_")
+    ]
+    assert len(iteration_context_files) > 0, f"No iteration context files found in {verif_dir}"
+
+    # Load and verify the iteration context file has expected structure
+    ctx_file = os.path.join(verif_dir, iteration_context_files[0])
+    ctx_data = np.load(ctx_file)
+    iter_keys = [k for k in ctx_data.files if k.startswith("iter_")]
+    assert len(iter_keys) > 0, "No iteration keys found in context file"
+
+    # Verify we have contexts for all iterations
+    iter_indices = set()
+    for key in iter_keys:
+        parts = key.split("_", 2)
+        if len(parts) >= 2:
+            iter_indices.add(int(parts[1]))
+    assert (
+        len(iter_indices) == iteration
+    ), f"Expected {iteration} iterations in context, found {len(iter_indices)}"
 
     # also run dcp generation for a subset of the test parameters
     # this extends the test run time quite a lot

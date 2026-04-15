@@ -17,7 +17,7 @@ module accuf #(
 
 	input	logic [31:0]  a,
 	input	logic  avld,
-	input	logic  alst,
+	input	logic  alst,	// complete sum
 	output	logic [31:0]  s,
 	output	logic  svld
 );
