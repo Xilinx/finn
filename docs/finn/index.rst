@@ -40,15 +40,15 @@ More FINN Resources
    :hidden:
 
    getting_started
-   concepts
    tutorials
    end_to_end_flow
-   Implementation Guide <implementation/index>
-   Components <components/index>
-   Reference <reference/index>
    command_line
    example_networks
    developers
+   concepts
+   Implementation Guide <implementation/index>
+   Components <components/index>
+   Reference <reference/index>
    faq
    source_code/finn
    genindex
