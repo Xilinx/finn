@@ -263,9 +263,16 @@ def _mvu_rtl_possible(n, fpgapart, model):
     else:
         weights_min = np.min(weights)
     narrow_weights = False if weights_min == wdt.min() else True
-    # if non narrow weights and only DSP48E1 available return False
-    if not narrow_weights and dsp_block == "DSP48E1":
-        return False
+    # NOTE: Narrow weight check for DSP48E1 removed (previously returned False for
+    # narrow_weights=False on DSP48E1). Rationale:
+    # - Compressor path (LUT-based, WW<=4 && AW<=4): No narrow weight constraint, works
+    #   with full weight range including wdt.min()
+    # - DSP path: Handles narrow weights via NARROW_WEIGHTS module parameter in mvu.sv,
+    #   which adjusts lane slicing to accommodate narrow range
+    # - Test suite: Removed weight clipping in test_fpgadataflow_mvau.py line 785
+    #   (previously forced W = np.clip(W, wdt.min()+1, wdt.max()) on xc7z020)
+    # - Result: Both paths now accept full weight range, narrow_weights computed but not
+    #   used as a gating condition for RTL eligibility
 
     # if none of the above constraints have been triggered
     # we now check if input and weight data types are in range

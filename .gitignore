@@ -48,6 +48,8 @@ __pycache__/*
 .pydevproject
 .settings
 .idea
+.claude
+CLAUDE.md
 tags
 
 # Package files
@@ -96,3 +98,6 @@ MANIFEST
 
 # downloaded dep repos
 /deps/
+
+# results directory (benchmarks, synthesis reports, debug archives)
+/results/
