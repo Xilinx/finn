@@ -451,8 +451,7 @@ class VVAU(HWCustomOp):
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights and thresholds"""
-        # Minimize weight datatype
+        """Minimize the bit width based on the values of the weights."""
         if not (
             self.get_nodeattr("runtime_writeable_weights")
             or self.get_nodeattr("mem_mode") == "external"
@@ -468,35 +467,6 @@ class VVAU(HWCustomOp):
             else:
                 wdt = DataType.get_smallest_possible(w_max)
             self.set_nodeattr("weightDataType", wdt.name)
-
-        # Minimize threshold datatype if node has thresholds (noActivation=0)
-        if self.get_nodeattr("noActivation") == 0 and len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-            acc_dt = DataType[self.get_nodeattr("accDataType")]
-            # Only minimize if accumulator and thresholds are integer
-            if (
-                acc_dt.is_integer()
-                and model.get_tensor_datatype(self.onnx_node.input[2]).is_integer()
-            ):
-                # Use double precision for intermediate calculations to prevent overflow
-                min_threshold = np.float64(thresholds.min())
-                max_threshold = np.float64(thresholds.max())
-                # Check if accumulator datatype is signed
-                acc_is_signed = acc_dt.signed()
-                if min_threshold < 0:
-                    if abs(min_threshold) > max_threshold:
-                        tdt = DataType.get_smallest_possible(min_threshold)
-                    else:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
-                else:
-                    # If accumulator is signed,
-                    # use signed threshold datatype even if thresholds are positive
-                    if acc_is_signed:
-                        tdt = DataType.get_smallest_possible(-max_threshold - 1)
-                    else:
-                        tdt = DataType.get_smallest_possible(max_threshold)
-                # Update threshold datatype
-                model.set_tensor_datatype(self.onnx_node.input[2], tdt)
 
         return DataType[self.get_nodeattr("weightDataType")]
 

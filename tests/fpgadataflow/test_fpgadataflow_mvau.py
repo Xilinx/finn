@@ -67,6 +67,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import is_versal
 
 finnxsi = xsi if xsi.is_available() else None
@@ -967,3 +968,88 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
+    """
+    Test that threshold datatype is not minimized narrower than accumulator.
+
+    This tests the fix for a bug where HLS MVAU threshold comparisons could
+    produce incorrect results when thresholds were minimized to a narrower
+    datatype than the accumulator. The HLS implementation uses the threshold
+    datatype for comparisons, so if it's narrower than the accumulator,
+    accumulator values get truncated.
+
+    Setup:
+    - INT8 inputs/weights with mw=64 -> accumulator needs ~14 bits
+    - Small thresholds (INT8 range) that would be minimized to narrow type
+    - Extreme input values (min/max) to trigger full accumulator range
+
+    The test follows the builder flow:
+    MinimizeWeightBitWidth -> MinimizeAccumulatorWidth -> RoundAndClipThresholds
+    -> MinimizeWeightBitWidth
+    """
+    mw, mh = 64, 4
+    pe, simd = 2, 8
+    idt = DataType["INT8"]
+    wdt = DataType["INT8"]
+    odt = DataType["INT4"]
+    n_steps = odt.get_num_possible_values() - 1
+
+    # Generate random weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+
+    # Generate SMALL thresholds (INT8 range) - key to triggering the bug
+    # These will be minimized to a narrow type after RoundAndClipThresholds
+    T = gen_finn_dt_tensor(DataType["INT8"], (mh, n_steps)).astype(np.float32)
+    T = np.sort(T, axis=1)
+    tdt = DataType["INT32"]
+
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+
+    # Extreme inputs to trigger full accumulator range
+    # Max accumulator = 127 * 64 * max_weight ~ 8128 (needs ~14 bits)
+    # Min accumulator = -128 * 64 * max_weight ~ -8192
+    x_max = np.ones((1, mw), dtype=np.float32) * idt.max()
+    x_min = np.ones((1, mw), dtype=np.float32) * idt.min()
+
+    # Expected outputs using numpy reference
+    y_max_expected = multithreshold(np.matmul(x_max, W), T, 1, odt.min())
+    y_min_expected = multithreshold(np.matmul(x_min, W), T, 1, odt.min())
+
+    # Apply transformations
+    model = model.transform(GiveUniqueNodeNames())
+    for node in model.graph.node:
+        inst = getCustomOp(node)
+        inst.set_nodeattr("preferred_impl_style", "hls")
+        inst.set_nodeattr("mem_mode", "internal_embedded")
+
+    model = model.transform(SpecializeLayers("xczu7ev-ffvc1156-2-e"))
+    model = model.transform(GiveUniqueNodeNames())
+
+    # Full builder flow for bit width minimization
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(InferDataTypes())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(InferDataTypes())
+
+    # Run cppsim
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+
+    # Verify results with extreme inputs
+    y_max_produced = oxe.execute_onnx(model, {"inp": x_max})["outp"]
+    y_min_produced = oxe.execute_onnx(model, {"inp": x_min})["outp"]
+
+    assert np.allclose(
+        y_max_produced, y_max_expected
+    ), f"Max input test failed: expected {y_max_expected}, got {y_max_produced}"
+    assert np.allclose(
+        y_min_produced, y_min_expected
+    ), f"Min input test failed: expected {y_min_expected}, got {y_min_produced}"
