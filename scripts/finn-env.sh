@@ -50,7 +50,9 @@ source "$FINN_ROOT/.venv/bin/activate"
 _finn_gecho "Activated FINN environment at $FINN_ROOT"
 
 # Set FINN environment variables
-export FINN_BUILD_DIR="${FINN_BUILD_DIR:-/tmp/finn_local_$(whoami)}"
+# Use FINN_HOST_BUILD_DIR (consistent with Docker naming), also export as FINN_BUILD_DIR
+export FINN_HOST_BUILD_DIR="${FINN_HOST_BUILD_DIR:-/tmp/finn_local_$(whoami)}"
+export FINN_BUILD_DIR="$FINN_HOST_BUILD_DIR"
 mkdir -p "$FINN_BUILD_DIR"
 
 # Add oh-my-xilinx to PATH
