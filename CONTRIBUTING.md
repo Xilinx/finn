@@ -17,7 +17,9 @@ Please follow the steps below and be sure that your contribution complies with o
 
 	2. Clone the fork to your local computer using *git clone*. Checkout the branch you want to work on.
 
-	3. Please install <a href="https://pre-commit.com/" target="_blank">pre-commit</a> to ensure your code is formatted to our style guidelines. The hooks we use for pre-commit can be found in <a href="https://github.com/Xilinx/finn/blob/main/.pre-commit-config.yaml" target="_blank">this file</a>
+	3. Please install <a href="https://pre-commit.com/" target="_blank">pre-commit</a> to ensure your code is formatted to our style guidelines. The hooks we use for pre-commit can be found in <a href="https://github.com/Xilinx/finn/blob/main/.pre-commit-config.yaml" target="_blank">this file</a>. For detailed coding standards, please refer to our style guides:
+		- <a href="https://github.com/Xilinx/finn/blob/dev/PYTHON_STYLE_GUIDE.md" target="_blank">Python Style Guide</a> (Python code and FINN-specific patterns)
+		- <a href="https://github.com/Xilinx/finn/blob/dev/HDL_STYLE_GUIDE.md" target="_blank">HDL Style Guide</a> (HLS and SystemVerilog code)
 
 	4. Modify the Python source code, Jupyter notebooks and Sphinx documentation etc. as needed.
 
