@@ -864,6 +864,16 @@ class ElementwiseSub_hls(
     pass
 
 
+# Derive a specialization to implement elementwise absolute difference of two inputs
+@register_custom_op
+class ElementwiseAbsDiff_hls(
+    # CapWords convention
+    ElementwiseBinaryOperation_hls,
+    elementwise_binary.ElementwiseAbsDiff,
+):
+    pass
+
+
 # Derive a specialization to implement elementwise multiplication of two inputs
 @register_custom_op
 class ElementwiseMul_hls(
@@ -1014,47 +1024,6 @@ class ElementwiseBitShift_hls(
         # Add/Specialize implementation specific attributes here...
         # Return the updated attributes dictionary
         return attrs
-
-
-# Derive a specialization to implement elementwise minimum of two inputs
-@register_custom_op
-class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
-    # CapWords convention
-    ElementwiseBinaryOperation_hls,
-    elementwise_binary.ElementwiseFloat2Int,
-):
-    # we need to resolve the attribute types due to multiple inheritence
-    def get_nodeattr_types(self):
-        # Start from parent operator class attributes
-        attrs = elementwise_binary.ElementwiseFloat2Int.get_nodeattr_types(self)
-        # Add the HLSBackend default attributes on top
-        attrs.update(HLSBackend.get_nodeattr_types(self))
-        # Return updated attribute dictionary
-        return attrs
-
-    # Generates list of C++ includes to be placed at the top of the generated
-    # code
-    def global_includes(self):
-        super().global_includes()
-        # additional hls_math include to get hls::round()
-        self.code_gen_dict["$GLOBALS$"] += ["#include <hls_math.h>"]
-
-    # Generates C++ code of type alias, global constant and macro definitions
-    def defines(self, var):
-        super().defines(var)
-
-        # Define macro for clipping/saturating values
-        self.code_gen_dict["$DEFINES$"].append(
-            """
-template<typename T, typename  TLo, typename  THi>
-static inline T clip(T const  x, TLo const  lo, THi const  hi) {
-#pragma HLS inline
-    if(x < lo)  return  lo;
-    if(x > hi)  return  hi;
-    return  x;
-}
-        """
-        )
 
 
 # # Derive a specialization to implement elementwise power of two inputs

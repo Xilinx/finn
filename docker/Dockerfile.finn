@@ -85,6 +85,7 @@ RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
 COPY requirements.txt $XRT_DEB_VERSION.* /tmp/
 
 RUN if [ -z "$SKIP_XRT" ];then \
+    apt-get update && \
     apt install -y /tmp/$XRT_DEB_VERSION.deb && \
     rm /tmp/$XRT_DEB_VERSION.deb; fi
 
@@ -100,13 +101,15 @@ RUN pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --extra-index
 RUN pip install pygments==2.14.0
 RUN pip install ipykernel==6.21.2
 RUN pip install jupyter==1.0.0 --ignore-installed
+# anyio >= 4.13.0 for jupyter incompatible with pytest 6.2.5 (missing _pytest.scope module, added in pytest 7.0.0)
+RUN pip install 'anyio<4.13'
 RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.7.0  --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install pytest-xdist[setproctitle]==3.2.0
 RUN pip install pytest-parallel==0.1.1
 # Beyond version 8.5.0, subsequent Netron calls in a Jupyter notebook cause "Address already in use" errors
-RUN pip install "netron>=5.0.0,<=8.5.0"
+RUN pip install netron
 RUN pip install pandas==1.5.3
 RUN pip install scikit-learn==1.2.1
 RUN pip install tqdm==4.64.1
