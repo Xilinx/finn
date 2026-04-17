@@ -255,37 +255,43 @@ my_attrs = {
 "weight_initializer": ("ints", False, [])
 ```
 
-**See**: GitHub discussion [#1026](https://github.com/Xilinx/finn/discussions/1026) for detailed CustomOp system explanation
+### CustomOp Class Hierarchy
 
-### CustomOp Three-Tier Hierarchy
+FINN hardware operators use a **4-class hierarchy**:
 
-FINN uses a **three-layer class hierarchy** for hardware operators:
+**1. HWCustomOp Base Class**
+- All hardware operators inherit from `HWCustomOp`
+- Provides common infrastructure for hardware layer functionality
 
-**1. Base Layer** (`src/finn/custom_op/fpgadataflow/<layer>.py`)
-- Backend-agnostic functionality
+**2. Backend Mixin Classes** (`HLSBackend`, `RTLBackend`)
+- Define backend-specific interface requirements
+- `HLSBackend`: Methods for HLS code generation (shared templates)
+- `RTLBackend`: Methods for RTL HDL generation (per-layer templates)
+
+**3. Base Layer** (`src/finn/custom_op/fpgadataflow/<layer>.py`)
+- Backend-agnostic functionality for a specific layer type
 - Defines layer semantics and node attributes via `get_nodeattr_types()`
 - Implements shape calculations, stream width calculations
 - Provides Python golden reference execution (`execute_node()`)
-- **Naming**: PascalCase (e.g., `Pool`, `MatrixVectorActivation`, `FMPadding`)
+- **Naming**: PascalCase (e.g., `Pool`, `MatrixVectorActivation`, `LayerNorm`)
 
-**2. HLS Variant** (`src/finn/custom_op/fpgadataflow/hls/<layer>_hls.py`)
-- Inherits from base layer + `HLSBackend`
-- Implements HLS-specific code generation methods
-- Uses finn-hlslib C++ templates
-- **Naming**: Base name + `_hls` suffix (e.g., `Pool_hls`, `MVAU_hls`)
+**4. Implementation Variants** (HLS or RTL)
+- **HLS Variant** (`src/finn/custom_op/fpgadataflow/hls/<layer>_hls.py`)
+  - Inherits from base layer + `HLSBackend`
+  - Implements HLS code generation using shared finn-hlslib templates
+  - **Naming**: Base name + `_hls` suffix (e.g., `Pool_hls`, `MVAU_hls`, `LayerNorm_hls`)
 
-**3. RTL Variant** (`src/finn/custom_op/fpgadataflow/rtl/<layer>_rtl.py`)
-- Inherits from base layer + `RTLBackend`
-- Implements RTL-specific HDL generation methods
-- Uses finn-rtllib SystemVerilog modules
-- **Naming**: Base name + `_rtl` suffix (e.g., `FMPadding_rtl`, `MVAU_rtl`)
+- **RTL Variant** (`src/finn/custom_op/fpgadataflow/rtl/<layer>_rtl.py`)
+  - Inherits from base layer + `RTLBackend`
+  - Implements RTL HDL generation with per-layer finn-rtllib wrapper templates
+  - **Naming**: Base name + `_rtl` suffix (e.g., `FMPadding_rtl`, `LayerNorm_rtl`)
 
 **Design principle**: Shared logic goes in **base class**, backend-specific code in **HLS/RTL variants**.
 
 **Example structure**:
 ```python
-# Base layer: src/finn/custom_op/fpgadataflow/pool.py
-class Pool(HWCustomOp):
+# Base layer: src/finn/custom_op/fpgadataflow/layernorm.py
+class LayerNorm(HWCustomOp):
     def get_nodeattr_types(self):
         # Define attributes for all backends
         ...
@@ -294,22 +300,28 @@ class Pool(HWCustomOp):
         # Shared shape calculation logic
         ...
 
-# HLS variant: src/finn/custom_op/fpgadataflow/hls/pool_hls.py
-class Pool_hls(Pool, HLSBackend):
+    def execute_node(self, context, graph):
+        # Python golden reference
+        ...
+
+# HLS variant: src/finn/custom_op/fpgadataflow/hls/layernorm_hls.py
+class LayerNorm_hls(LayerNorm, HLSBackend):
     def generate_params(self, model, path):
         # HLS-specific parameter generation
         ...
 
     def docompute(self):
-        # HLS compute template call
-        return "Pool_batch<...>(...)"
+        # HLS compute template call (shared template)
+        return "layernorm<...>(...)"
 
-# RTL variant: src/finn/custom_op/fpgadataflow/rtl/pool_rtl.py
-class Pool_rtl(Pool, RTLBackend):
+# RTL variant: src/finn/custom_op/fpgadataflow/rtl/layernorm_rtl.py
+class LayerNorm_rtl(LayerNorm, RTLBackend):
     def generate_hdl(self, model, fpgapart, clk):
-        # RTL HDL generation
+        # RTL HDL generation (per-layer wrapper template)
         ...
 ```
+
+See `docs/finn/implementation/customop-pattern.rst` for detailed information on the CustomOp pattern.
 
 ### Transformation Pass Structure
 
@@ -456,7 +468,11 @@ simd = 8  # Limit parallelism to match BRAM port constraints
 
 - [PEP 8 – Style Guide for Python Code](https://peps.python.org/pep-0008/)
 - [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-- [FINN GitHub Discussion #1026 – CustomOp System](https://github.com/Xilinx/finn/discussions/1026)
+- FINN Documentation:
+  - `docs/finn/implementation/customop-pattern.rst` – CustomOp class hierarchy
+  - `docs/finn/implementation/specialization-rules.rst` – HLS vs RTL selection
+  - `docs/finn/reference/mem-modes.rst` – Memory mode configuration
+  - `docs/finn/reference/folding-constraints.rst` – PE/SIMD constraints
 
 ---
 

@@ -169,7 +169,7 @@ While most operators follow the typical pattern above, some special cases exist:
 Backend-Specific Operators
 ---------------------------
 
-Some operators only have one backend implementation and combine the base layer with the backend in a single class:
+Some operators only have one backend implementation and are infrastructure ops rather than compute ops. They combine the base layer with the backend in a single class:
 
 **HLS-only operators**:
 
@@ -181,7 +181,6 @@ Some operators only have one backend implementation and combine the base layer w
 
 - ``FINNLoop(HWCustomOp, RTLBackend)`` - Loop control operator
 
-These directly inherit from both ``HWCustomOp`` and the backend mixin, as there's no need for backend-agnostic separation when only one backend is supported.
 
 Non-Hardware Operators
 -----------------------

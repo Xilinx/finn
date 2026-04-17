@@ -98,8 +98,6 @@ Usage
 
 These constraints are enforced by the ``SetFolding`` transformation and must be satisfied when manually configuring folding parameters via the folding config JSON file.
 
-If constraints are violated, FINN will raise an error during the build flow.
-
 See Also
 ========
 
