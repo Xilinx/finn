@@ -33,6 +33,7 @@ LABEL maintainer="Jakoba Petri-Koenig <jakoba.petri-koenig@amd.com>, Yaman Umuro
 ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
 ARG SKIP_XRT
 ARG LOCAL_XRT
+ARG V80PP_DEB_PACKAGE
 
 WORKDIR /workspace
 
@@ -50,6 +51,10 @@ RUN apt-get update && \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libyaml-0-2 \
+    libjsoncpp-dev \
+    libxml2-dev \
+    libzmq3-dev \
     nano \
     zsh \
     rsync \
@@ -73,9 +78,14 @@ RUN apt-get update && \
     libjansson-dev \
     libgetdata-dev \
     libtinfo5 \
-    g++-10
+    g++-10 \
+    cmake
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
+
+# Install v80++. If the argument isn't set, this is a no-op
+RUN --mount=type=bind,source="$V80PP_DEB_PACKAGE",target="/tmp/v80++.deb" \
+    if [ -n "$V80PP_DEB_PACKAGE" ]; then apt-get install -y "/tmp/v80++.deb"; fi
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
