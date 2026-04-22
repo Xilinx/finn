@@ -134,6 +134,7 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
+from finn.util.fpgadataflow import warn_hls_rtl_dsp_conflict
 from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 
@@ -858,18 +859,35 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        if cfg.verify_save_rtlsim_waveforms:
+        # Check for HLS+RTL DSP conflict - only skip for MLO models
+        # (unrolled graphs work fine for node-by-node rtlsim)
+        skip_verification = False
+        if is_mlo(model):
             verify_out_dir = cfg.output_dir + "/verification_output"
-            waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
-            os.makedirs(waveform_dir, exist_ok=True)
-            abspath = os.path.abspath(waveform_dir)
-            # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
-            for node in model.graph.node:
-                node_inst = getHWCustomOp(node)
-                node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
-        model = model.transform(PrepareRTLSim())
-        model = model.transform(SetExecMode("rtlsim"))
-        verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+            os.makedirs(verify_out_dir, exist_ok=True)
+            skip_verification = warn_hls_rtl_dsp_conflict(
+                model, "node_by_node_rtlsim", verify_out_dir
+            )
+            if skip_verification:
+                print(
+                    "NOTE: This model contains a FINNLoop which is treated as a closed IP "
+                    "during node-by-node rtlsim. The conflicting ops are inside the loop "
+                    "body and cannot be simulated individually."
+                )
+
+        if not skip_verification:
+            if cfg.verify_save_rtlsim_waveforms:
+                verify_out_dir = cfg.output_dir + "/verification_output"
+                waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
+                os.makedirs(waveform_dir, exist_ok=True)
+                abspath = os.path.abspath(waveform_dir)
+                # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
+                for node in model.graph.node:
+                    node_inst = getHWCustomOp(node)
+                    node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
+            model = model.transform(PrepareRTLSim())
+            model = model.transform(SetExecMode("rtlsim"))
+            verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
 
@@ -1033,28 +1051,34 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             skipping step_create_stitched_ip."""
         )
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
-        # prepare ip-stitched rtlsim
-        verify_model = deepcopy(model)
-        verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
-        # use critical path estimate to set rtlsim liveness threshold
-        # (very conservative)
-        verify_model = verify_model.transform(AnnotateCycles())
-        estimate_network_performance = verify_model.analysis(dataflow_performance)
-        prev_liveness = get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
-        )
-        if cfg.verify_save_rtlsim_waveforms:
-            verify_out_dir = cfg.output_dir + "/verification_output"
-            waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
-            os.makedirs(waveform_dir, exist_ok=True)
-            abspath = os.path.abspath(waveform_dir)
-            verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
-        if is_mlo(model):
-            verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
-        else:
-            verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+        # Check for HLS+RTL DSP conflict before rtlsim
+        # (affects both MLO and unrolled graphs for stitched IP rtlsim)
+        verify_out_dir = cfg.output_dir + "/verification_output"
+        os.makedirs(verify_out_dir, exist_ok=True)
+        if not warn_hls_rtl_dsp_conflict(model, "stitched_ip_rtlsim", verify_out_dir):
+            # No conflict - proceed with verification
+            # prepare ip-stitched rtlsim
+            verify_model = deepcopy(model)
+            verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
+            # use critical path estimate to set rtlsim liveness threshold
+            # (very conservative)
+            verify_model = verify_model.transform(AnnotateCycles())
+            estimate_network_performance = verify_model.analysis(dataflow_performance)
+            prev_liveness = get_liveness_threshold_cycles()
+            os.environ["LIVENESS_THRESHOLD"] = str(
+                int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
+            )
+            if cfg.verify_save_rtlsim_waveforms:
+                verify_out_dir = cfg.output_dir + "/verification_output"
+                waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+                os.makedirs(waveform_dir, exist_ok=True)
+                abspath = os.path.abspath(waveform_dir)
+                verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+            if is_mlo(model):
+                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+            else:
+                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 

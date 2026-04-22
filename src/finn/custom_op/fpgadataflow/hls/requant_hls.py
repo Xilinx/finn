@@ -181,7 +181,7 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
                     float scaled = {compute_expr};
 
                     // Round to nearest integer and clip
-                    int rounded = clip((int)hls::round(scaled), MIN_VAL, MAX_VAL);
+                    int rounded = clip((int)hls::lrint(scaled), MIN_VAL, MAX_VAL);
 
                     // Store output
                     out_buf[p] = TO(rounded);

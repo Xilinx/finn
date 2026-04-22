@@ -8,9 +8,9 @@ Network Preparation
    :scale: 70%
    :align: center
 
-The main principle of FINN are analysis and transformation passes. If you like to have more information about these please have a look at section :ref:`analysis_pass` and :ref:`transformation_pass` or at chapter :ref:`tutorials` about the provided Jupyter notebooks.
+The main principle of FINN are analysis and transformation passes. For more information about these, see :ref:`analysis_pass` and :ref:`transformation_pass` in the :ref:`concepts` documentation, or the tutorial notebooks in :ref:`tutorials`.
 
-This page is about the network preparation, the flow step that comes after the :ref:`brevitas_export`. Its main idea is to optimize the network and convert the nodes to custom nodes that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ functions. In this way we get a network that we can bring to hardware with the help of Vitis and Vivado. For that we have to apply several transformations on the ONNX model, which this flow step receives wrapped in the :ref:`modelwrapper`.
+This page describes the network preparation flow step that comes after :ref:`brevitas_export`. The main idea is to optimize the network and convert nodes to hardware layers that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ or `finn-rtllib <https://github.com/Xilinx/finn-rtllib>`_ implementations. This prepares the network for hardware generation with Vitis HLS and Vivado. Network preparation applies several transformations to the ONNX model, which is wrapped in a :ref:`modelwrapper`.
 
 Various transformations are involved in the network preparation. The following is a short overview of these.
 
@@ -47,7 +47,50 @@ In the next step the graph is split and the part consisting of HW layers is furt
 Specialize Layers
 =====================
 
-The network is converted to HW abstraction layers and we have excluded the non-HW layers to continue with the processing of the model. HW abstraction layers are abstract (placeholder) layers that can be either implemented in HLS or as an RTL module using FINN. In the next flow step, we convert each of these layers to either an HLS or RTL variant by calling the SpecializeLayers transformation. It is possible to let the FINN flow know a preference for the implementation style {"hls", "rtl"} and depending on the layer type this wish will be fulfilled or it will be set to a reasonable default.
+After converting to HW abstraction layers and excluding non-HW layers, the next step is backend selection. HW abstraction layers are base classes (e.g., ``LayerNorm``, ``MatrixVectorActivation``) that can be implemented in either HLS or RTL.
+
+The ``SpecializeLayers`` transformation converts each base layer to a backend-specific variant (e.g., ``LayerNorm_hls`` or ``LayerNorm_rtl``). This transformation is implemented in :py:mod:`finn.transformation.fpgadataflow.specialize_layers.SpecializeLayers`.
+
+HLS vs RTL Selection
+--------------------
+
+The backend selection follows this logic:
+
+1. **Check user preference**: If the ``preferred_impl_style`` node attribute is set to ``"hls"`` or ``"rtl"``, use that backend if available and constraints are satisfied
+2. **Apply constraints**: Some RTL implementations have restrictions (e.g., Versal-only, specific datatypes)
+3. **Use default**: If no preference is set and RTL is available and constraints are met, RTL is preferred; otherwise HLS is used
+
+**Common RTL constraints:**
+
+- **LayerNorm**: Versal only, FLOAT32 only
+- **ElementwiseBinary**: Versal only, FLOAT32 only
+- **MVAU**: 2-8 bit signed weights/activations, no embedded threshold
+- **VVAU**: Versal only, ≤8 bit signed weights
+- **StreamingDataWidthConverter**: Integer width ratio only
+
+Setting Backend Preference
+---------------------------
+
+You can set the backend preference per layer using a ``specialize_layers_config.json`` file. The FINN build flow automatically creates a template file after the ``step_create_dataflow_partition`` step at ``<output_dir>/template_specialize_layers_config.json``.
+
+Edit this template to set your preferences:
+
+.. code-block:: json
+
+    {
+        "LayerNorm_0": {
+            "preferred_impl_style": "rtl"
+        },
+        "MatrixVectorActivation_1": {
+            "preferred_impl_style": "hls"
+        }
+    }
+
+Then pass this configuration file to the build flow using ``DataflowBuildConfig.specialize_layers_config_file``.
+
+If the preferred backend is not available or constraints are not met, FINN will fall back to the available backend and issue a warning.
+
+For implementation details on adding new HLS or RTL variants, see :doc:`/implementation/specialization-rules`.
 
 Folding
 =========
