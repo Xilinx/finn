@@ -8,15 +8,43 @@ SPDX-License-Identifier: BSD-3-Clause
 This tool can generate compressor trees for 7-Series, UltraScale(+) and Versal for arbitrary input shapes.
 
 # Getting started
-1. Clone this repository.
-2. _No_ further dependencies needed!
+1. Part of the FINN framework (integrated into MVAU RTL backend).
+2. _standalone compressor generation_ requires no external dependencies.
 
-## Usage
+## FINN Integration
+The compressor is automatically invoked during MVAU layer specialization (`SpecializeLayers` transformation).
+FINN selects the between RTL compressor, RTL DSP and HLS implementations based on the node parameters.
+See the [MVAU compressor integration flow diagram](mvau_compressor_inegration_flow.svg) for the complete decision tree.
+
+**Key integration files:**
+- `src/finn/transformation/fpgadataflow/specialize_layers.py` - RTL vs HLS selection logic
+- `src/finn/custom_op/fpgadataflow/rtl/matrixvectoractivation_rtl.py` - FINN-side RTL MVAU integration with compressor path selection
+- `src/finn/compressor/src/dotp_finn.py` - FINN wrapper for dot-product compressor generation
+- `src/finn/compressor/src/add_multi_finn.py` - FINN wrapper for multi-operand adder generation
+- `finn-rtllib/mvu/mvu_vvu_axi.sv` - RTL template that instantiates generated compressors
+
+This project implements either the full dotp unit of the node with a compressor impleemntation, or optimizes the add_multi additions of the DSP lanes when the RTL DSP path is invoked.
+
+## Standalone Usage
 Generate a compressor of shape `(12,12,12)` called `comp` and save it under `/gen/comp12_12_12.sv`:
 
-```python3 src/main.py -s 12,12,12 -n comp -o gen/comp12_12_12.sv```
+```python3 -m finn.compressor.src.main -s 12,12,12 -n comp -o gen/comp12_12_12.sv```
 
-See `python3 src/main.py -h` for details.
+See `python3 -m finn.compressor.src.main -h` for details.
+
+## Testing
+Run the test suite for verification on different platforms:
+
+```bash
+# Core compressor tests (21 configs)
+./run_tests.sh "" versal        # or 7series, ultrascale
+
+# MVAU integration tests (8 configs)
+./run_dotp_comp_tests.sh versal # or 7series, ultrascale
+
+# Multi-operand adder tests (8 configs)
+./run_add_multi_comp_tests.sh versal # or 7series, ultrascale
+```
 
 ## Features
 ### Custom Input Shape
@@ -25,7 +53,7 @@ The tool can generate compressors for any input shape. A shape is passed as a co
 ### Accumulation
 By passing `-a`, the tool generates an accumulator instead of just an adder. The accumulators width can be specified by `-w`.
 ### Gate Absorption
-If desired, every input to the compressor can be preceded by a two-input gate. These gates can be integrated into the first compression stage. Each gate is specified as a HEX digit. The encoding is the same is Vivado's LUT2 primitive: 
+If desired, every input to the compressor can be preceded by a two-input gate. These gates can be integrated into the first compression stage. Each gate is specified as a HEX digit. The encoding is the same is Vivado's LUT2 primitive:
 | Secondary Input | Primary Input | Output
 |-----------------|---------------|----------------
 |0	              |0	          |(DIGIT << 0) & 1
@@ -38,19 +66,19 @@ For example, `8` maps to an AND gate and `6` maps to an XOR gate.
 In CLI, gates can be specified as a flat string like `-g 883ABC`. The *LSB* is *left* and *MSB* is *right*. The leftmost specified gate corresponds to the LSB input in the generated compressor input vector.
 
 ### Target
-Generate compressors for either Versal, 7-Series or UltraScale fabrics using `-t \{Versal,7-Series,UltraScale\}̀ .
+Generate compressors for either Versal, 7-Series or UltraScale fabrics using `-t {Versal,7-Series,UltraScale}`.
 
 ### Automated Testing
 The tool can automatically generate a SystemVerilog testbench to fuzzy-test the generated compressors by passing `--test`. For testing, the `xvlog`, `xelab` and `xsim` commands have to be available.
 
 ### Custom Pipeline Depth
-Specify the maximum combinational delay for the compressor using `-p MAX_DEPTH`. Note that the final adder, which has at least one single routing delay, cannot be pipelined. 
+Specify the maximum combinational delay for the compressor using `-p MAX_DEPTH`. Note that the final adder, which has at least one single routing delay, cannot be pipelined.
 
 ### Constant Input
 Aside to the regular, variable compressor inputs, the tool also supports an additional constant input. It can be specified as a binary number by `-c NUMBER`.
 
 # Implementation Details - How the Code is Structured
-The compressor is internally represented as a graph. Its nodes are defined in `src/graph/nodes.py`. 
+The compressor is internally represented as a graph. Its nodes are defined in `src/graph/nodes.py`.
 Compressor construction is done in several passes:
 1. Create a graph with all scheduled counters and a final adder (in `src/passes/compressor_constructor.py`).
     1. (Optional) Generate a gate absorption stage.
@@ -58,14 +86,17 @@ Compressor construction is done in several passes:
     3. Insert pipeline registers between compressor stages.
     4. Build either a final adder or an accumulator as the final stage.
 2. Annotate LUT6CY instances with placement constraints so that the LUT Cascade will be utilized (in `src/passes/lut_placer.py`).
-3. Replace inexpressible connections: Place wires between connected instantiated modules (in `src/passes/wire_inserter.py`). 
+3. Replace inexpressible connections: Place wires between connected instantiated modules (in `src/passes/wire_inserter.py`).
 4. Annotate input and output signals in the compressor (in `src/passes/io_annotator.py`).
 5. Emit generated SystemVerilog source (in `src/passes/emitter.py`)
 
 ## Extending the Tool
 ### Adding new Counters
-Counters without gate absorption are defined in `graph/counters/counter_candidates.py`. 
-Counters with gate absorption are defined in `graph/counters/absorption_counter_candidates.py`. 
+Counters without gate absorption are defined in `graph/counters/counter_candidates.py`.
+Counters with gate absorption are defined in `graph/counters/absorption_counter_candidates.py`.
 
 ### Adding new Passes
 Before adding new passes over the compressor graph, check out if the simple iterator defined in `node_iterator.py` can be inherited to save boilerplate code.
+
+# Authors
+This tool was created as a standalone compressor generator by Konstantin Hossfeld and Thomas Preußer. It was extended and integrated into the finn flow by Simon Gerber.

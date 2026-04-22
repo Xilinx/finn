@@ -67,6 +67,8 @@ function parse_config {
 	# Set FPGA part based on TARGET variable
 	if [[ "$TARGET" == "7series" ]]; then
 		CFG_PART="xc7z020clg400-1"  # Pynq-Z1
+	elif [[ "$TARGET" == "ultrascale" ]]; then
+		CFG_PART="xczu9eg-ffvb1156-2-e"  # ZCU102
 	else
 		CFG_PART="xcvc1902-vsva2197-2MP-e-S"  # Versal VCK190
 	fi
