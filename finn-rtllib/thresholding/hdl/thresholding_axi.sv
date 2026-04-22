@@ -191,7 +191,7 @@ module thresholding_axi #(
 				end
 				else begin
 					assign	idat[pe] =
-						(s_axis_tdata[pe*WI+WT+:WI-WT] == '1) || (s_axis_tdata[pe*WI+WT+:WI-WT] == '0)? s_axis_tdata[pe*WI+:WT] :
+						(s_axis_tdata[pe*WI+WT+:WI-WT] == {(WI-WT){s_axis_tdata[pe*WI+WT-1]}})? s_axis_tdata[pe*WI+:WT] :
 						{s_axis_tdata[(pe+1)*WI-1], {(WT-1){!s_axis_tdata[(pe+1)*WI-1]}}};
 				end
 			end : genNarrow
@@ -203,6 +203,7 @@ module thresholding_axi #(
 	thresholding #(
 		.K(WT), .N(N), .C(C), .PE(PE),
 		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
+		.SETS(SETS),
 		.THRESHOLDS_PATH(THRESHOLDS_PATH), .USE_CONFIG(USE_AXILITE),
 		.DEPTH_TRIGGER_URAM(DEPTH_TRIGGER_URAM), .DEPTH_TRIGGER_BRAM(DEPTH_TRIGGER_BRAM),
 		.DEEP_PIPELINE(DEEP_PIPELINE)

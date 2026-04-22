@@ -28,7 +28,6 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Verilog AXI-lite wrapper for dynamic MVU.
  *****************************************************************************/
 
 module $MODULE_NAME$_dynamic_load_wrapper #(

@@ -30,7 +30,10 @@ import numpy as np
 import warnings
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
@@ -121,27 +124,41 @@ class Thresholding(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def minimize_accumulator_width(self, model):
-        "Minimize threshold width ('accumulator width' here due to convention)"
+    def minimize_weight_bit_width(self, model):
+        """Minimize threshold datatype bitwidth based on actual threshold values.
+        This function should not round or clip the threshold values,
+        that is done in RoundAndClipThresholds."""
+
         thresholds = model.get_initializer(self.onnx_node.input[1])
+        if self.get_nodeattr("runtime_writeable_weights") or self.get_nodeattr("mlo_max_iter"):
+            return DataType[self.get_nodeattr("weightDataType")]
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
         # TODO: extend this for fixed point
-        if self.get_input_datatype(0).is_integer():
-            # minimize threshold width only if input is an integer
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            min_input = self.get_input_datatype(0).min()
-            max_input = self.get_input_datatype(0).max()
-            # get range required by threshold values
-            tdt_min = min(min_input, min_threshold)
-            tdt_max = max(max_input, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
+        if self.get_input_datatype(0).is_integer() and self.get_input_datatype(1).is_integer():
+            # minimize threshold width only if input and thresholds are integer
+            # Use double precision for intermediate calculations to prevent overflow
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            # Check if input datatype is signed
+            input_is_signed = self.get_input_datatype(0).signed()
+            # Special case: all thresholds are zero
+            # get_smallest_possible(-1) returns BIPOLAR which can't represent 0
+            if min_threshold == max_threshold == 0:
+                if input_is_signed:
+                    tdt = DataType["INT2"]
                 else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
+                    tdt = DataType["UINT1"]
+            elif min_threshold < 0:
+                if abs(min_threshold) > max_threshold:
+                    tdt = DataType.get_smallest_possible(min_threshold)
+                else:
+                    tdt = DataType.get_smallest_possible(-max_threshold - 1)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max)
+                # If input is signed, use signed threshold datatype even if thresholds are positive
+                if input_is_signed:
+                    tdt = DataType.get_smallest_possible(-max_threshold - 1)
+                else:
+                    tdt = DataType.get_smallest_possible(max_threshold)
         else:
             # special case: if input is float, we keep thresholds as is
             tdt = self.get_input_datatype(1)
@@ -271,3 +288,33 @@ class Thresholding(HWCustomOp):
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = []
+        intf_names["s_axis"].append(("in0_V", self.get_instream_width_padded(0)))
+        intf_names["m_axis"] = []
+        intf_names["m_axis"].append(("out0_V", self.get_outstream_width_padded(0)))
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        intf_names["ap_none"] = []
+        mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+        if mlo_max_iter:
+            stream_width = DataType.get_smallest_possible(mlo_max_iter).bitwidth()
+            stream_width_padded = roundup_to_integer_multiple(stream_width, 8)
+            intf_names["s_axis"].append(("in1_V", stream_width_padded))
+        else:
+            # try to access mem_mode attribute, doesn't exist for RTL Thresholding
+            try:
+                mem_mode = self.get_nodeattr("mem_mode")
+            except AttributeError:
+                mem_mode = 0
+
+            if mem_mode == "internal_decoupled":
+                # only expose axilite interface if attribute is set
+                runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+                if runtime_writable:
+                    intf_names["axilite"] = ["s_axilite"]
+        return intf_names

@@ -207,6 +207,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
 
         verilog_files = [
             rtllib_dir + "Q_srl.v",
+            rtllib_dir + "fifo_gauge.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
         return verilog_files

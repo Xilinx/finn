@@ -56,10 +56,6 @@ module layernorm #(
 			$error("%m: SIMD(%0d) must divide N(%0d).", SIMD, N);
 			$finish;
 		end
-		if(NN <= 12) begin
-			$error("%m: N/SIMD must be larger than 12 for rsqrt throughput.");
-			$finish;
-		end
 	end
 
 	typedef logic [31:0]  fp32;
@@ -142,20 +138,12 @@ module layernorm #(
 				// Balancing edge delays in trees with incomplete leaf level
 				typedef bit edge_delays_t[2*SIMD-1];
 				function edge_delays_t INIT_EDGE_DELAYS();
-					localparam int unsigned  LEVELS = 1+$clog2(SIMD);
+					// Use binary encoding of number of short leaves, `sig`, to infer
+					// most common parent for retiming on each level.
+					localparam int unsigned  FULL_FANIN = 2**$clog2(SIMD);
 					automatic edge_delays_t  d = '{ default: 0 };
-					// Put delay onto leaves that are not on last level
-					for(int unsigned  i = SIMD-1; i < 2*SIMD-1; i++) begin
-						if($clog2(i+2) == LEVELS)  break;
-						d[i] = 1;
-					end
-					// Move delay shared between children to their parent
-					for(int unsigned  i = SIMD-1; i > 0; i--) begin
-						if(d[2*i+1]) begin
-							d[2*i+1] = 0;
-							d[2*i+2] = 0;
-							d[i] = 1;
-						end
+					for(int unsigned  sig = FULL_FANIN - SIMD, i = FULL_FANIN - 1; sig; i >>= 1, sig >>= 1) begin
+						d[i-sig] = sig[0];
 					end
 					return  d;
 				endfunction : INIT_EDGE_DELAYS
@@ -210,7 +198,10 @@ module layernorm #(
 			end
 			1: /* Var: inverse square root */ begin
 				uwire  vrdy;
-				rsqrtf #(.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) vari_rsqurt (
+				rsqrtf #(
+					.SUSTAINABLE_INTERVAL(NN),
+					.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+				) vari_rsqurt (
 					.clk, .rst,
 					.x(total.dat), .xvld(total.vld), .xrdy(vrdy),
 					.r(norm .dat), .rvld(norm .vld)
@@ -259,7 +250,7 @@ module layernorm #(
 				else     Credit <= Credit + (issue == settle? 0 : settle? 1 : -1);
 			end
 
-			logic signed [$clog2(NN-1):0]  Cnt = 0;	// [-NN,] -NN+1, ..., -1, 0
+			logic signed [$clog2(NN):0]  Cnt = 0;	// [-NN,] -NN+1, ..., -1, 0
 			assign	norm0_rdy = !Cnt[$left(Cnt)];
 			assign	issue = have_cap && (norm0.vld || Cnt[$left(Cnt)]);
 			uwire  bload = norm0.vld && norm0_rdy;

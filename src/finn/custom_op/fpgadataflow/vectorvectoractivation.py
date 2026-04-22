@@ -401,41 +401,24 @@ class VVAU(HWCustomOp):
         # for the bipolar case they need to be converted to bipolar
         if self.get_nodeattr("binaryXnorMode"):
             weights = 2 * weights - 1
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-        else:
-            thresholds = None
+
         idt = self.get_input_datatype(0)
 
-        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
-        # if runtime-writeable weights, then the values of the weights can
+        # if runtime-writeable weights or mem_mode=external, then the values of the weights can
         # change and we need to use the worst-case values from the datatypes
-        if self.get_nodeattr("runtime_writeable_weights"):
+        if (
+            self.get_nodeattr("runtime_writeable_weights")
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
             wdt = self.get_input_datatype(1)
-            lower_worst = wdt.min() * np.ones_like(weights)
+            lower_worst = wdt.min() * np.ones((k_h * k_w, fm))
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like(weights)
+            upper_worst = wdt.max() * np.ones((k_h * k_w, fm))
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(lower_range), max(upper_range))
-
-        # if the thresholds can be used to determine range, then adjust the range
-        # according to the known values of the thresholds
-        if thresholds is not None:
-            threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-            # set threshold datatype (and accumulator datatype implicitly)
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            # clip threshold values
-            if max_threshold > acc_max or min_threshold < acc_min:
-                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
-                thresholds = np.clip(thresholds, acc_min, acc_max)
-                model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
-                min_threshold = thresholds.min()
-                max_threshold = thresholds.max()
-            acc_min = min(min_threshold, acc_min)
-            acc_max = max(max_threshold, acc_max)
+        else:
+            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
 
         # if the acc_range is always greater than 0, then acc_max <= 2^P - 1
         if acc_min >= 0:
@@ -450,14 +433,8 @@ class VVAU(HWCustomOp):
             acc_bit_width = math.ceil(acc_bit_width)
             adt = DataType[f"INT{acc_bit_width}"]
 
-        # if activation, assert that the thresholds can be expressed with adt
-        if thresholds is not None:
-            assert np.vectorize(adt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                self.onnx_node.name,
-                str(adt),
-            )
+        # Note: Thresholds may not fit in the accumulator datatype at this point.
+        # They will be clipped to the accumulator range by RoundAndClipThresholds transformation.
 
         # if no activation, output and accumulator datatypes are the same
         if self.get_nodeattr("noActivation"):
@@ -474,8 +451,11 @@ class VVAU(HWCustomOp):
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights"""
-        if not self.get_nodeattr("runtime_writeable_weights"):
+        """Minimize the bit width based on the values of the weights."""
+        if not (
+            self.get_nodeattr("runtime_writeable_weights")
+            or self.get_nodeattr("mem_mode") == "external"
+        ):
             weights = model.get_initializer(self.onnx_node.input[1])
             w_min = weights.min()
             w_max = weights.max()
@@ -487,6 +467,7 @@ class VVAU(HWCustomOp):
             else:
                 wdt = DataType.get_smallest_possible(w_max)
             self.set_nodeattr("weightDataType", wdt.name)
+
         return DataType[self.get_nodeattr("weightDataType")]
 
     def get_hw_compatible_threshold_tensor(self, orig_thres_matrix):
@@ -720,8 +701,8 @@ class VVAU(HWCustomOp):
                 bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
                 inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-                # get computed threshold datatype from attribute
-                tdt = DataType[self.get_nodeattr("accDataType")]
+                # get computed threshold datatype from tensor
+                tdt = model.get_tensor_datatype(self.onnx_node.input[2])
 
                 assert np.vectorize(tdt.allowed)(
                     threshold_tensor

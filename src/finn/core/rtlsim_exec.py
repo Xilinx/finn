@@ -360,7 +360,6 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     finnxsi.reset_rtlsim(sim)
     if pre_hook is not None:
         pre_hook(sim)
-        finnxsi.reset_rtlsim(sim)
     n_cycles = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,

@@ -50,12 +50,13 @@ class HLSSynthIP(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, num_workers=None):
+    def __init__(self, fpgapart=None, num_workers=None):
+        self.fpgapart = fpgapart
         super().__init__(num_workers=num_workers)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_hls_node(node):
+        if is_hls_node(node) or node.op_type == "FINNLoop":
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
@@ -65,11 +66,12 @@ class HLSSynthIP(NodeLocalTransformation):
                 ), """Node
                 attribute "code_gen_dir_ipgen" is empty. Please run
                 transformation PrepareIP first."""
-                if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
-                    "code_gen_dir_ipgen"
-                ) in inst.get_nodeattr("ipgen_path"):
+                if not (
+                    os.path.isdir(inst.get_nodeattr("ipgen_path"))
+                    or os.path.isfile(inst.get_nodeattr("ipgen_path"))
+                ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr("ipgen_path"):
                     # call the compilation function for this node
-                    inst.ipgen_singlenode_code()
+                    inst.ipgen_singlenode_code(self.fpgapart)
                 else:
                     warnings.warn("Using pre-existing IP for %s" % node.name)
                 # ensure that executable path is now set

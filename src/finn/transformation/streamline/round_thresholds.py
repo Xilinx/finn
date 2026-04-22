@@ -36,11 +36,10 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 
 
 class RoundAndClipThresholds(Transformation):
-    """For MultiThreshold nodes operating on integer inputs, round up
-    thresholds values to the nearest integer. Additionally, if the input
-    is unsigned, sets negative thresholds to zero. Type-casts thresholds (back)
-    to the float32 container type (this is separate from the quantization
-    annotation). Runs InferDataTypes() afterward to propagate any changes to the
+    """For MultiThreshold, Thresholding, MVAU, and VVAU nodes operating on integer inp/accumulators,
+    round up (ceil) threshold values to the nearest integer and clip to valid range.
+    Type-casts thresholds (back) to the float32 container type (this is separate from the
+    quantization annotation). Runs InferDataTypes() afterward to propagate any changes to the
     quantization data types."""
 
     def apply(self, model: ModelWrapper):  # noqa
@@ -108,5 +107,48 @@ class RoundAndClipThresholds(Transformation):
                     # Immediately exit here to propagate the data type changes
                     # before considering the next node
                     break
+
+            # Handle MVAU and VVAU nodes with thresholds (noActivation=0)
+            elif op_type.startswith("MVAU") or op_type.startswith("VVAU"):
+                inst = getCustomOp(node)
+                # Only process if node has thresholds (noActivation=0)
+                if inst.get_nodeattr("noActivation") == 0 and len(node.input) > 2:
+                    thresholds = model.get_initializer(node.input[2])
+                    if thresholds is None:
+                        continue
+
+                    # Get accumulator datatype (should be set by MinimizeAccumulatorWidth)
+                    acc_dt = DataType[inst.get_nodeattr("accDataType")]
+
+                    # This transformation only applies to integer accumulators
+                    if not acc_dt.is_integer():
+                        continue
+
+                    # Round thresholds up to nearest integer and clip to accumulator range
+                    new_thresholds = np.clip(np.ceil(thresholds), acc_dt.min(), acc_dt.max() + 1)
+                    # Convert back to the preferred float32 container type
+                    new_thresholds = new_thresholds.astype(np.float32)
+                    # Insert the rounded and clipped thresholds back into the model
+                    model.set_initializer(node.input[2], new_thresholds)
+                    # The rounded and clipped thresholds now fit into a data type
+                    # that is one bit bigger than the accumulator datatype
+                    # Determine new max_value
+                    max_val = acc_dt.max() + 1
+                    if not acc_dt.signed():
+                        tdt = DataType.get_smallest_possible(max_val)
+                    else:
+                        tdt = DataType.get_smallest_possible(-(max_val) - 1)
+
+                    model.set_tensor_datatype(node.input[2], tdt)
+
+                    if np.any(new_thresholds != thresholds):
+                        # Track the graph has been modified to inform the transform
+                        # container to exhaustively repeat this transformation until
+                        # no changes are possible
+                        graph_modified = True
+                        # Immediately exit here to propagate the data type changes
+                        # before considering the next node
+                        break
+
         model = model.transform(InferDataTypes())
         return model, graph_modified

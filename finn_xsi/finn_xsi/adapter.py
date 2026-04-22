@@ -40,10 +40,18 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
             f.write(f"verilog work {glbl}\n")
 
         # extract (unique, by using a set) verilog headers for inclusion
-        verilog_headers = {os.path.dirname(x) for x in source_list if x.endswith(".vh")}
+        verilog_headers = {
+            os.path.dirname(x) for x in source_list if x.endswith(".vh") or x.endswith(".svh")
+        }
         verilog_header_incl_str = " ".join(["--include " + x for x in verilog_headers])
 
-        for src_line in source_list:
+        # sort src list so that packages are loaded first
+        # these packages must be compiled before modules that depend on them
+        pkg_patterns = ["swg_pkg", "mvu_pkg"]
+        srcs_list = sorted(
+            source_list, key=lambda s: (not any(pkg in s for pkg in pkg_patterns), s)
+        )
+        for src_line in srcs_list:
             if src_line.endswith(".v"):
                 f.write(f"verilog work {verilog_header_incl_str} {src_line}\n")
             elif src_line.endswith(".vhd"):
@@ -51,7 +59,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
                 f.write(f"vhdl2008 work {src_line}\n")
             elif src_line.endswith(".sv"):
                 f.write(f"sv work {verilog_header_incl_str} {src_line}\n")
-            elif src_line.endswith(".vh"):
+            elif src_line.endswith(".vh") or src_line.endswith(".svh"):
                 # skip adding Verilog headers directly (see verilog_header_incl_str)
                 continue
             else:
@@ -78,6 +86,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "floating_point_v7_1_18",
         "floating_point_v7_1_15",
         "floating_point_v7_1_19",
+        "floating_point_v7_1_21",
+        "floating_point_v7_0_26",
     ]
 
     cmd_xelab = [
@@ -166,6 +176,7 @@ def rtlsim_multi_io(
         # outputs from the single output stream) - make into dict
         oname = list(io_dict["outputs"].keys())[0]
         num_out_values = {oname: num_out_values}
+
     # FINN XSI expects hex strings, while rtlsim_multi_io uses
     # lists of arbitrary-precision integers, so need to convert
     # inputs and outputs to appropriate format

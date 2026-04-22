@@ -43,7 +43,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  FPARG  = $FPARG$,	// floating-point inputs: [sign] | exponent | mantissa
 	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	parameter  SETS = 1,  // Number of independent threshold sets
+	parameter  SETS = $SETS$,  // Number of independent threshold sets
 
 	parameter  THRESHOLDS_PATH = $THRESHOLDS_PATH$,	// Directory with initial threshold data
 	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write
@@ -56,7 +56,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  O_BITS = $O_BITS$
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:in0_V:in1_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -80,7 +80,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Reading
 	input   s_axilite_ARVALID,
 	output  s_axilite_ARREADY,
-	input [$clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
+	input [$clog2(SETS) + $clog2(C/PE) + $clog2(PE) + $clog2(N) + 1:0]  s_axilite_ARADDR,
 
 	output         s_axilite_RVALID,
 	input          s_axilite_RREADY,

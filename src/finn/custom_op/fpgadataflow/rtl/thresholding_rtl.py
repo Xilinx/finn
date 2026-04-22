@@ -157,7 +157,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
         t_path = self.get_nodeattr("code_gen_dir_ipgen")
 
-        self.generate_params(model, t_path)
+        if not self.get_nodeattr("mlo_max_iter"):
+            self.generate_params(model, t_path)
 
         bias = self.get_nodeattr("ActVal")  # activation bias value
         input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
@@ -191,8 +192,8 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                 )
 
         # If a single threshold value is found, set num_channels to PE
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        if thresholds.shape[0] == 1:
+        thresholds_shape = model.get_tensor_shape(self.onnx_node.input[1])
+        if thresholds_shape[0] == 1:
             num_channels = pe
 
         code_gen_dict["$THRESHOLDS_PATH$"] = ['"./%s_"' % self.onnx_node.name]
@@ -213,6 +214,11 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
         code_gen_dict["$PE$"] = [str(pe)]  # requires C = M*PE
+        mlo_max_iter = self.get_nodeattr("mlo_max_iter")
+        if mlo_max_iter:
+            code_gen_dict["$SETS$"] = [str(mlo_max_iter)]
+        else:
+            code_gen_dict["$SETS$"] = [str(1)]
 
         # Is the input datatype signed or unsigned?
         # The thresholding core needs to know this when comparing weights to inputs
@@ -511,3 +517,51 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     with open(thresh_file, "w") as f:
                         for val in threshs:
                             f.write(val + "\n")
+
+    def minimize_weight_bit_width(self, model):
+        """Minimize threshold datatype, with RTL-specific adjustments.
+
+        The RTL implementation saturates inputs to the threshold datatype range
+        when the threshold datatype is narrower than the input datatype. To ensure
+        correct comparisons at saturation boundaries, the threshold datatype must
+        be able to represent [min_threshold - 1 : max_threshold]."""
+        # First, call the base class implementation
+        tdt = super().minimize_weight_bit_width(model)
+
+        # Check if we need RTL-specific adjustments
+        idt = self.get_input_datatype(0)
+        if not idt.is_integer() or not tdt.is_integer():
+            return tdt
+
+        # If threshold datatype is smaller than input datatype, we need to ensure
+        # it can represent min_threshold - 1 to handle RTL saturation correctly
+        if tdt.bitwidth() < idt.bitwidth():
+            thresholds = model.get_initializer(self.onnx_node.input[1])
+            min_threshold = np.float64(thresholds.min())
+            max_threshold = np.float64(thresholds.max())
+            min_required = min_threshold - 1
+            max_required = max_threshold
+
+            # Compute the new datatype that can represent the extended range
+            if min_required < 0:
+                if abs(min_required) > max_required:
+                    new_tdt = DataType.get_smallest_possible(min_required)
+                else:
+                    new_tdt = DataType.get_smallest_possible(-max_required - 1)
+            else:
+                if idt.signed():
+                    new_tdt = DataType.get_smallest_possible(-max_required - 1)
+                else:
+                    new_tdt = DataType.get_smallest_possible(max_required)
+
+            # Only update if the new datatype is wider
+            if new_tdt.bitwidth() > tdt.bitwidth():
+                threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
+                assert np.vectorize(new_tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds can't be expressed with type %s" % str(new_tdt)
+                self.set_nodeattr("weightDataType", new_tdt.name)
+                model.set_tensor_datatype(self.onnx_node.input[1], new_tdt)
+                return new_tdt
+
+        return tdt

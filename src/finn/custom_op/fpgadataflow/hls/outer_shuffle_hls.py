@@ -77,11 +77,6 @@ class OuterShuffle_hls(OuterShuffle, HLSBackend):
             """
         ]
 
-    def get_exp_cycles(self):
-        out_shape = self.get_nodeattr("transpose_out_shape")
-        simd = self.get_nodeattr("SIMD")
-        return int(np.prod(out_shape) / simd)
-
     def docompute(self):
         simd = self.get_nodeattr("SIMD")
         out_shape = self.get_nodeattr("transpose_out_shape")

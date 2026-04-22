@@ -299,6 +299,11 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
         inp = np.load(input_file)
     else:
         raise Exception("input_file must be ndarray or filename for .npy")
+
+    # Check for NaN/Inf before packing for rtlsim
+    assert not np.isnan(inp).any(), "NaN values detected in rtlsim input"
+    assert not np.isinf(inp).any(), "Inf values detected in rtlsim input"
+
     if (
         inp.shape[-1] == 1
         and input_dtype.is_integer()
@@ -330,6 +335,11 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits, rev
     )
     # make copy before saving the array
     out_array = out_array.copy()
+
+    # Check for NaN/Inf after unpacking rtlsim output
+    assert not np.isnan(out_array).any(), "NaN values detected in rtlsim output"
+    assert not np.isinf(out_array).any(), "Inf values detected in rtlsim output"
+
     if path is not None:
         np.save(path, out_array)
     return out_array
