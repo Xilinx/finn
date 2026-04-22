@@ -206,14 +206,132 @@ def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
     assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
 
 
-@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
 @pytest.mark.fpgadataflow
-def test_elementwise_binary_operation_rtl_fallback_to_hls(op_type):
-    """Test that non-FLOAT32 datatypes fall back to HLS."""
+def test_elementwise_binary_operation_rtl_fallback_to_hls_wide_mul():
+    """Test that int MUL exceeding DSP58 width falls back to HLS."""
 
-    lhs_dtype = "INT8"  # Non-FLOAT32 should fallback to HLS
+    # INT25 signed MUL exceeds max width of 24 for signed
+    lhs_dtype = "INT25"
+    rhs_dtype = "INT25"
+    out_dtype = "INT50"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseMul", lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    # Set rhs as const to satisfy style requirements
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    # Override output dtype to match RTL expectation
+    node_inst.set_nodeattr("out_dtype", out_dtype)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    # Should fall back to HLS because INT25 MUL exceeds DSP58 capacity
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == "ElementwiseMul_hls"
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_binary_operation_rtl_fallback_mismatched_width():
+    """Test that int/int with mismatched widths falls back to HLS."""
+
+    lhs_dtype = "INT8"
+    rhs_dtype = "INT16"
+    out_dtype = "INT32"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseAdd", lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    # Should fall back to HLS because widths don't match
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == "ElementwiseAdd_hls"
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_binary_operation_rtl_fallback_mismatched_sign():
+    """Test that int/int with mismatched signedness falls back to HLS."""
+
+    lhs_dtype = "INT8"
+    rhs_dtype = "UINT8"
+    out_dtype = "INT32"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseAdd", lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    # Should fall back to HLS because signedness doesn't match
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == "ElementwiseAdd_hls"
+
+
+@pytest.mark.parametrize(
+    "op_type,out_dtype",
+    [
+        ("ElementwiseAdd", "INT9"),
+        ("ElementwiseSub", "INT9"),
+        ("ElementwiseMul", "INT16"),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_int_signed(op_type, out_dtype, pe):
+    """Test RTL elementwise operations for signed INT8 inputs."""
+
+    lhs_dtype = "INT8"
     rhs_dtype = "INT8"
-    out_dtype = "INT8"
     lhs_shape = [1, 4]
     rhs_shape = [1, 4]
 
@@ -221,17 +339,325 @@ def test_elementwise_binary_operation_rtl_fallback_to_hls(op_type):
         op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
     )
 
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    context = {"in_x": lhs_data}
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
     model = model.transform(InferElementwiseBinaryOperation())
 
-    # Don't set preferred_impl_style - let automatic selection work
-    # RTL should be tried first but constraints should force fallback to HLS
+    assert len(model.graph.node) == 1
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    # Set output dtype to match RTL O_WIDTH
+    node_inst.set_nodeattr("out_dtype", out_dtype)
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
     model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
 
-    # Should fall back to HLS for non-FLOAT32
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == f"{op_type}_hls"
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    o_expected = numpy_reference(lhs_data, rhs_data)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.parametrize(
+    "op_type,out_dtype",
+    [
+        ("ElementwiseAdd", "UINT9"),
+        ("ElementwiseSub", "INT9"),
+        ("ElementwiseMul", "UINT16"),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_int_unsigned(op_type, out_dtype, pe):
+    """Test RTL elementwise operations for unsigned UINT8 inputs."""
+
+    lhs_dtype = "UINT8"
+    rhs_dtype = "UINT8"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    context = {"in_x": lhs_data}
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    assert len(model.graph.node) == 1
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    node_inst.set_nodeattr("out_dtype", out_dtype)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    o_expected = numpy_reference(lhs_data, rhs_data)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.parametrize(
+    "op_type,out_dtype",
+    [
+        ("ElementwiseAdd", "INT17"),
+        ("ElementwiseMul", "INT32"),
+    ],
+)
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_int16(op_type, out_dtype, pe):
+    """Test RTL elementwise operations for INT16 inputs."""
+
+    lhs_dtype = "INT16"
+    rhs_dtype = "INT16"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    context = {"in_x": lhs_data}
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    assert len(model.graph.node) == 1
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    node_inst.set_nodeattr("out_dtype", out_dtype)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    o_expected = numpy_reference(lhs_data, rhs_data)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseMul"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_mixed_int_float(op_type, pe):
+    """Test RTL elementwise operations with mixed int/float inputs.
+
+    LHS is INT8 (converted to fp32 internally), RHS is FLOAT32.
+    Output is FLOAT32.
+    """
+
+    lhs_dtype = "INT8"
+    rhs_dtype = "FLOAT32"
+    out_dtype = "FLOAT32"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    context = {"in_x": lhs_data}
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    assert len(model.graph.node) == 1
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    o_expected = numpy_reference(lhs_data.astype(np.float32), rhs_data)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_elementwise_binary_operation_rtl_input_input(op_type, pe):
+    """Test RTL elementwise operations with both inputs dynamic (no const).
+
+    Both LHS and RHS are streaming inputs, no memstream wrapper needed.
+    """
+
+    lhs_dtype = "FLOAT32"
+    rhs_dtype = "FLOAT32"
+    out_dtype = "FLOAT32"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+
+    # Do NOT set in_y as initializer — both are dynamic inputs
+    context = {
+        "in_x": lhs_data,
+        "in_y": rhs_data,
+    }
+
+    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    assert len(model.graph.node) == 1
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("PE", pe)
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "input")
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == f"{op_type}_rtl"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim(behav=True))
+
+    o_expected = numpy_reference(lhs_data, rhs_data)
+    o_produced = execute_onnx(model, context)["out"]
+
+    assert np.all(o_produced == o_expected)
+
+
+@pytest.mark.fpgadataflow
+def test_elementwise_binary_operation_rtl_int24_signed_mul_passes():
+    """Test that INT24 signed MUL (within DSP58 capacity) routes to RTL."""
+
+    lhs_dtype = "INT24"
+    rhs_dtype = "INT24"
+    out_dtype = "INT48"
+    lhs_shape = [1, 4]
+    rhs_shape = [1, 4]
+
+    model = create_elementwise_binary_operation_onnx(
+        "ElementwiseMul", lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    )
+
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(InferElementwiseBinaryOperation())
+
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("preferred_impl_style", "rtl")
+    node_inst.set_nodeattr("lhs_style", "input")
+    node_inst.set_nodeattr("rhs_style", "const")
+    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
+    node_inst.set_nodeattr("out_dtype", out_dtype)
+
+    model = model.transform(InferDataTypes())
+    model = model.transform(InferShapes())
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+
+    # INT24 signed MUL should route to RTL (max_w=24 for signed)
+    assert len(model.graph.node) == 1
+    assert model.graph.node[0].op_type == "ElementwiseMul_rtl"

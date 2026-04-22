@@ -1,7 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2025, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
+ * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
