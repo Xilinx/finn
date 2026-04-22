@@ -6,60 +6,74 @@
 # @brief    Main compressor tree generation entry point
 #############################################################################
 
-import time
 import argparse
-from .target import Target, Versal, SevenSeries, UltraScale
-from .utils.shape import Shape
+import time
+from typing import List, Optional
+
 from .passes.compressor_constructor import CompressorConstructor
 from .passes.cost_estimator import CostEstimator
-from .passes.printer import CompressorPrinter
 from .passes.emitter import VerilogGenerator
-from .passes.wire_inserter import WireInserter
 from .passes.io_annotator import IOAnnotator
 from .passes.lut_placer import LUTPlacer
+from .passes.printer import CompressorPrinter
+from .passes.wire_inserter import WireInserter
+from .target import SevenSeries, Target, UltraScale, Versal
 from .tests.test_gen import generate_test
 from .tests.tester import tester
-from typing import Optional, List
+from .utils.shape import Shape
+
 
 def parse_cli():
     parser = argparse.ArgumentParser(
-        prog="Compressor Generator",
-        description="Generate a Compressor Tree for a given input."
+        prog="Compressor Generator", description="Generate a Compressor Tree for a given input."
     )
-    parser.add_argument('-o', '--output', default="../gen/out.sv", 
-                        help="Path to store the compressor at.")
-    parser.add_argument('-s', '--shape', required=True, help="Input shape.")
-    parser.add_argument('-a', '--accumulate', action='store_true',
-                        help="Enable accumulation.")
-    parser.add_argument('-w', '--accumulator_width',
-                        help="Accumulator width [default: Reduced input shape].")
-    parser.add_argument('-g', '--gates', default=None,
-                        help="Inline 2-input gates into the compressor. LSB is left."
-                        "Example: 8,3")
-    parser.add_argument('-t', '--target', default="Versal",
-                        help="Target FPGA generation.", choices=["Versal", "7-Series", 
-                                                                 "UltraScale"])
-    parser.add_argument('--test', action="store_true",
-                        help="Test the generated compressor using Vivado XSim.")
-    parser.add_argument('-n', '--name', default="comp", 
-                        help="Name of the generated Systemverilog module.")
-    parser.add_argument('-p', '--pipeline_every', default=None, 
-                        help="Insert Pipeline registers every n stages. Default: "
-                        "Purely combinatorial.")
-    parser.add_argument('-c', '--constant', default=[], help="Add a constant binary "
-                        "number input. Example: 1011")
+    parser.add_argument(
+        "-o", "--output", default="../gen/out.sv", help="Path to store the compressor at."
+    )
+    parser.add_argument("-s", "--shape", required=True, help="Input shape.")
+    parser.add_argument("-a", "--accumulate", action="store_true", help="Enable accumulation.")
+    parser.add_argument(
+        "-w", "--accumulator_width", help="Accumulator width [default: Reduced input shape]."
+    )
+    parser.add_argument(
+        "-g",
+        "--gates",
+        default=None,
+        help="Inline 2-input gates into the compressor. LSB is left." "Example: 8,3",
+    )
+    parser.add_argument(
+        "-t",
+        "--target",
+        default="Versal",
+        help="Target FPGA generation.",
+        choices=["Versal", "7-Series", "UltraScale"],
+    )
+    parser.add_argument(
+        "--test", action="store_true", help="Test the generated compressor using Vivado XSim."
+    )
+    parser.add_argument(
+        "-n", "--name", default="comp", help="Name of the generated Systemverilog module."
+    )
+    parser.add_argument(
+        "-p",
+        "--pipeline_every",
+        default=None,
+        help="Insert Pipeline registers every n stages. Default: " "Purely combinatorial.",
+    )
+    parser.add_argument(
+        "-c", "--constant", default=[], help="Add a constant binary " "number input. Example: 1011"
+    )
     args = parser.parse_args()
 
     try:
-        shape = Shape(int(el) for el in args.shape.split(','))
+        shape = Shape(int(el) for el in args.shape.split(","))
     except (ValueError, TypeError):
         print("Improperly defined shape.")
         exit(-1)
 
     gates = []
     if args.gates:
-        assert len(args.gates) == sum(shape), \
-            "Length of shape and gate specification do not match."
+        assert len(args.gates) == sum(shape), "Length of shape and gate specification do not match."
         gates_lin = list(args.gates)
         for col in shape:
             gates_col = []
@@ -93,35 +107,38 @@ def parse_cli():
         gates,
         constants,
         args.output,
-        args.test
+        args.test,
     )
 
-def generate_compressor(
-        target: Target,
-        shape: Shape,
-        name: str, 
-        comb_depth: Optional[int],
-        accumulate: bool,
-        accumulator_width: int,
-        gates: List[List[str]],
-        constants: List[int], # Each element is a binary numer digit.
-        path: str,
-        test: bool,
-        enable: bool = False):
 
+def generate_compressor(
+    target: Target,
+    shape: Shape,
+    name: str,
+    comb_depth: Optional[int],
+    accumulate: bool,
+    accumulator_width: int,
+    gates: List[List[str]],
+    constants: List[int],  # Each element is a binary numer digit.
+    path: str,
+    test: bool,
+    enable: bool = False,
+):
     start_time = time.time()
     constructor = CompressorConstructor()
-    c = constructor(target.counter_candidates, 
-                    target.absorbing_counter_candidates,
-                    target.final_adder,
-                    shape,
-                    name,
-                    comb_depth=comb_depth,
-                    accumulate=accumulate,
-                    accumulator_width=accumulator_width,
-                    constants=constants,
-                    gates=gates,
-                    enable=enable)
+    c = constructor(
+        target.counter_candidates,
+        target.absorbing_counter_candidates,
+        target.final_adder,
+        shape,
+        name,
+        comb_depth=comb_depth,
+        accumulate=accumulate,
+        accumulator_width=accumulator_width,
+        constants=constants,
+        gates=gates,
+        enable=enable,
+    )
 
     placer = LUTPlacer()
     c.accept(placer)
@@ -137,17 +154,20 @@ def generate_compressor(
 
     emitter = VerilogGenerator()
     c.accept(emitter)
-    with open(path, 'w') as f:
-        withprefix = f"""// Adder generated by the Python Compressor Generator
+    with open(path, "w") as f:
+        withprefix = (
+            f"""// Adder generated by the Python Compressor Generator
 // Input shape: {c.input_shape}; Output Shape: {c.output_shape}
 // Pipeline stages: {c.delay}
 // Target Generation: {target.__class__.__name__}
 // Approximate LUTs: {int(cost.luts+0.5)}
-// Accumulation: {"yes" if accumulate else "no"} {f"of width {accumulator_width}" 
+// Accumulation: {"yes" if accumulate else "no"} {f"of width {accumulator_width}"
                                                   if accumulator_width else ""}
 // Enable mode: {"yes (init values set on accumulator registers)" if enable else "no"}
 // Gates: {gates if gates else "None"}
-        """ + emitter.emitter.output
+        """
+            + emitter.emitter.output
+        )
         f.write(withprefix)
 
     end_time = time.time()
@@ -157,13 +177,13 @@ def generate_compressor(
 
     if test:
         constant = int("".join(str(c) for c in constants), 2) if constants else 0
-        test = generate_test(shape, "comp", c.delay, gates, accumulate, 
-                             accumulator_width, constant)
-        with open("../gen/test.sv", 'w') as f:
+        test = generate_test(shape, "comp", c.delay, gates, accumulate, accumulator_width, constant)
+        with open("../gen/test.sv", "w") as f:
             f.write(test)
         tester("../gen/test.sv", path)
 
     return c.delay
+
 
 if __name__ == "__main__":
     parse_cli()

@@ -6,14 +6,20 @@
 # @brief    Cost estimation pass for compressor resources
 #############################################################################
 
-from ..graph.nodes import CompressionStage, Compressor, GateAbsorbedStage, PipelineStage
-from ..graph.nodes import Blackbox
-from ..graph.primitives import LUT6, LUT6_2, LUT6CY, LUT5, LUT2, LUT
+from ..graph.nodes import (
+    Blackbox,
+    CompressionStage,
+    Compressor,
+    GateAbsorbedStage,
+    PipelineStage,
+)
+from ..graph.primitives import LUT, LUT2, LUT5, LUT6, LUT6_2, LUT6CY
 from .node_iterator import NodeIterator
+
 
 class CostEstimator(NodeIterator):
     def iter_compressor(self, c: Compressor):
-        self.combinatorial_stages = -1 # Start with -1 to exclude final adder
+        self.combinatorial_stages = -1  # Start with -1 to exclude final adder
         self.pipeline_stages = 0
         self.luts = 0
 

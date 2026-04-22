@@ -36,15 +36,13 @@ Outputs:
   comp_<N>u<W>_d<delay>.sv  — the generated compressor core(s)
 """
 
-import os
-import math
 import argparse
-import shutil
+import math
+import os
 
 from .main import generate_compressor
-from .target import resolve_target, resolve_target_name, Versal, SevenSeries
+from .target import resolve_target, resolve_target_name
 from .utils.shape import Shape
-
 
 # ---------------------------------------------------------------------------
 # Python replica of mvu.sv::sliceLanes()
@@ -55,6 +53,7 @@ from .utils.shape import Shape
 #
 # This outsourced computation is required as lane width is relevant to the
 # compressor input Shape and thus needs to be known at generation time.
+
 
 def clog2(n):
     """Ceiling of log2, matching SystemVerilog $clog2 semantics."""
@@ -82,9 +81,9 @@ def slice_lanes(version, ww, aw, accu_width, narrow_weights):
     Returns
     -------
     (num_lanes, offsets) : tuple
-        num_lanes : int 
+        num_lanes : int
             number of DSP lanes.
-        offsets   : list[int] 
+        offsets   : list[int]
             lane boundary positions (length num_lanes+1).
     """
     a_width = 25 + 2 * (version > 1)
@@ -119,7 +118,7 @@ def lo_widths_from_mvu_params(version, ww, aw, accu_width, narrow_weights):
 
     Returns
     -------
-    list[int] 
+    list[int]
         lo_width for lane 0 .. num_lanes-1.
     """
     num_lanes, offsets = slice_lanes(version, ww, aw, accu_width, narrow_weights)
@@ -142,8 +141,7 @@ def comp_module_name(n, arg_width, delay):
     return f"comp_{n}u{arg_width}_d{delay}"
 
 
-def generate_add_multi_comp(target, n, arg_width, pipeline_every, output_dir,
-                            name=None):
+def generate_add_multi_comp(target, n, arg_width, pipeline_every, output_dir, name=None):
     """
     Generate a multi-input adder compressor (no accumulation).
 
@@ -185,13 +183,13 @@ def generate_add_multi_comp(target, n, arg_width, pipeline_every, output_dir,
         shape=shape,
         name=tmp_name,
         comb_depth=pipeline_every,
-        accumulate=False,          # Pure adder, no fused accumulation
-        accumulator_width=None,    # Not applicable without accumulation
-        gates=[],                  # No gate absorption, inputs are complete values
-        constants=[],              # No Baugh-Wooley correction, unsigned inputs
+        accumulate=False,  # Pure adder, no fused accumulation
+        accumulator_width=None,  # Not applicable without accumulation
+        gates=[],  # No gate absorption, inputs are complete values
+        constants=[],  # No Baugh-Wooley correction, unsigned inputs
         path=tmp_path,
         test=False,
-        enable=False,              # No accumulator registers to initialize
+        enable=False,  # No accumulator registers to initialize
     )
 
     # Derive final name with delay suffix
@@ -214,8 +212,9 @@ def generate_add_multi_comp(target, n, arg_width, pipeline_every, output_dir,
     return final_name, final_path, delay
 
 
-def generate_add_multi_comps(fpgapart, version, simd, ww, aw, accu_width,
-                             narrow_weights, output_dir):
+def generate_add_multi_comps(
+    fpgapart, version, simd, ww, aw, accu_width, narrow_weights, output_dir
+):
     """
     Generate add_multi compressor cores and patch add_multi.sv.
     This is the high-level entry point called by FINN's generate_hdl().
@@ -248,8 +247,10 @@ def generate_add_multi_comps(fpgapart, version, simd, ww, aw, accu_width,
     # Always generate compressors and patch add_multi.sv
     target = resolve_target(fpgapart)
 
-    # This is currently a parallel implementation of the lo_width computation in mvu.sv's sliceLanes() function.
-    # The resulting lo_width values determine the compressor input Shapes, so we need to compute them here in Python at generation time.
+    # This is currently a parallel implementation of the lo_width
+    # computation in mvu.sv's sliceLanes() function. The resulting
+    # lo_width values determine the compressor input Shapes, so we need
+    # to compute them here in Python at generation time.
     # Must be kept in SYNC.
     widths = lo_widths_from_mvu_params(version, ww, aw, accu_width, narrow_weights)
 
@@ -259,9 +260,12 @@ def generate_add_multi_comps(fpgapart, version, simd, ww, aw, accu_width,
         key = (simd, w)
         if key not in generated:
             name, _path, delay = generate_add_multi_comp(
-                target, simd, w,
+                target,
+                simd,
+                w,
                 pipeline_every=1,  # Max pipelining (match dotp_comp behavior)
-                output_dir=output_dir)
+                output_dir=output_dir,
+            )
             generated[key] = (name, delay)
 
     # Copy add_multi.sv to output_dir and inject CATCH_COMP lines
@@ -278,14 +282,14 @@ def generate_add_multi_comps(fpgapart, version, simd, ww, aw, accu_width,
     if marker not in add_multi_src:
         raise RuntimeError(
             "Cannot find FINN_GENERATED_COMP_ENTRIES marker in add_multi.sv. "
-            "Has the file been modified?")
+            "Has the file been modified?"
+        )
     add_multi_src = add_multi_src.replace(marker, catch_lines + marker)
 
     with open(patched_path, "w") as f:
         f.write(add_multi_src)
 
-    comp_files = [os.path.join(output_dir, name + ".sv")
-                  for (name, _delay) in generated.values()]
+    comp_files = [os.path.join(output_dir, name + ".sv") for (name, _delay) in generated.values()]
 
     return {
         "comp_names": [name for (name, _delay) in generated.values()],
@@ -296,56 +300,69 @@ def generate_add_multi_comps(fpgapart, version, simd, ww, aw, accu_width,
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="add_multi_finn",
-        description="Generate a compressor core for FINN's add_multi module."
+        prog="add_multi_finn", description="Generate a compressor core for FINN's add_multi module."
     )
-    parser.add_argument('--n', type=int, required=True,
-                        help="Number of unsigned addends (= SIMD)")
-    parser.add_argument('-t', '--target', default="Versal",
-                        choices=["Versal", "7-Series", "UltraScale"],
-                        help="Target FPGA generation")
-    parser.add_argument('-p', '--pipeline_every', type=int, default=None,
-                        help="Pipeline registers every N combinational stages")
-    parser.add_argument('-o', '--output_dir', default="../gen",
-                        help="Output directory for generated files")
-    parser.add_argument('--name', default=None,
-                        help="Module name override (default: comp_<N>u<W>_d<delay>)")
+    parser.add_argument("--n", type=int, required=True, help="Number of unsigned addends (= SIMD)")
+    parser.add_argument(
+        "-t",
+        "--target",
+        default="Versal",
+        choices=["Versal", "7-Series", "UltraScale"],
+        help="Target FPGA generation",
+    )
+    parser.add_argument(
+        "-p",
+        "--pipeline_every",
+        type=int,
+        default=None,
+        help="Pipeline registers every N combinational stages",
+    )
+    parser.add_argument(
+        "-o", "--output_dir", default="../gen", help="Output directory for generated files"
+    )
+    parser.add_argument(
+        "--name", default=None, help="Module name override (default: comp_<N>u<W>_d<delay>)"
+    )
 
     # Direct mode: explicit arg_width
-    parser.add_argument('--arg_width', type=int, default=None,
-                        help="Bit width per addend (direct mode)")
+    parser.add_argument(
+        "--arg_width", type=int, default=None, help="Bit width per addend (direct mode)"
+    )
 
     # MVU mode: derive arg_width(s) from MVU parameters
     mvu_group = parser.add_argument_group(
-        'MVU parameters',
-        'When --mvu is given, lo_width values are computed from these '
-        'MVU-level parameters (replicating mvu.sv::sliceLanes).'
+        "MVU parameters",
+        "When --mvu is given, lo_width values are computed from these "
+        "MVU-level parameters (replicating mvu.sv::sliceLanes).",
     )
-    mvu_group.add_argument('--mvu', action='store_true',
-                           help="Enable MVU mode: derive arg_width from MVU params")
-    mvu_group.add_argument('--version', type=int, default=2,
-                           choices=[1, 2, 3],
-                           help="DSP version (1=DSP48E1, 2=DSP48E2, 3=DSP58)")
-    mvu_group.add_argument('--ww', type=int, default=None,
-                           help="WEIGHT_WIDTH")
-    mvu_group.add_argument('--aw', type=int, default=None,
-                           help="ACTIVATION_WIDTH")
-    mvu_group.add_argument('--accu_width', type=int, default=None,
-                           help="ACCU_WIDTH")
-    mvu_group.add_argument('--narrow_weights', type=int, default=0,
-                           choices=[0, 1],
-                           help="NARROW_WEIGHTS flag (0 or 1)")
+    mvu_group.add_argument(
+        "--mvu", action="store_true", help="Enable MVU mode: derive arg_width from MVU params"
+    )
+    mvu_group.add_argument(
+        "--version",
+        type=int,
+        default=2,
+        choices=[1, 2, 3],
+        help="DSP version (1=DSP48E1, 2=DSP48E2, 3=DSP58)",
+    )
+    mvu_group.add_argument("--ww", type=int, default=None, help="WEIGHT_WIDTH")
+    mvu_group.add_argument("--aw", type=int, default=None, help="ACTIVATION_WIDTH")
+    mvu_group.add_argument("--accu_width", type=int, default=None, help="ACCU_WIDTH")
+    mvu_group.add_argument(
+        "--narrow_weights", type=int, default=0, choices=[0, 1], help="NARROW_WEIGHTS flag (0 or 1)"
+    )
 
     args = parser.parse_args()
 
     # Validate argument combinations
     if not args.mvu and args.arg_width is None:
-        parser.error("Either --arg_width (direct mode) or --mvu with MVU "
-                     "parameters is required.")
+        parser.error(
+            "Either --arg_width (direct mode) or --mvu with MVU " "parameters is required."
+        )
     if args.mvu and args.arg_width is not None:
         parser.error("--arg_width and --mvu are mutually exclusive.")
     if args.mvu:
-        for param in ('ww', 'aw', 'accu_width'):
+        for param in ("ww", "aw", "accu_width"):
             if getattr(args, param) is None:
                 parser.error(f"--mvu requires --{param}")
 
@@ -363,16 +380,19 @@ def main():
             return
 
         widths = lo_widths_from_mvu_params(
-            args.version, args.ww, args.aw,
-            args.accu_width, bool(args.narrow_weights)
+            args.version, args.ww, args.aw, args.accu_width, bool(args.narrow_weights)
         )
         depth = 3 + clog2(simd) + (1 if simd == 1 else 0) + 1
         add_multi_depth = depth - 4
 
-        print(f"MVU config: VERSION={args.version} WW={args.ww} AW={args.aw} "
-              f"ACCU_WIDTH={args.accu_width} NARROW_WEIGHTS={args.narrow_weights}")
-        print(f"  NUM_LANES={len(widths)}  PIPELINE_DEPTH={depth}  "
-              f"ADD_MULTI_DEPTH={add_multi_depth}")
+        print(
+            f"MVU config: VERSION={args.version} WW={args.ww} AW={args.aw} "
+            f"ACCU_WIDTH={args.accu_width} NARROW_WEIGHTS={args.narrow_weights}"
+        )
+        print(
+            f"  NUM_LANES={len(widths)}  PIPELINE_DEPTH={depth}  "
+            f"ADD_MULTI_DEPTH={add_multi_depth}"
+        )
         print(f"  LO_WIDTHs: {widths}")
 
         # Generate one compressor per unique (N, lo_width)
@@ -384,8 +404,7 @@ def main():
             seen.add((simd, w))
 
             comp_name, comp_path, comp_delay = generate_add_multi_comp(
-                target, simd, w,
-                args.pipeline_every, args.output_dir, name=args.name
+                target, simd, w, args.pipeline_every, args.output_dir, name=args.name
             )
             print(f"  Lane {lane}: lo_width={w}")
             print(f"    Generated: {comp_path}")
@@ -395,8 +414,8 @@ def main():
     else:
         # Direct mode: single compressor for explicit arg_width
         comp_name, comp_path, comp_delay = generate_add_multi_comp(
-            target, args.n, args.arg_width,
-            args.pipeline_every, args.output_dir, name=args.name)
+            target, args.n, args.arg_width, args.pipeline_every, args.output_dir, name=args.name
+        )
 
         print(f"Generated compressor core: {comp_path}")
         print(f"  Module name:     {comp_name}")
