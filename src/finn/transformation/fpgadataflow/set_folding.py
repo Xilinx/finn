@@ -104,6 +104,7 @@ class SetFolding(Transformation):
             "ChannelwiseOp_hls",
             "DuplicateStreams_hls",
             "GlobalAccPool_hls",
+            "PWPolyF_rtl",
             "Thresholding_hls",
             "Thresholding_rtl",
         ]

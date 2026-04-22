@@ -247,6 +247,9 @@ Constraints to folding factors per layer
    * - Pool
      - PE
      - inp_channels % PE == 0
+   * - PWPolyF
+     - PE
+     - NumChannels % PE == 0
    * - Thresholding
      - PE
      - MH % PE == 0

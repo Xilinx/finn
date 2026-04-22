@@ -274,6 +274,53 @@ class InferThresholdingLayer(Transformation):
         return (model, graph_modified)
 
 
+class InferPWPolyFLayer(Transformation):
+    """Convert PWPolyF nodes into piecewise polynomial activation HW layers."""
+
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "PWPolyF" and node.domain != "finn.custom_op.fpgadataflow":
+                pwp_input = node.input[0]
+                pwp_output = node.output[0]
+                pwp_in_shape = model.get_tensor_shape(pwp_input)
+                idt = model.get_tensor_datatype(pwp_input)
+
+                func = get_by_name(node.attribute, "func").s.decode("utf-8")
+                K_attr = get_by_name(node.attribute, "K")
+                K = K_attr.i if K_attr is not None else 3
+
+                num_channels = pwp_in_shape[-1]
+
+                new_node = helper.make_node(
+                    "PWPolyF",
+                    [pwp_input],
+                    [pwp_output],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    func=func,
+                    K=K,
+                    NumChannels=num_channels,
+                    PE=1,
+                    inputDataType=idt.name,
+                    outputDataType=idt.name,
+                    numInputVectors=list(pwp_in_shape[:-1]),
+                    name="PWPolyF_" + node.name,
+                )
+
+                graph.node.insert(node_ind, new_node)
+                graph.node.remove(node)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
 class InferUpsample(Transformation):
     """Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour nodes."""
 

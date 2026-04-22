@@ -350,6 +350,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferLabelSelectLayer())
     # input quantization (if any) as standalone threshold
     model = model.transform(to_hw.InferThresholdingLayer())
+    # piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh)
+    model = model.transform(to_hw.InferPWPolyFLayer())
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
     if need_conv:
