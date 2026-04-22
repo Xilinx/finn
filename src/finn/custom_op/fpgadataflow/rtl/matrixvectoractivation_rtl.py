@@ -28,14 +28,12 @@
 
 import numpy as np
 import os
-import shutil
 
+from finn.compressor import generate_add_multi_comps, generate_dotp_comp
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-from finn.compressor import generate_dotp_comp, generate_add_multi_comps
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_rtl:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -229,8 +227,7 @@ class MVAU_rtl(MVAU, RTLBackend):
         # Add compressor files if dotp_comp was generated
         comp_name = self.get_nodeattr("comp_module_name")
         if comp_name:
-            comp_hdl_dir = os.path.join(
-                os.environ["FINN_ROOT"], "src/finn/compressor/hdl/")
+            comp_hdl_dir = os.path.join(os.environ["FINN_ROOT"], "src/finn/compressor/hdl/")
             sourcefiles.append(os.path.join(code_gen_dir, "dotp_comp.sv"))
             sourcefiles.append(os.path.join(comp_hdl_dir, "mul_comp_map.sv"))
             sourcefiles.append(os.path.join(code_gen_dir, comp_name + ".sv"))
@@ -355,8 +352,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         if pumped_compute or ww > 4 or aw > 4:
             return False
         return True
-        
-
 
     def generate_hdl(self, model, fpgapart, clk):
         # Generate params as part of IP preparation
@@ -389,23 +384,21 @@ class MVAU_rtl(MVAU, RTLBackend):
         # Compressor generation if applicable.
         if self._is_dotp_comp_eligible(fpgapart, ww, aw, pumped_compute):
             result = generate_dotp_comp(
-                fpgapart, simd, ww, aw, accu_width, signed_act, code_gen_dir)
+                fpgapart, simd, ww, aw, accu_width, signed_act, code_gen_dir
+            )
             code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(result["comp_delay"])]
             code_gen_dict["$USE_COMPRESSOR$"] = [str(1)]
             self.set_nodeattr("comp_module_name", result["comp_name"])
         else:
             # DSP path: Generate add_multi.sv with compressors
             result = generate_add_multi_comps(
-                fpgapart, version, simd, ww, aw, accu_width,
-                narrow_weights, code_gen_dir)
+                fpgapart, version, simd, ww, aw, accu_width, narrow_weights, code_gen_dir
+            )
             if result["comp_names"]:
-                self.set_nodeattr("add_multi_comp_names",
-                                  ";".join(result["comp_names"]))
+                self.set_nodeattr("add_multi_comp_names", ";".join(result["comp_names"]))
                 # Store compressor specs for synthesis aggregation
                 # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
-                specs_str = ";".join(
-                    f"{n},{w},{d}" for n, w, d in result.get("comp_specs", [])
-                )
+                specs_str = ";".join(f"{n},{w},{d}" for n, w, d in result.get("comp_specs", []))
                 self.set_nodeattr("add_multi_comp_specs", specs_str)
 
         # add general parameters to dictionary

@@ -23,12 +23,13 @@ Outputs:
   comp_<sig>.sv  — the generated compressor core (module `comp_<sig>`)
 """
 
+import argparse
 import os
 import re
-import argparse
+
 from .main import generate_compressor
-from .utils.mul_comp_map import MulCompMap
 from .target import resolve_target, resolve_target_name
+from .utils.mul_comp_map import MulCompMap
 from .utils.shape import Shape
 
 
@@ -48,10 +49,9 @@ def expand_template(template_path, output_path, substitutions):
         text = f.read()
     for key, value in substitutions.items():
         text = text.replace(key, value)
-    remaining = re.findall(r'\$[A-Z_]+\$', text)
+    remaining = re.findall(r"\$[A-Z_]+\$", text)
     if remaining:
-        raise ValueError(
-            f"Unsubstituted placeholders in {output_path}: {remaining}")
+        raise ValueError(f"Unsubstituted placeholders in {output_path}: {remaining}")
     with open(output_path, "w") as f:
         f.write(text)
 
@@ -86,9 +86,9 @@ def comp_module_name(n, sa, na, sb, nb, accu_width):
     return "comp_" + make_signature(n, sa, na, sb, nb) + f"_a{accu_width}"
 
 
-
-def generate_comp_module(target, n, na, nb, sa, sb, accu_width,
-                         pipeline_every, output_dir, name=None):
+def generate_comp_module(
+    target, n, na, nb, sa, sb, accu_width, pipeline_every, output_dir, name=None
+):
     """Generate the compressor core with fused accumulation.
 
     When *name* is None (the default), the module is named after its
@@ -159,24 +159,35 @@ def generate_dotp_comp(fpgapart, simd, ww, aw, accu_width, signed_act, output_di
     n, na, nb, sa, sb, _ = compute_params(simd, ww, aw, signed_act)
 
     comp_name, comp_path, comp_delay = generate_comp_module(
-        target, n, na, nb, sa, sb, accu_width,
+        target,
+        n,
+        na,
+        nb,
+        sa,
+        sb,
+        accu_width,
         pipeline_every=1,  # Max pipelining
-        output_dir=output_dir)
+        output_dir=output_dir,
+    )
 
     # Expand dotp_comp template with the generated module name
     src_dir = os.path.dirname(os.path.abspath(__file__))
     compressor_root = os.path.abspath(os.path.join(src_dir, ".."))
     dotp_comp_template = os.path.join(compressor_root, "hdl", "dotp_comp_template.sv")
     dotp_comp_path = os.path.join(output_dir, "dotp_comp.sv")
-    expand_template(dotp_comp_template, dotp_comp_path, {
-        "$COMP_MODULE_NAME$": comp_name,
-        "$EXPECTED_SIMD$": str(simd),
-        "$EXPECTED_NA$": str(na),
-        "$EXPECTED_NB$": str(nb),
-        "$EXPECTED_SIGNED_A$": str(1 if sa else 0),
-        "$EXPECTED_SIGNED_B$": str(1 if sb else 0),
-        "$EXPECTED_ACCU_WIDTH$": str(accu_width),
-    })
+    expand_template(
+        dotp_comp_template,
+        dotp_comp_path,
+        {
+            "$COMP_MODULE_NAME$": comp_name,
+            "$EXPECTED_SIMD$": str(simd),
+            "$EXPECTED_NA$": str(na),
+            "$EXPECTED_NB$": str(nb),
+            "$EXPECTED_SIGNED_A$": str(1 if sa else 0),
+            "$EXPECTED_SIGNED_B$": str(1 if sb else 0),
+            "$EXPECTED_ACCU_WIDTH$": str(accu_width),
+        },
+    )
 
     return {
         "comp_name": comp_name,
@@ -191,49 +202,76 @@ def main():
     default_dotp_template = os.path.join(repo_root, "hdl", "dotp_comp_template.sv")
 
     parser = argparse.ArgumentParser(
-        prog="dotp_finn",
-        description="Generate a compressor core for FINN's dotp_comp module."
+        prog="dotp_finn", description="Generate a compressor core for FINN's dotp_comp module."
     )
-    parser.add_argument('--simd', type=int, required=True, help="SIMD (operand pairs per cycle)")
-    parser.add_argument('--ww', type=int, required=True, help="Weight bit width")
-    parser.add_argument('--aw', type=int, required=True, help="Activation bit width")
-    parser.add_argument('--accu_width', type=int, required=True, help="Accumulator bit width")
-    parser.add_argument('--signed_activations', action='store_true',
-                        help="Activations are signed")
-    parser.add_argument('-t', '--target', default="Versal",
-                        choices=["Versal", "7-Series", "UltraScale"],
-                        help="Target FPGA generation")
-    parser.add_argument('-p', '--pipeline_every', type=int, default=None,
-                        help="Pipeline registers every N combinational stages")
-    parser.add_argument('-o', '--output_dir', default="../gen",
-                        help="Output directory for generated files")
-    parser.add_argument('-n', '--name', default=None,
-                        help="Module name override (default: comp_<sig>)")
-    parser.add_argument('--dotp-template', default=default_dotp_template,
-                        help="Path to dotp_comp template file to expand")
-    parser.add_argument('--dotp-output-name', default="dotp_comp.sv",
-                        help="Output file name for expanded dotp_comp template")
-    parser.add_argument('--skip-dotp-template', action='store_true',
-                        help="Skip expanding dotp_comp template")
+    parser.add_argument("--simd", type=int, required=True, help="SIMD (operand pairs per cycle)")
+    parser.add_argument("--ww", type=int, required=True, help="Weight bit width")
+    parser.add_argument("--aw", type=int, required=True, help="Activation bit width")
+    parser.add_argument("--accu_width", type=int, required=True, help="Accumulator bit width")
+    parser.add_argument("--signed_activations", action="store_true", help="Activations are signed")
+    parser.add_argument(
+        "-t",
+        "--target",
+        default="Versal",
+        choices=["Versal", "7-Series", "UltraScale"],
+        help="Target FPGA generation",
+    )
+    parser.add_argument(
+        "-p",
+        "--pipeline_every",
+        type=int,
+        default=None,
+        help="Pipeline registers every N combinational stages",
+    )
+    parser.add_argument(
+        "-o", "--output_dir", default="../gen", help="Output directory for generated files"
+    )
+    parser.add_argument(
+        "-n", "--name", default=None, help="Module name override (default: comp_<sig>)"
+    )
+    parser.add_argument(
+        "--dotp-template",
+        default=default_dotp_template,
+        help="Path to dotp_comp template file to expand",
+    )
+    parser.add_argument(
+        "--dotp-output-name",
+        default="dotp_comp.sv",
+        help="Output file name for expanded dotp_comp template",
+    )
+    parser.add_argument(
+        "--skip-dotp-template", action="store_true", help="Skip expanding dotp_comp template"
+    )
     args = parser.parse_args()
     target = resolve_target_name(args.target)
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Compute compressor parameters
     n, na, nb, sa, sb, swapped = compute_params(
-        args.simd, args.ww, args.aw, args.signed_activations)
+        args.simd, args.ww, args.aw, args.signed_activations
+    )
 
     # Generate the compressor core with fused accumulation
     comp_name, comp_path, comp_delay = generate_comp_module(
-        target, n, na, nb, sa, sb, args.accu_width,
-        args.pipeline_every, args.output_dir, name=args.name)
+        target,
+        n,
+        na,
+        nb,
+        sa,
+        sb,
+        args.accu_width,
+        args.pipeline_every,
+        args.output_dir,
+        name=args.name,
+    )
 
     dotp_path = None
     if not args.skip_dotp_template:
         template_path = os.path.abspath(args.dotp_template)
         if not os.path.isfile(template_path):
             raise FileNotFoundError(
-                f"dotp template not found: {template_path}. Use --dotp-template or --skip-dotp-template."
+                f"dotp template not found: {template_path}. "
+                f"Use --dotp-template or --skip-dotp-template."
             )
         dotp_path = os.path.join(args.output_dir, args.dotp_output_name)
         expand_template(

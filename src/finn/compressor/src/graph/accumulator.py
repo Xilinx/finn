@@ -6,19 +6,26 @@
 # @brief    Accumulator stage implementation for compressor
 #############################################################################
 
-from .nodes import Shape, Wire, Logic, Stage, Bitmatrix
 from collections.abc import Iterable
 
+from .nodes import Bitmatrix, Logic, Shape, Stage, Wire
+
+
 class AccumulatorStage(Stage):
-    def __init__(self, shape: Shape, final_adder, preceeding_pipeline_stages,
-                 accumulator_width = None, enable = False):
+    def __init__(
+        self,
+        shape: Shape,
+        final_adder,
+        preceeding_pipeline_stages,
+        accumulator_width=None,
+        enable=False,
+    ):
         super().__init__()
         self.input_shape = shape
-        self.output_shape = Shape([1 for _ in range(
-            self.get_accumulator_width(accumulator_width))])
+        self.output_shape = Shape([1 for _ in range(self.get_accumulator_width(accumulator_width))])
         self.instances = []
         self.input_wires = Bitmatrix(shape)
-        self.output_wires = Bitmatrix(self.output_shape) # TODO: Make Logic
+        self.output_wires = Bitmatrix(self.output_shape)  # TODO: Make Logic
         self.accumulator_width = self.get_accumulator_width(accumulator_width)
         self.final_adder_gen = final_adder
         self.preceeding_pipeline_stages = preceeding_pipeline_stages
@@ -51,17 +58,16 @@ class AccumulatorStage(Stage):
         # integration en is hardwired to '1 making this technically redundant,
         # but the FPGA INIT attribute is free and keeps the design robust
         # against future uses where en may be gated.
-        rst_del = self.delay_signal(rst, self.preceeding_pipeline_stages+1,
-                                    en=en_wire,
-                                    init=1 if self.enable else None)
-        en_neg_del = self.delay_signal(en_neg, self.preceeding_pipeline_stages,
-                                       en=en_wire)
+        rst_del = self.delay_signal(
+            rst, self.preceeding_pipeline_stages + 1, en=en_wire, init=1 if self.enable else None
+        )
+        en_neg_del = self.delay_signal(en_neg, self.preceeding_pipeline_stages, en=en_wire)
 
         # Connect inputs to final adder
-        loop = self.delay_signal(final_adder.output_wires, cycles=1,
-                                 rst=rst_del, en=en_wire, init=0)
-        in_ = self.delay_signal(self.input_wires, cycles=1, rst=en_neg_del,
-                                en=en_wire, init=0)
+        loop = self.delay_signal(
+            final_adder.output_wires, cycles=1, rst=rst_del, en=en_wire, init=0
+        )
+        in_ = self.delay_signal(self.input_wires, cycles=1, rst=en_neg_del, en=en_wire, init=0)
         for col_loop, col_fa in zip(loop, final_adder.input_wires):
             col_loop[0].connect_to(col_fa[0])
 
@@ -75,7 +81,7 @@ class AccumulatorStage(Stage):
                 s.connect_to(t)
         self.instances.append(final_adder)
 
-    def delay_signal(self, signal, /, cycles=1, rst = None, en = None, init = None):
+    def delay_signal(self, signal, /, cycles=1, rst=None, en=None, init=None):
         if isinstance(signal, Iterable):
             return [self.delay_signal(el, cycles, rst, en, init) for el in signal]
         for i in range(cycles):
@@ -84,13 +90,12 @@ class AccumulatorStage(Stage):
             self.instances.append(lgc)
             signal = lgc
         return signal
-       
 
-    def get_accumulator_width(self, input = None):
+    def get_accumulator_width(self, input=None):
         if input:
             return input
         else:
-            return sum([(el << idx) for idx, el in 
-                        enumerate(self.input_shape)]).bit_length()
-    
-    def accept(self, visitor): visitor.visit_accumulator_stage(self)
+            return sum([(el << idx) for idx, el in enumerate(self.input_shape)]).bit_length()
+
+    def accept(self, visitor):
+        visitor.visit_accumulator_stage(self)

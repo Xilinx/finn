@@ -6,6 +6,7 @@
 # @brief    Multiplier-to-compressor input mapping utilities
 #############################################################################
 
+
 class MulCompMap:
     def __init__(self, na: int, nb: int, sa: bool, sb: bool):
         self.na = na
@@ -55,4 +56,6 @@ class MulCompMap:
     def absolute_term(self):
         (na, nb, sa, sb) = (self.na, self.nb, self.sa, self.sb)
 
-        return (-1 if sa ^ sb else 0) if na == 1 and nb == 1 else ((-(sa | sb) << nb) | sa) << (na - 1)
+        return (
+            (-1 if sa ^ sb else 0) if na == 1 and nb == 1 else ((-(sa | sb) << nb) | sa) << (na - 1)
+        )

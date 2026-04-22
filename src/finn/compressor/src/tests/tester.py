@@ -6,8 +6,8 @@
 
 """Vivado XSim wrapper for testing generated compressors."""
 
-import subprocess
 import re
+import subprocess
 
 
 def tester(test_loc, comp_loc):
@@ -21,15 +21,16 @@ def tester(test_loc, comp_loc):
         f"""rm -r xsim.dir/ &&
         xvlog -work work -sv ../res/glbl.v {test_loc} {comp_loc} -L unisims_ver --nolog &&
         xelab -L work -L unisims_ver -relax --nolog glbl tb &&
-        xsim --nolog work.glbl#work.tb -R""").replace("\n", " ")
+        xsim --nolog work.glbl#work.tb -R"""
+    ).replace("\n", " ")
     print(args)
     try:
-        ret = subprocess.run(args, capture_output=True, text=True, timeout=300,
-                             shell=True, check=True)
+        ret = subprocess.run(
+            args, capture_output=True, text=True, timeout=300, shell=True, check=True
+        )
     except subprocess.CalledProcessError as e:
         if e.returncode == 127:
-            raise RuntimeError(
-                "Could not call Vivado simulation tools. Did you source Vivado?")
+            raise RuntimeError("Could not call Vivado simulation tools. Did you source Vivado?")
         else:
             raise RuntimeError("Something failed during simulation.")
     if "$finish called at time" in ret.stdout:

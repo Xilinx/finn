@@ -6,19 +6,33 @@
 # @brief    Node iterator pass for compressor graph traversal
 #############################################################################
 
+from ..graph.accumulator import AccumulatorStage
+from ..graph.nodes import (
+    Bitmatrix,
+    Blackbox,
+    BlackboxInput,
+    BlackboxInputVec,
+    BlackboxOutput,
+    BlackboxOutputVec,
+    CompressionStage,
+    Compressor,
+    Counter,
+    GateAbsorbedStage,
+    GateAbsorptionCounter,
+    InputStage,
+    Logic,
+    PipelineStage,
+    Wire,
+)
 from ..graph.primitives import LOOKAHEAD8
 from ..graph.visitor import Visitor
-from ..graph.nodes import Counter, CompressionStage, Compressor, InputStage, PipelineStage
-from ..graph.nodes import Blackbox, Wire, Logic, Bitmatrix, GateAbsorbedStage
-from ..graph.nodes import GateAbsorptionCounter, BlackboxInput, BlackboxOutput
-from ..graph.nodes import BlackboxInputVec, BlackboxOutputVec
-from ..graph.accumulator import AccumulatorStage
+
 
 class NodeIterator(Visitor):
-    def visit_compressor(self, c: Compressor): 
+    def visit_compressor(self, c: Compressor):
         self.iter_compressor(c)
         [s.accept(self) for s in c.stages]
-    
+
     def visit_input_stage(self, s: InputStage):
         self.iter_input_stage(s)
         s.input_wires.accept(self)
@@ -63,7 +77,7 @@ class NodeIterator(Visitor):
         [el.accept(self) for col in g.input_wires_complementary for el in col]
         [el.accept(self) for col in g.output_wires for el in col]
         [el.accept(self) for el in g.instances]
-    
+
     def visit_blackbox(self, b: Blackbox):
         self.iter_blackbox(b)
         [p.accept(self) for p in b.in_ports + b.out_ports]
@@ -84,40 +98,59 @@ class NodeIterator(Visitor):
         self.iter_lookahead8(l8)
         self.visit_blackbox(l8)
 
-    def visit_wire(self, w: Wire): self.iter_wire(w)
+    def visit_wire(self, w: Wire):
+        self.iter_wire(w)
 
-    def visit_logic(self, lgc: Logic): self.iter_logic(lgc)
+    def visit_logic(self, lgc: Logic):
+        self.iter_logic(lgc)
 
-    def visit_bitmatrix(self, b: Bitmatrix): self.iter_bitmatrix(b)
+    def visit_bitmatrix(self, b: Bitmatrix):
+        self.iter_bitmatrix(b)
 
-    def iter_compressor(self, c: Compressor): pass
-    
-    def iter_gate_absorbed_stage(self, g: GateAbsorbedStage): pass
+    def iter_compressor(self, c: Compressor):
+        pass
 
-    def iter_input_stage(self, s: InputStage): pass
+    def iter_gate_absorbed_stage(self, g: GateAbsorbedStage):
+        pass
 
-    def iter_accumulator_stage(self, a: AccumulatorStage): pass
+    def iter_input_stage(self, s: InputStage):
+        pass
 
-    def iter_pipeline_stage(self, s: PipelineStage): pass
+    def iter_accumulator_stage(self, a: AccumulatorStage):
+        pass
 
-    def iter_compression_stage(self, s: CompressionStage): pass
+    def iter_pipeline_stage(self, s: PipelineStage):
+        pass
 
-    def iter_gate_absorption_counter(self, g: GateAbsorptionCounter): pass
+    def iter_compression_stage(self, s: CompressionStage):
+        pass
 
-    def iter_counter(self, c: Counter): pass
+    def iter_gate_absorption_counter(self, g: GateAbsorptionCounter):
+        pass
 
-    def iter_blackbox(self, b: Blackbox): pass
+    def iter_counter(self, c: Counter):
+        pass
 
-    def iter_wire(self, w: Wire): pass
+    def iter_blackbox(self, b: Blackbox):
+        pass
 
-    def iter_logic(self, lgc: Logic): pass
+    def iter_wire(self, w: Wire):
+        pass
 
-    def iter_bitmatrix(self, b: Bitmatrix): pass
+    def iter_logic(self, lgc: Logic):
+        pass
 
-    def iter_blackbox_input(self, b: BlackboxInput): pass
+    def iter_bitmatrix(self, b: Bitmatrix):
+        pass
 
-    def iter_blackbox_output(self, b: BlackboxOutput): pass
+    def iter_blackbox_input(self, b: BlackboxInput):
+        pass
 
-    def iter_blackbox_input_vec(self, b: BlackboxInputVec): pass
+    def iter_blackbox_output(self, b: BlackboxOutput):
+        pass
 
-    def iter_blackbox_output_vec(self, b: BlackboxOutputVec): pass
+    def iter_blackbox_input_vec(self, b: BlackboxInputVec):
+        pass
+
+    def iter_blackbox_output_vec(self, b: BlackboxOutputVec):
+        pass

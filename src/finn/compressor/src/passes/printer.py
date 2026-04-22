@@ -6,10 +6,18 @@
 # @brief    Compressor tree printer for debugging
 #############################################################################
 
-from ..graph.nodes import Counter, CompressionStage, Compressor, GateAbsorbedStage
-from ..graph.nodes import GateAbsorptionCounter, InputStage, PipelineStage
 from ..graph.accumulator import AccumulatorStage
+from ..graph.nodes import (
+    CompressionStage,
+    Compressor,
+    Counter,
+    GateAbsorbedStage,
+    GateAbsorptionCounter,
+    InputStage,
+    PipelineStage,
+)
 from ..graph.visitor import Visitor
+
 
 class CompressorPrinter(Visitor):
     def visit_compressor(self, c: Compressor):
@@ -21,15 +29,14 @@ class CompressorPrinter(Visitor):
     def visit_compression_stage(self, s: CompressionStage):
         print(f"\tStage: <in: {s.input_shape}, out: {s.output_shape}> [")
         for counter, shift in s.counters_with_shifts:
-            print(f"\t\t[xshift={shift:2}] ",end="")
+            print(f"\t\t[xshift={shift:2}] ", end="")
             counter.accept(self)
         print("\t]")
 
     def visit_gate_absorbed_stage(self, s: GateAbsorbedStage):
-        print(f"\tStage with Gate Absorption: <in {s.input_shape}, "
-              f"out: {s.output_shape}> [")
+        print(f"\tStage with Gate Absorption: <in {s.input_shape}, " f"out: {s.output_shape}> [")
         for counter, shift in s.counters_with_shifts:
-            print(f"\t\t[xshift={shift:2}] ",end="")
+            print(f"\t\t[xshift={shift:2}] ", end="")
             counter.accept(self)
         print("\t]")
 
@@ -47,7 +54,7 @@ class CompressorPrinter(Visitor):
 
     def visit_accumulator_stage(self, a: AccumulatorStage):
         print(f"\tAccumulator: <in: {a.input_shape}, out: {a.output_shape}> [")
-        print("\t\t",end="")
+        print("\t\t", end="")
         for i in a.instances:
             if isinstance(i, Counter):
                 i.accept(self)

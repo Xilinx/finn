@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 import warnings
 from onnx import helper
 from qonnx.custom_op.registry import getCustomOp
@@ -34,7 +33,7 @@ from qonnx.transformation.base import Transformation
 
 from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
 from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.basic import get_dsp_block, is_versal
+from finn.util.basic import is_versal
 
 
 def _determine_impl_style(node, fpgapart, model):
@@ -265,6 +264,7 @@ def _mvu_rtl_possible(n, fpgapart, model):
     # RTL does not support BIPOLAR input datatype (1-bit signed {-1,+1})
     # BIPOLAR requires special handling that only HLS provides
     from qonnx.core.datatype import DataType
+
     idt = node_inst.get_input_datatype(0)
     if idt == DataType["BIPOLAR"]:
         return False
@@ -274,17 +274,6 @@ def _mvu_rtl_possible(n, fpgapart, model):
     if not wdt.signed():
         return False
 
-    # check which dsp block is available on fpga
-    dsp_block = get_dsp_block(fpgapart)
-    # check if weights are narrow
-    weights = model.get_initializer(n.input[1])
-    # if dynamic input, set minimum of weights to wdt.min()
-    # otherwise set it to the minimum value in the weight matrix
-    if weights is None:
-        weights_min = wdt.min()
-    else:
-        weights_min = np.min(weights)
-    narrow_weights = False if weights_min == wdt.min() else True
     # NOTE: Narrow weight check for DSP48E1 removed (previously returned False for
     # narrow_weights=False on DSP48E1). Rationale (see matrixvectoractivation_rtl.py):
     # - Compressor path (LUT-based, WW<=4 && AW<=4): No narrow weight constraint, works

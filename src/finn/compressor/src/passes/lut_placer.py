@@ -6,14 +6,15 @@
 # @brief    RLOC placement annotation for compressor LUTs
 #############################################################################
 
-from .node_iterator import NodeIterator
+from ..graph.final_adder import FinalAdder
 from ..graph.nodes import Compressor, Counter, GateAbsorptionCounter
 from ..graph.primitives import LUT6CY
-from ..graph.final_adder import FinalAdder
+from .node_iterator import NodeIterator
+
 
 class LUTPlacer(NodeIterator):
     def iter_compressor(self, c: Compressor):
-        self.occupations = [] # Reset placement state for every compressor
+        self.occupations = []  # Reset placement state for every compressor
 
     def iter_counter(self, c: Counter):
         # Place LUT6CY instances manually.
@@ -30,7 +31,7 @@ class LUTPlacer(NodeIterator):
             # which restricts enforces correct placement itself.
             return []
 
-        lut6cy_i4s =  {lut.I4:  lut for lut in c.luts if isinstance(lut, LUT6CY)}
+        lut6cy_i4s = {lut.I4: lut for lut in c.luts if isinstance(lut, LUT6CY)}
         lut6cy_o52s = {lut.O52: lut for lut in c.luts if isinstance(lut, LUT6CY)}
 
         lut_output_to_lut_input = {}
@@ -40,8 +41,7 @@ class LUTPlacer(NodeIterator):
                 target_lut = lut6cy_o52s[input.source]
                 lut_output_to_lut_input[input_lut] = target_lut
 
-        lut_heads = (set(lut_output_to_lut_input.keys()) - 
-                     set(lut_output_to_lut_input.values()))
+        lut_heads = set(lut_output_to_lut_input.keys()) - set(lut_output_to_lut_input.values())
         chains = []
 
         for lut_head in lut_heads:
@@ -51,7 +51,7 @@ class LUTPlacer(NodeIterator):
             chains.append(cur[::-1])
 
         return chains
-    
+
     def _calculate_and_annotate_placements(self, cascades):
         for cascade in cascades:
             for idx, slice_util in enumerate(self.occupations):
@@ -61,7 +61,7 @@ class LUTPlacer(NodeIterator):
                     break
             else:
                 self.occupations.append(len(cascade))
-                self._annotate_placements(cascade, len(self.occupations)-1, 0)
+                self._annotate_placements(cascade, len(self.occupations) - 1, 0)
 
     def _annotate_placements(self, cascade, hu_set, start_idx):
         """Annotate LUT6CY placement constraints for carry chain packing.

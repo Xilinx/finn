@@ -7,21 +7,29 @@
 #############################################################################
 
 from abc import ABC
-from .graph.counters.counter_candidates import CounterCandidate, FACandidate
-from .graph.counters.counter_candidates import MuxCYAtomCascadeCandidate
-from .graph.counters.counter_candidates import RippleSumCandidate
-from .graph.counters.counter_candidates import DualRailRippleSumCandidate
-from .graph.counters.counter_candidates import FiveTwoCandidate 
-from .graph.counters.counter_candidates import VersalAtomCascadeCandidate
-from .graph.counters.counter_candidates import SixThreeCandidate, TenSixCandidate
-from .graph.counters.absorption_counter_candidates import GateAbsorptionCounterCandidate
-from .graph.counters.absorption_counter_candidates import VersalPredAdderCandidate
-from .graph.counters.absorption_counter_candidates import RippleSumPredAdderCandidate
-from .graph.counters.absorption_counter_candidates import SinglePredCandidate
-from .graph.counters.absorption_counter_candidates import MuxCYPredAdderCandidate
-from .graph.counters.absorption_counter_candidates import MuxCYRippleSumCandidate
-from .graph.final_adder import MuxCYTernaryAdder, FinalAdder, QuaternaryAdder
 from typing import List
+
+from .graph.counters.absorption_counter_candidates import (
+    GateAbsorptionCounterCandidate,
+    MuxCYPredAdderCandidate,
+    MuxCYRippleSumCandidate,
+    RippleSumPredAdderCandidate,
+    SinglePredCandidate,
+    VersalPredAdderCandidate,
+)
+from .graph.counters.counter_candidates import (
+    CounterCandidate,
+    DualRailRippleSumCandidate,
+    FACandidate,
+    FiveTwoCandidate,
+    MuxCYAtomCascadeCandidate,
+    RippleSumCandidate,
+    SixThreeCandidate,
+    TenSixCandidate,
+    VersalAtomCascadeCandidate,
+)
+from .graph.final_adder import FinalAdder, MuxCYTernaryAdder, QuaternaryAdder
+
 
 def resolve_target(fpgapart):
     """Map a Vivado FPGA part string to a compressor Target object.
@@ -33,7 +41,8 @@ def resolve_target(fpgapart):
     versal_prefixes_5 = ("xqrvc", "xcv80")
     if fpgapart[0:4] in versal_prefixes_4 or fpgapart[0:5] in versal_prefixes_5:
         return Versal()
-    # UltraScale/UltraScale+ prefixes: Kintex US (xcku), Virtex US (xcvu), Zynq US (xczu), defense (xqzu)
+    # UltraScale/UltraScale+ prefixes:
+    # Kintex US (xcku), Virtex US (xcvu), Zynq US (xczu), defense (xqzu)
     ultrascale_prefixes = ("xcku", "xcvu", "xczu", "xqzu")
     if fpgapart[0:4] in ultrascale_prefixes:
         return UltraScale()
@@ -49,13 +58,16 @@ def resolve_target_name(name):
     elif name == "UltraScale":
         return UltraScale()
     else:
-        raise ValueError(f"Unsupported target: {name!r}. Choose from: ['Versal', '7-Series', 'UltraScale']")
+        raise ValueError(
+            f"Unsupported target: {name!r}. Choose from: ['Versal', '7-Series', 'UltraScale']"
+        )
 
 
 class Target(ABC):
     counter_candidates: List[CounterCandidate]
     final_adder: FinalAdder
     absorbing_counter_candidates: List[GateAbsorptionCounterCandidate]
+
 
 class Versal(Target):
     def __init__(self):
@@ -66,7 +78,7 @@ class Versal(Target):
             DualRailRippleSumCandidate(),
             FiveTwoCandidate(),
             SixThreeCandidate(),
-            VersalAtomCascadeCandidate()
+            VersalAtomCascadeCandidate(),
         ]
         self.absorbing_counter_candidates = [
             VersalPredAdderCandidate(),
@@ -75,10 +87,15 @@ class Versal(Target):
         ]
         self.final_adder = QuaternaryAdder
 
+
 class SevenSeries(Target):
     def __init__(self):
-        self.counter_candidates = [FACandidate(), FiveTwoCandidate(),
-                                   SixThreeCandidate(), MuxCYAtomCascadeCandidate()]
+        self.counter_candidates = [
+            FACandidate(),
+            FiveTwoCandidate(),
+            SixThreeCandidate(),
+            MuxCYAtomCascadeCandidate(),
+        ]
         self.final_adder = MuxCYTernaryAdder
         self.absorbing_counter_candidates = [
             MuxCYPredAdderCandidate(),
@@ -86,14 +103,20 @@ class SevenSeries(Target):
             SinglePredCandidate(),
         ]
 
+
 class UltraScale(Target):
     """UltraScale/UltraScale+ - reuses 7-Series primitives.
 
     Vivado maps CARRY4 to CARRY8 transparently.
     """
+
     def __init__(self):
-        self.counter_candidates = [FACandidate(), FiveTwoCandidate(),
-                                   SixThreeCandidate(), MuxCYAtomCascadeCandidate()]
+        self.counter_candidates = [
+            FACandidate(),
+            FiveTwoCandidate(),
+            SixThreeCandidate(),
+            MuxCYAtomCascadeCandidate(),
+        ]
         self.final_adder = MuxCYTernaryAdder
         self.absorbing_counter_candidates = [
             MuxCYPredAdderCandidate(),

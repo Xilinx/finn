@@ -6,7 +6,8 @@
 # @brief    Compressor tree pipelining pass
 #############################################################################
 
-from ..graph.nodes import Compressor, CompressionStage, PipelineStage
+from ..graph.nodes import CompressionStage, Compressor, PipelineStage
+
 
 class CompressorPipeliner:
     def pipeline(self, c: Compressor, max_combinational_depth: int):
@@ -18,8 +19,11 @@ class CompressorPipeliner:
             if isinstance(stage, CompressionStage):
                 new_stages.append(stage)
                 cur_depth += 1
-                if (cur_depth >= max_combinational_depth or 
-                    cur_depth >= max_combinational_depth-1 and idx == len(c.stages)-1):
+                if (
+                    cur_depth >= max_combinational_depth
+                    or cur_depth >= max_combinational_depth - 1
+                    and idx == len(c.stages) - 1
+                ):
                     new_stages.append(PipelineStage(stage.output_shape))
                     cur_depth = 0
                     pipeline_stages += 1

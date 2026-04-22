@@ -6,8 +6,9 @@
 # @brief    Input/output annotation pass for compressor
 #############################################################################
 
-from ..graph.nodes import Compressor, Logic, Wire, Bitmatrix
+from ..graph.nodes import Bitmatrix, Compressor, Logic, Wire
 from .node_iterator import NodeIterator
+
 
 class IOAnnotator(NodeIterator):
     def visit_compressor(self, c: Compressor):
@@ -34,21 +35,26 @@ class IOAnnotator(NodeIterator):
         output_wires.name = "out"
 
         c.io = self.get_all_io(c)
-        
+
     def get_all_io(self, c: Compressor):
         finder = IOFinder()
         c.accept(finder)
-        return list(set(finder.io))        
+        return list(set(finder.io))
+
 
 class IOFinder(NodeIterator):
     def iter_compressor(self, c: Compressor):
         self.connectables = []
 
     @property
-    def io(self): return [el for el in self.connectables if el.prefix]
+    def io(self):
+        return [el for el in self.connectables if el.prefix]
 
-    def iter_wire(self, w: Wire): self.connectables.append(w)
-    
-    def iter_logic(self, lgc: Logic): self.connectables.append(lgc)
+    def iter_wire(self, w: Wire):
+        self.connectables.append(w)
 
-    def iter_bitmatrix(self, b: Bitmatrix): self.connectables.append(b)
+    def iter_logic(self, lgc: Logic):
+        self.connectables.append(lgc)
+
+    def iter_bitmatrix(self, b: Bitmatrix):
+        self.connectables.append(b)

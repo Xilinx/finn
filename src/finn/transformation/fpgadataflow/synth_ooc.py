@@ -59,14 +59,12 @@ def generate_unified_add_multi(model, build_dir):
                     n, w, d = map(int, spec.split(","))
                     all_specs.add((n, w, d))
 
-    rtllib_template = os.path.join(os.environ["FINN_ROOT"],
-                                   "finn-rtllib/mvu/add_multi.sv")
-    with open(rtllib_template, 'r') as f:
+    rtllib_template = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/add_multi.sv")
+    with open(rtllib_template, "r") as f:
         template = f.read()
 
     if all_specs:
-        catch_comp_lines = [f"\t`CATCH_COMP({n},{w},{d})"
-                           for n, w, d in sorted(all_specs)]
+        catch_comp_lines = [f"\t`CATCH_COMP({n},{w},{d})" for n, w, d in sorted(all_specs)]
         entries = "\n".join(catch_comp_lines) + "\n"
     else:
         entries = ""
@@ -80,7 +78,7 @@ def generate_unified_add_multi(model, build_dir):
 
     unified = template.replace(marker, entries + marker)
 
-    with open(os.path.join(build_dir, "add_multi.sv"), 'w') as f:
+    with open(os.path.join(build_dir, "add_multi.sv"), "w") as f:
         f.write(unified)
 
 
