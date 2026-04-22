@@ -69,6 +69,9 @@ function parse_config {
 	if [[ "$TARGET" == "7series" ]]; then
 		CFG_PART="xc7z020clg400-1"  # Pynq-Z1
 		CFG_TARGET_FLAG="--target 7-Series"
+	elif [[ "$TARGET" == "ultrascale" ]]; then
+		CFG_PART="xczu9eg-ffvb1156-2-e"  # ZCU102
+		CFG_TARGET_FLAG="--target UltraScale"
 	else
 		CFG_PART="xcvc1902-vsva2197-2MP-e-S"  # Versal VCK190
 		CFG_TARGET_FLAG=""

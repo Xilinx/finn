@@ -14,7 +14,7 @@
 ((${MAX_WORKERS:=12}))
 # Constant Absorption Option
 ca="$1"
-# Target platform (versal or 7series)
+# Target platform (versal, 7series, or ultrascale)
 target="${2:-versal}"
 
 # PYTHONPATH so python -m finn.compressor.src.* resolves
@@ -81,6 +81,7 @@ function run_test {
 
 # Phase 1: Sequential generation
 LABELS=()
+mkdir -p "$SCRIPT_DIR/gen"
 echo -e "Generating configs:\n"
 for test in "${TESTS[@]}"; do
 	echo "  $test ..."

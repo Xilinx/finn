@@ -27,6 +27,10 @@ if __name__ == "__main__":
 	if target_arg == "7series":
 		target = SevenSeries()
 		fpga_part = "xc7z020clg400-1"
+	elif target_arg == "ultrascale":
+		from .target import UltraScale
+		target = UltraScale()
+		fpga_part = "xczu9eg-ffvb1156-2-e"
 	else:  # versal (default)
 		target = Versal()
 		fpga_part = "xcvc1902-vsva2197-2MP-e-S"
