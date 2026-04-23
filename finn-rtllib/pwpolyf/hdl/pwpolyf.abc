@@ -1,0 +1,5 @@
+import  queue
+read_sv pwpolyf_pkg.sv
+read_sv pwpolyf.sv
+setup_tb  pwpolyf_tb
+setup_top pwpolyf

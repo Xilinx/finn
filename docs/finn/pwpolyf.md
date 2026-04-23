@@ -3,9 +3,12 @@
 ## Overview
 
 PWPolyF is a hardware activation layer that approximates nonlinear functions
-(GELU, SiLU, Sigmoid, Tanh) using degree-2 piecewise polynomials. Each segment
-is evaluated via Horner's method on two cascaded DSPFP32 FMA units, giving
-single-cycle-per-element throughput with no BRAM usage.
+(GELU, SiLU, Sigmoid, Tanh) using piecewise polynomials evaluated via Horner's
+method on a chain of DSPFP32 FMA units. With the default degree 2, this uses
+two cascaded DSPs per PE, giving single-cycle-per-element throughput with no
+BRAM usage. Per-function configuration (clamping behaviour and polynomial
+coefficients) is delivered through a SystemVerilog package (`pwpolyf_pkg`)
+using a `func_cfg_t` struct.
 
 The input domain is partitioned into `1 + 2*5*(2^K)` segments: one near-zero
 region, positive octave sub-segments, and negative mirrors. With the default
@@ -13,12 +16,11 @@ K=3 this gives 81 segments. Segment selection reuses the FP32
 exponent/mantissa bit-fields directly, matching the RTL implementation.
 
 Polynomial coefficients are generated at HDL build time by
-`generate_coeffs_svh()` in `pwpolyf_rtl.py`, which fits degree-2 polynomials
-to the reference PyTorch functions and writes the `pwpolyf_coeffs.svh` header.
-This ensures the RTL coefficients always match the configured K value.
-
-> **Note:** The RTL currently only supports K=3. Support for other K values
-> is planned for a future update to `pwpolyf.sv`.
+`generate_coeffs_pkg()` in `pwpolyf_rtl.py`, which fits degree-2 polynomials
+to the reference PyTorch functions and writes `pwpolyf_pkg.sv` — a
+SystemVerilog package with one `func_cfg_t` struct per activation
+(clamping config + coefficient table). K can take any value; it defaults
+to 3 when inferred from standard ONNX ops.
 
 ## Architecture
 
@@ -130,7 +132,7 @@ Attributes on the explicit PWPolyF ONNX node:
 | File | Purpose |
 |------|---------|
 | `custom_op/fpgadataflow/pwpolyf.py` | Base HW op (shape, folding, resource estimates, cppsim) |
-| `custom_op/fpgadataflow/rtl/pwpolyf_rtl.py` | RTL backend (HDL generation, coefficient SVH generation, rtlsim, IPI) |
+| `custom_op/fpgadataflow/rtl/pwpolyf_rtl.py` | RTL backend (HDL generation, package generation, rtlsim, IPI) |
 | `util/pwpolyf.py` | PyTorch activation module, ONNX export, software simulation |
 | `transformation/fpgadataflow/convert_to_hw_layers.py` | `InferPWPolyFLayer` transformation |
 | `builder/build_dataflow_steps.py` | Build pipeline integration |
@@ -140,8 +142,8 @@ Attributes on the explicit PWPolyF ONNX node:
 
 | File | Purpose |
 |------|---------|
-| `finn-rtllib/pwpolyf/hdl/pwpolyf.sv` | Core polynomial evaluation pipeline |
-| `finn-rtllib/pwpolyf/hdl/pwpolyf_coeffs.svh` | Default K=3 coefficients (regenerated at build time) |
+| `finn-rtllib/pwpolyf/hdl/pwpolyf_pkg.sv` | `func_cfg_t` struct per activation (coeffs + clamp config, regenerated per K) |
+| `finn-rtllib/pwpolyf/hdl/pwpolyf.sv` | Polynomial evaluation pipeline (Horner chain on DSPFP32) |
 | `finn-rtllib/pwpolyf/hdl/queue.sv` | Elastic FIFO for backpressure |
 | `finn-rtllib/pwpolyf/hdl/pwpolyf_template_wrapper.v` | AXI-Stream wrapper template |
 

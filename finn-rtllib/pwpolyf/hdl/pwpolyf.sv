@@ -10,20 +10,21 @@
  * @description
  *	Supports GELU, SiLU, Sigmoid, and Tanh via `parameter string FUNC`.
  *
- *	Approximated by piecewise degree-2 polynomials over segments defined
- *	by FP32 bit-extraction.  Evaluated via Horner's method on a chain of
- *	2 DSPFP32 instances, each computing FMA: out = C + A*B.
+ *	Approximated by piecewise degree-D polynomials over segments defined
+ *	by FP32 bit-extraction, where D = DEGREE from pwpolyf_pkg.
+ *	Evaluated via Horner's method on a chain
+ *	of D DSPFP32 instances, each computing FMA: out = C + A*B.
  *
- *	Horner: y = a_0 + x*(a_1 + a_2*x)
- *	  Stage 0: out = a_1 + a_2 * x        (A=coeff[2], B=x, C=coeff[1])
- *	  Stage 1: out = a_0 + prev * x       (A=prev,     B=x, C=coeff[0])
+ *	Horner (degree D): y = a_0 + x*(a_1 + x*(... + x*a_D))
+ *	  Stage 0: out = a_{D-1} + a_D * x
+ *	  Stage j: out = a_{D-1-j} + prev * x   (j = 1 .. D-1)
  *
  *	Clamping for |x| >= 8 (5 octaves):
  *	  GELU/SiLU:  neg -> 0,   pos -> x  (pass-through)
  *	  Sigmoid:    neg -> 0,   pos -> 1.0
  *	  Tanh:       neg -> -1,  pos -> 1.0
  *
- *	Latency: 8 cycles (2 DSP stages x 4 cycles each).  II=1.
+ *	Latency: D * DSP_LAT cycles (D DSP stages x 4 cycles each).  II=1.
  ***************************************************************************/
 
 //===----------------------------------------------------------------------===//
@@ -47,9 +48,9 @@ module pwpolyf_dspfp32 (
 	//  FPOPMODE[1:0] = 01 (FP mode enable)
 	localparam logic [6:0]  MODE_FMA = 7'b00_110_01;
 
-	logic  invalid;
-	logic  overflow;
-	logic  underflow;
+	uwire  invalid;
+	uwire  overflow;
+	uwire  underflow;
 
 	DSPFP32 #(
 		.A_FPTYPE("B32"),
@@ -119,7 +120,7 @@ endmodule : pwpolyf_dspfp32
 
 //===----------------------------------------------------------------------===//
 // Full PE-wide streaming activation with piecewise polynomial approximation.
-// Hardcoded for DEGREE=2 from pwpolyf_coeffs.svh.
+// Degree D derived from DEGREE in pwpolyf_pkg.
 //===----------------------------------------------------------------------===//
 module pwpolyf #(
 	int unsigned  PE = 1,
@@ -140,18 +141,15 @@ module pwpolyf #(
 	input	logic  yrdy
 );
 
-	`include "pwpolyf_coeffs.svh"
+	import pwpolyf_pkg::*;
 
-	localparam int unsigned  K           = PWPOLYF_K;
-	localparam int unsigned  NUM_SEGS    = PWPOLYF_NUM_SEGS;
 	localparam int unsigned  NUM_SUBS    = 1 << K;
-	localparam int unsigned  NUM_OCTAVES = PWPOLYF_NUM_OCTAVES;
 	localparam int unsigned  DSP_LAT     = 4;
-	localparam int unsigned  LATENCY     = 2 * DSP_LAT;  // DEGREE=2
+	localparam int unsigned  LATENCY     = DEGREE * DSP_LAT;
 
 	initial begin
-		assert(PWPOLYF_DEGREE == 2) else begin
-			$error("%m: This implementation requires PWPOLYF_DEGREE == 2.");
+		assert(DEGREE >= 1) else begin
+			$error("%m: DEGREE must be >= 1.");
 			$finish;
 		end
 		assert(FUNC == "gelu" || FUNC == "silu" || FUNC == "sigmoid" || FUNC == "tanh") else begin
@@ -160,20 +158,12 @@ module pwpolyf #(
 		end
 	end
 
-	//=== Per-activation clamping parameters ==================================
-	localparam logic [31:0]  NEG_CLAMP_VAL =
-		FUNC == "tanh" ? 32'hBF800000 : 32'h00000000;  // tanh: -1.0, else: 0.0
-	localparam logic [31:0]  POS_CLAMP_VAL =
-		(FUNC == "sigmoid" || FUNC == "tanh") ? 32'h3F800000 : 32'h00000000;  // sigmoid/tanh: 1.0
-	localparam bit  POS_PASSTHROUGH =
-		(FUNC == "gelu" || FUNC == "silu") ? 1 : 0;  // gelu/silu: output=x
-
-	//=== Coefficient selection ===============================================
-	localparam logic [31:0]  COEFFS[NUM_SEGS][3] =
-		FUNC == "gelu"    ? PWPOLYF_GELU_COEFFS :
-		FUNC == "silu"    ? PWPOLYF_SILU_COEFFS :
-		FUNC == "sigmoid" ? PWPOLYF_SIGMOID_COEFFS :
-		                    PWPOLYF_TANH_COEFFS;
+	//=== Per-activation configuration =======================================
+	localparam func_cfg_t  CFG =
+		FUNC == "gelu"    ? GELU :
+		FUNC == "silu"    ? SILU :
+		FUNC == "sigmoid" ? SIGMOID :
+		                    TANH;
 
 	//=== Clamping exponent threshold =========================================
 	localparam int unsigned  EXP_CLAMP = 130;  // |x| >= 8.0
@@ -214,7 +204,7 @@ module pwpolyf #(
 	uwire [PE-1:0]  rvld_vec;
 	uwire  rvld;
 
-	for(genvar  pe = 0; pe < PE; pe++) begin : genPE
+	for(genvar  pe = 0; pe < PE; pe++) begin : gen_pe
 		uwire [31:0]  xi = x_cur[pe];
 
 		//--- Segment selector (combinational) --------------------------------
@@ -232,22 +222,17 @@ module pwpolyf #(
 
 		// Segment index for ROM lookup
 		uwire [6:0]  seg_idx;
-		if(1) begin : blkSegIdx
+		if(1) begin : blk_seg_idx
 			uwire [6:0]  pos_idx = 7'd1 + {1'b0, octave, sub};
 			uwire [6:0]  neg_idx = 7'(7'd1 + NUM_SUBS * NUM_OCTAVES) + {1'b0, octave, sub};
 			assign	seg_idx = is_near_zero? 7'd0 :
 			                  sign? neg_idx : pos_idx;
-		end : blkSegIdx
+		end : blk_seg_idx
 
-		//--- Coefficient lookup (combinational) ------------------------------
-		uwire [31:0]  coeff_a0 = COEFFS[seg_idx][0];
-		uwire [31:0]  coeff_a1 = COEFFS[seg_idx][1];
-		uwire [31:0]  coeff_a2 = COEFFS[seg_idx][2];
-
-		//--- Horner chain: 2 stages of pwpolyf_dspfp32 ----------------------
-		// Stage 0: s0 = a1 + a2 * x   (latency: 4 cycles)
-		// Stage 1: s1 = a0 + s0 * x   (latency: 4 cycles)
-		// Total: 8 cycles
+		//--- Horner chain: DEGREE stages of pwpolyf_dspfp32 ------------------
+		// Stage 0: s[0] = coeff[DEGREE-1] + coeff[DEGREE] * x
+		// Stage j: s[j] = coeff[DEGREE-1-j] + s[j-1] * x_delayed
+		// Total: DEGREE * DSP_LAT cycles
 
 		// Valid pipeline
 		logic [LATENCY-1:0]  Vld = '0;
@@ -257,57 +242,42 @@ module pwpolyf #(
 		end
 		assign	rvld_vec[pe] = Vld[$left(Vld)];
 
-		// Delay x by 4 cycles for stage 1 input
-		logic [31:0]  Xd1 = 'x;
-		logic [31:0]  Xd2 = 'x;
-		logic [31:0]  Xd3 = 'x;
-		logic [31:0]  Xd4 = 'x;
+		// Delay x for DSP B inputs and pass-through clamp
+		logic [31:0]  XDly[LATENCY] = '{default: 'x};
 		always_ff @(posedge clk) begin
-			Xd1 <= xi;
-			Xd2 <= Xd1;
-			Xd3 <= Xd2;
-			Xd4 <= Xd3;
+			XDly[0] <= xi;
+			for(int i = 1; i < LATENCY; i++)
+				XDly[i] <= XDly[i-1];
 		end
 
-		// Delay x by 8 cycles for pass-through on positive clamp
-		logic [31:0]  Xd5 = 'x;
-		logic [31:0]  Xd6 = 'x;
-		logic [31:0]  Xd7 = 'x;
-		logic [31:0]  Xd8 = 'x;
-		always_ff @(posedge clk) begin
-			Xd5 <= Xd4;
-			Xd6 <= Xd5;
-			Xd7 <= Xd6;
-			Xd8 <= Xd7;
-		end
+		// DSP chain
+		uwire [31:0]  s[DEGREE];
 
-		// Delay a0 by 4 cycles for stage 1 C input
-		logic [31:0]  C0d1 = 'x;
-		logic [31:0]  C0d2 = 'x;
-		logic [31:0]  C0d3 = 'x;
-		logic [31:0]  C0d4 = 'x;
-		always_ff @(posedge clk) begin
-			C0d1 <= coeff_a0;
-			C0d2 <= C0d1;
-			C0d3 <= C0d2;
-			C0d4 <= C0d3;
-		end
+		for(genvar  j = 0; j < DEGREE; j++) begin : genDSP
+			uwire [31:0]  dsp_a = (j == 0)? CFG.coeffs[seg_idx][DEGREE] : s[j-1];
+			uwire [31:0]  dsp_b = (j == 0)? xi : XDly[j*DSP_LAT - 1];
 
-		// Stage 0: s0 = coeff_a1 + coeff_a2 * xi
-		uwire [31:0]  s0;
-		pwpolyf_dspfp32 dsp0 (
-			.clk, .rst,
-			.a(coeff_a2), .b(xi), .c(coeff_a1),
-			.r(s0), .rvld(Vld[3])
-		);
+			// C input: coeff[DEGREE-1-j] delayed by j*DSP_LAT cycles
+			logic [31:0]  dsp_c;
+			if(j == 0) begin : genCdir
+				assign  dsp_c = CFG.coeffs[seg_idx][DEGREE-1];
+			end : genCdir
+			else begin : genCdly
+				logic [31:0]  CDly[j*DSP_LAT] = '{default: 'x};
+				always_ff @(posedge clk) begin
+					CDly[0] <= CFG.coeffs[seg_idx][DEGREE-1-j];
+					for(int i = 1; i < j*DSP_LAT; i++)
+						CDly[i] <= CDly[i-1];
+				end
+				assign  dsp_c = CDly[j*DSP_LAT - 1];
+			end : genCdly
 
-		// Stage 1: s1 = a0_delayed + s0 * x_delayed
-		uwire [31:0]  s1;
-		pwpolyf_dspfp32 dsp1 (
-			.clk, .rst,
-			.a(s0), .b(Xd4), .c(C0d4),
-			.r(s1), .rvld(Vld[7])
-		);
+			pwpolyf_dspfp32  dsp (
+				.clk, .rst,
+				.a(dsp_a), .b(dsp_b), .c(dsp_c),
+				.r(s[j]), .rvld(Vld[(j+1)*DSP_LAT - 1])
+			);
+		end : genDSP
 
 		//--- Clamp mux -------------------------------------------------------
 		logic [LATENCY-1:0]  NegClamp = '0;
@@ -324,11 +294,11 @@ module pwpolyf #(
 		end
 
 		// Output mux
-		assign	r[pe] = NegClamp[$left(NegClamp)]? NEG_CLAMP_VAL :
-		                 PosClamp[$left(PosClamp)]? (POS_PASSTHROUGH? Xd8 : POS_CLAMP_VAL) :
-		                 s1;
+		assign	r[pe] = NegClamp[$left(NegClamp)]? CFG.neg_clamp :
+		                 PosClamp[$left(PosClamp)]? (CFG.pos_passthrough? XDly[LATENCY-1] : CFG.pos_clamp) :
+		                 s[DEGREE-1];
 
-	end : genPE
+	end : gen_pe
 
 	// All PE results should be valid simultaneously
 	assign	rvld = rvld_vec[0];

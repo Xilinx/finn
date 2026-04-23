@@ -1,4 +1,4 @@
-# Copyright (C) 2023-2024, Advanced Micro Devices, Inc.
+# Copyright (C) 2023-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -275,8 +275,7 @@ class InferThresholdingLayer(Transformation):
 
 
 class InferPWPolyFLayer(Transformation):
-    """Convert PWPolyF custom ops and standard ONNX activations (Gelu, Sigmoid,
-    Tanh, SiLU pattern) into piecewise polynomial HW layers."""
+    """Convert activations to piecewise polynomial HW layers."""
 
     _SINGLE_OP_MAP = {"Gelu": "gelu", "Tanh": "tanh"}
 
@@ -292,18 +291,12 @@ class InferPWPolyFLayer(Transformation):
         return init.size == 1 and abs(float(init.flat[0]) - value) < tol
 
     def _match_erf_gelu(self, model, erf_node):
-        """Try to match the Erf-based GELU decomposition rooted at *erf_node*.
-
-        Pattern (opset < 20):
-            Div(x, sqrt(2)) → Erf → Add(_, 1) → Mul(0.5, _) → Mul(x, _)
-
-        Returns (pwp_input, pwp_output, nodes_to_remove) on success, else None.
-        """
-        # --- backward: Erf input must come from Div(x, sqrt(2)) ---
+        """Match Erf-based GELU: Div(x,sqrt(2))→Erf→Add(_,1)→Mul(0.5,_)→Mul(x,_).
+        Returns (pwp_input, pwp_output, nodes_to_remove) or None."""
+        # backward: Erf input must come from Div(x, sqrt(2))
         div_node = model.find_producer(erf_node.input[0])
         if div_node is None or div_node.op_type != "Div":
             return None
-        # one Div input is x, the other is sqrt(2) ≈ 1.4142
         if self._is_const_scalar(model, div_node.input[1], 1.4142135):
             gelu_input = div_node.input[0]
         elif self._is_const_scalar(model, div_node.input[0], 1.4142135):
@@ -311,7 +304,7 @@ class InferPWPolyFLayer(Transformation):
         else:
             return None
 
-        # --- forward: Erf → Add(_, 1) ---
+        # forward: Erf → Add(_, 1)
         erf_consumers = model.find_consumers(erf_node.output[0])
         if len(erf_consumers) != 1 or erf_consumers[0].op_type != "Add":
             return None
@@ -320,7 +313,7 @@ class InferPWPolyFLayer(Transformation):
         if len(other_add) != 1 or not self._is_const_scalar(model, other_add[0], 1.0):
             return None
 
-        # --- Add → Mul(0.5, _) ---
+        # Add → Mul(0.5, _)
         add_consumers = model.find_consumers(add_node.output[0])
         if len(add_consumers) != 1 or add_consumers[0].op_type != "Mul":
             return None
@@ -329,7 +322,7 @@ class InferPWPolyFLayer(Transformation):
         if len(other_mul_half) != 1 or not self._is_const_scalar(model, other_mul_half[0], 0.5):
             return None
 
-        # --- Mul(0.5,_) → Mul(x, _) ---
+        # Mul(0.5,_) → Mul(x, _)
         half_consumers = model.find_consumers(mul_half.output[0])
         if len(half_consumers) != 1 or half_consumers[0].op_type != "Mul":
             return None
