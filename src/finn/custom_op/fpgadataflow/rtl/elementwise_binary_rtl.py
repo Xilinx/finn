@@ -9,10 +9,12 @@
 import numpy as np
 import os
 import shutil
+from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow import elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
@@ -57,8 +59,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         streaming inputs rather than embedded constants. This method changes
         the lhs_style/rhs_style attributes from "const" to "input" as needed.
         """
-        from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-
         # If rhs (input[1]) is a PARAMETER (streamed per iteration),
         # change its style to "input"
         if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
@@ -71,8 +71,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 self.set_nodeattr("lhs_style", "input")
 
     def generate_hdl(self, model, fpgapart, clk):
-        from qonnx.core.datatype import DataType
-
         lhs_style = self.get_nodeattr("lhs_style")
         rhs_style = self.get_nodeattr("rhs_style")
         mlo = self.get_nodeattr("mlo_max_iter")
@@ -167,8 +165,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
 
         with open(template_path, "r") as f:
             template = f.read()
-        for key_name in code_gen_dict:
-            template = template.replace(f"${key_name}$", str(code_gen_dict[key_name]))
+        for key_name, value in code_gen_dict.items():
+            template = template.replace(f"${key_name}$", str(value))
 
         with open(os.path.join(code_gen_dir, f"{self.get_verilog_top_module_name()}.v"), "w") as f:
             f.write(template)
@@ -176,7 +174,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
         # Only generate memstream wrapper when there is a const input
-        if has_const:
+        if has_const or mlo:
             self.generate_hdl_memstream(fpgapart)
 
         sv_files = ["eltwise.sv", "binopf.sv", "binopi.sv", "int_to_fp32.sv", "queue.sv"]

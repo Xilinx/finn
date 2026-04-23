@@ -29,12 +29,14 @@
 import numpy as np
 import os
 import textwrap
+from itertools import dropwhile
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import roundup_to_integer_multiple
 
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -81,8 +83,6 @@ class ElementwiseBinaryOperation_hls(
         streaming inputs rather than embedded constants. This method changes
         the lhs_style/rhs_style attributes from "const" to "input" as needed.
         """
-        from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-
         # If rhs (input[1]) is a PARAMETER (streamed per iteration),
         # change its style to "input"
         if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
@@ -352,9 +352,6 @@ class ElementwiseBinaryOperation_hls(
 
         # Removes contiguous matching dimensions from a shape
         def drop_matching_dims(shape, like):
-            # Core functionality for this is implemented in itertools
-            from itertools import dropwhile
-
             # Compare shapes from left to right removing dimensions as long as
             # they match
             return (*[size for size, _ in dropwhile(lambda x: x[0] == x[1], zip(shape, like))],)

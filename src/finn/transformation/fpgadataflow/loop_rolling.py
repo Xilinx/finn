@@ -24,6 +24,7 @@ from qonnx.transformation.fold_constants import FoldConstants
 from typing import List, Tuple
 
 from finn.util import onnxscript_helpers as osh
+from finn.util.basic import getHWCustomOp
 
 
 def get_constant_from_value(value):
@@ -575,8 +576,6 @@ class LoopRolling(Transformation):
         # the determined input signature (e.g., changing parameter styles from
         # "const" to "input" for streamed parameters)
         # This must be done after serialization so we can work with protobuf nodes
-
-        from finn.util.basic import getHWCustomOp
 
         for loop_node in model_wrapper.get_nodes_by_op_type("FINNLoop"):
             loop_body = getHWCustomOp(loop_node).get_nodeattr("body")

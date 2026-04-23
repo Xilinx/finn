@@ -91,9 +91,9 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         }
         with open(template_path, "r") as f:
             template = f.read()
-        for key_name in code_gen_dict:
+        for key_name, value in code_gen_dict.items():
             key = f"${key_name}$"
-            template = template.replace(key, str(code_gen_dict[key_name]))
+            template = template.replace(key, str(value))
 
         with open(os.path.join(code_gen_dir, f"{self.get_verilog_top_module_name()}.v"), "w") as f:
             f.write(template)

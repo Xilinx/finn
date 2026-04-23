@@ -69,7 +69,7 @@ class HLSSynthIP(NodeLocalTransformation):
                 if not (
                     os.path.isdir(inst.get_nodeattr("ipgen_path"))
                     or os.path.isfile(inst.get_nodeattr("ipgen_path"))
-                ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr("ipgen_path"):
+                ) or inst.get_nodeattr("code_gen_dir_ipgen") not in inst.get_nodeattr("ipgen_path"):
                     # call the compilation function for this node
                     inst.ipgen_singlenode_code(self.fpgapart)
                 else:

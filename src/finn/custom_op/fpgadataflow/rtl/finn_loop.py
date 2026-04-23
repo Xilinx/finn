@@ -390,9 +390,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
         template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/loop_control_wrapper.v"
         with open(template_path, "r") as f:
             template_wrapper = f.read()
-        for key in code_gen_dict:
+        for key, value in code_gen_dict.items():
             # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
+            code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
             os.path.join(code_gen_dir, self.onnx_node.name + "_wrapper.v"),
@@ -566,9 +566,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # apply code generation to template
                 with open(template_path, "r") as f:
                     template_wrapper = f.read()
-                for key in code_gen_dict:
+                for key, value in code_gen_dict.items():
                     # transform list into long string separated by '\n'
-                    code_gen_line = "\n".join(code_gen_dict[key])
+                    code_gen_line = "\n".join(value)
                     template_wrapper = template_wrapper.replace(key, code_gen_line)
                 with open(
                     os.path.join(code_gen_dir, stname + "_stream_tap_wrapper.v"),
