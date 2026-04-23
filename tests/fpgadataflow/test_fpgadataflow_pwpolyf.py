@@ -279,3 +279,270 @@ def test_pwpolyf_exp_cycles(func):
     exp_dict = model.analysis(exp_cycles_per_layer)
     assert node.name in exp_dict
     assert exp_dict[node.name] == exp
+
+
+# ---------- helpers for standard ONNX op inference tests ----------
+
+
+def make_standard_activation_model(op_type, num_channels, num_input_vecs):
+    """Build an ONNX model with a single standard activation op."""
+    shape = num_input_vecs + [num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+
+    act_node = helper.make_node(op_type, ["inp"], ["outp"], name=op_type + "_0")
+    graph = helper.make_graph([act_node], "test_graph", [inp], [outp])
+    model = helper.make_model(graph, producer_name="test")
+    model.opset_import[0].version = 20
+    model = ModelWrapper(model)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    return model
+
+
+def make_silu_pattern_model(num_channels, num_input_vecs):
+    """Build ONNX model with Sigmoid + Mul pattern (SiLU)."""
+    shape = num_input_vecs + [num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+    sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
+
+    sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
+    mul_node = helper.make_node("Mul", ["inp", "sig_out"], ["outp"], name="Mul_0")
+
+    graph = helper.make_graph(
+        [sigmoid_node, mul_node], "silu_graph", [inp], [outp],
+    )
+    model = helper.make_model(graph, producer_name="test")
+    model = ModelWrapper(model)
+    model.graph.value_info.append(sig_out)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    return model
+
+
+def make_erf_gelu_model(num_channels, num_input_vecs):
+    """Build ONNX model with the Erf-based GELU decomposition.
+
+    Pattern: x * 0.5 * (1 + erf(x / sqrt(2)))
+    Nodes: Div(x, sqrt(2)) -> Erf -> Add(_, 1) -> Mul(0.5, _) -> Mul(x, _)
+    """
+    shape = num_input_vecs + [num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+
+    sqrt2 = helper.make_tensor("sqrt2", TensorProto.FLOAT, [], [np.float32(np.sqrt(2))])
+    one = helper.make_tensor("one", TensorProto.FLOAT, [], [np.float32(1.0)])
+    half = helper.make_tensor("half", TensorProto.FLOAT, [], [np.float32(0.5)])
+
+    div_node = helper.make_node("Div", ["inp", "sqrt2"], ["div_out"], name="Div_0")
+    erf_node = helper.make_node("Erf", ["div_out"], ["erf_out"], name="Erf_0")
+    add_node = helper.make_node("Add", ["erf_out", "one"], ["add_out"], name="Add_0")
+    mul_half_node = helper.make_node("Mul", ["half", "add_out"], ["mul_half_out"], name="Mul_0")
+    mul_x_node = helper.make_node("Mul", ["inp", "mul_half_out"], ["outp"], name="Mul_1")
+
+    graph = helper.make_graph(
+        [div_node, erf_node, add_node, mul_half_node, mul_x_node],
+        "erf_gelu_graph", [inp], [outp],
+        initializer=[sqrt2, one, half],
+    )
+    model = helper.make_model(graph, producer_name="test")
+    model = ModelWrapper(model)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+    return model
+
+
+# ---------- standard ONNX op inference tests ----------
+
+
+@pytest.mark.parametrize("op_type,expected_func", [
+    ("Gelu", "gelu"),
+    ("Sigmoid", "sigmoid"),
+    ("Tanh", "tanh"),
+])
+@pytest.mark.parametrize("num_channels", [4, 16])
+@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_standard_op(op_type, expected_func,
+                                   num_channels, num_input_vecs):
+    model = make_standard_activation_model(op_type, num_channels, num_input_vecs)
+
+    assert model.graph.node[0].op_type == op_type
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert len(model.graph.node) == 1
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == "finn.custom_op.fpgadataflow"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == expected_func
+    assert inst.get_nodeattr("K") == 3
+    assert inst.get_nodeattr("NumChannels") == num_channels
+    assert inst.get_nodeattr("PE") == 1
+    assert inst.get_nodeattr("inputDataType") == "FLOAT32"
+
+
+@pytest.mark.parametrize("num_channels", [4, 16])
+@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_silu_pattern(num_channels, num_input_vecs):
+    model = make_silu_pattern_model(num_channels, num_input_vecs)
+
+    assert len(model.graph.node) == 2
+    assert model.graph.node[0].op_type == "Sigmoid"
+    assert model.graph.node[1].op_type == "Mul"
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert len(model.graph.node) == 1
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == "finn.custom_op.fpgadataflow"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == "silu"
+    assert inst.get_nodeattr("K") == 3
+    assert inst.get_nodeattr("NumChannels") == num_channels
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_silu_reversed_mul_inputs():
+    """SiLU detection works regardless of Mul input order."""
+    num_channels = 8
+    shape = [1, num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
+    sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
+
+    sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
+    mul_node = helper.make_node("Mul", ["sig_out", "inp"], ["outp"], name="Mul_0")
+
+    graph = helper.make_graph([sigmoid_node, mul_node], "silu_graph", [inp], [outp])
+    model = helper.make_model(graph, producer_name="test")
+    model = ModelWrapper(model)
+    model.graph.value_info.append(sig_out)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert len(model.graph.node) == 1
+    inst = getCustomOp(model.graph.node[0])
+    assert inst.get_nodeattr("func") == "silu"
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_sigmoid_multi_consumer_no_silu():
+    """Sigmoid with multiple consumers becomes standalone sigmoid, not silu."""
+    num_channels = 8
+    shape = [1, num_channels]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp1 = helper.make_tensor_value_info("outp1", TensorProto.FLOAT, shape)
+    outp2 = helper.make_tensor_value_info("outp2", TensorProto.FLOAT, shape)
+    sig_out = helper.make_tensor_value_info("sig_out", TensorProto.FLOAT, shape)
+
+    sigmoid_node = helper.make_node("Sigmoid", ["inp"], ["sig_out"], name="Sigmoid_0")
+    mul_node = helper.make_node("Mul", ["inp", "sig_out"], ["outp1"], name="Mul_0")
+    identity_node = helper.make_node("Identity", ["sig_out"], ["outp2"], name="Id_0")
+
+    graph = helper.make_graph(
+        [sigmoid_node, mul_node, identity_node], "test_graph",
+        [inp], [outp1, outp2],
+    )
+    model = helper.make_model(graph, producer_name="test")
+    model = ModelWrapper(model)
+    model.graph.value_info.append(sig_out)
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    model = model.transform(InferPWPolyFLayer())
+
+    pwp_nodes = [n for n in model.graph.node if n.op_type == "PWPolyF"]
+    assert len(pwp_nodes) == 1
+    inst = getCustomOp(pwp_nodes[0])
+    assert inst.get_nodeattr("func") == "sigmoid"
+    # Mul and Identity should remain
+    assert any(n.op_type == "Mul" for n in model.graph.node)
+    assert any(n.op_type == "Identity" for n in model.graph.node)
+
+
+@pytest.mark.parametrize("op_type,expected_func", [
+    ("Gelu", "gelu"),
+    ("Sigmoid", "sigmoid"),
+    ("Tanh", "tanh"),
+])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_standard_op_execution(op_type, expected_func):
+    num_channels = 16
+    model = make_standard_activation_model(op_type, num_channels, [1])
+    model = model.transform(InferPWPolyFLayer())
+
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+
+    ref_mod = PiecewisePolyActivation(expected_func, K=3)
+    with torch.no_grad():
+        y_expected = ref_mod(torch.from_numpy(x)).numpy()
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_silu_pattern_execution():
+    num_channels = 16
+    model = make_silu_pattern_model(num_channels, [1])
+    model = model.transform(InferPWPolyFLayer())
+
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+
+    ref_mod = PiecewisePolyActivation("silu", K=3)
+    with torch.no_grad():
+        y_expected = ref_mod(torch.from_numpy(x)).numpy()
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+# ---------- Erf-based GELU inference tests ----------
+
+
+@pytest.mark.parametrize("num_channels", [4, 16])
+@pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_erf_gelu_pattern(num_channels, num_input_vecs):
+    """Erf-based GELU decomposition (opset < 20) is converted to PWPolyF."""
+    model = make_erf_gelu_model(num_channels, num_input_vecs)
+
+    assert len(model.graph.node) == 5
+    assert model.graph.node[1].op_type == "Erf"
+
+    model = model.transform(InferPWPolyFLayer())
+
+    assert len(model.graph.node) == 1
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF"
+    assert node.domain == "finn.custom_op.fpgadataflow"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("func") == "gelu"
+    assert inst.get_nodeattr("K") == 3
+    assert inst.get_nodeattr("NumChannels") == num_channels
+    assert inst.get_nodeattr("PE") == 1
+    assert inst.get_nodeattr("inputDataType") == "FLOAT32"
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_erf_gelu_execution():
+    """Erf-based GELU produces same output as PiecewisePolyActivation."""
+    num_channels = 16
+    model = make_erf_gelu_model(num_channels, [1])
+    model = model.transform(InferPWPolyFLayer())
+
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+
+    ref_mod = PiecewisePolyActivation("gelu", K=3)
+    with torch.no_grad():
+        y_expected = ref_mod(torch.from_numpy(x)).numpy()
+    assert np.allclose(y_produced, y_expected, atol=1e-6)

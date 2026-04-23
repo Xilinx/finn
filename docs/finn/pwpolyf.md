@@ -13,7 +13,7 @@ K=3 this gives 81 segments. Segment selection reuses the FP32
 exponent/mantissa bit-fields directly, matching the RTL implementation.
 
 Polynomial coefficients are generated at HDL build time by
-`generate_coeffs_svh()` in `pwpolyf_sim.py`, which fits degree-2 polynomials
+`generate_coeffs_svh()` in `pwpolyf_rtl.py`, which fits degree-2 polynomials
 to the reference PyTorch functions and writes the `pwpolyf_coeffs.svh` header.
 This ensures the RTL coefficients always match the configured K value.
 
@@ -22,23 +22,52 @@ This ensures the RTL coefficients always match the configured K value.
 
 ## Architecture
 
-PWPolyF is **RTL-only** (no HLS variant). The pipeline is:
+PWPolyF is **RTL-only** (no HLS variant). Two export paths are supported:
 
 ```
-PiecewisePolyActivation (PyTorch)
-    |  torch.onnx.export (dynamo=False)
-    v
-PWPolyF ONNX node
-    |  InferPWPolyFLayer
-    v
-PWPolyF HW op (finn.custom_op.fpgadataflow)
-    |  SpecializeLayers
-    v
-PWPolyF_rtl (finn.custom_op.fpgadataflow.rtl)
-    |  generate_hdl
-    v
-finn-rtllib/pwpolyf/hdl/ SystemVerilog IP
+Path A: PiecewisePolyActivation        Path B: nn.GELU / nn.SiLU / etc.
+    |  torch.onnx.export                   |  torch.onnx.export
+    |  (dynamo=False)                      |  (dynamo=True or False)
+    v                                      v
+PWPolyF custom ONNX node           Standard ONNX ops (Gelu, Sigmoid,
+    |                               Tanh, Sigmoid+Mul for SiLU,
+    |                               Div+Erf+Add+Mul+Mul for GELU)
+    |                                      |
+    +------------- both paths -------------+
+                      |
+                InferPWPolyFLayer
+                      v
+            PWPolyF HW op (finn.custom_op.fpgadataflow)
+                      |  SpecializeLayers
+                      v
+            PWPolyF_rtl (finn.custom_op.fpgadataflow.rtl)
+                      |  generate_hdl
+                      v
+            finn-rtllib/pwpolyf/hdl/ SystemVerilog IP
 ```
+
+### Standard ONNX op inference
+
+`InferPWPolyFLayer` recognises standard ONNX activation ops in addition to
+the explicit `PWPolyF` custom op. This allows models that use `nn.GELU`,
+`nn.SiLU`, `nn.Sigmoid`, or `nn.Tanh` to be exported with `dynamo=True`
+(or `dynamo=False`) and automatically converted to PWPolyF HW layers.
+
+| ONNX op type | Pattern | Maps to |
+|---|---|---|
+| `Gelu` (opset 20+) | Single node | `func="gelu"` |
+| `Div`+`Erf`+`Add`+`Mul`+`Mul` | `x * 0.5 * (1 + erf(x / sqrt(2)))` | `func="gelu"` |
+| `Sigmoid` | Single node (standalone) | `func="sigmoid"` |
+| `Tanh` | Single node | `func="tanh"` |
+| `Sigmoid` + `Mul` | `Mul(x, Sigmoid(x))` | `func="silu"` |
+
+Notes:
+- `Gelu` as a single ONNX node requires opset 20 or later. With lower
+  opsets (including `dynamo=True` which defaults to opset 18), GELU
+  decomposes into a 5-node Erf-based pattern. Both forms are matched.
+- SiLU (`nn.SiLU`) has no standard ONNX op; it decomposes to
+  `Sigmoid(x) * x`. The transformation detects this two-node pattern.
+- Only FLOAT32 inputs are converted. Quantised activations are skipped.
 
 ## Folding
 
@@ -59,11 +88,17 @@ Each PE instantiates its own polynomial evaluation pipeline (2 DSPs).
 
 ## ONNX export
 
-`PiecewisePolyActivation` exports as a single `PWPolyF` custom op via
-`torch.autograd.Function.symbolic()`. Requires the legacy TorchScript exporter
-(`dynamo=False` in `torch.onnx.export`).
+Two export paths are supported:
 
-Attributes on the ONNX node:
+1. **`PiecewisePolyActivation` (explicit)** — exports as a single `PWPolyF`
+   custom op via `torch.autograd.Function.symbolic()`. Requires
+   `dynamo=False`. Preserves the `K` attribute on the ONNX node.
+
+2. **Standard nn modules** (`nn.GELU`, `nn.SiLU`, `nn.Sigmoid`, `nn.Tanh`) —
+   export with `dynamo=True` or `dynamo=False`. Produces standard ONNX ops
+   that `InferPWPolyFLayer` converts to PWPolyF with default `K=3`.
+
+Attributes on the explicit PWPolyF ONNX node:
 - `func` (string): one of `gelu`, `silu`, `sigmoid`, `tanh`
 - `K` (int): mantissa subdivision bits (default 3)
 
@@ -112,11 +147,15 @@ Attributes on the ONNX node:
 
 ## Tests
 
-`tests/fpgadataflow/test_fpgadataflow_pwpolyf.py` — 68 parametrized tests:
+`tests/fpgadataflow/test_fpgadataflow_pwpolyf.py`:
 
 - **cppsim**: all 4 functions x 2 channel counts x 2 spatial shapes x 3 foldings
 - **ONNX export**: verifies single-node export for all functions
 - **InferPWPolyFLayer**: end-to-end export → transform → execute
+- **Standard op inference**: Gelu/Sigmoid/Tanh single-node + SiLU pattern
+- **Erf-based GELU inference**: 5-node Erf decomposition pattern matching + execution
+- **SiLU edge cases**: reversed Mul input order, multi-consumer Sigmoid
+- **Execution correctness**: standard ops produce same output as PiecewisePolyActivation
 - **SpecializeLayers**: verifies RTL specialization
 - **Resource estimates**: DSP/LUT/BRAM checks across PE values
 - **Folded shapes**: input/output/stream width calculations
