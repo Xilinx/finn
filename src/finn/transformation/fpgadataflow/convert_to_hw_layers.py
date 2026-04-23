@@ -321,10 +321,18 @@ class InferRequantLayer(Transformation):
     This transformation is optional and provides an alternative implementation
     to InferThresholdingLayer. The Requant node can then be specialized to
     either HLS or RTL backend.
+
+    Args:
+        bitwidth_threshold: If set, only convert MultiThreshold nodes with
+            output bitwidth >= bitwidth_threshold. If None, convert all
+            nodes with uniform thresholds. This allows using Thresholding
+            for low-bitwidth outputs (more efficient) and Requant for
+            high-bitwidth outputs.
     """
 
-    def __init__(self):
+    def __init__(self, bitwidth_threshold=None):
         super().__init__()
+        self.bitwidth_threshold = bitwidth_threshold
 
     def apply(self, model):
         graph = model.graph
@@ -353,6 +361,13 @@ class InferRequantLayer(Transformation):
 
                 idt = model.get_tensor_datatype(inp_name)
                 odt = model.get_tensor_datatype(out_name)
+
+                # Skip based on bitwidth threshold if set
+                # This allows using Thresholding for low-bitwidth (<threshold)
+                # and Requant for high-bitwidth (>=threshold) outputs
+                if self.bitwidth_threshold is not None:
+                    if odt.bitwidth() < self.bitwidth_threshold:
+                        continue
 
                 # Only infer layers where input is integer, fixed-point, or float
                 idt_ok = (

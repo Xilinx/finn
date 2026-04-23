@@ -39,6 +39,9 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.transformation.fpgadataflow.absorb_into_requant import (
+    AbsorbElementwiseOpsIntoRequant,
+)
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferRequantLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -396,19 +399,28 @@ def make_quant_test_model(
 
 @pytest.mark.parametrize("channelwise", [True, False])
 @pytest.mark.parametrize("pe", [5])
+@pytest.mark.parametrize(
+    "need_extraction_scale,need_extraction_zeropt",
+    [(True, True), (True, False), (False, True)],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_infer_requant_from_quant(channelwise, pe):
+def test_infer_requant_from_quant(channelwise, pe, need_extraction_scale, need_extraction_zeropt):
     """Test InferRequantLayer converts Quant node to Requant.
 
     This test is adapted from test_fpgadataflow_float2int but uses
     InferRequantLayer instead of InferQuantAsFloat2Int.
+
+    Also tests AbsorbElementwiseOpsIntoRequant with different patterns:
+    - need_extraction_scale=True, need_extraction_zeropt=True: Mul -> Add -> Requant
+    - need_extraction_scale=True, need_extraction_zeropt=False: Mul -> Requant
+    - need_extraction_scale=False, need_extraction_zeropt=True: Add -> Requant
     """
     ishp = (1, 10)
     bitwidth = np.asarray(4.0, dtype=np.float32)
     model = make_quant_test_model(
-        ishp, channelwise, bitwidth, need_extraction_scale=True, need_extraction_zeropt=True
+        ishp, channelwise, bitwidth, need_extraction_scale, need_extraction_zeropt
     )
     ishp = model.get_tensor_shape("in0")
     # Use rand (uniform [0,1)) like original Float2Int test, not randn (normal distribution)
@@ -426,10 +438,17 @@ def test_infer_requant_from_quant(channelwise, pe):
     assert (new_scale == 1).all()
     new_zeropt = model.get_initializer(qnt_node.input[2])
     assert (new_zeropt == 0).all()
-    assert len(model.get_nodes_by_op_type("Mul")) == 1
-    assert len(model.get_nodes_by_op_type("Div")) == 1
-    assert len(model.get_nodes_by_op_type("Add")) == 1
-    assert len(model.get_nodes_by_op_type("Sub")) == 1
+
+    # Count expected nodes based on extraction parameters
+    expected_mul = 1 if need_extraction_scale else 0
+    expected_div = 1 if need_extraction_scale else 0
+    expected_add = 1 if need_extraction_zeropt else 0
+    expected_sub = 1 if need_extraction_zeropt else 0
+
+    assert len(model.get_nodes_by_op_type("Mul")) == expected_mul
+    assert len(model.get_nodes_by_op_type("Div")) == expected_div
+    assert len(model.get_nodes_by_op_type("Add")) == expected_add
+    assert len(model.get_nodes_by_op_type("Sub")) == expected_sub
 
     model = model.transform(ConvertSubToAdd())
     model = model.transform(ConvertDivToMul())
@@ -438,14 +457,48 @@ def test_infer_requant_from_quant(channelwise, pe):
     model = model.transform(InferRequantLayer())
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
 
+    # After conversion: 2x Mul nodes if scale extraction, 2x Add nodes if zeropt extraction
+    expected_elemwise_mul = 2 if need_extraction_scale else 0
+    expected_elemwise_add = 2 if need_extraction_zeropt else 0
+
     # Verify conversion
     assert len(model.get_nodes_by_op_type("Quant")) == 0, "Quant should be converted"
     assert len(model.get_nodes_by_op_type("Requant")) == 1, "Expected one Requant node"
-    assert len(model.get_nodes_by_op_type("ElementwiseMul")) == 2
-    assert len(model.get_nodes_by_op_type("ElementwiseAdd")) == 2
+    assert len(model.get_nodes_by_op_type("ElementwiseMul")) == expected_elemwise_mul
+    assert len(model.get_nodes_by_op_type("ElementwiseAdd")) == expected_elemwise_add
 
     y_hw = oxe.execute_onnx(model, {model.graph.input[0].name: inp})[model.graph.output[0].name]
     assert np.allclose(y_golden, y_hw)
+
+    # Absorb ElementwiseMul/Add into Requant
+    # Pattern depends on extraction parameters:
+    # - scale+zeropt: Mul -> Add -> Requant -> Mul -> Add
+    # - scale only: Mul -> Requant -> Mul
+    # - zeropt only: Add -> Requant -> Add
+    # The ops before Requant get absorbed, the ones after Requant remain
+    model = model.transform(AbsorbElementwiseOpsIntoRequant())
+
+    # After absorption: only the ops after Requant remain (1 of each type if extracted)
+    expected_mul_after = 1 if need_extraction_scale else 0
+    expected_add_after = 1 if need_extraction_zeropt else 0
+
+    assert len(model.get_nodes_by_op_type("Requant")) == 1, "Requant should remain"
+    assert (
+        len(model.get_nodes_by_op_type("ElementwiseMul")) == expected_mul_after
+    ), "Only ElementwiseMul after Requant should remain"
+    assert (
+        len(model.get_nodes_by_op_type("ElementwiseAdd")) == expected_add_after
+    ), "Only ElementwiseAdd after Requant should remain"
+
+    # Verify inputDataType was updated to match the new input
+    requant_node = model.get_nodes_by_op_type("Requant")[0]
+    requant_inst = getCustomOp(requant_node)
+    requant_input_dtype = requant_inst.get_nodeattr("inputDataType")
+    actual_input_dtype = model.get_tensor_datatype(requant_node.input[0])
+    assert requant_input_dtype == actual_input_dtype.name, (
+        f"Requant inputDataType should match new input: expected {actual_input_dtype.name}, "
+        f"got {requant_input_dtype}"
+    )
 
     # Specialize Layers
     model = model.transform(SpecializeLayers(test_fpga_part))

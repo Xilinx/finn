@@ -73,6 +73,9 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.transformation.fpgadataflow.absorb_into_requant import (
+    AbsorbElementwiseOpsIntoRequant,
+)
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -428,7 +431,17 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Thresholding layers (standalone mode)
     if cfg.standalone_thresholds:
-        # Doing this first causes all threshold layers to be standalone
+        # First: Convert high-bitwidth MultiThreshold and all Quant nodes to Requant
+        # Requant is more efficient for high bitwidths (simple multiply-add-round-clip
+        # vs comparison-based lookup with many thresholds)
+        # Note: bitwidth_threshold only applies to MultiThreshold, Quant is always converted
+        model = apply_if_relevant(
+            model,
+            ["MultiThreshold", "Quant"],
+            to_hw.InferRequantLayer(bitwidth_threshold=cfg.requant_bitwidth_threshold),
+            "high-bitwidth quantization as requant",
+        )
+        # Then: Convert remaining MultiThreshold to Thresholding
         model = apply_if_relevant(
             model,
             ["MultiThreshold"],
@@ -461,7 +474,14 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Classification/output layers
     model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
 
-    # Input quantization (if any) as standalone threshold
+    # Input quantization (if any) - high-bitwidth MultiThreshold and Quant as Requant,
+    # low-bitwidth MultiThreshold as Thresholding
+    model = apply_if_relevant(
+        model,
+        ["MultiThreshold", "Quant"],
+        to_hw.InferRequantLayer(bitwidth_threshold=8),
+        "high-bitwidth input quantization as requant",
+    )
     model = apply_if_relevant(
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
@@ -529,15 +549,19 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Cropping layers
     model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
-    # Quantization layers (Quant nodes with scale=1, zeropt=0 or uniform MultiThreshold)
-    model = apply_if_relevant(
-        model, ["Quant", "MultiThreshold"], to_hw.InferRequantLayer(), "quantization as requant"
-    )
-
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
     print("Checking for graph forks (duplicate streams)...")
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
+
+    # Optimization: Absorb ElementwiseMul/Add into Requant
+    # This should be run after all HW layers are inferred
+    model = apply_if_relevant(
+        model,
+        ["Requant"],
+        AbsorbElementwiseOpsIntoRequant(),
+        "absorb elementwise ops into requant",
+    )
 
     # Cleanup and post-processing transformations
     # Get rid of Transpose -> Transpose identity sequences

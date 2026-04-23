@@ -336,9 +336,9 @@ class HWCustomOp(CustomOp):
             # apply code generation to template
             with open(template_path, "r") as f:
                 template_wrapper = f.read()
-            for key in code_gen_dict:
+            for key, value in code_gen_dict.items():
                 # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
+                code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
@@ -388,9 +388,9 @@ class HWCustomOp(CustomOp):
             # apply code generation to template
             with open(template_path, "r") as f:
                 template_wrapper = f.read()
-            for key in code_gen_dict:
+            for key, value in code_gen_dict.items():
                 # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
+                code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
@@ -423,9 +423,9 @@ class HWCustomOp(CustomOp):
         # apply code generation to template
         with open(template_path, "r") as f:
             template_wrapper = f.read()
-        for key in code_gen_dict:
+        for key, value in code_gen_dict.items():
             # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
+            code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
             os.path.join(code_gen_dir, mname + "_dynamic_load_wrapper.v"),
@@ -496,10 +496,10 @@ class HWCustomOp(CustomOp):
         self.set_nodeattr("io_chrc_period", period)
         # call str() on stream tracers to get their outputs, and convert
         # to list of ints
-        for k in txns_in.keys():
-            txns_in[k] = [int(c) for c in str(txns_in[k])]
-        for k in txns_out.keys():
-            txns_out[k] = [int(c) for c in str(txns_out[k])]
+        for k, v in txns_in.items():
+            txns_in[k] = [int(c) for c in str(v)]
+        for k, v in txns_out.items():
+            txns_out[k] = [int(c) for c in str(v)]
 
         def accumulate_char_fxn(chrc):
             p = len(chrc)

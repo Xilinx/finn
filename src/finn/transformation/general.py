@@ -17,6 +17,7 @@ import warnings
 
 # Protobuf onnx graph node type
 from onnx import AttributeProto, NodeProto, mapping  # noqa
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
 
@@ -67,8 +68,6 @@ class ApplyConfig(Transformation):
 
             if node_config:
                 self.used_configurations += [config_key]
-
-            from qonnx.custom_op.registry import getCustomOp
 
             try:
                 inst = getCustomOp(node)
