@@ -35,7 +35,7 @@ To rapidly test the generated design on PYNQ platforms, FINN is capable of
 generating a Python driver for the given design. This driver packs/unpacks the
 input/output tensors in the expected format, then uses PYNQ APIs to initiate
 data movement and transfer back the results to the host CPU. The generation of
-the driver is done by transformation pass :py:mod:`finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver`.
+the driver is done by transformation pass :py:mod:`finn.transformation.fpgadataflow.make_driver.MakePYNQDriver`.
 
 DMA and DWC Node Insertion
 ---------------------------

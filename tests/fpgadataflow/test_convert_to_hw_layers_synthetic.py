@@ -48,6 +48,12 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
@@ -155,10 +161,10 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     x = gen_finn_dt_tensor(idt, input_tensor_shape)
 
     # generate expected value from streamlined net
-    input_dict = {model.graph.input[0].name: x}
+    input_dict = {model.get_first_global_in(): x}
 
     output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced_sum = output_dict[model.graph.output[0].name]
+    produced_sum = output_dict[model.get_first_global_out()]
     chw_mul = model.get_initializer(model.graph.node[-1].input[1])
     chw_mul = 1
     expected_sum = chw_mul * np.sum(2 * (2 * x + 15.0), axis=(2, 3)) / (ifmdim * ifmdim)
@@ -167,7 +173,7 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(InferDataLayouts())
 
     # convert to hw
-    model.set_tensor_datatype(model.graph.input[0].name, idt)
+    model.set_tensor_datatype(model.get_first_global_in(), idt)
     # extra streamlining
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(MoveAddPastMul())
@@ -179,8 +185,10 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(InferDataLayouts())
     model = model.transform(InferDataTypes())
 
-    model = model.transform(to_hw.InferChannelwiseLinearLayer())
-    model = model.transform(to_hw.InferAddStreamsLayer())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferDataTypes())
     model = model.transform(to_hw.InferGlobalAccPoolLayer())
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(InsertTopK())
@@ -194,17 +202,17 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(SortGraph())
 
     # check topology status
-
     finn_nodes = model.get_finn_nodes()
     assert len(finn_nodes) == 9
-    add_nodes = model.get_nodes_by_op_type("AddStreams")
-    assert len(add_nodes) == 1
     pool_nodes = model.get_nodes_by_op_type("GlobalAccPool")
     assert len(pool_nodes) == 1
     label_nodes = model.get_nodes_by_op_type("LabelSelect")
     assert len(label_nodes) == 1
-    channelwise_nodes = model.get_nodes_by_op_type("ChannelwiseOp")
-    assert len(channelwise_nodes) == 5
+    # ElementwiseBinary ops replaced ChannelwiseOp (5 nodes) and AddStreams (1 node)
+    elementwise_add_nodes = model.get_nodes_by_op_type("ElementwiseAdd")
+    assert len(elementwise_add_nodes) == 4  # 3 from channelwise Add + 1 from AddStreams
+    elementwise_mul_nodes = model.get_nodes_by_op_type("ElementwiseMul")
+    assert len(elementwise_mul_nodes) == 2  # 2 from channelwise Mul
     dup_nodes = model.get_nodes_by_op_type("DuplicateStreams")
     assert len(dup_nodes) == 1
 
@@ -212,18 +220,19 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
-    # check topology status
+    # check topology status after specialization
 
     finn_nodes = model.get_finn_nodes()
     assert len(finn_nodes) == 9
-    add_nodes = model.get_nodes_by_op_type("AddStreams_hls")
-    assert len(add_nodes) == 1
     pool_nodes = model.get_nodes_by_op_type("GlobalAccPool_hls")
     assert len(pool_nodes) == 1
     label_nodes = model.get_nodes_by_op_type("LabelSelect_hls")
     assert len(label_nodes) == 1
-    channelwise_nodes = model.get_nodes_by_op_type("ChannelwiseOp_hls")
-    assert len(channelwise_nodes) == 5
+    # ElementwiseBinary_hls ops replaced ChannelwiseOp_hls and AddStreams_hls
+    elementwise_add_nodes = model.get_nodes_by_op_type("ElementwiseAdd_hls")
+    assert len(elementwise_add_nodes) == 4
+    elementwise_mul_nodes = model.get_nodes_by_op_type("ElementwiseMul_hls")
+    assert len(elementwise_mul_nodes) == 2
     dup_nodes = model.get_nodes_by_op_type("DuplicateStreams_hls")
     assert len(dup_nodes) == 1
 
@@ -234,7 +243,7 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     output_dict = oxe.execute_onnx(model, input_dict, True)
 
     # verify execution
-    outp_name = model.graph.output[0].name
+    outp_name = model.get_first_global_out()
     # comparison before and after layer specialization
     assert (output_dict[outp_name] == output_hw[outp_name]).all()
     # comparison with golden output

@@ -26,33 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 import os
+import shutil
 import struct
-from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import (
-    get_rtlsim_trace_depth,
-    make_build_dir,
-    pyverilate_get_liveness_threshold_cycles,
-)
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    rtlsim_output_to_npy,
-)
 from finn.util.pwpolyf import (
     CLAMP_CFG,
     NUM_OCTAVES,
     SUPPORTED_FUNCS,
     _fit_coefficients,
 )
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 def _float_to_hex(f):
@@ -134,66 +119,37 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
-    def prepare_codegen_rtl_values(self, model):
-        """Build the substitution dictionary for RTL template files."""
-        code_gen_dict = {}
+    def generate_hdl(self, model, fpgapart, clk):
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/pwpolyf/hdl/")
+        template_path = rtllib_dir + "pwpolyf_template_wrapper.v"
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         pe = self.get_nodeattr("PE")
         func = self.get_nodeattr("func")
+        topname = self.get_verilog_top_module_name()
 
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
-            self.get_verilog_top_module_name() + "_axi_wrapper"
-        ]
-        code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
-        code_gen_dict["$PE$"] = [str(pe)]
-        code_gen_dict["$FUNC$"] = ['"%s"' % func]
-        code_gen_dict["$IN_WIDTH$"] = [str(pe * 32)]
-        code_gen_dict["$OUT_WIDTH$"] = [str(pe * 32)]
+        self.set_nodeattr("gen_top_module", topname)
 
-        return code_gen_dict
+        code_gen_dict = {
+            "$MODULE_NAME_AXI_WRAPPER$": topname + "_axi_wrapper",
+            "$TOP_MODULE$": topname + "_axi_wrapper",
+            "$PE$": str(pe),
+            "$FUNC$": '"%s"' % func,
+            "$IN_WIDTH$": str(pe * 32),
+            "$OUT_WIDTH$": str(pe * 32),
+        }
 
-    def get_rtl_file_list(self):
-        return [
-            "pwpolyf_pkg.sv",
-            "pwpolyf.sv",
-            "queue.sv",
-            "pwpolyf_template_wrapper.v",
-        ]
-
-    def get_rtl_file_paths(self):
-        rtl_root_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/pwpolyf/hdl/"
-        rtl_file_list = self.get_rtl_file_list()
-        rtl_file_paths = [rtl_root_dir + f for f in rtl_file_list]
-        return rtl_file_paths
-
-    def get_rtl_template_data(self, path):
-        with open(path, "r") as f:
+        # apply code generation to wrapper template
+        with open(template_path, "r") as f:
             template = f.read()
-        return template
+        for key, value in code_gen_dict.items():
+            template = template.replace(key, str(value))
+        with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
+            f.write(template)
 
-    def fill_in_rtl_template_data(self, replace_dict, template_data):
-        template_data_cp = template_data
-        for key in replace_dict:
-            replacement_line = "\n".join(replace_dict[key])
-            template_data_cp = template_data_cp.replace(key, replacement_line)
-        return template_data_cp
-
-    def dump_rtl_data(self, dest_dir, filename, data):
-        if "template" in filename:
-            filename = self.get_nodeattr("gen_top_module") + ".v"
-        with open(os.path.join(dest_dir, filename), "w") as f:
-            f.write(data)
-
-    def generate_hdl(self, model, fpgapart, clk):
-        code_gen_dict = self.prepare_codegen_rtl_values(model)
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
-
-        for rtl_file_path in self.get_rtl_file_paths():
-            template_data = self.get_rtl_template_data(rtl_file_path)
-            data = self.fill_in_rtl_template_data(code_gen_dict, template_data)
-            file_only_path = rtl_file_path.split("/")[-1]
-            self.dump_rtl_data(code_gen_dir, file_only_path, data)
+        # copy RTL source files
+        for sv_file in ["pwpolyf.sv", "queue.sv"]:
+            shutil.copy(rtllib_dir + sv_file, code_gen_dir)
 
         # generate package with coefficients matching the node's K value
         K = self.get_nodeattr("K")
@@ -204,113 +160,47 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def prepare_rtlsim(self):
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = os.path.join(
+                os.environ["FINN_ROOT"], "finn-rtllib/pwpolyf/hdl/"
+            )
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
 
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_paths = [code_gen_dir]
         verilog_files = [
-            x.replace("pwpolyf_template_wrapper", self.get_nodeattr("gen_top_module"))
-            for x in self.get_rtl_file_list()
+            code_gen_dir + "pwpolyf_pkg.sv",
+            rtllib_dir + "pwpolyf.sv",
+            rtllib_dir + "queue.sv",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
-        single_src_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
-
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=single_src_dir,
-            verilog_path=verilog_paths,
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_nodeattr("gen_top_module"),
-            auto_eval=False,
-        )
-
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+        return verilog_files
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":
             PWPolyF.execute_node(self, context, graph)
         elif mode == "rtlsim":
-            node = self.onnx_node
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-
-            expected_inp_shape = self.get_folded_input_shape()
-            reshaped_input = context[node.input[0]].reshape(expected_inp_shape)
-            export_idt = self.get_input_datatype()
-            reshaped_input = reshaped_input.copy()
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                os.path.join(code_gen_dir, "input_0.npy"), export_idt, nbits
-            )
-            io_names = self.get_verilog_top_module_intf_names()
-            istream_name = io_names["s_axis"][0][0]
-            ostream_name = io_names["m_axis"][0][0]
-            io_dict = {
-                "inputs": {istream_name: inp},
-                "outputs": {ostream_name: []},
-            }
-
-            trace_file = self.get_nodeattr("rtlsim_trace")
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-            sname = "_"
-
-            num_out_values = self.get_number_output_values()
-            reset_rtlsim(sim)
-            total_cycle_count = rtlsim_multi_io(
-                sim,
-                io_dict,
-                num_out_values,
-                trace_file=trace_file,
-                sname=sname,
-                liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
-            )
-            self.set_nodeattr("cycles_rtlsim", total_cycle_count)
-            output = io_dict["outputs"][ostream_name]
-
-            odt = self.get_output_datatype()
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = os.path.join(code_gen_dir, "output.npy")
-            out_shape = self.get_folded_output_shape()
-
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-
-            output = np.load(out_npy_path)
-            oshape = self.get_normal_output_shape()
-            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                "Invalid value for attribute exec_mode! Is currently set to: %s "
-                "has to be one of ('cppsim', 'rtlsim')" % mode
-            )
+            RTLBackend.execute_node(self, context, graph)
 
     def code_generation_ipi(self):
-        rtl_file_list = [
-            x.replace("pwpolyf_template_wrapper", self.get_nodeattr("gen_top_module"))
-            for x in self.get_rtl_file_list()
-        ]
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
-        cmd = ["file mkdir %s" % source_target]
 
-        for rtl_file in rtl_file_list:
-            cmd.append(
-                "add_files -copy_to %s -norecurse %s"
-                % (source_target, os.path.join(code_gen_dir, rtl_file))
-            )
+        sourcefiles = [
+            "pwpolyf_pkg.sv",
+            "pwpolyf.sv",
+            "queue.sv",
+        ]
+        sourcefiles.append(self.get_nodeattr("gen_top_module") + ".v")
+        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
 
-        cmd.append(
+        cmd = []
+        for f in sourcefiles:
+            cmd += ["add_files -norecurse %s" % (f)]
+        cmd += [
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        )
-
+        ]
         return cmd

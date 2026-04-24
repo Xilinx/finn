@@ -75,23 +75,14 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
 : ${LOCALHOST_URL="localhost"}
-: ${PYNQ_USERNAME="xilinx"}
-: ${PYNQ_PASSWORD="xilinx"}
-: ${PYNQ_BOARD="Pynq-Z1"}
-: ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
-: ${ALVEO_USERNAME="alveo_user"}
-: ${ALVEO_PASSWORD=""}
-: ${ALVEO_BOARD="U250"}
-: ${ALVEO_TARGET_DIR="/tmp"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
-: ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --always --tags --dirty).$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_TAG="xilinx/finn:$(OLD_PWD=$(pwd); cd $SCRIPTPATH; git describe --always --tags --dirty; cd $OLD_PWD).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
-: ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
@@ -102,6 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SINGULARITY=""}
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
+: ${FINN_DOCKER_NO_CACHE="0"}
 
 DOCKER_INTERACTIVE=""
 
@@ -142,7 +134,7 @@ elif [ "$1" = "build_custom" ]; then
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
-  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py ${@:4}"
 elif [ -z "$1" ]; then
    gecho "Running container only"
    DOCKER_CMD="bash"
@@ -151,19 +143,6 @@ else
   gecho "Running container with passed arguments"
   DOCKER_CMD="$@"
 fi
-
-
-if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
-  gecho "nvidia-docker detected, enabling GPUs"
-  if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
-    FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
-  else
-    FINN_DOCKER_EXTRA+="--gpus all "
-  fi
-fi
-
-VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
 
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
@@ -175,8 +154,6 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $FINN_XILINX_PATH into $FINN_XILINX_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
@@ -190,12 +167,54 @@ if [ -d "$FINN_XRT_PATH" ];then
   export LOCAL_XRT=1
 fi
 
+if [ "$FINN_DOCKER_NO_CACHE" = "1" ]; then
+  FINN_DOCKER_BUILD_EXTRA+="--no-cache "
+fi
+
+# If the image isn't available locally, try loading from shared storage.
+# This is independent of FINN_DOCKER_PREBUILT: loading is an image
+# acquisition step, not a build step. With PREBUILT=1 it provides the
+# image so the build below is skipped; with PREBUILT=0 it warms the
+# layer cache so the build below runs faster.
+if [ ! -z "$FINN_DOCKER_SHARED_DIR" ] && \
+   ! docker image inspect "$FINN_DOCKER_TAG" > /dev/null 2>&1; then
+  SHARED_IMG="$FINN_DOCKER_SHARED_DIR/finn-docker-image.tar.gz"
+  SHARED_TAG_FILE="$FINN_DOCKER_SHARED_DIR/finn-docker-tag.txt"
+  if [ -f "$SHARED_IMG" ] && [ -f "$SHARED_TAG_FILE" ]; then
+    gecho "Loading Docker image from shared storage ($FINN_DOCKER_SHARED_DIR)..."
+    SHARED_TAG=$(cat "$SHARED_TAG_FILE")
+    # Lock is local (/tmp) to serialize loads on the same host. Do not move to NFS.
+    if flock /tmp/finn-docker-load.lock bash -c "set -o pipefail; gunzip -c '$SHARED_IMG' | docker load"; then
+      if [ "$SHARED_TAG" != "$FINN_DOCKER_TAG" ]; then
+        gecho "Tagging $SHARED_TAG as $FINN_DOCKER_TAG"
+        docker tag "$SHARED_TAG" "$FINN_DOCKER_TAG"
+      fi
+    else
+      gecho "WARNING: Failed to load Docker image from shared storage"
+      if [ "$FINN_DOCKER_PREBUILT" = "1" ]; then
+        gecho "Falling back to local Docker build"
+        FINN_DOCKER_PREBUILT="0"
+      fi
+    fi
+  fi
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD --build-arg LOCAL_XRT=$LOCAL_XRT --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA .
+  docker build \
+    -f docker/Dockerfile.finn \
+    --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
+    --build-arg SKIP_XRT=$FINN_SKIP_XRT_DOWNLOAD \
+    --build-arg LOCAL_XRT=$LOCAL_XRT \
+    --tag=$FINN_DOCKER_TAG $FINN_DOCKER_BUILD_EXTRA \
+    --build-arg GROUP_ID=$DOCKER_GID \
+    --build-arg GROUPNAME=$DOCKER_GNAME \
+    --build-arg USERNAME=$DOCKER_UNAME \
+    --build-arg USER_UID=$DOCKER_UID \
+    .
   cd $OLD_PWD
 fi
 
@@ -215,22 +234,15 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
-DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
-DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
-DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
-DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
-DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647
 DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
+# Workaround for running multiple Vivado instances simultaneously, see:
+# https://adaptivesupport.amd.com/s/article/63253?language=en_US
+DOCKER_EXEC+="-e XILINX_LOCAL_USER_DATA=no "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
-  DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
-  DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
-  DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
-  DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
   DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
   DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
 else
@@ -241,9 +253,26 @@ if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-e IMAGENET_VAL_PATH=$IMAGENET_VAL_PATH "
 fi
 if [ ! -z "$FINN_XILINX_PATH" ];then
-  VIVADO_PATH="$FINN_XILINX_PATH/Vivado/$FINN_XILINX_VERSION"
-  VITIS_PATH="$FINN_XILINX_PATH/Vitis/$FINN_XILINX_VERSION"
-  HLS_PATH="$FINN_XILINX_PATH/Vitis_HLS/$FINN_XILINX_VERSION"
+  if [[ "$FINN_XILINX_VERSION" =~ ^20([0-9]{2})\.(1|2)$ ]]; then
+    year="${BASH_REMATCH[1]}"
+    minor="${BASH_REMATCH[2]}"
+
+    # Convert to integers for comparison
+    year=$((10#$year))
+    minor=$((10#$minor))
+
+    if (( year > 24 )) || { (( year == 24 )) && (( minor > 2 )); }; then
+      VIVADO_PATH="$FINN_XILINX_PATH/$FINN_XILINX_VERSION/Vivado"
+      VITIS_PATH="$FINN_XILINX_PATH/$FINN_XILINX_VERSION/Vitis"
+      HLS_PATH="$FINN_XILINX_PATH/$FINN_XILINX_VERSION/Vitis"
+    else
+      VIVADO_PATH="$FINN_XILINX_PATH/Vivado/$FINN_XILINX_VERSION"
+      VITIS_PATH="$FINN_XILINX_PATH/Vitis/$FINN_XILINX_VERSION"
+      HLS_PATH="$FINN_XILINX_PATH/Vitis_HLS/$FINN_XILINX_VERSION"
+    fi
+  else
+    echo "FINN_XILINX_VERSION ($FINN_XILINX_VERSION) is not in the correct format (YYYY.1 or YYYY.2)"
+  fi
   DOCKER_EXEC+="-v $FINN_XILINX_PATH:$FINN_XILINX_PATH "
   if [ -d "$VIVADO_PATH" ];then
     DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
@@ -258,13 +287,38 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   if [ -d "$PLATFORM_REPO_PATHS" ];then
     DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
     DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-    DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
-    DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
-    DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
-    DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
-    DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
+
+# This part is used for internal ci for finn-examples
+# if using build verification for finn-examples ci, set up the necessary Docker variables
+if [ "$VERIFICATION_EN" = 1 ]; then
+  if [ -z "$FINN_EXAMPLES_ROOT" ]; then
+    recho "FINN_EXAMPLES_ROOT path has not been set."
+    recho "Please set FINN_EXAMPLES_ROOT path to enable verification."
+    exit -1
+  elif [ ! -d "${FINN_EXAMPLES_ROOT}/ci" ]; then
+    recho "ci folder not found in ${FINN_EXAMPLES_ROOT}."
+    recho "Please ensure the FINN-examples repo has been set up correctly, and FINN_EXAMPLES_ROOT path is set correctly, to enable verification."
+    exit -1
+  elif [ -z "$VERIFICATION_IO" ]; then
+    recho "VERIFICATION_IO paths has not been set."
+    recho "Please ensure the path to the input and expected output files has been set correctly to eneable verification."
+    exit -1
+  elif [ ! -d "$VERIFICATION_IO" ]; then
+    recho "${VERIFICATION_IO} is not a directory."
+    recho "Please ensure the VERIFICATION_IO path has been set to the directory containing the input and expected output files for verification."
+    exit -1
+  else
+    DOCKER_EXEC+="-e VERIFICATION_EN=$VERIFICATION_EN "
+    DOCKER_EXEC+="-e FINN_EXAMPLES_ROOT=$FINN_EXAMPLES_ROOT "
+    DOCKER_EXEC+="-e VERIFICATION_IO=$VERIFICATION_IO "
+    FINN_DOCKER_EXTRA+="-v $FINN_EXAMPLES_ROOT/ci:$FINN_EXAMPLES_ROOT/ci "
+    FINN_DOCKER_EXTRA+="-v $VERIFICATION_IO:$VERIFICATION_IO "
+  fi
+fi
+
+
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 
 if [ -z "$FINN_SINGULARITY" ];then

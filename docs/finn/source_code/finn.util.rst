@@ -55,10 +55,27 @@ qonnx.util.inference\_cost
    :undoc-members:
    :show-inheritance:
 
+qonnx.util.mlo\_sim
+--------------------------
+
+.. automodule:: qonnx.util.mlo_sim
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 qonnx.util.onnx
 -------------------
 
 .. automodule:: qonnx.util.onnx
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+qonnx.util.onnxscript\_helpers
+--------------------------------
+
+.. automodule:: qonnx.util.onnxscript_helpers
    :members:
    :undoc-members:
    :show-inheritance:
@@ -179,14 +196,6 @@ finn.util.pwpolyf
    :undoc-members:
    :show-inheritance:
 
-finn.util.pyverilator
----------------------
-
-.. automodule:: finn.util.pyverilator
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
 
 finn.util.test
 ---------------------
@@ -196,13 +205,6 @@ finn.util.test
    :undoc-members:
    :show-inheritance:
 
-finn.util.vcd
-------------------------------
-
-.. automodule:: finn.util.vcd
-  :members:
-  :undoc-members:
-  :show-inheritance:
 
 finn.util.visualization
 ------------------------------

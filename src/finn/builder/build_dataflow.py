@@ -132,13 +132,26 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     time_per_step = dict()
     build_dataflow_steps = resolve_build_steps(cfg)
     # set up logger
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(asctime)s] %(message)s",
-        filename=cfg.output_dir + "/build_dataflow.log",
-        filemode="a",
-    )
+    # Note: basicConfig() is ignored if logging already configured (e.g., in Jupyter)
+    # So we explicitly add a file handler to ensure build_dataflow.log is created
     log = logging.getLogger("build_dataflow")
+    log.setLevel(logging.DEBUG)
+    log.propagate = (
+        False  # Prevent propagation to root logger (avoids duplicate console output in Jupyter)
+    )
+
+    # Create file handler for build_dataflow.log
+    log_file_handler = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
+    log_file_handler.setLevel(logging.DEBUG)
+    log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
+
+    # Remove any existing handlers from this logger to avoid duplicates
+    for handler in log.handlers[:]:
+        log.removeHandler(handler)
+
+    # Add the file handler (only file output, no console output)
+    log.addHandler(log_file_handler)
+
     stdout_logger = StreamToLogger(log, logging.INFO)
     stderr_logger = StreamToLogger(log, logging.ERROR)
     stdout_orig = sys.stdout

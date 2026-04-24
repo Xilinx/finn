@@ -28,6 +28,7 @@
 
 
 import os
+import re
 import subprocess
 
 from finn.util.basic import which
@@ -54,14 +55,23 @@ class CallHLS:
         """Builds the bash script with given parameters and saves it in given folder.
         To guarantee the generation in the correct folder the bash script contains a
         cd command."""
-        assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
+        vivado_path = os.environ.get("XILINX_VIVADO")
+        # xsi kernel lib name depends on Vivado version (renamed in 2024.2)
+        match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+        year, minor = int(match.group(1)), int(match.group(2))
+        if (year, minor) > (2024, 2):
+            assert which("vitis-run") is not None, "vitis-run not found in PATH"
+            vitis_cmd = "vitis-run --mode hls --tcl %s\n" % (self.tcl_script)
+        else:
+            assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
+            vitis_cmd = "vitis_hls %s\n" % (self.tcl_script)
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         working_dir = os.environ["PWD"]
         f = open(self.ipgen_script, "w")
         f.write("#!/bin/bash \n")
         f.write("cd {}\n".format(code_gen_dir))
-        f.write("vitis_hls %s\n" % (self.tcl_script))
+        f.write(vitis_cmd)
         f.write("cd {}\n".format(working_dir))
         f.close()
         bash_command = ["bash", self.ipgen_script]

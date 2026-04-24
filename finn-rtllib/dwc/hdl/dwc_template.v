@@ -38,7 +38,7 @@ module $TOP_MODULE_NAME$ #(
 )(
 	//- Global Control ------------------
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
@@ -49,9 +49,9 @@ module $TOP_MODULE_NAME$ #(
 	input	[AXI_IBITS-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
-	input	out_V_TREADY,
-	output	out_V_TVALID,
-	output	[AXI_OBITS-1:0]  out_V_TDATA
+	input	out0_V_TREADY,
+	output	out0_V_TVALID,
+	output	[AXI_OBITS-1:0]  out0_V_TDATA
 );
 
 	dwc_axi #(
@@ -63,9 +63,9 @@ module $TOP_MODULE_NAME$ #(
 		.s_axis_tready(in0_V_TREADY),
 		.s_axis_tvalid(in0_V_TVALID),
 		.s_axis_tdata(in0_V_TDATA),
-		.m_axis_tready(out_V_TREADY),
-		.m_axis_tvalid(out_V_TVALID),
-		.m_axis_tdata(out_V_TDATA)
+		.m_axis_tready(out0_V_TREADY),
+		.m_axis_tvalid(out0_V_TVALID),
+		.m_axis_tdata(out0_V_TDATA)
 	);
 
 endmodule
