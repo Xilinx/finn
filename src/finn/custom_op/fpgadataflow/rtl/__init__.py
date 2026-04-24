@@ -39,12 +39,12 @@ from finn.custom_op.fpgadataflow.rtl.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.rtl.inner_shuffle_rtl import InnerShuffle_rtl
 from finn.custom_op.fpgadataflow.rtl.layernorm_rtl import LayerNorm_rtl
 from finn.custom_op.fpgadataflow.rtl.matrixvectoractivation_rtl import MVAU_rtl
+from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import PWPolyF_rtl
 from finn.custom_op.fpgadataflow.rtl.requant_rtl import Requant_rtl
 from finn.custom_op.fpgadataflow.rtl.streamingdatawidthconverter_rtl import (
     StreamingDataWidthConverter_rtl,
 )
 from finn.custom_op.fpgadataflow.rtl.streamingfifo_rtl import StreamingFIFO_rtl
-from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import PWPolyF_rtl
 from finn.custom_op.fpgadataflow.rtl.thresholding_rtl import Thresholding_rtl
 from finn.custom_op.fpgadataflow.rtl.vectorvectoractivation_rtl import VVAU_rtl
 

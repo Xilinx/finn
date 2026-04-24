@@ -354,8 +354,13 @@ class InferPWPolyFLayer(Transformation):
                 K = K_attr.i if K_attr is not None else 3
 
                 new_node = self._make_pwpolyf_node(
-                    pwp_input, pwp_output, func, pwp_in_shape, idt,
-                    "PWPolyF_" + node.name, K,
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
+                    "PWPolyF_" + node.name,
+                    K,
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(node)
@@ -374,7 +379,11 @@ class InferPWPolyFLayer(Transformation):
 
                 func = self._SINGLE_OP_MAP[node.op_type]
                 new_node = self._make_pwpolyf_node(
-                    pwp_input, pwp_output, func, pwp_in_shape, idt,
+                    pwp_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
                     "PWPolyF_" + node.name,
                 )
                 graph.node.insert(node_ind, new_node)
@@ -410,7 +419,11 @@ class InferPWPolyFLayer(Transformation):
                             nodes_to_remove.append(mul_cand)
 
                 new_node = self._make_pwpolyf_node(
-                    sig_input, pwp_output, func, pwp_in_shape, idt,
+                    sig_input,
+                    pwp_output,
+                    func,
+                    pwp_in_shape,
+                    idt,
                     "PWPolyF_" + node.name,
                 )
                 graph.node.insert(node_ind, new_node)
@@ -433,7 +446,11 @@ class InferPWPolyFLayer(Transformation):
                     continue
 
                 new_node = self._make_pwpolyf_node(
-                    pwp_input, pwp_output, "gelu", pwp_in_shape, idt,
+                    pwp_input,
+                    pwp_output,
+                    "gelu",
+                    pwp_in_shape,
+                    idt,
                     "PWPolyF_" + node.name,
                 )
                 graph.node.insert(node_ind, new_node)
@@ -1568,13 +1585,11 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
                 assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
-                    n.name
-                    + """: First
+                    n.name + """: First
                 input for xnorpopcount is not Wset to FINN DataType BINARY."""
                 )
                 assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
-                    n.name
-                    + """: Second
+                    n.name + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 )
                 idt = DataType["BINARY"]
@@ -1592,8 +1607,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
                 simd = 1
                 wmem = mw * mh // (pe * simd)
                 assert mw * mh == wmem * pe * simd, (
-                    n.name
-                    + """: Requirement (MW * MH) divisiable by
+                    n.name + """: Requirement (MW * MH) divisiable by
                 (WMEM * PE * SIMD) is violated."""
                 )
                 # see if we have any following thresholds
@@ -1606,8 +1620,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
                     mt_thres = consumer.input[1]
                     T = model.get_initializer(mt_thres)
                     assert T.shape[0] == 1 or T.shape[0] == mh, (
-                        consumer.name
-                        + """: First dimension of
+                        consumer.name + """: First dimension of
                     thresholds neither 1 nor MH."""
                     )
                     odt = model.get_tensor_datatype(mt_output)
@@ -1719,8 +1732,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                     simd = 1
                     wmem = mw * mh // (pe * simd)
                     assert mw * mh == wmem * pe * simd, (
-                        n.name
-                        + """: Requirement (MW * MH) divisible by
+                        n.name + """: Requirement (MW * MH) divisible by
                     (WMEM * PE * SIMD) is violated."""
                     )
                     # see if we have any following thresholds
@@ -1733,8 +1745,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         mt_thres = consumer.input[1]
                         T = model.get_initializer(mt_thres)
                         assert T.shape[0] == 1 or T.shape[0] == mh, (
-                            consumer.name
-                            + """: First dimension of
+                            consumer.name + """: First dimension of
                         thresholds neither 1 nor MH."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
@@ -1843,11 +1854,8 @@ class InferVectorVectorActivation(Transformation):
                 try:
                     k_h, k_w = sparsity["dw"]["kernel_shape"]
                 except KeyError:
-                    raise Exception(
-                        n.name
-                        + """: sparsity annotation doesn't indicate that MatMul
-                        belongs to a depthwise convolution."""
-                    )
+                    raise Exception(n.name + """: sparsity annotation doesn't indicate that MatMul
+                        belongs to a depthwise convolution.""")
 
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
@@ -1890,8 +1898,7 @@ class InferVectorVectorActivation(Transformation):
                         mt_thres = consumer.input[1]
                         T = model.get_initializer(mt_thres)
                         assert T.shape[0] == 1 or T.shape[0] == channels, (
-                            consumer.name
-                            + """: First dimension of
+                            consumer.name + """: First dimension of
                         thresholds neither 1 nor Channels."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
@@ -2076,9 +2083,7 @@ class InferShuffle(Transformation):
                         to_remove.append(consumer)
 
                 # Handle None shapes (shape inference might have failed)
-                assert (
-                    in_reshaped is not None
-                ), f"""Could not infer shape for tensor {n.input[0]}.
+                assert in_reshaped is not None, f"""Could not infer shape for tensor {n.input[0]}.
                     Please run InferShapes first"""
                 assert (
                     out_reshaped is not None
@@ -2090,28 +2095,22 @@ class InferShuffle(Transformation):
 
                 # Some sanity checks for the transformation
                 if idt != odt:
-                    raise RuntimeError(
-                        """
+                    raise RuntimeError("""
                     Input datatype and output datatype of the shuffle must be the same,
                     did something go wrong during transformation?
-                    """
-                    )
+                    """)
 
                 if len(perm.ints) != len(in_reshaped):
-                    raise RuntimeError(
-                        f"""
+                    raise RuntimeError(f"""
                     Permutation list {perm.ints=} does not match the reshaped input dimension
                     {in_reshaped=}
-                    """
-                    )
+                    """)
 
                 if len(perm.ints) != len(out_shape):
-                    raise RuntimeError(
-                        f"""
+                    raise RuntimeError(f"""
                     Permutation list {perm.ints=} does not match the reshaped out dimension
                     {out_reshaped=}
-                    """
-                    )
+                    """)
 
                 simd = 1
 
@@ -2417,10 +2416,8 @@ class InferLayerNorm(Transformation):
                 scale_is_one = (scale == 1).all()
                 bias_is_zero = not np.any(bias)
                 if not (scale_is_one and (bias_is_zero or bias is not None)):
-                    warnings.warn(
-                        f"""{node.name}: Scale is not one or bias is not zero.
-                        Can't be converted to HWCustomOp. Please run ExtractNormScaleBias first."""
-                    )
+                    warnings.warn(f"""{node.name}: Scale is not one or bias is not zero.
+                        Can't be converted to HWCustomOp. Please run ExtractNormScaleBias first.""")
                     continue
                 act_in = node.input[0]
                 act_out = node.output[0]

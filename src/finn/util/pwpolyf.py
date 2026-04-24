@@ -55,10 +55,10 @@ REFERENCE_FUNCS = {
 }
 
 CLAMP_CFG = {
-    "gelu":    {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
-    "silu":    {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
+    "gelu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
+    "silu": {"neg_clamp": 0.0, "pos_clamp": 0.0, "pos_passthrough": True},
     "sigmoid": {"neg_clamp": 0.0, "pos_clamp": 1.0, "pos_passthrough": False},
-    "tanh":    {"neg_clamp": -1.0, "pos_clamp": 1.0, "pos_passthrough": False},
+    "tanh": {"neg_clamp": -1.0, "pos_clamp": 1.0, "pos_passthrough": False},
 }
 
 
@@ -73,7 +73,7 @@ def _segment_boundaries(K):
     # Positive segments
     for octave in range(NUM_OCTAVES):
         exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0 ** exp_val
+        base = 2.0**exp_val
         for sub in range(num_subs):
             lo = base * (1.0 + sub / num_subs)
             hi = base * (1.0 + (sub + 1) / num_subs)
@@ -82,7 +82,7 @@ def _segment_boundaries(K):
     # Negative segments (mirror of positive)
     for octave in range(NUM_OCTAVES):
         exp_val = EXP_BASE + octave - EXP_BIAS
-        base = 2.0 ** exp_val
+        base = 2.0**exp_val
         for sub in range(num_subs):
             lo = base * (1.0 + sub / num_subs)
             hi = base * (1.0 + (sub + 1) / num_subs)
@@ -151,9 +151,7 @@ class PWPolyFFunction(torch.autograd.Function):
         orig_shape = x.shape
         x_flat = x.contiguous().view(-1)
 
-        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(
-            x_flat, K, num_subs, num_segs
-        )
+        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
 
         c = coeffs[seg_idx]
         a0 = c[:, 0]
@@ -207,8 +205,12 @@ class PiecewisePolyActivation(nn.Module):
     def forward(self, x):
         if torch.onnx.is_in_onnx_export():
             return PWPolyFFunction.apply(
-                x, self.coeffs, self.neg_clamp_val, self.pos_clamp_val,
-                self.func, self.K,
+                x,
+                self.coeffs,
+                self.neg_clamp_val,
+                self.pos_clamp_val,
+                self.func,
+                self.K,
             )
 
         orig_shape = x.shape

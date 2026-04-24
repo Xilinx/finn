@@ -41,20 +41,16 @@ from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.util.pwpolyf import PiecewisePolyActivation
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPWPolyFLayer
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.pwpolyf import PiecewisePolyActivation
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 
 
 def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, num_input_vecs + [num_channels]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, num_input_vecs + [num_channels]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, num_input_vecs + [num_channels])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, num_input_vecs + [num_channels])
 
     pwpolyf_node = helper.make_node(
         "PWPolyF",
@@ -131,11 +127,16 @@ def test_pwpolyf_onnx_export(func):
         tmpf = f.name
     try:
         torch.onnx.export(
-            mod, dummy, tmpf,
-            input_names=["input"], output_names=["output"],
-            opset_version=13, dynamo=False,
+            mod,
+            dummy,
+            tmpf,
+            input_names=["input"],
+            output_names=["output"],
+            opset_version=13,
+            dynamo=False,
         )
-        import onnx
+        import onnx  # noqa: PLC0415
+
         onnx_model = onnx.load(tmpf)
     finally:
         os.unlink(tmpf)
@@ -161,9 +162,13 @@ def test_pwpolyf_infer_transform(func):
         tmpf = f.name
     try:
         torch.onnx.export(
-            mod, dummy, tmpf,
-            input_names=["inp"], output_names=["outp"],
-            opset_version=13, dynamo=False,
+            mod,
+            dummy,
+            tmpf,
+            input_names=["inp"],
+            output_names=["outp"],
+            opset_version=13,
+            dynamo=False,
         )
         model = ModelWrapper(tmpf)
     finally:
@@ -311,7 +316,10 @@ def make_silu_pattern_model(num_channels, num_input_vecs):
     mul_node = helper.make_node("Mul", ["inp", "sig_out"], ["outp"], name="Mul_0")
 
     graph = helper.make_graph(
-        [sigmoid_node, mul_node], "silu_graph", [inp], [outp],
+        [sigmoid_node, mul_node],
+        "silu_graph",
+        [inp],
+        [outp],
     )
     model = helper.make_model(graph, producer_name="test")
     model = ModelWrapper(model)
@@ -343,7 +351,9 @@ def make_erf_gelu_model(num_channels, num_input_vecs):
 
     graph = helper.make_graph(
         [div_node, erf_node, add_node, mul_half_node, mul_x_node],
-        "erf_gelu_graph", [inp], [outp],
+        "erf_gelu_graph",
+        [inp],
+        [outp],
         initializer=[sqrt2, one, half],
     )
     model = helper.make_model(graph, producer_name="test")
@@ -356,16 +366,18 @@ def make_erf_gelu_model(num_channels, num_input_vecs):
 # ---------- standard ONNX op inference tests ----------
 
 
-@pytest.mark.parametrize("op_type,expected_func", [
-    ("Gelu", "gelu"),
-    ("Sigmoid", "sigmoid"),
-    ("Tanh", "tanh"),
-])
+@pytest.mark.parametrize(
+    "op_type,expected_func",
+    [
+        ("Gelu", "gelu"),
+        ("Sigmoid", "sigmoid"),
+        ("Tanh", "tanh"),
+    ],
+)
 @pytest.mark.parametrize("num_channels", [4, 16])
 @pytest.mark.parametrize("num_input_vecs", [[1], [1, 2, 2]])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_infer_standard_op(op_type, expected_func,
-                                   num_channels, num_input_vecs):
+def test_pwpolyf_infer_standard_op(op_type, expected_func, num_channels, num_input_vecs):
     model = make_standard_activation_model(op_type, num_channels, num_input_vecs)
 
     assert model.graph.node[0].op_type == op_type
@@ -449,8 +461,10 @@ def test_pwpolyf_sigmoid_multi_consumer_no_silu():
     identity_node = helper.make_node("Identity", ["sig_out"], ["outp2"], name="Id_0")
 
     graph = helper.make_graph(
-        [sigmoid_node, mul_node, identity_node], "test_graph",
-        [inp], [outp1, outp2],
+        [sigmoid_node, mul_node, identity_node],
+        "test_graph",
+        [inp],
+        [outp1, outp2],
     )
     model = helper.make_model(graph, producer_name="test")
     model = ModelWrapper(model)
@@ -469,11 +483,14 @@ def test_pwpolyf_sigmoid_multi_consumer_no_silu():
     assert any(n.op_type == "Identity" for n in model.graph.node)
 
 
-@pytest.mark.parametrize("op_type,expected_func", [
-    ("Gelu", "gelu"),
-    ("Sigmoid", "sigmoid"),
-    ("Tanh", "tanh"),
-])
+@pytest.mark.parametrize(
+    "op_type,expected_func",
+    [
+        ("Gelu", "gelu"),
+        ("Sigmoid", "sigmoid"),
+        ("Tanh", "tanh"),
+    ],
+)
 @pytest.mark.fpgadataflow
 def test_pwpolyf_standard_op_execution(op_type, expected_func):
     num_channels = 16
