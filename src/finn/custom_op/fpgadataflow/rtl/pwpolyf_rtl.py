@@ -85,10 +85,10 @@ def generate_coeffs_pkg(K, num_samples=1000):
     lines.append("    localparam int unsigned  NUM_SEGS    = %d;" % num_segs)
     lines.append("")
     lines.append("    typedef struct {")
-    lines.append("        logic [31:0]  neg_clamp;")
-    lines.append("        logic [31:0]  pos_clamp;")
+    lines.append("        int unsigned  neg_clamp;")
+    lines.append("        int unsigned  pos_clamp;")
     lines.append("        bit           pos_passthrough;")
-    lines.append("        logic [31:0]  coeffs[NUM_SEGS][DEGREE+1];")
+    lines.append("        int unsigned  coeffs[NUM_SEGS][DEGREE+1];")
     lines.append("    } func_cfg_t;")
 
     for func_name in SUPPORTED_FUNCS:
