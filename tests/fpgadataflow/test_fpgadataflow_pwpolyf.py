@@ -41,11 +41,19 @@ from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import generate_coeffs_pkg
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPWPolyFLayer
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.pwpolyf import PiecewisePolyActivation
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
+target_clk_ns = 5
 
 
 def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
@@ -220,17 +228,19 @@ def test_pwpolyf_specialize_rtl(func):
 
 @pytest.mark.parametrize("func", ["gelu", "tanh"])
 @pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.parametrize("degree", [2, 3])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_resource_estimates(func, pe):
+def test_pwpolyf_resource_estimates(func, pe, degree):
     K = 3
     num_channels = 8
     model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
     node = model.graph.node[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("degree", degree)
 
-    assert inst.dsp_estimation() == 2 * pe
-    assert inst.lut_estimation() == 200 * pe
+    assert inst.dsp_estimation() == degree * pe
+    assert inst.lut_estimation() == 100 * degree * pe
     assert inst.bram_estimation() == 0
     assert inst.uram_estimation() == 0
 
@@ -563,3 +573,174 @@ def test_pwpolyf_erf_gelu_execution():
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
+# ---------- coefficient package smoketests ----------
+
+
+@pytest.mark.parametrize("K", [2, 3, 4])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_generate_coeffs_pkg(K):
+    """Verify generate_coeffs_pkg produces valid SystemVerilog package."""
+    pkg = generate_coeffs_pkg(K)
+
+    assert "package pwpolyf_pkg" in pkg
+    assert "endpackage" in pkg
+    # localparam lines use padded alignment in the generated SV
+    assert "DEGREE      = 2;" in pkg
+    assert "K           = %d;" % K in pkg
+
+    num_segs = 1 + 2 * 5 * (1 << K)
+    assert "NUM_SEGS    = %d;" % num_segs in pkg
+
+    for func_label in ["GELU", "SILU", "SIGMOID", "TANH"]:
+        assert func_label + " = '{" in pkg
+
+    seg_lines = [line for line in pkg.split("\n") if "// seg" in line]
+    # Each function has num_segs segments, 4 functions total
+    assert len(seg_lines) == 4 * num_segs
+
+
+@pytest.mark.parametrize("degree", [1, 2, 3])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_generate_coeffs_pkg_degree(degree):
+    """Verify generate_coeffs_pkg respects degree parameter."""
+    K = 3
+    pkg = generate_coeffs_pkg(K, degree=degree)
+
+    assert "DEGREE      = %d;" % degree in pkg
+    # Each segment line should have degree+1 coefficient values
+    seg_lines = [line for line in pkg.split("\n") if "// seg 0" in line]
+    for line in seg_lines:
+        hex_vals = [s for s in line.split() if s.startswith("32'h")]
+        assert len(hex_vals) == degree + 1
+
+
+# ---------- generate_hdl smoketests ----------
+
+
+@pytest.mark.parametrize("func", ["gelu", "tanh"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_pwpolyf_generate_hdl(func, pe):
+    """Verify generate_hdl produces expected RTL files."""
+    num_channels = 4
+    model = make_pwpolyf_modelwrapper(func, 3, num_channels, [1])
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF_rtl"
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+
+    # Re-fetch node after transform (PrepareIP returns a new model)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+
+    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+    assert code_gen_dir, "code_gen_dir_ipgen not set after PrepareIP"
+    assert os.path.isfile(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"))
+    assert os.path.isfile(os.path.join(code_gen_dir, "pwpolyf.sv"))
+    assert os.path.isfile(os.path.join(code_gen_dir, "queue.sv"))
+
+    topname = inst.get_nodeattr("gen_top_module")
+    assert os.path.isfile(os.path.join(code_gen_dir, topname + ".v"))
+
+    # Verify package content
+    with open(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"), "r") as f:
+        pkg_content = f.read()
+    assert "DEGREE      = 2;" in pkg_content
+    assert "K           = 3;" in pkg_content
+    assert func.upper() + " = '{" in pkg_content
+
+
+# ---------- RTL simulation tests ----------
+
+
+@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+@pytest.mark.parametrize("num_channels", [4, 8])
+@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_pwpolyf_rtlsim(func, num_channels, pe):
+    """Node-by-node RTL simulation of PWPolyF_rtl."""
+    if num_channels % pe != 0:
+        pytest.skip("PE does not divide NumChannels")
+
+    K = 3
+    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
+
+    # Get cppsim reference output
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    input_dict = {"inp": x}
+    y_ref = oxe.execute_onnx(model, input_dict)["outp"]
+
+    # Specialize to RTL and set PE
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    assert node.op_type == "PWPolyF_rtl"
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    # RTL simulation pipeline
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    y_rtl = oxe.execute_onnx(model, input_dict)["outp"]
+    assert np.allclose(y_ref, y_rtl, atol=1e-4), (
+        "RTL output does not match cppsim reference"
+    )
+
+    # Verify cycle count (re-fetch node after transforms)
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+    assert exp_cycles != 0
+
+
+@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+@pytest.mark.parametrize("pe", [1, 2])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_pwpolyf_rtlsim_stitched_ip(func, pe):
+    """Stitched IP RTL simulation of PWPolyF_rtl."""
+    K = 3
+    num_channels = 4
+    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
+
+    # Get cppsim reference output
+    x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
+    input_dict = {model.graph.input[0].name: x}
+    y_ref = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+
+    # Specialize to RTL and set PE
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    # Stitched IP pipeline
+    model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
+    input_dict = {model.graph.input[0].name: x}
+    y_rtl = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
+    assert np.allclose(y_ref, y_rtl, atol=1e-4), (
+        "Stitched IP output does not match cppsim reference"
+    )

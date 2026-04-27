@@ -40,13 +40,12 @@ def _float_to_hex(f):
     return "%08X" % struct.unpack("!I", struct.pack("!f", float(f)))[0]
 
 
-def generate_coeffs_pkg(K, num_samples=1000):
+def generate_coeffs_pkg(K, degree=2, num_samples=1000):
     """Generate the pwpolyf_pkg.sv package content for a given K value.
 
     Produces a SystemVerilog package with a func_cfg_t struct per activation
     function, containing clamping parameters and polynomial coefficients.
     """
-    degree = 2
     num_subs = 1 << K
     num_segs = 1 + 2 * NUM_OCTAVES * num_subs
 
@@ -72,7 +71,7 @@ def generate_coeffs_pkg(K, num_samples=1000):
 
     for func_name in SUPPORTED_FUNCS:
         cfg = CLAMP_CFG[func_name]
-        coeffs = _fit_coefficients(func_name, K, num_samples)
+        coeffs = _fit_coefficients(func_name, K, degree=degree, num_samples=num_samples)
         label = func_name.upper()
         neg_hex = _float_to_hex(cfg["neg_clamp"])
         pos_hex = _float_to_hex(cfg["pos_clamp"])
@@ -123,8 +122,8 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         self.set_nodeattr("gen_top_module", topname)
 
         code_gen_dict = {
-            "$MODULE_NAME_AXI_WRAPPER$": topname + "_axi_wrapper",
-            "$TOP_MODULE$": topname + "_axi_wrapper",
+            "$MODULE_NAME_AXI_WRAPPER$": topname,
+            "$TOP_MODULE$": topname,
             "$PE$": str(pe),
             "$FUNC$": '"%s"' % func,
             "$IN_WIDTH$": str(pe * 32),
@@ -143,9 +142,10 @@ class PWPolyF_rtl(PWPolyF, RTLBackend):
         for sv_file in ["pwpolyf.sv", "queue.sv"]:
             shutil.copy(rtllib_dir + sv_file, code_gen_dir)
 
-        # generate package with coefficients matching the node's K value
+        # generate package with coefficients matching the node's K and degree
         K = self.get_nodeattr("K")
-        pkg_data = generate_coeffs_pkg(K)
+        degree = self.get_nodeattr("degree")
+        pkg_data = generate_coeffs_pkg(K, degree=degree)
         with open(os.path.join(code_gen_dir, "pwpolyf_pkg.sv"), "w") as f:
             f.write(pkg_data)
 

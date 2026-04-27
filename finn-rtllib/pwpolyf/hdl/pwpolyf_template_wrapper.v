@@ -35,7 +35,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  PE = $PE$,
 	parameter  FUNC = $FUNC$
 )(
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out0_V, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
@@ -47,9 +47,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	input [$IN_WIDTH$-1:0]	in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
-	input	out_V_TREADY,
-	output	out_V_TVALID,
-	output [$OUT_WIDTH$-1:0]	out_V_TDATA
+	input	out0_V_TREADY,
+	output	out0_V_TVALID,
+	output [$OUT_WIDTH$-1:0]	out0_V_TDATA
 );
 
 	pwpolyf #(
@@ -61,9 +61,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 		.xdat(in0_V_TDATA),
 		.xvld(in0_V_TVALID),
 		.xrdy(in0_V_TREADY),
-		.ydat(out_V_TDATA),
-		.yvld(out_V_TVALID),
-		.yrdy(out_V_TREADY)
+		.ydat(out0_V_TDATA),
+		.yvld(out0_V_TVALID),
+		.yrdy(out0_V_TREADY)
 	);
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

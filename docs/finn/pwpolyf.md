@@ -16,11 +16,12 @@ K=3 this gives 81 segments. Segment selection reuses the FP32
 exponent/mantissa bit-fields directly, matching the RTL implementation.
 
 Polynomial coefficients are generated at HDL build time by
-`generate_coeffs_pkg()` in `pwpolyf_rtl.py`, which fits degree-2 polynomials
-to the reference PyTorch functions and writes `pwpolyf_pkg.sv` — a
-SystemVerilog package with one `func_cfg_t` struct per activation
-(clamping config + coefficient table). K can take any value; it defaults
-to 3 when inferred from standard ONNX ops.
+`generate_coeffs_pkg()` in `pwpolyf_rtl.py`, which fits polynomials of the
+configured degree to the reference PyTorch functions and writes
+`pwpolyf_pkg.sv` — a SystemVerilog package with one `func_cfg_t` struct per
+activation (clamping config + coefficient table). Both K and degree are
+configurable; they default to K=3 and degree=2 when inferred from standard
+ONNX ops.
 
 ## Architecture
 
@@ -74,18 +75,19 @@ Notes:
 ## Folding
 
 PWPolyF uses PE parallelism. `NumChannels % PE == 0` must hold.
-Each PE instantiates its own polynomial evaluation pipeline (2 DSPs).
+Each PE instantiates its own polynomial evaluation pipeline (`degree` DSPs).
 `SetFolding` handles PE selection automatically.
 
-| PE | DSPs | Approx LUTs | Cycles (per spatial position) |
-|----|------|-------------|-------------------------------|
-| 1  | 2    | 200         | NumChannels                   |
-| C  | 2C   | 200C        | 1                             |
+| PE | Degree | DSPs       | Approx LUTs      | Cycles (per spatial position) |
+|----|--------|------------|-------------------|-------------------------------|
+| 1  | 2      | 2          | 200               | NumChannels                   |
+| C  | 2      | 2C         | 200C              | 1                             |
+| 1  | 3      | 3          | 300               | NumChannels                   |
 
 ## Resource estimates
 
-- **DSP:** 2 per PE (two FP32 FMA stages)
-- **LUT:** ~200 per PE (segment address decode + control)
+- **DSP:** `degree * PE` (one FP32 FMA stage per polynomial degree per PE)
+- **LUT:** `~100 * degree * PE` (segment address decode + control)
 - **BRAM/URAM:** 0 (coefficients stored in LUT/registers)
 
 ## ONNX export
@@ -109,7 +111,8 @@ Attributes on the explicit PWPolyF ONNX node:
 | Attribute          | Type   | Description                              |
 |--------------------|--------|------------------------------------------|
 | `func`             | string | Activation function name                 |
-| `K`                | int    | Mantissa subdivision bits                |
+| `K`                | int    | Mantissa subdivision bits (default 3)    |
+| `degree`           | int    | Polynomial degree / FMA stages (default 2) |
 | `NumChannels`      | int    | Number of channels (last input dim)      |
 | `PE`               | int    | Processing elements                      |
 | `inputDataType`    | string | Input data type (FLOAT32)                |
@@ -159,6 +162,10 @@ Attributes on the explicit PWPolyF ONNX node:
 - **SiLU edge cases**: reversed Mul input order, multi-consumer Sigmoid
 - **Execution correctness**: standard ops produce same output as PiecewisePolyActivation
 - **SpecializeLayers**: verifies RTL specialization
-- **Resource estimates**: DSP/LUT/BRAM checks across PE values
+- **Resource estimates**: DSP/LUT/BRAM checks across PE and degree values
 - **Folded shapes**: input/output/stream width calculations
 - **Expected cycles**: cycle count estimation + analysis pass integration
+- **Coefficient package**: `generate_coeffs_pkg()` output validation for K and degree
+- **HDL generation** (Vivado): verifies `generate_hdl` produces correct files and package content
+- **RTL simulation** (Vivado, slow): node-by-node rtlsim with cycle count verification
+- **Stitched IP** (Vivado, slow): end-to-end stitched IP rtlsim

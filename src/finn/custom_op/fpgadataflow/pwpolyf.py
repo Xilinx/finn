@@ -59,6 +59,8 @@ class PWPolyF(HWCustomOp):
             # FINN DataTypes for inputs, outputs (always FLOAT32)
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # polynomial degree (number of FMA stages per PE)
+            "degree": ("i", False, 2),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -155,7 +157,8 @@ class PWPolyF(HWCustomOp):
 
     def lut_estimation(self):
         pe = self.get_nodeattr("PE")
-        return 200 * pe
+        degree = self.get_nodeattr("degree")
+        return 100 * degree * pe
 
     def bram_estimation(self):
         # coefficients stored in LUT ROM, not BRAM
@@ -165,9 +168,9 @@ class PWPolyF(HWCustomOp):
         return 0
 
     def dsp_estimation(self, fpgapart=None):
-        # two DSPFP32 FMA instances per PE (Horner evaluation)
         pe = self.get_nodeattr("PE")
-        return 2 * pe
+        degree = self.get_nodeattr("degree")
+        return degree * pe
 
     def execute_node(self, context, graph):
         node = self.onnx_node
@@ -181,7 +184,8 @@ class PWPolyF(HWCustomOp):
 
         from finn.util.pwpolyf import PiecewisePolyActivation  # noqa: PLC0415
 
-        mod = PiecewisePolyActivation(func, K=K)
+        degree = self.get_nodeattr("degree")
+        mod = PiecewisePolyActivation(func, K=K, degree=degree)
         with torch.no_grad():
             x = torch.from_numpy(inp.astype(np.float32))
             y = mod(x)

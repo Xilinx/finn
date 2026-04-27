@@ -91,19 +91,19 @@ def _segment_boundaries(K):
     return bounds
 
 
-def _fit_coefficients(func_name, K, num_samples=1000):
-    """Fit degree-2 polynomials per segment.  Returns (NUM_SEGS, 3) tensor."""
+def _fit_coefficients(func_name, K, degree=2, num_samples=1000):
+    """Fit degree-N polynomials per segment.  Returns (NUM_SEGS, degree+1) tensor."""
     ref_fn = REFERENCE_FUNCS[func_name]
     bounds = _segment_boundaries(K)
     num_segs = len(bounds)
-    coeffs = np.zeros((num_segs, 3), dtype=np.float64)
+    coeffs = np.zeros((num_segs, degree + 1), dtype=np.float64)
 
     for seg, (lo, hi) in enumerate(bounds):
         xs = np.linspace(lo, hi, num_samples, dtype=np.float64)
         with torch.no_grad():
             ys = ref_fn(torch.from_numpy(xs).float()).numpy().astype(np.float64)
-        c = np.polynomial.polynomial.polyfit(xs, ys, deg=2)
-        coeffs[seg] = c[:3]
+        c = np.polynomial.polynomial.polyfit(xs, ys, deg=degree)
+        coeffs[seg] = c[: degree + 1]
 
     return torch.from_numpy(coeffs.astype(np.float32))
 
@@ -146,6 +146,7 @@ class PWPolyFFunction(torch.autograd.Function):
     def forward(ctx, x, coeffs, neg_clamp_val, pos_clamp_val, func, K):
         num_subs = 1 << K
         num_segs = 1 + 2 * NUM_OCTAVES * num_subs
+        degree = coeffs.shape[1] - 1
         pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
 
         orig_shape = x.shape
@@ -154,11 +155,10 @@ class PWPolyFFunction(torch.autograd.Function):
         seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
 
         c = coeffs[seg_idx]
-        a0 = c[:, 0]
-        a1 = c[:, 1]
-        a2 = c[:, 2]
-
-        y = a0 + x_flat * (a1 + a2 * x_flat)
+        # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
+        y = c[:, degree]
+        for i in range(degree - 1, -1, -1):
+            y = c[:, i] + x_flat * y
 
         if pos_passthrough:
             pos_val = x_flat
@@ -183,18 +183,19 @@ class PiecewisePolyActivation(nn.Module):
     Emits a single PWPolyF custom op node during ONNX export.
     """
 
-    def __init__(self, func="gelu", K=3, fit_samples=1000):
+    def __init__(self, func="gelu", K=3, degree=2, fit_samples=1000):
         super().__init__()
         if func not in SUPPORTED_FUNCS:
             raise ValueError("Unsupported func=%r; choose from %s" % (func, SUPPORTED_FUNCS))
 
         self.func = func
         self.K = K
+        self.degree = degree
         self.num_subs = 1 << K
         self.num_segs = 1 + 2 * NUM_OCTAVES * self.num_subs
         self.pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
 
-        coeffs = _fit_coefficients(func, K, fit_samples)
+        coeffs = _fit_coefficients(func, K, degree=degree, num_samples=fit_samples)
         self.register_buffer("coeffs", coeffs)
 
         neg_cv = torch.tensor(CLAMP_CFG[func]["neg_clamp"], dtype=torch.float32)
@@ -221,12 +222,10 @@ class PiecewisePolyActivation(nn.Module):
         )
 
         c = self.coeffs[seg_idx]
-        a0 = c[:, 0]
-        a1 = c[:, 1]
-        a2 = c[:, 2]
-
-        # Horner: y = a0 + x*(a1 + a2*x)
-        y = a0 + x_flat * (a1 + a2 * x_flat)
+        # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
+        y = c[:, self.degree]
+        for i in range(self.degree - 1, -1, -1):
+            y = c[:, i] + x_flat * y
 
         if self.pos_passthrough:
             pos_val = x_flat
