@@ -28,6 +28,7 @@
 
 import warnings
 from onnx import helper
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
@@ -54,8 +55,6 @@ def _determine_impl_style(node, fpgapart, model):
             return _dwc_determine_impl_style(node)
         if rtl_variant:
             if optype == "MVAU":
-                # Delegate to _mvu_rtl_possible() which allows 2-8 bit bitwidths
-                # Removed >= 4 early filter to enable RTL/compressors for 2-3 bit
                 if _mvu_rtl_possible(node, fpgapart, model):
                     return "rtl"
                 else:
@@ -141,8 +140,8 @@ def _determine_impl_style(node, fpgapart, model):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
-                        set to HLS variant. Please check the bit-widths to be <= 8 and ensure the
-                        thresholds are implemented as standalone layer""" % (
+                        set to HLS variant. Ensure thresholds are implemented as standalone layer,
+                        weights are signed, and bitwidths are >= 2""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -247,12 +246,9 @@ def _dwc_determine_impl_style(node):
 
 def _mvu_rtl_possible(n, fpgapart, model):
     # Checks whether RTL-based MVU is supported
-    # Currently, for DSP48 we only support computations up to
-    # 8sx8u (8-bit signed weights x 8-bit (un)signed activations)
-    # and for DSP58 we support up to 8sx9s.
-    # Please note, DSP48E1 does only support narrow range for weights
-    # Next to that, embedded thresholding functionality is not supported
-    # and neither binaryxnormode computation.
+    # RTL MVU uses either DSP blocks (for larger bitwidths) or LUT-based compressor (2<=WW<=4 && 2<=AW<=4)
+    # Weights must be signed, activations can be unsigned or signed
+    # Embedded thresholding and binaryXnorMode are not supported
     node_inst = getCustomOp(n)
     # first check if no Activation or binary xnor mode and return False
     # immediately if one of them is True
@@ -261,31 +257,19 @@ def _mvu_rtl_possible(n, fpgapart, model):
     if no_activation or is_binaryxnor_mode:
         return False
 
-    # RTL does not support BIPOLAR input datatype (1-bit signed {-1,+1})
-    # BIPOLAR requires special handling that only HLS provides
-    from qonnx.core.datatype import DataType
-
     idt = node_inst.get_input_datatype(0)
-    if idt == DataType["BIPOLAR"]:
-        return False
-
-    # check if weights are signed, if not return False
     wdt = node_inst.get_input_datatype(1)
+
     if not wdt.signed():
         return False
 
-    # NOTE: Narrow weight check for DSP48E1 removed (previously returned False for
-    # narrow_weights=False on DSP48E1). Rationale (see matrixvectoractivation_rtl.py):
-    # - Compressor path (LUT-based, WW<=4 && AW<=4): No narrow weight constraint, works
-    #   with full weight range including wdt.min()
-    # - DSP path: Handles narrow weights via NARROW_WEIGHTS module parameter in mvu.sv,
-    #   which adjusts lane slicing to accommodate narrow range
-    # - Test suite: Removed weight clipping in test_fpgadataflow_mvau.py line 785
-    #   (previously forced W = np.clip(W, wdt.min()+1, wdt.max()) on xc7z020)
-    # - Result: Both paths now accept full weight range, narrow_weights computed but not
-    #   used as a gating condition for RTL eligibility
+    # if none of the above constraints have been triggered
+    # we now check if input and weight data types are in range
+    # we only use rtl mvau if the dtypes are at least 2 bit
+    inp_width_in_range = idt.bitwidth() >= 2
+    weight_width_in_range = wdt.bitwidth() >= 2
 
-    return True
+    return inp_width_in_range and weight_width_in_range
 
 
 def _vvu_rtl_possible(n, fpgapart):
