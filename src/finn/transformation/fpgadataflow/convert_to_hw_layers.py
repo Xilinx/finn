@@ -161,7 +161,7 @@ class InferConvInpGen(Transformation):
 
 
 class InferThresholdingLayer(Transformation):
-    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+    """Convert any MultiThreshold into a standalone thresholding HW layer."""
 
     def __init__(self):
         super().__init__()
@@ -201,7 +201,7 @@ class InferThresholdingLayer(Transformation):
                     node_ind += 1
                     thl_in_shape = model.get_tensor_shape(thl_input)
 
-                # keep track of where we need to insert the HLS Op
+                # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
                 thl_output_layout = model.get_tensor_layout(thl_output)
@@ -217,11 +217,15 @@ class InferThresholdingLayer(Transformation):
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getHWCustomOp(node, model).get_nodeattr("out_scale")
                 assert scale == 1.0, (
-                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                    f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = getHWCustomOp(node, model).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
-                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
+                    f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
+                    f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
+                    f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
                 actval = int(actval)
 
@@ -1565,7 +1569,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
                         actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType["BIPOLAR"]
@@ -1721,11 +1725,11 @@ class InferVectorVectorActivation(Transformation):
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
                         assert scale == 1.0, (
-                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
+                            consumer.name + ": out_scale must be equal to 1.0 for HW conversion."
                         )
                         actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HW conversion."
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
@@ -2265,7 +2269,7 @@ class InferLayerNorm(Transformation):
                     norm_axis = (norm_axis + 2) % 4
                 ch = shape_in[-1]
 
-                # keep track of where we need to insert the HLS Op
+                # keep track of where we need to insert the HW Op
                 # it has to be ahead of the output transform
                 insert_point = node_ind
                 if model.get_tensor_layout(act_out) == DataLayout.NCHW:
