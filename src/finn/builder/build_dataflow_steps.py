@@ -348,6 +348,8 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
     # TopK to LabelSelect
     model = model.transform(to_hw.InferLabelSelectLayer())
+    # sequence CLS token insertion
+    model = model.transform(to_hw.InferAddCLSTokenLayer())
     # input quantization (if any) as standalone threshold
     model = model.transform(to_hw.InferThresholdingLayer())
     # needed for convolutions -- TODO always exec?

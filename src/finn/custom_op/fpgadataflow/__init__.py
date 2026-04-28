@@ -27,6 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
 from finn.custom_op.fpgadataflow.addstreams import AddStreams
 from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
@@ -66,6 +67,7 @@ custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
 custom_op["AddStreams"] = AddStreams
+custom_op["AddCLSToken"] = AddCLSToken
 custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["DownSampler"] = DownSampler

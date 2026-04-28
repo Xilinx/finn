@@ -27,8 +27,25 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import re
 
 from finn.util.basic import launch_process_helper, which
+
+
+def _extract_util_from_report(vivado_proj_folder, row_name):
+    """Extract the Used column for a row in Vivado's utilization report."""
+
+    log_path = os.path.join(vivado_proj_folder, "vivado.log")
+    if not os.path.isfile(log_path):
+        return None
+
+    row_pattern = re.compile(r"^\|\s*%s\s*\|\s*([0-9.]+)\s*\|" % re.escape(row_name))
+    with open(log_path, "r") as f:
+        for line in f:
+            match = row_pattern.match(line)
+            if match is not None:
+                return float(match.group(1))
+    return None
 
 
 def out_of_context_synth(
@@ -48,16 +65,17 @@ def out_of_context_synth(
         raise Exception("vivado is not in PATH, ensure settings64.sh is sourced.")
     omx_path = os.environ["OHMYXILINX"]
     script = "vivadocompile.sh"
-    # vivadocompile.sh <top-level-entity> <clock-name (optional)> <fpga-part (optional)>
-    call_omx = "zsh %s/%s %s %s %s %f" % (
-        omx_path,
-        script,
+    # vivadocompile.sh <top-level-entity> <fp-ip-tcl-list> <clock-name>
+    #                  <fpga-part> <clk-period-ns>
+    call_omx = [
+        "zsh",
+        os.path.join(omx_path, script),
         top_name,
+        "",
         clk_name,
         fpga_part,
-        float(clk_period_ns),
-    )
-    call_omx = call_omx.split()
+        "%f" % float(clk_period_ns),
+    ]
     launch_process_helper(call_omx, proc_env=os.environ.copy(), cwd=verilog_dir)
 
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
@@ -67,13 +85,23 @@ def out_of_context_synth(
         res_data = myfile.read().split("\n")
     ret = {}
     ret["vivado_proj_folder"] = vivado_proj_folder
+    util_report_rows = {
+        "DSP": "DSPs",
+    }
     for res_line in res_data:
         res_fields = res_line.split("=")
         print(res_fields)
         try:
             ret[res_fields[0]] = float(res_fields[1])
         except ValueError:
-            ret[res_fields[0]] = 0
+            util_value = None
+            if res_fields[0] in util_report_rows:
+                util_value = _extract_util_from_report(
+                    vivado_proj_folder, util_report_rows[res_fields[0]]
+                )
+            if util_value is None:
+                raise
+            ret[res_fields[0]] = util_value
         except IndexError:
             ret[res_fields[0]] = 0
     if ret["WNS"] == 0:
