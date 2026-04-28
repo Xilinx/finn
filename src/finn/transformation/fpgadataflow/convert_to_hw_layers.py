@@ -1819,8 +1819,6 @@ class InferHWSoftmax(Transformation):
                     name=n.name,
                     SIMD=1,
                     NumChannels=input_shape[-1],
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 if hasattr(n, "metadata_props"):
                     new_node.metadata_props.extend(n.metadata_props)

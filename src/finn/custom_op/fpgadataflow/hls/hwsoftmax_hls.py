@@ -21,6 +21,9 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         my_attrs = {}
         my_attrs.update(HWSoftmax.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
+        # override HLSBackend defaults for the SoftMax kernel
+        my_attrs["cpp_interface"] = ("s", False, "hls_vector")
+        my_attrs["hls_style"] = ("s", False, "freerunning")
         return my_attrs
 
     def global_includes(self):
