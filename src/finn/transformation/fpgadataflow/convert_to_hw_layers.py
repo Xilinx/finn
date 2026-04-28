@@ -1807,8 +1807,6 @@ class InferHWSoftmax(Transformation):
                     name=n.name,
                     SIMD=1,
                     NumChannels=input_shape[-1],
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
