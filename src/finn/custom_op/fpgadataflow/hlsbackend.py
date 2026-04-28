@@ -85,20 +85,8 @@ class HLSBackend(ABC):
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
-        subcore_verilog_path = [
-            "{}/project_{}/sol1/impl/ip/hdl/ip/".format(code_gen_dir, self.onnx_node.name)
-        ]
-        subcore_verilog_path.append(
-            """{}/project_{}/sol1/impl/ip/subcore_prj/subcore_prj.gen/sources_1/
-            ip/{}_fmul_32ns_32ns_32_1_primitive_dsp_1_ip/sim/""".format(
-                code_gen_dir, self.onnx_node.name, self.onnx_node.name
-            )
-        )
-        subcore_verilog_path.append(
-            """{}/project_{}/sol1/impl/ip/subcore_prj/subcore_prj.gen/sources_1/
-            ip/{}_fadd_32ns_32ns_32_1_primitive_dsp_1_ip/sim/""".format(
-                code_gen_dir, self.onnx_node.name, self.onnx_node.name
-            )
+        subcore_verilog_path = "{}/project_{}/sol1/impl/ip/hdl/ip/".format(
+            code_gen_dir, self.onnx_node.name
         )
         subcore_vhdl_path = self.find_subcore_path()
 
