@@ -52,7 +52,8 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.pwpolyf import PiecewisePolyActivation
 
-test_fpga_part = "xczu3eg-sbva484-1-e"
+test_fpga_part = "xcve2002-sbva484-2MP-e-S"
+non_versal_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
@@ -226,12 +227,20 @@ def test_pwpolyf_specialize_rtl(func):
     assert inst.get_nodeattr("K") == K
 
 
+@pytest.mark.fpgadataflow
+def test_pwpolyf_specialize_rejects_non_versal():
+    model = make_pwpolyf_modelwrapper("gelu", 3, 8, [1])
+
+    with pytest.raises(Exception, match="Versal"):
+        model.transform(SpecializeLayers(non_versal_fpga_part))
+
+
 @pytest.mark.parametrize("func", ["gelu", "tanh"])
 @pytest.mark.parametrize("pe", [1, 2, 4])
-@pytest.mark.parametrize("degree", [2, 3])
+@pytest.mark.parametrize("degree", [1, 2, 3])
+@pytest.mark.parametrize("K, bram18_per_coeff_rom", [(3, 1), (6, 2)])
 @pytest.mark.fpgadataflow
-def test_pwpolyf_resource_estimates(func, pe, degree):
-    K = 3
+def test_pwpolyf_resource_estimates(func, pe, degree, K, bram18_per_coeff_rom):
     num_channels = 8
     model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
     node = model.graph.node[0]
@@ -241,7 +250,7 @@ def test_pwpolyf_resource_estimates(func, pe, degree):
 
     assert inst.dsp_estimation() == degree * pe
     assert inst.lut_estimation() == 100 * degree * pe
-    assert inst.bram_estimation() == 0
+    assert inst.bram_estimation() == max(degree - 1, 0) * pe * bram18_per_coeff_rom
     assert inst.uram_estimation() == 0
 
 

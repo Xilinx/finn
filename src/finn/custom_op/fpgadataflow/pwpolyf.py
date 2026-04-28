@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
+
 import numpy as np
 from qonnx.core.datatype import DataType
 
@@ -40,7 +42,7 @@ class PWPolyF(HWCustomOp):
     """
     HW op for piecewise polynomial activations (GELU, SiLU, Sigmoid, Tanh).
 
-    Element-wise FP32, coefficients baked into RTL.  No weights or BRAM.
+    Element-wise FP32, coefficients baked into RTL.  No weights.
     """
 
     def __init__(self, onnx_node, **kwargs):
@@ -161,8 +163,26 @@ class PWPolyF(HWCustomOp):
         return 100 * degree * pe
 
     def bram_estimation(self):
-        # coefficients stored in LUT ROM, not BRAM
-        return 0
+        pe = self.get_nodeattr("PE")
+        degree = self.get_nodeattr("degree")
+        num_segs = self.get_num_segments()
+
+        if degree <= 1:
+            return 0
+
+        # Stages after the first use a registered dynamic coefficient lookup
+        # for the DSP C input. Vivado infers this as one 32-bit wide ROM per
+        # stage and PE, backed by RAMB18 for the default K=3 table depth.
+        coeff_width = 32
+        if coeff_width <= 18 or num_segs > 512:
+            bram18_per_coeff_rom = math.ceil(num_segs / 1024) * math.ceil(
+                coeff_width / 18
+            )
+        else:
+            bram18_per_coeff_rom = math.ceil(num_segs / 512) * math.ceil(
+                coeff_width / 36
+            )
+        return pe * (degree - 1) * bram18_per_coeff_rom
 
     def uram_estimation(self):
         return 0

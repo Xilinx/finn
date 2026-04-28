@@ -5,10 +5,10 @@
 PWPolyF is a hardware activation layer that approximates nonlinear functions
 (GELU, SiLU, Sigmoid, Tanh) using piecewise polynomials evaluated via Horner's
 method on a chain of DSPFP32 FMA units. With the default degree 2, this uses
-two cascaded DSPs per PE, giving single-cycle-per-element throughput with no
-BRAM usage. Per-function configuration (clamping behaviour and polynomial
-coefficients) is delivered through a SystemVerilog package (`pwpolyf_pkg`)
-using a `func_cfg_t` struct.
+two cascaded DSPs and one RAMB18 coefficient ROM per PE, giving
+single-cycle-per-element throughput. Per-function configuration (clamping
+behaviour and polynomial coefficients) is delivered through a SystemVerilog
+package (`pwpolyf_pkg`) using a `func_cfg_t` struct.
 
 The input domain is partitioned into `1 + 2*5*(2^K)` segments: one near-zero
 region, positive octave sub-segments, and negative mirrors. With the default
@@ -25,7 +25,9 @@ ONNX ops.
 
 ## Architecture
 
-PWPolyF is **RTL-only** (no HLS variant). Two export paths are supported:
+PWPolyF is **RTL-only** (no HLS variant) and targets Versal devices only,
+since the RTL instantiates the Versal DSPFP32 primitive. Two export paths are
+supported:
 
 ```
 Path A: PiecewisePolyActivation        Path B: nn.GELU / nn.SiLU / etc.
@@ -78,17 +80,19 @@ PWPolyF uses PE parallelism. `NumChannels % PE == 0` must hold.
 Each PE instantiates its own polynomial evaluation pipeline (`degree` DSPs).
 `SetFolding` handles PE selection automatically.
 
-| PE | Degree | DSPs       | Approx LUTs      | Cycles (per spatial position) |
-|----|--------|------------|-------------------|-------------------------------|
-| 1  | 2      | 2          | 200               | NumChannels                   |
-| C  | 2      | 2C         | 200C              | 1                             |
-| 1  | 3      | 3          | 300               | NumChannels                   |
+| PE | Degree | DSPs       | BRAM18s           | Approx LUTs      | Cycles (per spatial position) |
+|----|--------|------------|-------------------|------------------|-------------------------------|
+| 1  | 2      | 2          | 1                 | 200              | NumChannels                   |
+| C  | 2      | 2C         | C                 | 200C             | 1                             |
+| 1  | 3      | 3          | 2                 | 300              | NumChannels                   |
 
 ## Resource estimates
 
 - **DSP:** `degree * PE` (one FP32 FMA stage per polynomial degree per PE)
 - **LUT:** `~100 * degree * PE` (segment address decode + control)
-- **BRAM/URAM:** 0 (coefficients stored in LUT/registers)
+- **BRAM18:** `(degree - 1) * PE` for default `K=3` (Vivado infers delayed
+  coefficient lookups as 32-bit ROMs)
+- **URAM:** 0
 
 ## ONNX export
 
