@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import math
-
 import numpy as np
 from qonnx.core.datatype import DataType
 
@@ -175,13 +174,9 @@ class PWPolyF(HWCustomOp):
         # stage and PE, backed by RAMB18 for the default K=3 table depth.
         coeff_width = 32
         if coeff_width <= 18 or num_segs > 512:
-            bram18_per_coeff_rom = math.ceil(num_segs / 1024) * math.ceil(
-                coeff_width / 18
-            )
+            bram18_per_coeff_rom = math.ceil(num_segs / 1024) * math.ceil(coeff_width / 18)
         else:
-            bram18_per_coeff_rom = math.ceil(num_segs / 512) * math.ceil(
-                coeff_width / 36
-            )
+            bram18_per_coeff_rom = math.ceil(num_segs / 512) * math.ceil(coeff_width / 36)
         return pe * (degree - 1) * bram18_per_coeff_rom
 
     def uram_estimation(self):

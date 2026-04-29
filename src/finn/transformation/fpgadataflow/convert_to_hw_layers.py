@@ -317,9 +317,7 @@ class InferPWPolyFLayer(Transformation):
         return (gelu_input, mul_x.output[0], nodes_to_remove)
 
     @staticmethod
-    def _make_pwpolyf_node(
-        pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2
-    ):
+    def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
         num_channels = in_shape[-1]
         return helper.make_node(
             "PWPolyF",

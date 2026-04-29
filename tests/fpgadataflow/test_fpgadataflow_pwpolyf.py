@@ -704,9 +704,7 @@ def test_pwpolyf_rtlsim(func, num_channels, pe):
     model = model.transform(PrepareRTLSim())
 
     y_rtl = oxe.execute_onnx(model, input_dict)["outp"]
-    assert np.allclose(y_ref, y_rtl, atol=1e-4), (
-        "RTL output does not match cppsim reference"
-    )
+    assert np.allclose(y_ref, y_rtl, atol=1e-4), "RTL output does not match cppsim reference"
 
     # Verify cycle count (re-fetch node after transforms)
     node = model.graph.node[0]
@@ -750,6 +748,6 @@ def test_pwpolyf_rtlsim_stitched_ip(func, pe):
 
     input_dict = {model.graph.input[0].name: x}
     y_rtl = oxe.execute_onnx(model, input_dict)[model.graph.output[0].name]
-    assert np.allclose(y_ref, y_rtl, atol=1e-4), (
-        "Stitched IP output does not match cppsim reference"
-    )
+    assert np.allclose(
+        y_ref, y_rtl, atol=1e-4
+    ), "Stitched IP output does not match cppsim reference"
