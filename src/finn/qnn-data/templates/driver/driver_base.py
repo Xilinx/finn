@@ -136,10 +136,9 @@ class FINNExampleOverlay(Overlay):
             idma_name = w_filename.split(".")[0]
             tmp_weight_dict[idma_name] = weight_tensor
 
-        for idma_name in tmp_weight_dict.keys():
+        for idma_name, weight_tensor in tmp_weight_dict.items():
             if idma_name in self.ip_dict.keys():
                 iwdma = getattr(self, idma_name)
-                weight_tensor = tmp_weight_dict[idma_name]
                 weight_buf = allocate(weight_tensor.shape, dtype=np.uint8)
                 weight_buf[:] = weight_tensor
                 # weight_buf.sync_to_device()
@@ -192,11 +191,10 @@ class FINNExampleOverlay(Overlay):
             sdp_ind = int(w_filename.split("_")[0])
             layer_ind = int(w_filename.split("_")[1])
             rt_weight_dict[(sdp_ind, layer_ind)] = layer_w
-        for sdp_ind, layer_ind in rt_weight_dict.keys():
+        for (sdp_ind, layer_ind), layer_w in rt_weight_dict.items():
             cand_if_name = "StreamingDataflowPartition_%d" % sdp_ind
             if cand_if_name in self.ip_dict.keys():
                 layer_mmio = getattr(self, "StreamingDataflowPartition_%d" % sdp_ind).mmio
-                layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
                     if self.platform == "alveo":
@@ -411,7 +409,7 @@ class FINNExampleOverlay(Overlay):
         packing and copying to device buffers, execute on accelerator, then unpack
         output and return output numpy array from accelerator."""
         # if single input, convert to list to normalize how we process the input
-        if not type(input_npy) is list:
+        if type(input_npy) is not list:
             input_npy = [input_npy]
         assert self.num_inputs == len(input_npy), "Not all accelerator inputs are specified."
         for i in range(self.num_inputs):

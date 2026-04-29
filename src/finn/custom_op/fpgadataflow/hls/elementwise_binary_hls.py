@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import textwrap
+from itertools import dropwhile
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import roundup_to_integer_multiple
 
@@ -36,6 +37,7 @@ import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.hls import register_custom_op
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -83,8 +85,6 @@ class ElementwiseBinaryOperation_hls(
         streaming inputs rather than embedded constants. This method changes
         the lhs_style/rhs_style attributes from "const" to "input" as needed.
         """
-        from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
-
         # If rhs (input[1]) is a PARAMETER (streamed per iteration),
         # change its style to "input"
         if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
@@ -355,9 +355,6 @@ class ElementwiseBinaryOperation_hls(
 
         # Removes contiguous matching dimensions from a shape
         def drop_matching_dims(shape, like):
-            # Core functionality for this is implemented in itertools
-            from itertools import dropwhile
-
             # Compare shapes from left to right removing dimensions as long as
             # they match
             return (*[size for size, _ in dropwhile(lambda x: x[0] == x[1], zip(shape, like))],)
@@ -864,6 +861,16 @@ class ElementwiseSub_hls(
     pass
 
 
+# Derive a specialization to implement elementwise absolute difference of two inputs
+@register_custom_op
+class ElementwiseAbsDiff_hls(
+    # CapWords convention
+    ElementwiseBinaryOperation_hls,
+    elementwise_binary.ElementwiseAbsDiff,
+):
+    pass
+
+
 # Derive a specialization to implement elementwise multiplication of two inputs
 @register_custom_op
 class ElementwiseMul_hls(
@@ -1014,47 +1021,6 @@ class ElementwiseBitShift_hls(
         # Add/Specialize implementation specific attributes here...
         # Return the updated attributes dictionary
         return attrs
-
-
-# Derive a specialization to implement elementwise minimum of two inputs
-@register_custom_op
-class ElementwiseFloat2Int_hls(  # noqa: Class name does not follow
-    # CapWords convention
-    ElementwiseBinaryOperation_hls,
-    elementwise_binary.ElementwiseFloat2Int,
-):
-    # we need to resolve the attribute types due to multiple inheritence
-    def get_nodeattr_types(self):
-        # Start from parent operator class attributes
-        attrs = elementwise_binary.ElementwiseFloat2Int.get_nodeattr_types(self)
-        # Add the HLSBackend default attributes on top
-        attrs.update(HLSBackend.get_nodeattr_types(self))
-        # Return updated attribute dictionary
-        return attrs
-
-    # Generates list of C++ includes to be placed at the top of the generated
-    # code
-    def global_includes(self):
-        super().global_includes()
-        # additional hls_math include to get hls::round()
-        self.code_gen_dict["$GLOBALS$"] += ["#include <hls_math.h>"]
-
-    # Generates C++ code of type alias, global constant and macro definitions
-    def defines(self, var):
-        super().defines(var)
-
-        # Define macro for clipping/saturating values
-        self.code_gen_dict["$DEFINES$"].append(
-            """
-template<typename T, typename  TLo, typename  THi>
-static inline T clip(T const  x, TLo const  lo, THi const  hi) {
-#pragma HLS inline
-    if(x < lo)  return  lo;
-    if(x > hi)  return  hi;
-    return  x;
-}
-        """
-        )
 
 
 # # Derive a specialization to implement elementwise power of two inputs

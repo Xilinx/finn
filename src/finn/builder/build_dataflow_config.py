@@ -244,6 +244,13 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Bitwidth threshold for choosing between Requant and Thresholding
+    #: for MultiThreshold nodes. When output bitwidth >= this threshold, Requant is
+    #: preferred (if thresholds are uniform). When output bitwidth < threshold,
+    #: Thresholding is used. Requant is more efficient for high bitwidths.
+    #: Default is 9 (use Requant for 9+ bit outputs, Thresholding for 8-bit and below).
+    requant_bitwidth_threshold: Optional[int] = 9
+
     #: (Optional) Whether optimizations that minimize the bit width of the
     #: weights and accumulator will be applied. Because this optimization relies
     #: on the the values of the weights, it will only be applied if runtime-
@@ -361,8 +368,8 @@ class DataflowBuildConfig:
     #: only affects Quant nodes in the activation path. Quant nodes, which define a
     #: bit width larger than `max_multithreshold_bit_width` are not converted to
     #: MultiThreshold nodes and a warning is raised instead.
-    #: If not given `max_multithreshold_bit_width` defaults to 8.
-    max_multithreshold_bit_width: Optional[int] = 8
+    #: If not given `max_multithreshold_bit_width` defaults to 16.
+    max_multithreshold_bit_width: Optional[int] = 16
 
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1

@@ -100,9 +100,9 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
             template = f.read()
-        for key_name in code_gen_dict:
+        for key_name, value in code_gen_dict.items():
             key = "%s" % key_name
-            template = template.replace(key, str(code_gen_dict[key_name]))
+            template = template.replace(key, str(value))
         with open(
             os.path.join(code_gen_dir, self.get_verilog_top_module_name() + ".v"),
             "w",

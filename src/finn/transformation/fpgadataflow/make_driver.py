@@ -169,13 +169,15 @@ class MakeCPPDriver(Transformation):
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
 
         # Get only ips that are kernels
-        isIO = (
-            lambda x: x["m_type"] == "IP_KERNEL"
-            and x["m_base_address"] != "not_used"
-            and ("idma" in x["m_name"] or "odma" in x["m_name"])
-        )
-        idmas = [x["m_name"] for x in ips if isIO(x) and "idma" in x["m_name"]]
-        odmas = [x["m_name"] for x in ips if isIO(x) and "odma" in x["m_name"]]
+        def is_io(x):
+            return (
+                x["m_type"] == "IP_KERNEL"
+                and x["m_base_address"] != "not_used"
+                and ("idma" in x["m_name"] or "odma" in x["m_name"])
+            )
+
+        idmas = [x["m_name"] for x in ips if is_io(x) and "idma" in x["m_name"]]
+        odmas = [x["m_name"] for x in ips if is_io(x) and "odma" in x["m_name"]]
 
         def formatKernelName(kname: str):
             kparts = kname.split(":")

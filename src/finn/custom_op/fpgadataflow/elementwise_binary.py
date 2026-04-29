@@ -28,11 +28,9 @@
 
 import numpy as np
 import warnings
-from functools import partial
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.general.quant import max_int, min_int
 
 from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
@@ -310,10 +308,7 @@ class ElementwiseBinaryOperation(HWCustomOp):
     def minimize_accumulator_width(self, model: ModelWrapper):
         # If any of the inputs is not an integer, the bit-width cannot be
         # minimized
-        # exception here is the float2int node
-        if "Float2Int" not in self.onnx_node.op_type and not all(
-            [self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]
-        ):
+        if not all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()]):
             # Check the annotated tensor data type corresponds to the stored
             # attribute
             assert (
@@ -352,9 +347,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             # generation
             self.set_nodeattr("lhs_style", "const")
             lhs_dtype = self.get_input_datatype(0)
-            # ignore minimization for floats
-            if not lhs_dtype.get_canonical_name().startswith("FLOAT"):
-                if lhs_dtype.is_integer():
+            # Check if values are integer-valued (even if stored as FLOAT)
+            lhs_is_integer = lhs_dtype.is_integer() or (lhs.astype(np.int32) == lhs).all()
+            # ignore minimization for floats (unless they contain integer values)
+            if not lhs_dtype.get_canonical_name().startswith("FLOAT") or lhs_is_integer:
+                if lhs_is_integer:
                     # Minimum and maximum "weight" on the left hand side, determining
                     # the range of values which needs to be represented
                     _min = lhs.min()
@@ -390,9 +387,11 @@ class ElementwiseBinaryOperation(HWCustomOp):
             # generation
             self.set_nodeattr("rhs_style", "const")
             rhs_dtype = self.get_input_datatype(1)
-            # ignore minimization for floats
-            if not rhs_dtype.get_canonical_name().startswith("FLOAT"):
-                if rhs_dtype.is_integer():
+            # Check if values are integer-valued (even if stored as FLOAT)
+            rhs_is_integer = rhs_dtype.is_integer() or (rhs.astype(np.int32) == rhs).all()
+            # ignore minimization for floats (unless they contain integer values)
+            if not rhs_dtype.get_canonical_name().startswith("FLOAT") or rhs_is_integer:
+                if rhs_is_integer:
                     # Minimum and maximum "weight" on the left hand side, determining
                     # the range of values which needs to be represented
                     _min = rhs.min()
@@ -506,6 +505,44 @@ class ElementwiseSub(ElementwiseBinaryOperation):
                 out_width = max_width + 2
         # For subtraction, the output data type is always signed
         return DataType[f"INT{out_width}"]
+
+
+# Derive a specialization to implement elementwise absolute difference of two inputs
+@register_custom_op
+class ElementwiseAbsDiff(ElementwiseBinaryOperation):
+    # Specialize to implement the absolute difference operation of left hand side
+    # and right hand side input
+    @property
+    def npy_op(self):
+        # NumPy doesn't have a built-in absdiff, so we use a lambda
+        return lambda a, b: np.abs(a - b)
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        return "({0} > {1} ? {0} - {1} : {1} - {0})"
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    # Derives the output data type - AbsDiff result is always unsigned for integers
+    def _derive_out_dtype(self, model: ModelWrapper):
+        # If either input is floating-point, output is the same float type
+        if self.lhs_dtype in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+            return self.lhs_dtype
+        if self.rhs_dtype in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+            return self.rhs_dtype
+        # For integers: get the width of the data types of the inputs
+        lhs_width = self.lhs_dtype.bitwidth()
+        rhs_width = self.rhs_dtype.bitwidth()
+        max_width = max(lhs_width, rhs_width)
+        # The absolute difference needs one extra bit to hold the difference
+        # before taking the absolute value, but the result is always unsigned
+        out_width = max_width + 1
+        # AbsDiff result is always unsigned for integer types
+        return DataType[f"UINT{out_width}"]
 
 
 # Derive a specialization to implement elementwise multiplication of two inputs
@@ -771,76 +808,6 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
         return DataType[self.get_nodeattr("out_dtype")]
 
 
-# reference function for Python exec
-# note that the y argument is ignored, but needed
-# to make this pass as a binary op
-def float2int(x, y, bitwidth, narrow, signed):
-    min_val = min_int(signed, narrow, bitwidth)
-    max_val = max_int(signed, narrow, bitwidth)
-    x_rounded = np.round(x)
-    x_clipped = np.clip(x_rounded, min_val, max_val)
-    return x_clipped
-
-
-# TODO this is not really a binary op: it could be treated as unary (w/ attributes)
-# or as ternary (if we take in the min/max values as inputs)
-# Derive a specialization to implement elementwise conversion of float values
-# to integers of a particular specification (bitwidth, signedness, narrow_range)
-@register_custom_op
-class ElementwiseFloat2Int(ElementwiseBinaryOperation):
-    # Defines attributes which must be present on this node
-    def get_nodeattr_types(self):
-        # Start from parent operator class attributes
-        attrs = ElementwiseBinaryOperation.get_nodeattr_types(self)
-        # Update attributes dictionary for new custom operator
-        attrs.update(
-            {
-                # Bitwidth of output integers
-                "bitwidth": ("i", True, 0),
-                # Whether output integers are signed or unsigned
-                "signed": ("i", True, 0),
-                # Whether output integers use narrow-range
-                "narrow": ("i", True, 0),
-                # The rounding mode, which is used for the quant function
-                "rounding_mode": ("s", True, "ROUND"),
-            }
-        )
-        # Return updated attribute dictionary
-        return attrs
-
-    # since we use attributes to drive part of the function inputs,
-    # we cannot statically assign _operation like other subclasses
-    # instead, we override the properties accessed for codegen
-
-    @property
-    def npy_op(self) -> np.ufunc:
-        bitwidth = self.get_nodeattr("bitwidth")
-        signed = self.get_nodeattr("signed")
-        narrow = self.get_nodeattr("narrow")
-        return partial(float2int, bitwidth=bitwidth, narrow=narrow, signed=signed)
-
-    # C++ operation template available as property
-    @property
-    def cpp_op(self) -> str:
-        bitwidth = self.get_nodeattr("bitwidth")
-        signed = self.get_nodeattr("signed")
-        narrow = self.get_nodeattr("narrow")
-        min_val = min_int(signed, narrow, bitwidth)
-        max_val = max_int(signed, narrow, bitwidth)
-        return "clip(hls::lrint({0}), %d, %d)" % (min_val, max_val)
-
-    # RTL operation template available as property
-    @property
-    def rtl_op(self) -> str:
-        return None
-
-    def _derive_out_dtype(self, model: ModelWrapper):
-        # the attributes decide the output datatype
-        bitwidth = self.get_nodeattr("bitwidth")
-        signed = self.get_nodeattr("signed")
-        return DataType[f"INT{bitwidth}"] if signed else DataType[f"UINT{bitwidth}"]
-
-
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
@@ -868,6 +835,25 @@ class ElementwiseMax(ElementwiseBinaryOperation):
     @property
     def rtl_op(self) -> str:
         return None
+
+    # Override minimize_weight_bit_width to prevent type incompatibility
+    def minimize_weight_bit_width(self, model: ModelWrapper):
+        # For comparison operations like max/min, both operands must have
+        # compatible types. Don't minimize if one side is float and the
+        # minimized constant would become integer.
+        lhs_dtype = self.get_input_datatype(0)
+        rhs_dtype = self.get_input_datatype(1)
+
+        # If either side is float16/float32, keep both sides as-is
+        # to avoid comparison incompatibility (half vs ap_int)
+        if lhs_dtype.get_canonical_name() in [
+            "FLOAT16",
+            "FLOAT32",
+        ] or rhs_dtype.get_canonical_name() in ["FLOAT16", "FLOAT32"]:
+            # Skip minimization, keep datatypes as set by InferReLUAsElementwiseMax
+            return
+        # Otherwise, use the parent class minimization
+        super().minimize_weight_bit_width(model)
 
     def _derive_out_dtype(self, model: ModelWrapper):
         if self.lhs_dtype.get_canonical_name().startswith(

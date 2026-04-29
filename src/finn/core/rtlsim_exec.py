@@ -215,8 +215,8 @@ def rtlsim_exec_cppxsi(
     # retrieve the number of inputs from execution_context
     n_inferences = execution_context[model.get_first_global_in()]
     ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
-    assert not (
-        ifnames is None
+    assert (
+        ifnames is not None
     ), "Couldn't find stitched-IP interface names, did you run IP stitching first?"
     ifnames = eval(ifnames)
     if "aximm" in ifnames.keys() and ifnames["aximm"] != []:

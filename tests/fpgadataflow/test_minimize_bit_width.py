@@ -44,6 +44,7 @@ from finn.transformation.fpgadataflow.minimize_accumulator_width import (
 from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 
 
 def make_unit_test_model(
@@ -676,9 +677,6 @@ def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType
         result_adt.bitwidth() < 20
     ), f"Accumulator too wide ({result_adt}), likely incorrectly expanded for thresholds"
 
-    # Now test that RoundAndClipThresholds handles boundary values correctly
-    from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-
     model = model.transform(RoundAndClipThresholds())
 
     # Verify thresholds were clipped to accumulator range
@@ -721,8 +719,6 @@ def test_full_bit_width_optimization_pipeline():
     - Threshold datatypes are minimized based on rounded/clipped values
     - Final datatypes are optimal
     """
-    from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-
     wdt = DataType["INT8"]
     idt = DataType["INT8"]
     mw = 8

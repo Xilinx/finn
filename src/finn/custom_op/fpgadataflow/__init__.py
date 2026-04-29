@@ -52,8 +52,6 @@ def register_custom_op(cls):
 # Import the submodule containing specializations of ElementwiseBinaryOperation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
-from finn.custom_op.fpgadataflow.addstreams import AddStreams
-from finn.custom_op.fpgadataflow.channelwise_op import ChannelwiseOp
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -71,6 +69,7 @@ from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
 from finn.custom_op.fpgadataflow.pool import Pool
+from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.shuffle import Shuffle
 from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
@@ -79,7 +78,6 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter import (
     StreamingDataWidthConverter,
 )
-from finn.custom_op.fpgadataflow.streamingeltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
@@ -93,8 +91,6 @@ custom_op["Thresholding"] = Thresholding
 custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
-custom_op["AddStreams"] = AddStreams
-custom_op["ChannelwiseOp"] = ChannelwiseOp
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["Crop"] = Crop
 custom_op["DuplicateStreams"] = DuplicateStreams
@@ -111,6 +107,6 @@ custom_op["Shuffle"] = Shuffle
 custom_op["StreamingConcat"] = StreamingConcat
 custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
-custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
+custom_op["Requant"] = Requant

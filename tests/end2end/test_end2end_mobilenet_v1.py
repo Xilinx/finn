@@ -240,7 +240,7 @@ def test_end2end_mobilenet_convert_to_hw_layers():
     model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(to_hw.InferVectorVectorActivation())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(to_hw.InferChannelwiseLinearLayer())
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferLabelSelectLayer())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())

@@ -91,8 +91,9 @@ class MoveAddPastMul(Transformation):
                     )
                     graph.node.insert(node_ind, new_mul)
                     graph.node.insert(node_ind + 1, new_add)
-                    # replace add value
+                    # replace add value and update datatype annotation
                     model.set_initializer(add_weight_name, BA)
+                    model.set_tensor_datatype(add_weight_name, DataType["FLOAT32"])
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)

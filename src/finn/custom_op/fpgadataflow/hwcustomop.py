@@ -221,12 +221,16 @@ class HWCustomOp(CustomOp):
     def rtlsim_multi_io(self, sim, io_dict, sname="_V"):
         "Run rtlsim for this node, supports multiple i/o streams."
         num_out_values = self.get_number_output_values()
+        # Use the larger of expected cycles or liveness threshold
+        exp_cycles = self.get_exp_cycles()
+        liveness_threshold = get_liveness_threshold_cycles()
+        effective_threshold = max(exp_cycles, liveness_threshold)
         total_cycle_count = finnxsi.rtlsim_multi_io(
             sim,
             io_dict,
             num_out_values,
             sname=sname,
-            liveness_threshold=get_liveness_threshold_cycles(),
+            liveness_threshold=effective_threshold,
         )
 
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
@@ -332,9 +336,9 @@ class HWCustomOp(CustomOp):
             # apply code generation to template
             with open(template_path, "r") as f:
                 template_wrapper = f.read()
-            for key in code_gen_dict:
+            for key, value in code_gen_dict.items():
                 # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
+                code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_memstream_wrapper.v"),
@@ -384,9 +388,9 @@ class HWCustomOp(CustomOp):
             # apply code generation to template
             with open(template_path, "r") as f:
                 template_wrapper = f.read()
-            for key in code_gen_dict:
+            for key, value in code_gen_dict.items():
                 # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(code_gen_dict[key])
+                code_gen_line = "\n".join(value)
                 template_wrapper = template_wrapper.replace(key, code_gen_line)
             with open(
                 os.path.join(code_gen_dir, mname + "_fetch_weights_wrapper.v"),
@@ -419,9 +423,9 @@ class HWCustomOp(CustomOp):
         # apply code generation to template
         with open(template_path, "r") as f:
             template_wrapper = f.read()
-        for key in code_gen_dict:
+        for key, value in code_gen_dict.items():
             # transform list into long string separated by '\n'
-            code_gen_line = "\n".join(code_gen_dict[key])
+            code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
         with open(
             os.path.join(code_gen_dir, mname + "_dynamic_load_wrapper.v"),
@@ -474,8 +478,15 @@ class HWCustomOp(CustomOp):
             txns_in[k] = sim.trace_stream(k + sname)
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
-        self.rtlsim_multi_io(sim, io_dict)
-        total_cycle_count = self.get_nodeattr("cycles_rtlsim")
+        # For characterization, use period as liveness threshold directly
+        total_cycle_count = finnxsi.rtlsim_multi_io(
+            sim,
+            io_dict,
+            num_out_values=self.get_number_output_values(),
+            sname=sname,
+            liveness_threshold=period,
+        )
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
         assert (
             total_cycle_count <= period
         ), """Total cycle count from rtl simulation is higher than
@@ -485,10 +496,10 @@ class HWCustomOp(CustomOp):
         self.set_nodeattr("io_chrc_period", period)
         # call str() on stream tracers to get their outputs, and convert
         # to list of ints
-        for k in txns_in.keys():
-            txns_in[k] = [int(c) for c in str(txns_in[k])]
-        for k in txns_out.keys():
-            txns_out[k] = [int(c) for c in str(txns_out[k])]
+        for k, v in txns_in.items():
+            txns_in[k] = [int(c) for c in str(v)]
+        for k, v in txns_out.items():
+            txns_out[k] = [int(c) for c in str(v)]
 
         def accumulate_char_fxn(chrc):
             p = len(chrc)

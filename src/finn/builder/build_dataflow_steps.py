@@ -73,6 +73,9 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
+from finn.transformation.fpgadataflow.absorb_into_requant import (
+    AbsorbElementwiseOpsIntoRequant,
+)
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -131,6 +134,7 @@ from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
 )
+from finn.util.fpgadataflow import warn_hls_rtl_dsp_conflict
 from finn.util.mlo_sim import is_mlo, mlo_prehook_func_factory
 from finn.util.test import execute_parent
 
@@ -224,10 +228,19 @@ def verify_step(
             np.save(verification_output_fn, out_npy)
 
         if cfg.verify_save_rtlsim_waveforms:
+            # Handle model-level waveform (stitched IP rtlsim)
             wdb_path = model.get_metadata_prop("rtlsim_trace")
             if wdb_path is not None and os.path.isfile(wdb_path):
                 new_wdb_path = wdb_path.replace(".wdb", "_%d.wdb" % b)
                 shutil.move(wdb_path, new_wdb_path)
+            # Handle node-level waveforms (only for node-by-node rtlsim)
+            if step_name == "node_by_node_rtlsim":
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_wdb_path = node_inst.get_nodeattr("rtlsim_trace")
+                    if node_wdb_path is not None and os.path.isfile(node_wdb_path):
+                        new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % b)
+                        shutil.move(node_wdb_path, new_node_wdb_path)
 
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
@@ -418,7 +431,17 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Thresholding layers (standalone mode)
     if cfg.standalone_thresholds:
-        # Doing this first causes all threshold layers to be standalone
+        # First: Convert high-bitwidth MultiThreshold and all Quant nodes to Requant
+        # Requant is more efficient for high bitwidths (simple multiply-add-round-clip
+        # vs comparison-based lookup with many thresholds)
+        # Note: bitwidth_threshold only applies to MultiThreshold, Quant is always converted
+        model = apply_if_relevant(
+            model,
+            ["MultiThreshold", "Quant"],
+            to_hw.InferRequantLayer(bitwidth_threshold=cfg.requant_bitwidth_threshold),
+            "high-bitwidth quantization as requant",
+        )
+        # Then: Convert remaining MultiThreshold to Thresholding
         model = apply_if_relevant(
             model,
             ["MultiThreshold"],
@@ -451,14 +474,24 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Classification/output layers
     model = apply_if_relevant(model, ["TopK"], to_hw.InferLabelSelectLayer(), "label select layers")
 
-    # Input quantization (if any) as standalone threshold
+    # Input quantization (if any) - high-bitwidth MultiThreshold and Quant as Requant,
+    # low-bitwidth MultiThreshold as Thresholding
+    model = apply_if_relevant(
+        model,
+        ["MultiThreshold", "Quant"],
+        to_hw.InferRequantLayer(bitwidth_threshold=8),
+        "high-bitwidth input quantization as requant",
+    )
     model = apply_if_relevant(
         model, ["MultiThreshold"], to_hw.InferThresholdingLayer(), "threshold layers"
     )
 
     # Convolution-related transformations
     model = apply_if_relevant(
-        model, ["MaxPool", "AveragePool", "MaxPoolNHWC"], to_hw.InferPool(), "pooling layers"
+        model,
+        ["MaxPool", "AveragePool", "MaxPoolNHWC", "QuantAvgPool2d"],
+        to_hw.InferPool(),
+        "pooling layers",
     )
     model = apply_if_relevant(model, ["Im2Col"], to_hw.InferConvInpGen(), "conv input generator")
     # If ConvInpGen derived, run remove cnv to fc flatten transform
@@ -467,7 +500,6 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Streaming operations
-    model = apply_if_relevant(model, ["Add"], to_hw.InferAddStreamsLayer(), "add streams")
     model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
     model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
 
@@ -517,15 +549,19 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     # Cropping layers
     model = apply_if_relevant(model, ["Crop"], to_hw.InferCrop(), "crop layers")
 
-    # Quantization layers
-    model = apply_if_relevant(
-        model, ["Quant"], to_hw.InferQuantAsFloat2Int(), "quantization as float to int"
-    )
-
     # Graph topology transformations (always check - not based on op_type)
     # DuplicateStreams: detects forks where tensors have multiple consumers
     print("Checking for graph forks (duplicate streams)...")
     model = model.transform(to_hw.InferDuplicateStreamsLayer())
+
+    # Optimization: Absorb ElementwiseMul/Add into Requant
+    # This should be run after all HW layers are inferred
+    model = apply_if_relevant(
+        model,
+        ["Requant"],
+        AbsorbElementwiseOpsIntoRequant(),
+        "absorb elementwise ops into requant",
+    )
 
     # Cleanup and post-processing transformations
     # Get rid of Transpose -> Transpose identity sequences
@@ -784,7 +820,22 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(PrepareCppSim(), apply_to_subgraphs=True)
         model = model.transform(CompileCppSim(), apply_to_subgraphs=True)
         model = model.transform(SetExecMode("cppsim"), apply_to_subgraphs=True)
+        # Set iteration context path on FINNLoop nodes if verify_save_full_context is enabled
+        if cfg.verify_save_full_context:
+            verify_out_dir = cfg.output_dir + "/verification_output"
+            os.makedirs(verify_out_dir, exist_ok=True)
+            for loop_node in model.get_nodes_by_op_type("FINNLoop"):
+                loop_inst = getCustomOp(loop_node)
+                ctx_path = os.path.join(
+                    verify_out_dir, f"iteration_context_{loop_node.name}_folded_hls_cppsim.npz"
+                )
+                loop_inst.set_nodeattr("iteration_context_path", ctx_path)
         verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
+        # Clear iteration_context_path after verification
+        if cfg.verify_save_full_context:
+            for loop_node in model.get_nodes_by_op_type("FINNLoop"):
+                loop_inst = getCustomOp(loop_node)
+                loop_inst.set_nodeattr("iteration_context_path", "")
 
     return model
 
@@ -828,9 +879,35 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             json.dump(estimate_layer_resources_hls, f, indent=2)
 
     if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
-        model = model.transform(PrepareRTLSim())
-        model = model.transform(SetExecMode("rtlsim"))
-        verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+        # Check for HLS+RTL DSP conflict - only skip for MLO models
+        # (unrolled graphs work fine for node-by-node rtlsim)
+        skip_verification = False
+        if is_mlo(model):
+            verify_out_dir = cfg.output_dir + "/verification_output"
+            os.makedirs(verify_out_dir, exist_ok=True)
+            skip_verification = warn_hls_rtl_dsp_conflict(
+                model, "node_by_node_rtlsim", verify_out_dir
+            )
+            if skip_verification:
+                print(
+                    "NOTE: This model contains a FINNLoop which is treated as a closed IP "
+                    "during node-by-node rtlsim. The conflicting ops are inside the loop "
+                    "body and cannot be simulated individually."
+                )
+
+        if not skip_verification:
+            if cfg.verify_save_rtlsim_waveforms:
+                verify_out_dir = cfg.output_dir + "/verification_output"
+                waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
+                os.makedirs(waveform_dir, exist_ok=True)
+                abspath = os.path.abspath(waveform_dir)
+                # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
+            model = model.transform(PrepareRTLSim())
+            model = model.transform(SetExecMode("rtlsim"))
+            verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
 
@@ -994,27 +1071,34 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             skipping step_create_stitched_ip."""
         )
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
-        # prepare ip-stitched rtlsim
-        verify_model = deepcopy(model)
-        verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
-        # use critical path estimate to set rtlsim liveness threshold
-        # (very conservative)
-        verify_model = verify_model.transform(AnnotateCycles())
-        estimate_network_performance = verify_model.analysis(dataflow_performance)
-        prev_liveness = get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = str(
-            int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
-        )
-        if cfg.verify_save_rtlsim_waveforms:
-            verify_out_dir = cfg.output_dir + "/verification_output"
-            os.makedirs(verify_out_dir, exist_ok=True)
-            abspath = os.path.abspath(verify_out_dir)
-            verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
-        if is_mlo(model):
-            verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
-        else:
-            verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+        # Check for HLS+RTL DSP conflict before rtlsim
+        # (affects both MLO and unrolled graphs for stitched IP rtlsim)
+        verify_out_dir = cfg.output_dir + "/verification_output"
+        os.makedirs(verify_out_dir, exist_ok=True)
+        if not warn_hls_rtl_dsp_conflict(model, "stitched_ip_rtlsim", verify_out_dir):
+            # No conflict - proceed with verification
+            # prepare ip-stitched rtlsim
+            verify_model = deepcopy(model)
+            verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
+            # use critical path estimate to set rtlsim liveness threshold
+            # (very conservative)
+            verify_model = verify_model.transform(AnnotateCycles())
+            estimate_network_performance = verify_model.analysis(dataflow_performance)
+            prev_liveness = get_liveness_threshold_cycles()
+            os.environ["LIVENESS_THRESHOLD"] = str(
+                int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
+            )
+            if cfg.verify_save_rtlsim_waveforms:
+                verify_out_dir = cfg.output_dir + "/verification_output"
+                waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+                os.makedirs(waveform_dir, exist_ok=True)
+                abspath = os.path.abspath(waveform_dir)
+                verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+            if is_mlo(model):
+                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+            else:
+                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 
