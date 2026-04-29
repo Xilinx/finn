@@ -33,13 +33,6 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 
 
 def _rtlsrc_dir():
@@ -128,31 +121,23 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
 
-    def prepare_rtlsim(self):
-        if PyVerilator is None:
-            raise ImportError("Installation of PyVerilator is required.")
+    def get_rtl_file_list(self, abspath=False):
+        if abspath:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
+            rtllib_dir = _rtlsrc_dir() + "/"
+        else:
+            code_gen_dir = ""
+            rtllib_dir = ""
 
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_files = [
-            "addclstoken.sv",
-            self.get_nodeattr("gen_top_module") + ".v",
+            rtllib_dir + "addclstoken.sv",
+            code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
-        sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=[code_gen_dir],
-            trace_depth=get_rtlsim_trace_depth(),
-            top_module_name=self.get_nodeattr("gen_top_module"),
-        )
-        self.set_nodeattr("rtlsim_so", sim.lib._name)
-        return sim
+        return verilog_files
 
     def code_generation_ipi(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        sourcefiles = [
-            "addclstoken.sv",
-            self.get_nodeattr("gen_top_module") + ".v",
-        ]
+        sourcefiles = self.get_rtl_file_list()
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
 
         cmd = []
@@ -169,39 +154,7 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
         if mode == "cppsim":
             AddCLSToken.execute_node(self, context, graph)
         elif mode == "rtlsim":
-            node = self.onnx_node
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            exp_ishape = self.get_normal_input_shape(0)
-            exp_oshape = self.get_normal_output_shape()
-
-            inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert inp.shape == exp_ishape, "Input shape does not match expected shape."
-
-            folded_ishape = self.get_folded_input_shape(0)
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), inp.reshape(folded_ishape).copy())
-
-            sim = self.get_rtlsim()
-            export_idt = self.get_input_datatype()
-            rtlsim_inp = npy_to_rtlsim_input(
-                os.path.join(code_gen_dir, "input_0.npy"),
-                export_idt,
-                self.get_instream_width(),
-            )
-            self.reset_rtlsim(sim)
-            self.toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-
-            odt = self.get_output_datatype()
-            out_npy = rtlsim_output_to_npy(
-                rtlsim_output,
-                os.path.join(code_gen_dir, "output.npy"),
-                odt,
-                self.get_folded_output_shape(),
-                self.get_outstream_width(),
-                odt.bitwidth(),
-            )
-            context[node.output[0]] = np.asarray(out_npy, dtype=np.float32).reshape(exp_oshape)
+            RTLBackend.execute_node(self, context, graph)
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}

@@ -31,8 +31,11 @@
  */
 
 module memstream_tb;
+	localparam int unsigned  SETS = 3;
 	localparam int unsigned  DEPTH = 256;
 	localparam int unsigned  DATA_WIDTH = 32;
+
+	localparam int unsigned  SET_BITS = SETS < 2? 1 : $clog2(SETS);
 
 	// Global Control
 	logic  clk = 0;
@@ -47,6 +50,10 @@ module memstream_tb;
 	uwire  config_rack;
 	uwire [DATA_WIDTH-1:0]  config_q0;
 
+	logic [SET_BITS-1:0]  sidx;
+	logic  svld;
+	uwire  srdy;
+
 	// Streamed Output
 	logic  ordy;
 	uwire  ovld;
@@ -58,6 +65,9 @@ module memstream_tb;
 		config_we = 0;
 		config_d0 = 'x;
 
+		sidx = 'x;
+		svld = 0;
+
 		ordy = 0;
 
 		rst = 1;
@@ -65,25 +75,36 @@ module memstream_tb;
 		rst <= 0;
 
 		// Write Parameters
-		config_ce <= 1;
 		config_we <= 1;
-		for(int unsigned  i = 0; i < DEPTH; i++) begin
+		for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
 			config_address <= i;
 			config_d0 <= i;
+			while($urandom()%59 == 0) @(posedge clk);
+
+			config_ce <= 1;
 			@(posedge clk);
+			config_ce <= 0;
 		end
 		config_address <= 'x;
-		config_ce <= 0;
-		config_we <= 0;
 		config_d0 <= 'x;
+		config_we <= 0;
 
 		rst <= 1;
 		@(posedge clk);
 		rst <= 0;
 
-		// One Round of Stream Read
+		// One Round of Reading all Streams in Sequence
 		ordy <= 1;
-		for(int unsigned  i = 0; i < DEPTH; i++) begin
+		if(SETS > 1) fork begin
+			svld <= 1;
+			for(int unsigned  s = 0; s < SETS; s++) begin
+				sidx <= s;
+				@(posedge clk iff srdy);
+			end
+			sidx <= 'x;
+			svld <= 0;
+		end join_none
+		for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
 			@(posedge clk iff ovld);
 			assert(odat == i) else begin
 				$error("Unexpected output: %0d instead of %0d", odat, i);
@@ -93,105 +114,128 @@ module memstream_tb;
 		ordy <= 0;
 
 		// Full Parameter Readback
-		if(1) begin
-			automatic logic [DATA_WIDTH-1:0]  Q[$] = {};
-
-			config_ce <= 1;
-			for(int unsigned  i = 0; i < DEPTH; i++) begin
-				config_address <= i;
-				@(posedge clk);
-				Q.push_back(i);
-
-				if(config_rack) begin
-					automatic logic [DATA_WIDTH-1:0]  exp = Q.pop_front();
-					assert(config_q0 == exp) else begin
-						$error("Readback mismatch: %0d instead of %0d", config_q0, exp);
+		fork
+			begin	// Issue Read Requests
+				config_ce <= 1;
+				for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
+					config_address <= i;
+					@(posedge clk);
+				end
+				config_address <= 'x;
+				config_ce <= 0;
+			end
+			begin	// Collect Replies
+				for(int unsigned  i = 0; i < SETS*DEPTH; i++) begin
+					@(posedge clk iff config_rack);
+					assert(config_q0 == i) else begin
+						$error("Readback mismatch: %0d instead of %0d", config_q0, i);
 						$stop;
 					end
 				end
 			end
-			config_address <= 'x;
-			config_ce <= 0;
+		join
 
-			while(Q.size) begin
-				automatic logic [DATA_WIDTH-1:0]  exp = Q.pop_front();
+		repeat(6) @(posedge clk);
 
-				@(posedge clk iff config_rack);
-				assert(config_q0 == exp) else begin
-					$error("Readback mismatch: %0d instead of %0d", config_q0, exp);
+		// Reading Streams in reverse Order
+		ordy <= 1;
+		if(SETS > 1) fork begin
+			svld <= 1;
+			for(int unsigned  s = SETS; s-- > 0;) begin
+				sidx <= s;
+				@(posedge clk iff srdy);
+			end
+			sidx <= 'x;
+			svld <= 0;
+		end join_none
+		for(int unsigned  s = SETS; s-- > 0;) begin
+			for(int unsigned  i = 0; i < DEPTH; i++) begin
+				automatic int unsigned  exp = s*DEPTH + i;
+				@(posedge clk iff ovld);
+				assert(odat == exp) else begin
+					$error("Unexpected output: %0d instead of %0d", odat, exp);
 					$stop;
 				end
 			end
 		end
-
-		repeat(6) @(posedge clk);
-
-		// Another Round of Stream Read
-		ordy <= 1;
-		for(int unsigned  i = 0; i < DEPTH; i++) begin
-			@(posedge clk iff ovld);
-			assert(odat == i) else begin
-				$error("Unexpected output: %0d instead of %0d", odat, i);
-				$stop;
-			end
-		end
 		ordy <= 0;
 
-		// A Round of Stream Read with intermittent Read Backs
+		// A few randomized Stream Reads with intermittent Read Backs
 		if(1) begin
-			automatic logic [DATA_WIDTH-1:0]  Q[$] = {};
+			automatic logic [DATA_WIDTH-1:0]  Q[$] = {};	// Read back reference
+			automatic bit  term = 0;
 
-			for(int unsigned  i = 0; i < DEPTH; i++) begin
-				do begin
-					// Randomly delayed Readiness
-					if($urandom()%5 != 0)  ordy <= 1;
+			fork
+				// Stream Output Checking
+				begin
+					repeat(7) begin
+						automatic int unsigned  s = $urandom()%SETS;
 
-					// Issue and Check Random Read Backs
-					if($urandom()%9 == 0) begin
-						automatic int unsigned  addr = $urandom() % DEPTH;
-						config_ce <= 1;
-						config_address <= addr;
-						Q.push_back(addr);
+						if(SETS > 1) fork begin
+							sidx <= s;
+							svld <= 1;
+							@(posedge clk iff srdy);
+							svld <= 0;
+							sidx <= 'x;
+						end join_none
+
+						for(int unsigned  i = 0; i < DEPTH; i++) begin
+							automatic int unsigned  exp = s*DEPTH + i;
+
+							while($urandom()%7 == 0) @(posedge clk);
+							ordy <= 1;
+							@(posedge clk iff ovld);
+							assert(odat == exp) else begin
+								$error("Unexpected output: %0d instead of %0d", odat, exp);
+								$stop;
+							end
+							ordy <= 0;
+						end
 					end
+					term = 1;
+				end
+
+				// Intermittent Readbacks
+				forever begin
+					while($urandom() % 11) @(posedge clk);
+					if(term)  break;
+
+					config_ce <= 1;
+					config_address <= $urandom() % (SETS*DEPTH);
 					@(posedge clk);
+					Q.push_back(config_address);
 					config_ce <= 0;
 					config_address <= 'x;
+				end
 
-					if(config_rack) begin
+				// Readback Checker
+				forever begin
+					if(Q.size()) begin
 						automatic logic [DATA_WIDTH-1:0]  exp = Q.pop_front();
+						@(posedge clk iff config_rack);
 						assert(config_q0 == exp) else begin
 							$error("Readback mismatch: %0d instead of %0d", config_q0, exp);
 							$stop;
 						end
 					end
-
-				end while(!ovld || !ordy);
-				ordy <= 0;
-
-				assert(odat == i) else begin
-					$error("Unexpected output: %0d instead of %0d", odat, i);
-					$stop;
+					else begin
+						@(posedge clk);
+						assert(!config_rack) else begin
+							$error("Spurious readback reply.");
+							$stop;
+						end
+						if(term)  break;
+					end
 				end
-			end
-
-			while(Q.size) begin
-				automatic logic [DATA_WIDTH-1:0]  exp = Q.pop_front();
-
-				@(posedge clk iff config_rack);
-				assert(config_q0 == exp) else begin
-					$error("Readback mismatch: %0d instead of %0d", config_q0, exp);
-					$stop;
-				end
-			end
+			join
 		end
-		ordy <= 0;
 
-		repeat(2) @(posedge clk);
 		$display("Test completed.");
 		$finish;
 	end
 
 	memstream #(
+		.SETS(SETS),
 		.DEPTH(DEPTH),
 		.WIDTH(DATA_WIDTH)
 	) dut (
@@ -204,9 +248,8 @@ module memstream_tb;
 		.config_q0,
 		.config_rack,
 
-		.ordy,
-		.ovld,
-		.odat
+		.sidx, .svld, .srdy,
+		.odat, .ovld, .ordy
 	);
 
 endmodule : memstream_tb

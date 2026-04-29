@@ -38,34 +38,10 @@ finn.custom\_op.fpgadataflow.concat_hls
    :show-inheritance:
 
 
-finn.custom\_op.fpgadataflow.convolutioninputgenerator_hls
------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.convolutioninputgenerator_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.downsampler_hls
----------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.downsampler_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.duplicatestreams\_hls
 -------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.hls.duplicatestreams_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.fmpadding\_hls
------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.fmpadding_hls
    :members:
    :undoc-members:
    :show-inheritance:
@@ -139,14 +115,6 @@ finn.custom\_op.fpgadataflow.streamingeltwise\_hls
 ----------------------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.hls.streamingeltwise_hls
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.streamingmaxpool\_hls
------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.hls.streamingmaxpool_hls
    :members:
    :undoc-members:
    :show-inheritance:

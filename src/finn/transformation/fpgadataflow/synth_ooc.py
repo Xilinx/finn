@@ -27,11 +27,21 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from shutil import copy2
 
 from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import is_hls_node
 from finn.util.vivado import out_of_context_synth
+
+
+def is_hls_float_op(node, model):
+    if is_hls_node(node):
+        for inp in node.input:
+            if model.get_tensor_datatype(inp).name.startswith("FLOAT"):
+                return True
+    return False
 
 
 class SynthOutOfContext(Transformation):
@@ -58,8 +68,18 @@ class SynthOutOfContext(Transformation):
         for file in all_verilog_srcs:
             if any([file.endswith(x) for x in verilog_extensions]):
                 copy2(file, build_dir)
+        # extract additional tcl commands to set up floating-point ips correctly
+        float_ip_tcl = []
+        for node in model.graph.node:
+            if is_hls_float_op(node, model):
+                code_gen_dir = getCustomOp(node).get_nodeattr("code_gen_dir_ipgen")
+                verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, node.name)
+                file_suffix = ".tcl"
+                for fname in os.listdir(verilog_path):
+                    if fname.endswith(file_suffix):
+                        float_ip_tcl.append(verilog_path + fname)
         ret = out_of_context_synth(
-            build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
+            build_dir, top_module_name, float_ip_tcl, self.part, self.clk_name, self.clk_period_ns
         )
         model.set_metadata_prop("res_total_ooc_synth", str(ret))
         return (model, False)

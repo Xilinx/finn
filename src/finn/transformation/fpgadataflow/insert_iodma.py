@@ -217,7 +217,7 @@ class InsertIODMA(Transformation):
                 # calculate width of stream output from DMA
                 pe = get_by_name(fc_node.attribute, "PE").i
                 simd = get_by_name(fc_node.attribute, "SIMD").i
-                streamWidth = fc_inst.get_weightstream_width_padded()
+                streamWidth = fc_inst.get_instream_width_padded(1)
                 # make new buffer
                 W = model.get_initializer(fc_w_name)
                 iodma_mem = self.get_mem_init(W, pe, simd)

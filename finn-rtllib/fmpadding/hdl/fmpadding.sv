@@ -134,7 +134,6 @@ module fmpadding #(
 
 			default:  assert(0) else begin
 				$error("Illegal write address.");
-				$stop;
 			end
 			endcase
 		end

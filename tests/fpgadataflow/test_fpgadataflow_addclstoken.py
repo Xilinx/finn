@@ -29,10 +29,8 @@
 import pytest
 
 import numpy as np
-import os
 from functools import partial
 from onnx import TensorProto, helper, numpy_helper
-from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -144,7 +142,7 @@ def test_convert_concat_to_addclstoken():
     ret = execute_onnx(model, {"patches": patches})
     assert (ret["out"] == expected).all()
 
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers(FPGA_PART))
     assert model.graph.node[0].op_type == "AddCLSToken_rtl"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.rtl"
     assert model.graph.node[0].name == "AddCLSToken_concat_cls"
@@ -172,22 +170,19 @@ def test_addclstoken_python_execution_with_padding():
         (DataType["BIPOLAR"], np.asarray([[[1, -1, 1, -1]]], dtype=np.float32), "4'h5"),
     ],
 )
-def test_addclstoken_rtl_codegen(tmp_path, monkeypatch, finn_dtype, cls_values, expected_cls_data):
-    if "FINN_ROOT" not in os.environ:
-        monkeypatch.setenv("FINN_ROOT", str(Path(__file__).resolve().parents[2]))
-
+def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_data):
     model, _ = _make_addclstoken_model(
         pad_tokens=1,
         simd=2,
         finn_dtype=finn_dtype,
         cls_values=cls_values,
     )
-    model = model.transform(SpecializeLayers("xc7z020clg400-1"))
+    model = model.transform(SpecializeLayers(FPGA_PART))
 
     node = model.graph.node[0]
     inst = getCustomOp(node)
     inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
-    inst.code_generation_ipgen(model, "xc7z020clg400-1", 10)
+    inst.code_generation_ipgen(model, FPGA_PART, CLK_NS)
 
     topname = inst.get_nodeattr("gen_top_module")
     assert topname == "AddCLSToken_0"
@@ -200,6 +195,7 @@ def test_addclstoken_rtl_codegen(tmp_path, monkeypatch, finn_dtype, cls_values, 
     assert ".SIMD(2)" in wrapper_text
     assert ".PAD_TOKENS(1)" in wrapper_text
     assert "CLS_DATA = %s" % expected_cls_data in wrapper_text
+    assert "out0_V_TVALID" in wrapper_text
     assert "= '0" not in wrapper_text
 
     ipi_cmds = inst.code_generation_ipi()
@@ -276,7 +272,6 @@ def test_addclstoken_stitched_ip_rtlsim(simd, pad_tokens):
     expected = np.concatenate(expected_values, axis=1)
 
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("extra_verilator_args", str(["-Wno-TIMESCALEMOD"]))
 
     ret = execute_onnx(model, {"patches": patches})
     assert (ret["out"] == expected).all()

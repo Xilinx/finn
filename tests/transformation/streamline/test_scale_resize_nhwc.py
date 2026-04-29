@@ -228,7 +228,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     resize_model1 = resize_model1.transform(InferDataLayouts())
 
     # execute transformed model
-    output_node_name1 = resize_model1.graph.output[0].name
+    output_node_name1 = resize_model1.get_first_global_out()
     output_dict1 = oxe.execute_onnx(resize_model1, input_dict_nchw, return_full_exec_context=False)
     output1 = output_dict1[output_node_name1]
 
@@ -245,7 +245,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     resize_model2 = resize_model2.transform(InferDataLayouts())
 
     # execute transformed model
-    output_node_name2 = resize_model2.graph.output[0].name
+    output_node_name2 = resize_model2.get_first_global_out()
     output_dict2 = oxe.execute_onnx(resize_model2, input_dict_nhwc, return_full_exec_context=False)
     output2 = output_dict2[output_node_name2]
 
@@ -262,7 +262,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     resize_model3 = resize_model3.transform(InferDataLayouts())
 
     # execute transformed model
-    output_node_name3 = resize_model3.graph.output[0].name
+    output_node_name3 = resize_model3.get_first_global_out()
     output_dict3 = oxe.execute_onnx(resize_model3, input_dict_nhwc, return_full_exec_context=False)
     output3 = output_dict3[output_node_name3]
 

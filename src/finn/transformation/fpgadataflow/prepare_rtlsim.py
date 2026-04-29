@@ -35,15 +35,10 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
 
 class PrepareRTLSim(NodeLocalTransformation):
-    """For a graph with generated RTL sources (after HLSSynthIP), create a
-    Verilator emulation library for each node to prepare for rtlsim
+    """For a graph with generated RTL sources (after HLSSynthIP), create an
+    emulation library for each node to prepare for rtlsim
     execution and set the rtlsim_so property to the path to the generated
     emulation library.
 
@@ -55,8 +50,9 @@ class PrepareRTLSim(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, num_workers=None):
+    def __init__(self, behav=False, num_workers=None):
         super().__init__(num_workers=num_workers)
+        self.behav = behav
 
     def apply(self, model):
         model = model.transform(ReplaceVerilogRelPaths())
@@ -68,7 +64,7 @@ class PrepareRTLSim(NodeLocalTransformation):
             try:
                 # lookup op_type in registry of CustomOps
                 inst = registry.getCustomOp(node)
-                inst.prepare_rtlsim()
+                inst.prepare_rtlsim(self.behav)
                 # ensure that executable path is now set
                 assert (
                     inst.get_nodeattr("rtlsim_so") != ""

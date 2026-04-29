@@ -30,21 +30,30 @@
  *
  * @brief	Testbench for thresholding_axi.
  * @author	Monica Chiosa <monica.chiosa@amd.com>
- *
- */
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
+ *****************************************************************************/
 
-module thresholding_tb #(
-	int unsigned  K  = 10,	// input precision
-	int unsigned  N  =  4,	// output precision
-	int unsigned  C  =  6,	// number of channels
-	int unsigned  PE =  2,
+module thresholding_tb;
 
-	localparam int unsigned  CF = C/PE	// Channel Fold
-);
-    localparam bit  DEEP_PIPELINE = 1;
-
-	localparam int unsigned  MST_STRM_WROUNDS = 507;
-	localparam bit  THROTTLED = 1;
+	localparam bit  VERBOSE = 0;
+	localparam int unsigned  ROUNDS = 503;
+	typedef struct {
+		int unsigned  k;	// input precision
+		int unsigned  n;	// number of thresholds per channel
+		int unsigned  c;	// number of channels
+		int unsigned  pe;	// parallel PEs
+		bit  sign;	// signed inputs
+		bit  fparg;	// floating-point inputs
+		bit  deep_pipeline;
+		bit  throttled;	// throttle input and output interfaces occasionally
+	} testcfg_t;
+	localparam int unsigned  TEST_CNT = 4;
+	localparam testcfg_t  TESTS[TEST_CNT] = '{
+		testcfg_t'{ k:  5, n: 1, c:  1, pe: 1, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 0 },
+		testcfg_t'{ k: 10, n: 8, c: 12, pe: 3, sign: 1, fparg: 0, deep_pipeline: 1, throttled: 1 },
+		testcfg_t'{ k:  8, n: 3, c:  8, pe: 4, sign: 0, fparg: 0, deep_pipeline: 0, throttled: 1 },
+		testcfg_t'{ k: 17, n: 9, c: 10, pe: 5, sign: 1, fparg: 1, deep_pipeline: 1, throttled: 0 }
+	};
 
 	//-----------------------------------------------------------------------
 	// Clock and Reset Control
@@ -58,34 +67,49 @@ module thresholding_tb #(
 	end
 
 	//-----------------------------------------------------------------------
-	// Parallel Instances differing in Data Type
-	typedef logic [K -1:0]  val_t;
-	typedef val_t  threshs_t[C][2**N-1];
-	typedef val_t [PE-1:0]  input_t;
-	typedef logic [$clog2(CF)+$clog2(PE)+N-1:0]  addr_t;
-	logic [0:2]  term = '0;
+	// Parallel Instances Running Individual Test
+	bit [TEST_CNT-1:0]  done = '0;
 	always_comb begin
-		if(&term)  $finish;
+		if(&done)  $finish;
 	end
-	for(genvar  i = 0; i < 3; i++) begin : genTypes
-		localparam bit  SIGNED = i>0;
-		localparam bit  FPARG  = i>1;
+	for(genvar  i = 0; i < TEST_CNT; i++) begin : genDUTs
+
+		//- Extract Test Config ---------
+		localparam testcfg_t  CFG = TESTS[i];
+		localparam int unsigned  K = CFG.k;
+		localparam int unsigned  N = CFG.n;
+		localparam int unsigned  C = CFG.c;
+		localparam int unsigned  PE = CFG.pe;
+		localparam bit  SIGNED = CFG.sign;
+		localparam bit  FPARG  = CFG.fparg;
+		localparam bit  DEEP_PIPELINE = CFG.deep_pipeline;
+		localparam bit  THROTTLED     = CFG.throttled;
+
+		// Derived Parameters and Types -
+		localparam int unsigned  CF = C/PE;	// Channel Fold
+		localparam int unsigned  O_BITS = $clog2(N+1);
+		typedef logic [K     -1:0]  val_t;
+		typedef logic [O_BITS-1:0]  res_t;
+		typedef logic [$clog2(CF)+$clog2(PE)+$clog2(N)-1:0]  addr_t;
 
 		//- DUT -------------------------
+		typedef val_t [PE-1:0]  input_t;
+		typedef res_t [PE-1:0]  output_t;
+
 		logic  cfg_en;
 		logic  cfg_we;
-		logic [$clog2(C)+N-1:0]  cfg_a;
-		logic [K-1:0]  cfg_d;
+		addr_t  cfg_a;
+		val_t  cfg_d;
 		uwire  cfg_rack;
-		uwire [K-1:0]  cfg_q;
+		uwire val_t  cfg_q;
 
 		uwire  irdy;
 		logic  ivld;
-		logic [PE-1:0][K-1:0]  idat;
+		input_t  idat;
 
 		logic  ordy = 0;
 		uwire  ovld;
-		uwire [PE-1:0][N-1:0]  odat;
+		uwire output_t  odat;
 
 		thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .USE_CONFIG(1), .DEEP_PIPELINE(DEEP_PIPELINE)) dut (
 			.clk, .rst,
@@ -99,28 +123,28 @@ module thresholding_tb #(
 			.ordy, .ovld, .odat
 		);
 
-		//- Stimulus Driver -------------
-		threshs_t  THRESHS;
-		function val_t sigord(input val_t  x);
+		// Expected Ordering
+		function val_t reord(input val_t  x);
 			automatic val_t  res = x;
 			if(SIGNED) begin
 				if(FPARG && x[K-1])  res[K-2:0] = ~x[K-2:0];
 				res[K-1] = !x[K-1];
 			end
 			return  res;
-		endfunction : sigord
+		endfunction : reord
 
-		input_t  QW[$];  // Input tracing
-		addr_t   QC[$];  // Readback tracking
-		int unsigned  error_cnt = 0;
-		bit  done = 0;
+		//- Threshold Definition --------
+		typedef val_t  threshs_t[C][N];
+		threshs_t  THRESHS;
 		initial begin
+			static val_t  row[N];
 
 			// Generate thresholds
-			std::randomize(THRESHS);
 			foreach(THRESHS[c]) begin
-				val_t  row[2**N-1] = THRESHS[c];
-				row.sort with (sigord(item));
+				static val_t [N-1:0]  r;
+				void'(std::randomize(r));
+				foreach(row[i])  row[i] = r[i];
+				row.sort with (reord(item));
 				THRESHS[c] = row;
 			end
 
@@ -128,9 +152,17 @@ module thresholding_tb #(
 			$display("[%0d] Thresholding %s%s%0d -> uint%0d", i, SIGNED? "s" : "u", FPARG? "fp" : "int", K, N);
 			for(int unsigned  c = 0; c < C; c++) begin
 				$write("[%0d] Channel #%0d: Thresholds = {", i, c);
-				for(int unsigned  i = 0; i < 2**N-1; i++)  $write(" %0X", THRESHS[c][i]);
+				for(int unsigned  i = 0; i < N; i++)  $write(" %0X", THRESHS[c][i]);
 				$display(" }");
 			end
+		end
+
+		//- Stimulus Driver -------------
+		input_t  QW[$];  // Input tracing
+		addr_t   QC[$];  // Readback tracking
+		int unsigned  error_cnt = 0;
+		initial begin
+			automatic bit  term = 0;
 
 			// Config
 			cfg_en = 0;
@@ -148,45 +180,48 @@ module thresholding_tb #(
 			cfg_en <= 1;
 			cfg_we <= 1;
 			for(int unsigned  c = 0; c < C; c+=PE) begin
-				if(CF > 1)  cfg_a[N+$clog2(PE)+:$clog2(CF)] <= c/PE;
+				if(CF > 1)  cfg_a[$clog2(N)+$clog2(PE)+:$clog2(CF)] <= c/PE;
 				for(int unsigned  pe = 0; pe < PE; pe++) begin
-					if(PE > 1)  cfg_a[N+:$clog2(PE)] = pe;
-					for(int unsigned  t = 0; t < 2**N-1; t++) begin
-						cfg_a[0+:N] <= t;
+					if(PE > 1)  cfg_a[$clog2(N)+:$clog2(PE)] = pe;
+					for(int unsigned  t = 0; t < N; t++) begin
+						cfg_a[0+:$clog2(N)] <= t;
 						cfg_d <= THRESHS[c+pe][t];
 						@(posedge clk);
 					end
 				end
 			end
-			cfg_d <= 'x;
+			cfg_en <= 0;
+			cfg_we <= 'x;
+			cfg_d  <= 'x;
 
+			// Operation
 			fork
 				// Intermittent configuration readback
-				while(!done) begin
-					cfg_en <= 0;
-					cfg_we <= 'x;
-					cfg_a  <= 'x;
+				while(!term) begin
 					@(posedge clk);
 					if(($urandom()%41) == 0) begin
-						automatic addr_t  addr = $urandom()%(N-1);
-						if(PE > 1)  addr[N+:$clog2(PE)] = $urandom()%PE;
-						if(CF > 1)  addr[N+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
+						automatic addr_t  addr = $urandom()%N;
+						if(PE > 1)  addr[$clog2(N)+:$clog2(PE)] = $urandom()%PE;
+						if(CF > 1)  addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] = $urandom()%CF;
 
 						cfg_en <= 1;
 						cfg_we <= 0;
 						cfg_a  <= addr;
 						@(posedge clk);
 						QC.push_back(addr);
+						cfg_en <= 0;
+						cfg_we <= 'x;
+						cfg_a  <= 'x;
 					end
 				end
 
-				// AXI4Stream MST Writes input values
-				repeat(MST_STRM_WROUNDS) begin
+				// AXI-Stream Input
+				repeat(ROUNDS) begin
 					automatic input_t  dat;
 
 					while(THROTTLED && ($urandom()%7 == 0)) @(posedge clk);
 
-					std::randomize(dat);
+					void'(std::randomize(dat));
 					ivld <= 1;
 					idat <= dat;
 					@(posedge clk iff irdy);
@@ -195,8 +230,10 @@ module thresholding_tb #(
 					QW.push_back(dat);
 				end
 			join_any
-			done <= 1;
-			repeat((DEEP_PIPELINE+1)*N+8)  @(posedge clk);
+			term = 1;
+
+			// Termination Checks
+			repeat((DEEP_PIPELINE+1)*$clog2(N+1)+8)  @(posedge clk);
 
 			assert(QW.size() == 0) else begin
 				$error("[%0d] Missing %0d outputs.", i, QW.size());
@@ -207,21 +244,22 @@ module thresholding_tb #(
 				$stop;
 			end
 
-			$display("[%0d] Test completed: %0d errors in %0d tests.", i, error_cnt, MST_STRM_WROUNDS);
+			$display("[%0d] Test completed: %0d errors in %0d tests.", i, error_cnt, ROUNDS);
 			$display("=============================================");
-			term[i] <= 1;
+			done[i] <= 1;
 		end
 
 		//- Readback Checker --------------
 		always_ff @(posedge clk iff cfg_rack) begin
 			assert(QC.size()) begin
 				automatic addr_t  addr = QC.pop_front();
-				automatic int unsigned  cnl =
-					(CF == 1? 0 : addr[N+$clog2(PE)+:$clog2(CF)] * PE) +
-					(PE == 1? 0 : addr[N+:$clog2(PE)]);
-				automatic logic [K-1:0]  exp = THRESHS[cnl][addr[0+:N]];
+				automatic logic [K-1:0]  exp;
+				automatic int unsigned  cnl = 0;
+				if(CF > 1)  cnl += addr[$clog2(N)+$clog2(PE)+:$clog2(CF)] * PE;
+				if(PE > 1)  cnl += addr[$clog2(N)+:$clog2(PE)];
+				exp = THRESHS[cnl][addr[0+:$clog2(N)]];
 				assert(cfg_q == exp) else begin
-					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, addr[0+:N], cfg_q, exp);
+					$error("[%0d] Readback mismatch on #%0d.%0d: %0d instead of %0d", i, cnl, addr[0+:$clog2(N)], cfg_q, exp);
 					$stop;
 				end
 			end
@@ -248,10 +286,10 @@ module thresholding_tb #(
 						for(int unsigned  pe = 0; pe < PE; pe++) begin
 							automatic int unsigned  cnl = OCnl + pe;
 
-							$display("[%0d] Mapped CNL=%0d DAT=%3x -> #%2d", i, cnl, x[pe], odat[pe]);
+							if(VERBOSE) $display("[%0d] Mapped CNL=%0d DAT=%3x -> #%2d", i, cnl, x[pe], odat[pe]);
 							assert(
-								((odat[pe] == 0) || (sigord(THRESHS[cnl][odat[pe]-1]) <= sigord(x[pe]))) &&
-								((odat[pe] == 2**N-1) || (sigord(x[pe]) < sigord(THRESHS[cnl][odat[pe]])))
+								((odat[pe] == 0) || (reord(THRESHS[cnl][odat[pe]-1]) <= reord(x[pe]))) &&
+								((odat[pe] == N) || (reord(x[pe]) < reord(THRESHS[cnl][odat[pe]])))
 							) else begin
 								$error("[%0d] Output error on presumed input CNL=%0d DAT=0x%0x -> #%0d", i, cnl, x[pe], odat[pe]);
 								error_cnt++;
@@ -269,6 +307,6 @@ module thresholding_tb #(
 			end
 		end
 
-	end : genTypes
+	end : genDUTs
 
 endmodule: thresholding_tb

@@ -1,30 +1,29 @@
 {
   "Defaults": {},
-  "Thresholding_Batch_0": {
-    "PE": 49,
-    "ram_style": "block"
+  "Thresholding_rtl_0": {
+    "PE": 49
   },
-  "MatrixVectorActivation_0": {
+  "MVAU_hls_0": {
     "PE": 16,
     "SIMD": 49,
     "ram_style": "block"
   },
-  "MatrixVectorActivation_1": {
+  "MVAU_hls_1": {
     "PE": 8,
     "SIMD": 8,
     "ram_style": "auto"
   },
-  "MatrixVectorActivation_2": {
+  "MVAU_hls_2": {
     "PE": 8,
     "SIMD": 8,
     "ram_style": "auto"
   },
-  "MatrixVectorActivation_3": {
+  "MVAU_hls_3": {
     "PE": 10,
     "SIMD": 8,
     "ram_style": "distributed"
   },
-  "LabelSelect_Batch_0": {
+  "LabelSelect_hls_0": {
     "PE": 1
   }
 }

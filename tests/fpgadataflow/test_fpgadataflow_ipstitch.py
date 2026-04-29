@@ -53,10 +53,9 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
-from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_pynq_board = "Pynq-Z1"
 test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
@@ -239,38 +238,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode
     )
-    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
-    sim = pyverilate_stitched_ip(model)
-    exp_io = [
-        "ap_clk",
-        "ap_rst_n",
-        "s_axis_0_tdata",
-        "s_axis_0_tready",
-        "s_axis_0_tvalid",
-        "m_axis_0_tdata",
-        "m_axis_0_tkeep",
-        "m_axis_0_tlast",
-        "m_axis_0_tready",
-        "m_axis_0_tvalid",
-        "s_axi_control_0_araddr",
-        "s_axi_control_0_arready",
-        "s_axi_control_0_arvalid",
-        "s_axi_control_0_awaddr",
-        "s_axi_control_0_awready",
-        "s_axi_control_0_awvalid",
-        "s_axi_control_0_bready",
-        "s_axi_control_0_bresp",
-        "s_axi_control_0_bvalid",
-        "s_axi_control_0_rdata",
-        "s_axi_control_0_rready",
-        "s_axi_control_0_rresp",
-        "s_axi_control_0_rvalid",
-        "s_axi_control_0_wdata",
-        "s_axi_control_0_wready",
-        "s_axi_control_0_wstrb",
-        "s_axi_control_0_wvalid",
-    ]
-    assert sorted(dir(sim.io)) == sorted(exp_io)
+    model.set_metadata_prop("rtlsim_trace", "whole_trace.wdb")
     model.set_metadata_prop("exec_mode", "rtlsim")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")

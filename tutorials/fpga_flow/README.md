@@ -25,20 +25,29 @@ This demo was created using Vivado 2022.1.
 Prior to running, insure the following prerequisites have been met:
 - Install FINN and prerequisites.  The [Getting Started](https://finn.readthedocs.io/en/latest/getting_started.html#quickstart) section of the FINN documentation might be helpful for this.
 - Ensure you have the `FINN_XILINX_PATH` and `FINN_XILINX_VERSION` env variables set appropriately for your install.  For example:
-> export FINN_XILINX_PATH=/opt/Xilinx
-> export FINN_XILINX_VERSION=2022.1
+```shell
+export FINN_XILINX_PATH=/opt/Xilinx
+export FINN_XILINX_VERSION=2022.1
+```
+
 - Set the env variable for your `finn` install top directory (where you cloned the FINN compiler repo):
-> export FINN_ROOT=/home/foo/finn
+```shell
+export FINN_ROOT=/home/foo/finn
+```
 
 Then, change to `finn` install directory and invoke the build as follows:
-> cd ${FINN_ROOT}
-> ./run-docker.sh build_custom ${FINN_ROOT}/tutorials/fpga_flow/
+```shell
+cd ${FINN_ROOT}
+./run-docker.sh build_custom ${FINN_ROOT}/tutorials/fpga_flow/
+```
 
 Alternatively, since the tutorials folder is already part of the FINN compiler installation, you can invoke it from within the Docker container:
-> cd ${FINN_ROOT}
-> ./run-docker.sh
-> cd tutorials/fpga_flow
-> python build.py
+```shell
+cd ${FINN_ROOT}
+./run-docker.sh
+cd tutorials/fpga_flow
+python build.py
+```
 
 The build should finish in about 10 minutes, and the FINN docker will close on success.
 
@@ -48,7 +57,7 @@ The build should finish in about 10 minutes, and the FINN docker will close on s
    Running step: step_measure_rtlsim_performance [13/18]
    Running step: step_out_of_context_synthesis [14/18]
    Running step: step_synthesize_bitfile [15/18]
-   Running step: step_make_pynq_driver [16/18]
+   Running step: step_make_driver [16/18]
    Running step: step_deployment_package [17/18]
    Running step: custom_step_gen_tb_and_io [18/18]
    Completed successfully
@@ -59,12 +68,14 @@ The build should finish in about 10 minutes, and the FINN docker will close on s
 ### Examine the Stitched IP
 
 Navigate to the stitched IP project directory:
-
-> cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/stitched_ip
+```shell
+cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/stitched_ip
+```
 
 And, open the project:
-
-> vivado finn_vivado_stitch_proj.xpr
+```shell
+vivado finn_vivado_stitch_proj.xpr
+```
 
 Explore the IPI board design and note the interfaces.
 
@@ -89,9 +100,10 @@ them under `${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/sim`. Let's ex
    the FINN compiler. Used for launching the testbench simulation.
 
 You can now launch the simulation as follows:
-
-> cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/sim
-> vivado -mode gui -source make_sim_proj.tcl
+```shell
+cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/sim
+vivado -mode gui -source make_sim_proj.tcl
+```
 
 The simulation should complete with:
 

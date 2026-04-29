@@ -42,8 +42,7 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-
-export_onnx_path = "test_brevitas_qlinear.onnx"
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.brevitas_export
@@ -67,18 +66,18 @@ def test_brevitas_qlinear(bias, out_features, in_features, w_bits, i_dtype):
     weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(np.float32)
     b_linear.weight.data = torch.from_numpy(weight_tensor_fp)
     b_linear.eval()
-    m_path = export_onnx_path
+    build_dir = make_build_dir(prefix="test_brevitas_qlinear")
+    m_path = os.path.join(build_dir, "test_brevitas_qlinear.onnx")
     export_qonnx(b_linear, torch.randn(i_shape), m_path)
     qonnx_cleanup(m_path, out_file=m_path)
     model = ModelWrapper(m_path)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = gen_finn_dt_tensor(i_dtype, i_shape)
-    idict = {model.graph.input[0].name: inp_tensor}
+    idict = {model.get_first_global_in(): inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
-    produced = odict[model.graph.output[0].name]
+    produced = odict[model.get_first_global_out()]
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_linear.forward(inp_tensor).detach().numpy()
 
     assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)

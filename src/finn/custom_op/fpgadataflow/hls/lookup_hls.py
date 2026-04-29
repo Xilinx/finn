@@ -27,18 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 from math import ceil, log2
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
-from finn.util.data_packing import (
-    npy_to_rtlsim_input,
-    numpy_to_hls_code,
-    pack_innermost_dim_as_hex_string,
-    rtlsim_output_to_npy,
-)
+from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
 
 class Lookup_hls(Lookup, HLSBackend):
@@ -87,31 +81,6 @@ class Lookup_hls(Lookup, HLSBackend):
             my_defines.append("#define EmbeddingType %s" % emb_hls_type)
         self.code_gen_dict["$DEFINES$"] = my_defines
 
-    def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "int64_t"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                npy_in,
-                self.hls_sname(),
-            )
-        )
-
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
@@ -123,18 +92,17 @@ class Lookup_hls(Lookup, HLSBackend):
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
+        npy_out = "%s/output_0.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", %s);'
+            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", %s);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
                 "false",
@@ -146,14 +114,12 @@ class Lookup_hls(Lookup, HLSBackend):
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0_%s, out_%s, embeddings);"""
-                % (self.hls_sname(), self.hls_sname())
+                InputType, EmbeddingType >(in0_V, out0_V, embeddings);"""
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>(in0_%s, out_%s, mem, size, oob_count,
+                """StreamingLookup_ext<EmbeddingSize>(in0_V, out0_V, mem, size, oob_count,
                 oob_irq);"""
-                % (self.hls_sname(), self.hls_sname())
             ]
 
     def blackboxfunction(self):
@@ -164,29 +130,26 @@ class Lookup_hls(Lookup, HLSBackend):
         packed_output_hls_type = "ap_uint<%d>" % obits
         if mem_mode == "internal_embedded":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+                "void %s(hls::stream<%s > &in0_V, hls::stream<%s > &out0_V)"
                 % (
                     self.onnx_node.name,
                     packed_input_hls_type,
-                    self.hls_sname(),
                     packed_output_hls_type,
-                    self.hls_sname(),
                 )
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void "
                 + self.onnx_node.name
-                + "(hls::stream<T_SRC> &in0_%s, hls::stream<T_DST> &out_%s, "
-                % (self.hls_sname(), self.hls_sname())
+                + "(hls::stream<T_SRC> &in0_V, hls::stream<T_DST> &out0_V, "
                 + "T_DST const *const  mem, unsigned const size, "
                 + "unsigned &oob_count, bool &oob_irq)"
             ]
 
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        my_pragmas = ["#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()]
-        my_pragmas.append("#pragma HLS INTERFACE axis port=out_" + self.hls_sname())
+        my_pragmas = ["#pragma HLS INTERFACE axis port=in0_V"]
+        my_pragmas.append("#pragma HLS INTERFACE axis port=out0_V")
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if mem_mode == "internal_embedded":
             my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")
@@ -249,83 +212,11 @@ class Lookup_hls(Lookup, HLSBackend):
             raise Exception("Unrecognized mem_mode: " + mem_mode)
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("exec_mode")
-        node = self.onnx_node
-        exp_ishape = tuple(self.get_normal_input_shape())
-        exp_oshape = tuple(self.get_normal_output_shape())
-        folded_ishape = tuple(self.get_folded_input_shape())
-        folded_oshape = tuple(self.get_folded_output_shape())
         mem_mode = self.get_nodeattr("mem_mode")
         assert (
             mem_mode == "internal_embedded"
         ), "Only mem_mode=internal_embedded is supported for simulation of Lookup layer"
-
-        if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-
-        inp = context[node.input[0]]
-        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
-        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
-        export_idt = self.get_input_datatype()
-        odt = self.get_output_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
-
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output,
-                out_npy_path,
-                odt,
-                out_shape,
-                packed_bits,
-                target_bits,
-                reverse_inner=True,
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape."""
+        HLSBackend.execute_node(self, context, graph)
 
     def get_ap_int_max_w(self):
         parent_max = super().get_ap_int_max_w()
