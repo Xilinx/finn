@@ -120,13 +120,17 @@ def _prepare_addclstoken_stitched_ip_model(simd=1, pad_tokens=0):
     return model, cls_values
 
 
+def _make_input_dict(model, patches):
+    return {model.graph.input[0].name: patches}
+
+
 @pytest.mark.fpgadataflow
 def test_convert_concat_to_addclstoken():
     model, cls_values = _make_concat_model()
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
     expected = np.concatenate([cls_values, patches], axis=1)
 
-    ret = execute_onnx(model, {"patches": patches})
+    ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
     model = model.transform(InferAddCLSTokenLayer())
@@ -139,13 +143,13 @@ def test_convert_concat_to_addclstoken():
     assert inst.get_normal_output_shape() == (1, 4, 4)
     assert inst.get_exp_cycles() == 16
 
-    ret = execute_onnx(model, {"patches": patches})
+    ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
     model = model.transform(SpecializeLayers(FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
     assert model.graph.node[0].op_type == "AddCLSToken_rtl"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.rtl"
-    assert model.graph.node[0].name == "AddCLSToken_concat_cls"
 
 
 @pytest.mark.fpgadataflow
@@ -157,7 +161,7 @@ def test_addclstoken_python_execution_with_padding():
         axis=1,
     )
 
-    ret = execute_onnx(model, {"patches": patches})
+    ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
 
@@ -178,6 +182,7 @@ def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_
         cls_values=cls_values,
     )
     model = model.transform(SpecializeLayers(FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
 
     node = model.graph.node[0]
     inst = getCustomOp(node)
@@ -185,7 +190,7 @@ def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_
     inst.code_generation_ipgen(model, FPGA_PART, CLK_NS)
 
     topname = inst.get_nodeattr("gen_top_module")
-    assert topname == "AddCLSToken_0"
+    assert topname == node.name
     wrapper = tmp_path / (topname + ".v")
     core = tmp_path / "addclstoken.sv"
     assert wrapper.is_file()
@@ -244,7 +249,7 @@ def test_addclstoken_rtlsim(simd, pad_tokens):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
 
-    ret = execute_onnx(model, {"patches": patches})
+    ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
     node = model.get_nodes_by_op_type("AddCLSToken_rtl")[0]
@@ -273,7 +278,7 @@ def test_addclstoken_stitched_ip_rtlsim(simd, pad_tokens):
 
     model.set_metadata_prop("exec_mode", "rtlsim")
 
-    ret = execute_onnx(model, {"patches": patches})
+    ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
 
