@@ -96,7 +96,7 @@ Dynamic Mode
 The "default" style also supports a dynamic mode, which provides an interface to change feature map dimensions, stride, or dilation at run-time. See `this pull request <https://github.com/Xilinx/finn/pull/688>`_ for more information.
 
 Folding
--------
+=======
 
 The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:mod:`finn.transformation.fpgadataflow.set_folding.SetFolding`). Consider the following implications:
 

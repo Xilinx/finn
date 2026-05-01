@@ -3,7 +3,7 @@ Core
 ****
 
 Modules
-~~~~~~~
+=======
 
 qonnx.core.data\_layout
 -------------------------

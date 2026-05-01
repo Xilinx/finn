@@ -3,7 +3,7 @@ Builder
 *******
 
 Modules
-~~~~~~~
+=======
 
 finn.builder.build\_dataflow
 ----------------------------

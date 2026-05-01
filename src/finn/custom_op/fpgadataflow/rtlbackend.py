@@ -85,6 +85,10 @@ class RTLBackend(ABC):
     def code_generation_ipgen(self, model, fpgapart, clk):
         self.generate_hdl(model, fpgapart, clk)
 
+    def get_rtlsim_input_indices(self):
+        """Return ONNX input indices that are driven as RTLSim input streams."""
+        return range(len(self.onnx_node.input))
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -92,10 +96,10 @@ class RTLBackend(ABC):
         if mode == "rtlsim":
             node = self.onnx_node
             inputs = {}
-            for i, inp in enumerate(node.input):
+            for i in self.get_rtlsim_input_indices():
+                inp = node.input[i]
                 nbits = self.get_instream_width(i)
-                if nbits == 0:
-                    continue
+                assert nbits > 0, "RTLSim input stream %d has zero width." % i
                 exp_ishape = tuple(self.get_normal_input_shape(i))
                 folded_ishape = self.get_folded_input_shape(i)
                 inp_val = context[inp]
