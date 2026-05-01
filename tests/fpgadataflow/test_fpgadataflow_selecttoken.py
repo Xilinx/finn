@@ -113,13 +113,17 @@ def _prepare_selecttoken_stitched_ip_model(simd=1, token_index=0):
     return model
 
 
+def _make_input_dict(model, tokens):
+    return {model.graph.input[0].name: tokens}
+
+
 @pytest.mark.fpgadataflow
 def test_convert_gather_to_selecttoken():
     model = _make_gather_model(token_index=2)
     tokens = np.arange(16, dtype=np.float32).reshape(1, 4, 4)
     expected = tokens[:, 2, :]
 
-    ret = execute_onnx(model, {"tokens": tokens})
+    ret = execute_onnx(model, _make_input_dict(model, tokens))
     assert (ret["out"] == expected).all()
 
     model = model.transform(InferSelectTokenLayer())
@@ -133,13 +137,13 @@ def test_convert_gather_to_selecttoken():
     assert inst.get_exp_cycles() == 16
     assert inst.get_nodeattr("TokenIndex") == 2
 
-    ret = execute_onnx(model, {"tokens": tokens})
+    ret = execute_onnx(model, _make_input_dict(model, tokens))
     assert (ret["out"] == expected).all()
 
     model = model.transform(SpecializeLayers(FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
     assert model.graph.node[0].op_type == "SelectToken_rtl"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.rtl"
-    assert model.graph.node[0].name == "SelectToken_gather_token"
 
 
 @pytest.mark.fpgadataflow
@@ -149,7 +153,7 @@ def test_selecttoken_python_execution(token_index):
     tokens = np.arange(16, dtype=np.float32).reshape(1, 4, 4)
     expected = tokens[:, token_index, :]
 
-    ret = execute_onnx(model, {"tokens": tokens})
+    ret = execute_onnx(model, _make_input_dict(model, tokens))
     assert (ret["out"] == expected).all()
 
 
@@ -161,6 +165,7 @@ def test_selecttoken_python_execution(token_index):
 def test_selecttoken_rtl_codegen(tmp_path, finn_dtype, fold_width):
     model = _make_selecttoken_model(token_index=3, simd=2, finn_dtype=finn_dtype)
     model = model.transform(SpecializeLayers(FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
 
     node = model.graph.node[0]
     inst = getCustomOp(node)
@@ -168,7 +173,7 @@ def test_selecttoken_rtl_codegen(tmp_path, finn_dtype, fold_width):
     inst.code_generation_ipgen(model, FPGA_PART, CLK_NS)
 
     topname = inst.get_nodeattr("gen_top_module")
-    assert topname == "SelectToken_0"
+    assert topname == node.name
     wrapper = tmp_path / (topname + ".v")
     core = tmp_path / "select_token.sv"
     assert wrapper.is_file()
@@ -223,7 +228,7 @@ def test_selecttoken_rtlsim(simd, token_index):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
 
-    ret = execute_onnx(model, {"tokens": tokens})
+    ret = execute_onnx(model, _make_input_dict(model, tokens))
     assert (ret["out"] == expected).all()
 
     node = model.get_nodes_by_op_type("SelectToken_rtl")[0]
@@ -246,7 +251,7 @@ def test_selecttoken_stitched_ip_rtlsim(simd, token_index):
 
     model.set_metadata_prop("exec_mode", "rtlsim")
 
-    ret = execute_onnx(model, {"tokens": tokens})
+    ret = execute_onnx(model, _make_input_dict(model, tokens))
     assert (ret["out"] == expected).all()
 
 
