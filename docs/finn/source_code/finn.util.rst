@@ -188,6 +188,15 @@ finn.util.pytorch
  :show-inheritance:
 
 
+finn.util.pwpolyf
+-------------------
+
+.. automodule:: finn.util.pwpolyf
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.util.test
 ---------------------
 
