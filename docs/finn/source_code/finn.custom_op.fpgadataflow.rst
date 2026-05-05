@@ -127,6 +127,14 @@ finn.custom\_op.fpgadataflow.selecttoken
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.where
+-----------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.where
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.lookup
 -----------------------------------------------
 

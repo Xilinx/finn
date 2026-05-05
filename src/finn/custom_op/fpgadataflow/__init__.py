@@ -84,6 +84,7 @@ from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VVAU
+from finn.custom_op.fpgadataflow.where import Where
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
 # registered and plug in correctly into the infrastructure
@@ -114,3 +115,4 @@ custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
+custom_op["Where"] = Where
