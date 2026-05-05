@@ -27,11 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from shutil import copy2
 
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.fpgadataflow import is_hls_node
 from finn.util.vivado import out_of_context_synth
 
@@ -72,7 +71,7 @@ class SynthOutOfContext(Transformation):
         float_ip_tcl = []
         for node in model.graph.node:
             if is_hls_float_op(node, model):
-                code_gen_dir = getCustomOp(node).get_nodeattr("code_gen_dir_ipgen")
+                code_gen_dir = getHWCustomOp(node, model).get_nodeattr("code_gen_dir_ipgen")
                 verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, node.name)
                 file_suffix = ".tcl"
                 for fname in os.listdir(verilog_path):

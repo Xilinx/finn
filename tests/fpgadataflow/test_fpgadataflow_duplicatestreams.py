@@ -33,7 +33,6 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -51,6 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import getHWCustomOp
 
 
 def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl, impl_style):
@@ -156,7 +156,7 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode, 
 
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("DuplicateStreams_hls")[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]

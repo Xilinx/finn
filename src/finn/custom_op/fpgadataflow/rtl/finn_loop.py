@@ -35,7 +35,7 @@ import subprocess
 from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp, is_custom_op
+from qonnx.custom_op.registry import is_custom_op
 from qonnx.util.basic import get_by_name, qonnx_make_model, roundup_to_integer_multiple
 
 import finn.core.onnx_exec as oxe
@@ -45,7 +45,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -58,7 +58,7 @@ def collect_ip_dirs(model, ipstitch_path):
     ip_dirs = []
     need_memstreamer = False
     for node in model.graph.node:
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         ip_dir_value = node_inst.get_nodeattr("ip_path")
         assert os.path.isdir(
             ip_dir_value
@@ -150,7 +150,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # normal input shape
             node = loop_body.graph.node[0]
             if is_custom_op(node.domain):
-                inst = getCustomOp(node)
+                inst = getHWCustomOp(node)  # No model context: read only
                 ishape = inst.get_normal_input_shape(0)
             else:
                 ishape = loop_body.get_tensor_shape(node.input[0])
@@ -160,7 +160,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
             if is_custom_op(param_node.domain):
-                inst = getCustomOp(param_node)
+                inst = getHWCustomOp(param_node)  # No model context: read only
                 ishape = inst.get_normal_input_shape(1)
             else:
                 ishape = loop_body.get_tensor_shape(tensor)
@@ -172,7 +172,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # normal output shape
         node = loop_body.graph.node[-1]
         if is_custom_op(node.domain):
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node)  # No model context: read only
             oshape = inst.get_normal_output_shape(0)
         else:
             oshape = loop_body.get_tensor_shape(node.output[0])
@@ -184,13 +184,13 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get first node in loop body and return
             # normal input shape
             node = loop_body.graph.node[0]
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node)  # No model context: read only
             ishape = inst.get_folded_input_shape(0)
         else:
             tensor = loop_body.graph.input[ind].name
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
-            inst = getCustomOp(param_node)
+            inst = getHWCustomOp(param_node)  # No model context: read only
             ishape = inst.get_folded_input_shape(1)
         return ishape
 
@@ -199,7 +199,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # get last node in loop body and return
         # normal output shape
         node = loop_body.graph.node[-1]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)  # No model context: read only
         return inst.get_folded_output_shape(0)
 
     def infer_node_datatype(self, model):
@@ -215,7 +215,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
             if is_custom_op(param_node.domain):
-                inst = getCustomOp(param_node)
+                inst = getHWCustomOp(param_node)  # No model context: read only
                 idt = inst.get_input_datatype(1)
             else:
                 idt = loop_body.get_tensor_datatype(tensor)
@@ -231,13 +231,13 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # get first node in loop body and return
             # normal input shape
             node = loop_body.graph.node[0]
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node)  # No model context: read only
             iwidth = inst.get_instream_width(0)
         else:
             tensor = loop_body.graph.input[ind].name
             # get consumer, assuming the second input is the parameter input
             param_node = loop_body.find_consumer(tensor)
-            inst = getCustomOp(param_node)
+            inst = getHWCustomOp(param_node)  # No model context: read only
             iwidth = inst.get_instream_width(1)
         return iwidth
 
@@ -246,7 +246,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         check_if_cycles_annotated = False
 
         for node in loop_body.graph.node:
-            cnode = getCustomOp(node)
+            cnode = getHWCustomOp(node)  # No model context: read only
             if cnode.get_nodeattr("cycles_estimate"):
                 check_if_cycles_annotated = True
                 break
@@ -263,7 +263,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # get last node in loop body and return
         # normal output shape
         node = loop_body.graph.node[-1]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)  # No model context: read only
         return inst.get_outstream_width(0)
 
     def get_number_output_values(self):
@@ -271,7 +271,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # get last node in loop body and return
         # normal output values
         node = loop_body.graph.node[-1]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)  # No model context: read only
         return inst.get_number_output_values()
 
     def prepare_rtlsim(self, behav=False):
@@ -414,7 +414,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             for iter in range(iteration):
                 loop_body.set_initializer(loop_tensor, params[iter])
                 loop_body.set_tensor_datatype(loop_tensor, param_dtype)
-                inst = getCustomOp(param_node)
+                inst = getHWCustomOp(param_node, model)
                 inst.generate_params(loop_body, path)
                 param_file = "{}/memblock.dat".format(path)
                 new_param_file = "{}/{}_memblock_{}.dat".format(path, param_node.op_type, iter)
@@ -466,7 +466,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 # Replace the path for the dat files in the ipgen files if Eltwise
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
                 if param_node.op_type.startswith("Elementwise"):
-                    param_customop = getCustomOp(param_node)
+                    param_customop = getHWCustomOp(param_node, model)
                     ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
                     if ipgen_path is not None and os.path.isdir(ipgen_path):
                         for dname, dirs, files in os.walk(ipgen_path):
@@ -520,7 +520,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
                 # Replace the path for the dat files in the ipgen files
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
-                param_customop = getCustomOp(param_node)
+                param_customop = getHWCustomOp(param_node, model)
                 ipgen_path = param_customop.get_nodeattr("ipgen_path")
                 if ipgen_path is not None and os.path.isdir(ipgen_path):
                     for dname, dirs, files in os.walk(ipgen_path):
@@ -549,7 +549,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # pad to nearest multiple of 8
         data_width = roundup_to_integer_multiple(data_width, 8)
         for node in loop_body.graph.node:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node)  # No model context: read only
             if node_inst.get_nodeattr("mlo_max_iter"):
                 # calculate TAP_REP
                 # for Thresholds this value is fm size / pe
@@ -588,7 +588,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         loop_model = self.get_nodeattr("body")
         for node in loop_model.graph.node:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node)  # No model context: read only
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]

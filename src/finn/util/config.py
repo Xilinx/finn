@@ -15,7 +15,9 @@
 
 import json
 import onnx
-from qonnx.custom_op.registry import getCustomOp, is_custom_op
+from qonnx.custom_op.registry import is_custom_op
+
+from finn.util.basic import getHWCustomOp
 
 
 # update this code to handle export configs from subgraphs
@@ -37,7 +39,7 @@ def extract_model_config(model, subgraph_hier, attr_names_to_extract):
         # Check if this is a custom op and prepare to extract attributes
         is_custom = is_custom_op(n.domain, n.op_type)
         if is_custom:
-            oi = getCustomOp(n)
+            oi = getHWCustomOp(n, model)
             layer_dict = dict()
             for attr in attr_names_to_extract:
                 try:
@@ -93,7 +95,7 @@ def extract_model_config_consolidate_shuffles(model, output_file, hw_attrs):
 
     for node in model.graph.node:
         if node.op_type in ["InnerShuffle_rtl", "OuterShuffle_hls"]:
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             original_name = inst.get_nodeattr("original_node_name")
             original_simd = inst.get_nodeattr("original_simd")
 

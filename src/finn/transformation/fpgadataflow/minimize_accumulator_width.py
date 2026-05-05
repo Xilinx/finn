@@ -27,10 +27,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -48,7 +48,7 @@ class MinimizeAccumulatorWidth(Transformation):
             # the for-loop cannot loop over a list of a snapshot of the graph's node protos
             node = model.graph.node[node_id]
             if is_fpgadataflow_node(node):
-                inst = getCustomOp(node)
+                inst = getHWCustomOp(node, model)
                 if hasattr(inst, "minimize_accumulator_width"):
                     inst.minimize_accumulator_width(model)
                     # Since this transformation is applied iteratively, we have to ensure that

@@ -26,8 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import qonnx.custom_op.registry as registry
-
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -42,7 +41,7 @@ def res_estimation(model, fpgapart):
     res_dict = {}
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
-            inst = registry.getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             res_dict[node.name] = inst.node_res_estimation(fpgapart)
 
     return res_dict
@@ -60,7 +59,7 @@ def res_estimation_complete(model, fpgapart):
     res_dict = {}
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
-            inst = registry.getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             op_type = node.op_type
             if op_type.startswith("MVAU") or op_type.startswith("VVAU"):
                 orig_restype = inst.get_nodeattr("resType")

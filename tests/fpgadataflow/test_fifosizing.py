@@ -36,7 +36,6 @@ from brevitas.export import export_qonnx
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
@@ -46,7 +45,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -107,8 +106,8 @@ def test_fifosizing_linear(method, topology):
         node1 = model1.graph.node[i]
         assert node0.op_type == node1.op_type
         if node0.op_type == "StreamingFIFO":
-            node0_inst = getCustomOp(node0)
-            node1_inst = getCustomOp(node1)
+            node0_inst = getHWCustomOp(node0)
+            node1_inst = getHWCustomOp(node1)
             assert node0_inst.get_nodeattr("depth") == node1_inst.get_nodeattr("depth")
 
     shutil.rmtree(tmp_output_dir)

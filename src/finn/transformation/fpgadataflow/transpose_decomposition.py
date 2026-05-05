@@ -513,6 +513,8 @@ class InferInnerOuterShuffles(Transformation):
                         cpp_interface="hls_vector",
                         hls_style="freerunning",
                     )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(node_ind, new_node)
 
                 for i in to_remove:

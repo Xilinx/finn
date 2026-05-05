@@ -69,26 +69,46 @@ pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
 
-# Alveo device and platform mappings
-alveo_part_map = dict()
-alveo_part_map["U50"] = "xcu50-fsvh2104-2L-e"
-alveo_part_map["U200"] = "xcu200-fsgd2104-2-e"
-alveo_part_map["U250"] = "xcu250-figd2104-2L-e"
-alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
-alveo_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
+# Vitis device and platform mappings
+vitis_part_map = dict()
+vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
+vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
+vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
+vitis_part_map["U280"] = "xcu280-fsvh2892-2L-e"
+vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
-alveo_default_platform = dict()
-alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
-alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
-alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
+vitis_default_platform = dict()
+vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
+vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
+vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
+vitis_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
+vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
+
+# Slash device mappings
+slash_part_map = dict()
+slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **alveo_part_map}
+part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
-part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
+
+
+def getHWCustomOp(node, model=None, **kwargs):
+    """Wrapper for getCustomOp that handles kernel schema transformations.
+
+    Args:
+        node: ONNX node to get custom op for
+        model: Optional ModelWrapper for kernel schema transformation (default: None)
+        **kwargs: Additional arguments to pass to getCustomOp (e.g., onnx_opset_version)
+
+    Returns:
+        Custom op instance, with kernel model applied if applicable
+    """
+    custom_op = getCustomOp(node, **kwargs)
+    if hasattr(custom_op, "kernel_schema"):
+        custom_op.build_design_space(model)
+    return custom_op
 
 
 def get_rtlsim_trace_depth():
@@ -117,9 +137,12 @@ def get_finn_root():
         return os.environ["FINN_ROOT"]
     except KeyError:
         raise Exception(
-            """Environment variable FINN_ROOT must be set
-        correctly. Please ensure you have launched the Docker contaier correctly.
-        """
+            "Environment variable FINN_ROOT must be set. "
+            "This should happen automatically when importing finn. "
+            "Please ensure:\n"
+            "1. You've installed FINN correctly (pip install -e . or via Docker)\n"
+            "2. You're importing finn before calling this function\n"
+            "3. Or manually set FINN_ROOT to your FINN installation directory"
         )
 
 
@@ -133,6 +156,22 @@ def get_vivado_root():
             """Environment variable XILINX_VIVADO must be set
         correctly. Please ensure you have launched the Docker contaier correctly.
         """
+        )
+
+
+def get_deps_dir():
+    "Return the directory that contains FINN dependencies."
+
+    try:
+        return os.environ["FINN_DEPS_DIR"]
+    except KeyError:
+        raise Exception(
+            "Environment variable FINN_DEPS_DIR must be set. "
+            "This should happen automatically when importing finn. "
+            "Please ensure:\n"
+            "1. You've installed FINN correctly (pip install -e . or via Docker)\n"
+            "2. You're importing finn before calling this function\n"
+            "3. Or manually set FINN_DEPS_DIR to your FINN deps directory"
         )
 
 

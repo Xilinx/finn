@@ -207,6 +207,8 @@ def unpack_innermost_dim_from_hex_string(
                 ar_list.append(np.float16(BitArray(bin=elem_str).float16))
             elif conv_dtype == DataType["FLOAT32"]:
                 ar_list.append(BitArray(bin=elem_str).float)
+            elif conv_dtype == DataType["FLOAT16"]:
+                ar_list.append(BitArray(bin=elem_str).float16)
             elif conv_dtype.is_integer():
                 ar_list.append(int(elem_str, 2))
             else:

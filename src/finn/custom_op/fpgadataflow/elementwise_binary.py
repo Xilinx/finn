@@ -32,7 +32,6 @@ from onnx import helper as oh
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 
-from finn.custom_op.fpgadataflow import register_custom_op
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
@@ -432,7 +431,6 @@ class ElementwiseBinaryOperation(HWCustomOp):
 
 
 # Derive a specialization to implement elementwise addition of two inputs
-@register_custom_op
 class ElementwiseAdd(ElementwiseBinaryOperation):
     # Specialize to implement the addition operation of left hand side and right
     # hand side input
@@ -472,7 +470,6 @@ class ElementwiseAdd(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise subtraction of two inputs
-@register_custom_op
 class ElementwiseSub(ElementwiseBinaryOperation):
     # Specialize to implement the subtraction operation of left hand side and
     # right hand side input
@@ -508,7 +505,6 @@ class ElementwiseSub(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise absolute difference of two inputs
-@register_custom_op
 class ElementwiseAbsDiff(ElementwiseBinaryOperation):
     # Specialize to implement the absolute difference operation of left hand side
     # and right hand side input
@@ -546,7 +542,6 @@ class ElementwiseAbsDiff(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise multiplication of two inputs
-@register_custom_op
 class ElementwiseMul(ElementwiseBinaryOperation):
     # Specialize to implement the multiplication operation of left hand side and
     # right hand side input
@@ -567,7 +562,6 @@ class ElementwiseMul(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise division of two inputs
-@register_custom_op
 class ElementwiseDiv(ElementwiseBinaryOperation):
     # TODO: Not tested due to divide by zero from randomly generated inputs...
     # Specialize to implement the division operation of left hand side and
@@ -593,7 +587,6 @@ class ElementwiseDiv(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise logical and of two inputs
-@register_custom_op
 class ElementwiseAnd(ElementwiseBinaryOperation):
     # Specialize to implement the logical and operation of left hand side and
     # right hand side input
@@ -607,7 +600,6 @@ class ElementwiseAnd(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise logical or of two inputs
-@register_custom_op
 class ElementwiseOr(ElementwiseBinaryOperation):
     # Specialize to implement the logical or operation of left hand side and
     # right hand side input
@@ -621,7 +613,6 @@ class ElementwiseOr(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise logical xor of two inputs
-@register_custom_op
 class ElementwiseXor(ElementwiseBinaryOperation):
     # Specialize to implement the logical xor operation of left hand side and
     # right hand side input
@@ -635,7 +626,6 @@ class ElementwiseXor(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise equality of two inputs
-@register_custom_op
 class ElementwiseEqual(ElementwiseBinaryOperation):
     # Specialize to implement the logical equal operation of left hand side and
     # right hand side input
@@ -649,7 +639,6 @@ class ElementwiseEqual(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise less of two inputs
-@register_custom_op
 class ElementwiseLess(ElementwiseBinaryOperation):
     # Specialize to implement the logical less operation of left hand side and
     # right hand side input
@@ -663,7 +652,6 @@ class ElementwiseLess(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise less or equal of two inputs
-@register_custom_op
 class ElementwiseLessOrEqual(ElementwiseBinaryOperation):
     # Specialize to implement the logical less or equal operation of left hand
     # side and right hand side input
@@ -677,7 +665,6 @@ class ElementwiseLessOrEqual(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise greater of two inputs
-@register_custom_op
 class ElementwiseGreater(ElementwiseBinaryOperation):
     # Specialize to implement the logical greater operation of left hand side
     # and right hand side input
@@ -692,7 +679,6 @@ class ElementwiseGreater(ElementwiseBinaryOperation):
 
 # Derive a specialization to implement elementwise greater or equal of two
 # inputs
-@register_custom_op
 class ElementwiseGreaterOrEqual(ElementwiseBinaryOperation):
     # Specialize to implement the logical greater or equal operation of left
     # hand side and right hand side input
@@ -706,7 +692,6 @@ class ElementwiseGreaterOrEqual(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise bitwise and of two inputs
-@register_custom_op
 class ElementwiseBitwiseAnd(ElementwiseBinaryOperation):
     # Specialize to implement the bitwise and operation of left hand side and
     # right hand side input
@@ -728,7 +713,6 @@ class ElementwiseBitwiseAnd(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise bitwise or of two inputs
-@register_custom_op
 class ElementwiseBitwiseOr(ElementwiseBinaryOperation):
     # Specialize to implement the bitwise or operation of left hand side and
     # right hand side input
@@ -750,7 +734,6 @@ class ElementwiseBitwiseOr(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise bitwise xor of two inputs
-@register_custom_op
 class ElementwiseBitwiseXor(ElementwiseBinaryOperation):
     # Specialize to implement the bitwise xor operation of left hand side and
     # right hand side input
@@ -772,7 +755,6 @@ class ElementwiseBitwiseXor(ElementwiseBinaryOperation):
 
 
 # ElementwiseBitShift - Requires extra attribute selecting the direction
-@register_custom_op
 class ElementwiseBitShift(ElementwiseBinaryOperation):
     # Defines attributes which must be present on this node
     def get_nodeattr_types(self):
@@ -811,7 +793,6 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
 # # Derive a specialization to implement elementwise power of two inputs
 # TODO: std::pow does not work for HLS types and hls::pow fails to link for some
 #  reason
-# @register_custom_op
 # class ElementwisePow(ElementwiseBinaryOperation):
 #     # Specialize to implement the power operation of left hand side and
 #     # right hand side input
@@ -819,7 +800,6 @@ class ElementwiseBitShift(ElementwiseBinaryOperation):
 
 
 # Derive a specialization to implement elementwise maximum of two inputs
-@register_custom_op
 class ElementwiseMax(ElementwiseBinaryOperation):
     @property
     def npy_op(self) -> np.ufunc:
@@ -864,7 +844,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
             return DataType[f"FLOAT{max_bitwidth}"]
         else:
             all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
-            # Get the width of the data types of the inputs  # noqa: Duplicate
+            # Get the width of the data types of the inputs
             lhs_width = self.lhs_dtype.bitwidth()
             rhs_width = self.rhs_dtype.bitwidth()
             if all_ints:

@@ -32,6 +32,7 @@ import warnings
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 # does not do anything at the ONNX node-by-node level, and input-output
 # tensor shapes are the same. performs data width conversion at the rtlsim level
@@ -149,12 +150,12 @@ class StreamingDataWidthConverter(HWCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
+        # verify that "backend" is set to a valid fpgadataflow value
+        if is_fpgadataflow_node(self.onnx_node):
             info_messages.append("Attribute backend is set correctly")
         else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+            msg = "Attribute backend {} is invalid".format(self.get_nodeattr("backend"))
+            info_messages.append(msg)
 
         # verify the number of inputs
         if len(self.onnx_node.input) == 1:

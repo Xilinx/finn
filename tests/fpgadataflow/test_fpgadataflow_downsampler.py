@@ -33,7 +33,6 @@ import onnx.parser as oprs
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
@@ -49,6 +48,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import getHWCustomOp
 
 
 def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False):
@@ -148,7 +148,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     assert (y_produced == y_expected).all()
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]

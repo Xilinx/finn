@@ -40,7 +40,7 @@ def delete_file(file_path):
 
 
 def get_platform(board_str):
-    return "alveo" if "U250" in board_str else "zynq-iodma"
+    return "vitis-xrt" if "U250" in board_str else "zynq-iodma"
 
 
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
@@ -110,7 +110,7 @@ class TestBnn:
         delete_file(output_execute_results_file)
 
         # Run test option: execute
-        bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
+        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
         result = subprocess.run(
             [
                 "python",
@@ -144,7 +144,7 @@ class TestBnn:
         delete_file(output_throughput_results_file)
 
         # Run test option: throughput
-        bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
+        bitfile = "a.xclbin" if platform == "vitis-xrt" else "resizer.bit"
         result = subprocess.run(
             [
                 "python",

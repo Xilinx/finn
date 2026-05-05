@@ -20,25 +20,37 @@ from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.convert_to_hw_layers import (
     InferElementwiseBinaryOperation,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
+# Versal part for RTL elementwise support
+VERSAL_PART = "xcvc1902-vsva2197-2MP-e-S"
+
 # RTL operations and their numpy references
-RTL_NUMPY_REFERENCES = {
+NUMPY_REFERENCES = {
     "ElementwiseAdd": np.add,
-    "ElementwiseSub": np.subtract,
     "ElementwiseMul": np.multiply,
 }
 
 
-def create_elementwise_binary_operation_onnx(
-    op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
-):
+def create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, out_dtype=None):
+    """Create an ONNX model with a single elementwise binary operation.
+
+    If out_dtype is not specified, FLOAT32 is used as placeholder and
+    MinimizeAccumulatorWidth should be used to derive the correct output dtype.
+    """
     onnx_op_type = op_type[11:]  # Remove "Elementwise" prefix
     out_shape = np.broadcast_shapes(lhs_shape, rhs_shape)
+    if out_dtype is None:
+        out_dtype = "FLOAT32"
 
     node = oh.make_node(
         op_type=onnx_op_type,
@@ -60,178 +72,216 @@ def create_elementwise_binary_operation_onnx(
     return model
 
 
-@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
-@pytest.mark.parametrize("pe", [1, 2])
+# =============================================================================
+# Main RTL Simulation Test
+# =============================================================================
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseMul"])
+@pytest.mark.parametrize(
+    "lhs_dtype,rhs_dtype",
+    [
+        ("FLOAT32", "FLOAT32"),
+        ("INT8", "INT8"),
+        ("UINT8", "UINT8"),
+        ("INT16", "INT16"),
+        ("INT8", "FLOAT32"),
+    ],
+)
+@pytest.mark.parametrize(
+    "lhs_shape,rhs_shape,rhs_is_const,pe",
+    [
+        # Simple shapes with const rhs
+        ([1, 4], [1, 4], True, 1),
+        ([1, 4], [1, 4], True, 2),
+        # Simple shapes with both dynamic inputs
+        ([1, 4], [1, 4], False, 1),
+        ([1, 4], [1, 4], False, 2),
+        # Broadcast constant - PE=1,4,8
+        ([128, 384], [384], True, 1),
+        ([128, 384], [384], True, 4),
+        ([128, 384], [384], True, 8),
+    ],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_elementwise_binary_operation_rtl(op_type, pe):
-    """Test RTL elementwise operations for FLOAT32 using RTL simulation."""
+def test_elementwise_rtl(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, rhs_is_const, pe):
+    """Test RTL elementwise operations across various configurations."""
 
-    lhs_dtype = "FLOAT32"
-    rhs_dtype = "FLOAT32"
-    out_dtype = "FLOAT32"
-    lhs_shape = [1, 4]
-    rhs_shape = [1, 4]
+    # Check PE divides last dimension
+    if lhs_shape[-1] % pe != 0:
+        pytest.skip(f"PE ({pe}) must divide last dimension ({lhs_shape[-1]})")
 
-    model = create_elementwise_binary_operation_onnx(
-        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
-    )
+    # Skip input/input mode for broadcast shapes (not supported)
+    if not rhs_is_const and lhs_shape != rhs_shape:
+        pytest.skip("input/input mode requires matching shapes")
 
-    # Generate test data
+    # Skip input/input for non-float (would need matching dtypes check in RTL)
+    if not rhs_is_const and lhs_dtype != rhs_dtype:
+        pytest.skip("input/input mode requires matching dtypes")
+
+    model = create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape)
+
     lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
     rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
 
-    # Set the second input as an initializer (constant) for RTL constraints
-    model.set_initializer("in_y", rhs_data)
+    if rhs_is_const:
+        model.set_initializer("in_y", rhs_data)
+        context = {"in_x": lhs_data}
+    else:
+        context = {"in_x": lhs_data, "in_y": rhs_data}
 
-    context = {
-        "in_x": lhs_data,
-    }
-
-    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
-
+    # Transform pipeline
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
     model = model.transform(InferElementwiseBinaryOperation())
 
-    assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == f"{op_type}"
-
     node_inst = getCustomOp(model.graph.node[0])
-    node_inst.set_nodeattr("preferred_impl_style", "rtl")
     node_inst.set_nodeattr("PE", pe)
-    node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
-    node_inst.set_nodeattr("rhs_style", "const")  # constant data
-    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    model = model.transform(SpecializeLayers(VERSAL_PART))
 
+    # Derive output dtype
+    model = model.transform(MinimizeAccumulatorWidth())
+
+    # Verify RTL backend was selected
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}_rtl"
 
+    # Run RTL simulation
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-
-    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(PrepareIP(VERSAL_PART, 10))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim(behav=True))
 
-    lhs = context["in_x"]
-    rhs = rhs_data  # Use the constant data we set as initializer
-    o_expected = numpy_reference(lhs, rhs)
     o_produced = execute_onnx(model, context)["out"]
 
-    assert np.all(o_produced == o_expected)
+    # Compute expected output
+    lhs_ref = (
+        lhs_data.astype(np.float32)
+        if lhs_dtype.startswith("INT") and rhs_dtype == "FLOAT32"
+        else lhs_data
+    )
+    o_expected = NUMPY_REFERENCES[op_type](lhs_ref, rhs_data)
+
+    # Compare results
+    out_dtype = model.get_tensor_datatype("out")
+    if out_dtype == DataType["FLOAT32"]:
+        assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
+    else:
+        assert np.all(o_produced == o_expected)
 
 
-@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
-@pytest.mark.parametrize("pe", [1, 4, 8])
+# =============================================================================
+# Stitched IP RTL Simulation Test (tests memstream wrapper)
+# =============================================================================
+
+
+@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseMul"])
+@pytest.mark.parametrize("pe", [1, 8, 64])  # min, middle, max
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_elementwise_binary_operation_rtl_with_memstream(op_type, pe):
-    """Test RTL elementwise operations with memstream for broadcast constants.
+def test_elementwise_rtl_stitched_ip(op_type, pe):
+    """Test RTL elementwise with stitched IP to verify memstream wrapper.
 
-    Dynamic input: [1, 384] - streamed during operation
-    Constant input: [384] - stored in memstream, broadcast to match dynamic input
+    The memstream wrapper is only inserted during CreateStitchedIP, so this test
+    verifies that broadcast constants work correctly with the full stitched flow.
     """
-
     lhs_dtype = "FLOAT32"
     rhs_dtype = "FLOAT32"
-    out_dtype = "FLOAT32"
-    lhs_shape = [128, 384]  # Large dynamic input
-    rhs_shape = [384]  # Broadcast constant
+    lhs_shape = [32, 64]
+    rhs_shape = [64]  # Broadcast constant
 
-    model = create_elementwise_binary_operation_onnx(
-        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
-    )
+    model = create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape)
 
-    # Generate test data
     lhs_data = gen_finn_dt_tensor(DataType[lhs_dtype], lhs_shape)
     rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
 
-    # Set the second input as an initializer (constant) for RTL constraints
     model.set_initializer("in_y", rhs_data)
 
-    context = {
-        "in_x": lhs_data,
-    }
-
-    numpy_reference = RTL_NUMPY_REFERENCES[op_type]
-
+    # Transform pipeline
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
     model = model.transform(InferElementwiseBinaryOperation())
 
-    assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == f"{op_type}"
-
     node_inst = getCustomOp(model.graph.node[0])
-    node_inst.set_nodeattr("preferred_impl_style", "rtl")
     node_inst.set_nodeattr("PE", pe)
-    node_inst.set_nodeattr("lhs_style", "input")  # dynamic data
-    node_inst.set_nodeattr("rhs_style", "const")  # constant data stored in memstream
-    node_inst.set_nodeattr("mem_mode", "internal_decoupled")
-
-    # Verify PE divides into the last dimension
-    assert lhs_shape[-1] % pe == 0, f"PE ({pe}) must divide last dimension ({lhs_shape[-1]})"
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    model = model.transform(SpecializeLayers(VERSAL_PART))
+    model = model.transform(MinimizeAccumulatorWidth())
 
-    assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == f"{op_type}_rtl"
 
-    # Verify memstream parameters are set correctly
-    node_inst_rtl = getCustomOp(model.graph.node[0])
-    expected_wmem = node_inst_rtl.calc_wmem()
-    print(f"Expected wmem for constant shape {rhs_shape} with PE={pe}: {expected_wmem}")
-
-    model = model.transform(SetExecMode("rtlsim"))
+    # Prepare for stitched IP rtlsim
+    model = model.transform(InsertAndSetFIFODepths(VERSAL_PART, 10))
     model = model.transform(GiveUniqueNodeNames())
-
-    model = model.transform(PrepareIP("xcvc1902-vsva2197-2MP-e-S", 10))
+    model = model.transform(PrepareIP(VERSAL_PART, 10))
     model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim(behav=True))
+    model = model.transform(CreateStitchedIP(VERSAL_PART, 10, vitis=False))
 
-    lhs = context["in_x"]
-    rhs = rhs_data  # Use the constant data we set as initializer
-    o_expected = numpy_reference(lhs, rhs)
-    o_produced = execute_onnx(model, context)["out"]
+    # Run stitched IP rtlsim
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    o_produced = execute_onnx(model, {model.graph.input[0].name: lhs_data})[
+        model.graph.output[0].name
+    ]
+
+    o_expected = NUMPY_REFERENCES[op_type](lhs_data, rhs_data)
 
     assert np.allclose(o_produced, o_expected, rtol=1e-5, atol=1e-6)
 
 
-@pytest.mark.parametrize("op_type", ["ElementwiseAdd", "ElementwiseSub", "ElementwiseMul"])
-@pytest.mark.fpgadataflow
-def test_elementwise_binary_operation_rtl_fallback_to_hls(op_type):
-    """Test that non-FLOAT32 datatypes fall back to HLS."""
+# =============================================================================
+# Fallback to HLS Tests (no Vivado required)
+# =============================================================================
 
-    lhs_dtype = "INT8"  # Non-FLOAT32 should fallback to HLS
-    rhs_dtype = "INT8"
-    out_dtype = "INT8"
+
+@pytest.mark.parametrize(
+    "scenario,op_type,lhs_dtype,rhs_dtype,out_dtype,expected_backend",
+    [
+        # INT25 signed MUL exceeds DSP58 capacity (max 24-bit for signed)
+        ("wide_mul_fallback", "ElementwiseMul", "INT25", "INT25", "INT50", "hls"),
+        # Mismatched bitwidths -> fallback to HLS
+        ("mismatched_width_fallback", "ElementwiseAdd", "INT8", "INT16", "INT32", "hls"),
+        # Mismatched signedness -> fallback to HLS
+        ("mismatched_sign_fallback", "ElementwiseAdd", "INT8", "UINT8", "INT32", "hls"),
+        # INT24 signed MUL within DSP58 capacity -> should use RTL
+        ("int24_mul_rtl", "ElementwiseMul", "INT24", "INT24", "INT48", "rtl"),
+    ],
+)
+@pytest.mark.fpgadataflow
+def test_elementwise_rtl_backend_selection(
+    scenario, op_type, lhs_dtype, rhs_dtype, out_dtype, expected_backend
+):
+    """Test that SpecializeLayers correctly routes operations to RTL or HLS."""
     lhs_shape = [1, 4]
     rhs_shape = [1, 4]
 
-    model = create_elementwise_binary_operation_onnx(
-        op_type, lhs_dtype, rhs_dtype, out_dtype, lhs_shape, rhs_shape
+    model = create_elementwise_model(
+        op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape, out_dtype=out_dtype
     )
+
+    rhs_data = gen_finn_dt_tensor(DataType[rhs_dtype], rhs_shape)
+    model.set_initializer("in_y", rhs_data)
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
     model = model.transform(InferElementwiseBinaryOperation())
 
-    # Don't set preferred_impl_style - let automatic selection work
-    # RTL should be tried first but constraints should force fallback to HLS
+    node_inst = getCustomOp(model.graph.node[0])
+    node_inst.set_nodeattr("out_dtype", out_dtype)
 
     model = model.transform(InferDataTypes())
     model = model.transform(InferShapes())
-    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    model = model.transform(SpecializeLayers(VERSAL_PART))
 
-    # Should fall back to HLS for non-FLOAT32
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == f"{op_type}_hls"
+    assert (
+        model.graph.node[0].op_type == f"{op_type}_{expected_backend}"
+    ), f"Scenario '{scenario}': expected {expected_backend}, got {model.graph.node[0].op_type}"

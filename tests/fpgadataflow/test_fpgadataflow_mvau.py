@@ -35,7 +35,6 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.util.basic import (
@@ -68,7 +67,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.general import ApplyConfig
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import is_versal
+from finn.util.basic import getHWCustomOp, is_versal
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -330,7 +329,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
         # Note: only HLS-based MVAU layers execute CPPsim
         inst.set_nodeattr("preferred_impl_style", "hls")
@@ -429,7 +428,7 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("pumpedMemory", int(pumpedMemory))
         inst.set_nodeattr("preferred_impl_style", "hls")
@@ -466,7 +465,7 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     assert "MVAU_hls_0" in hls_synt_res_est
 
     node = model.get_nodes_by_op_type("MVAU_hls")[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
@@ -550,7 +549,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("ram_style", ram_style)
         if ram_style == "ultra":
@@ -596,7 +595,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         node = model.get_nodes_by_op_type("MVAU_hls")[0]
     else:
         node = model.get_nodes_by_op_type("MVAU_rtl")[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
     exp_cycles = exp_cycles_dict[node.name]
@@ -618,7 +617,7 @@ def test_fpgadataflow_mvau_large_depth_decoupled_mode_rtlsim(
         node = model.get_nodes_by_op_type("MVAU_hls")[0]
     else:
         node = model.get_nodes_by_op_type("MVAU_rtl")[0]
-    inst = getCustomOp(node)
+    inst = getHWCustomOp(node)
     weights = model.get_initializer(node.input[1])
     inst.make_weight_file(weights, "decoupled_runtime", "weights.dat")
     with open("weights.dat", "r") as f:
@@ -713,7 +712,7 @@ def test_mvau_fifocharacterize_rtlsim(
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
         inst.set_nodeattr("resType", "auto")
         inst.set_nodeattr("preferred_impl_style", preferred_impl_style)
@@ -728,7 +727,7 @@ def test_mvau_fifocharacterize_rtlsim(
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     model = model.transform(DeriveCharacteristic(exp_total_cycles))
-    node_inst = getCustomOp(model.graph.node[0])
+    node_inst = getHWCustomOp(model.graph.node[0])
     period_attr = node_inst.get_nodeattr("io_chrc_period")
     assert period_attr == exp_total_cycles
     chrc_in = node_inst.get_nodeattr("io_chrc_in")
@@ -859,7 +858,7 @@ def test_fpgadataflow_rtl_mvau(
 
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
-@pytest.mark.parametrize("n_vectors", [32])
+@pytest.mark.parametrize("n_vectors", [[1, 32], [8, 32]])
 @pytest.mark.parametrize("pe", [1, 16, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
 @pytest.mark.parametrize(
@@ -878,13 +877,19 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     if part == "xc7z020clg400-1" and impl_style == "rtl":
         pytest.skip("Skip test because narrow range can't be ensured for the second input")
 
+    if impl_style == "hls" and n_vectors[0] != 0:
+        pytest.skip("Skip test because dynamic HLS MVAU only supports 2 dims != 1")
     clk_ns = 4
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, 1, n_vectors, mw])
-    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, 1, mw, mh])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, 1, n_vectors, mh))
+    ifm = helper.make_tensor_value_info(
+        "ifm", TensorProto.FLOAT, [1, n_vectors[0], n_vectors[1], mw]
+    )
+    wfm = helper.make_tensor_value_info("wfm", TensorProto.FLOAT, [1, n_vectors[0], mw, mh])
+    ofm = helper.make_tensor_value_info(
+        "ofm", TensorProto.FLOAT, (1, n_vectors[0], n_vectors[1], mh)
+    )
 
     model = make_dynamic_matmul_modelwrapper(ifm, wfm, ofm, idt, wdt)
     model = model.transform(GiveUniqueNodeNames())
@@ -911,7 +916,7 @@ def test_fpgadataflow_rtl_dynamic_mvau(mh, mw, n_vectors, pe, simd, idt_wdt, par
     model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("preferred_impl_style", str(impl_style))
 
     # Apply convert-to-rtl step
@@ -1022,7 +1027,7 @@ def test_fpgadataflow_mvau_hls_threshold_width_cppsim():
     # Apply transformations
     model = model.transform(GiveUniqueNodeNames())
     for node in model.graph.node:
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         inst.set_nodeattr("preferred_impl_style", "hls")
         inst.set_nodeattr("mem_mode", "internal_embedded")
 

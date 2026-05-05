@@ -26,37 +26,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
-from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-
-# Dictionary of HLSBackend implementations
-custom_op = dict()
-
-
-# Registers a class into the custom_op dictionary
-# Note: This must be defined first, before importing any custom op
-# implementation to avoid "importing partially initialized module" issues.
-def register_custom_op(cls):
-    # The class must actually implement HWCustomOp
-    assert issubclass(cls, HWCustomOp), f"{cls} must subclass {HWCustomOp}"
-    # The class must also implement the HLSBackend
-    assert issubclass(cls, HLSBackend), f"{cls} must subclass {HLSBackend}"
-    # Insert the class into the custom_op dictionary by its name
-    custom_op[cls.__name__] = cls
-    # Pass through the class unmodified
-    return cls
-
-
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
-# Import the submodule containing specializations of ElementwiseBinaryOperation
-# Note: This will automatically register all decorated classes into this domain
-import finn.custom_op.fpgadataflow.hls.elementwise_binary_hls
 from finn.custom_op.fpgadataflow.hls.checksum_hls import CheckSum_hls
 from finn.custom_op.fpgadataflow.hls.concat_hls import StreamingConcat_hls
 from finn.custom_op.fpgadataflow.hls.crop_hls import Crop_hls
 from finn.custom_op.fpgadataflow.hls.duplicatestreams_hls import DuplicateStreams_hls
+
+# Also import ElementwiseBinary variants
+from finn.custom_op.fpgadataflow.hls.elementwise_binary_hls import (
+    ElementwiseAbsDiff_hls,
+    ElementwiseAdd_hls,
+    ElementwiseAnd_hls,
+    ElementwiseBinaryOperation_hls,
+    ElementwiseBitwiseAnd_hls,
+    ElementwiseBitwiseOr_hls,
+    ElementwiseBitwiseXor_hls,
+    ElementwiseDiv_hls,
+    ElementwiseEqual_hls,
+    ElementwiseGreater_hls,
+    ElementwiseGreaterOrEqual_hls,
+    ElementwiseLess_hls,
+    ElementwiseLessOrEqual_hls,
+    ElementwiseMul_hls,
+    ElementwiseOr_hls,
+    ElementwiseSub_hls,
+    ElementwiseXor_hls,
+)
 from finn.custom_op.fpgadataflow.hls.fmpadding_pixel_hls import FMPadding_Pixel_hls
 from finn.custom_op.fpgadataflow.hls.globalaccpool_hls import GlobalAccPool_hls
 from finn.custom_op.fpgadataflow.hls.hwsoftmax_hls import HWSoftmax_hls
@@ -76,27 +73,3 @@ from finn.custom_op.fpgadataflow.hls.thresholding_hls import Thresholding_hls
 from finn.custom_op.fpgadataflow.hls.tlastmarker_hls import TLastMarker_hls
 from finn.custom_op.fpgadataflow.hls.upsampler_hls import UpsampleNearestNeighbour_hls
 from finn.custom_op.fpgadataflow.hls.vectorvectoractivation_hls import VVAU_hls
-
-# make sure new HLSCustomOp subclasses are imported here so that they get
-# registered and plug in correctly into the infrastructure
-custom_op["CheckSum_hls"] = CheckSum_hls
-custom_op["Crop_hls"] = Crop_hls
-custom_op["DuplicateStreams_hls"] = DuplicateStreams_hls
-custom_op["FMPadding_Pixel_hls"] = FMPadding_Pixel_hls
-custom_op["GlobalAccPool_hls"] = GlobalAccPool_hls
-custom_op["IODMA_hls"] = IODMA_hls
-custom_op["LabelSelect_hls"] = LabelSelect_hls
-custom_op["LayerNorm_hls"] = LayerNorm_hls
-custom_op["Lookup_hls"] = Lookup_hls
-custom_op["Pool_hls"] = Pool_hls
-custom_op["Requant_hls"] = Requant_hls
-custom_op["StreamingConcat_hls"] = StreamingConcat_hls
-custom_op["StreamingSplit_hls"] = StreamingSplit_hls
-custom_op["StreamingDataWidthConverter_hls"] = StreamingDataWidthConverter_hls
-custom_op["Thresholding_hls"] = Thresholding_hls
-custom_op["TLastMarker_hls"] = TLastMarker_hls
-custom_op["UpsampleNearestNeighbour_hls"] = UpsampleNearestNeighbour_hls
-custom_op["MVAU_hls"] = MVAU_hls
-custom_op["VVAU_hls"] = VVAU_hls
-custom_op["HWSoftmax_hls"] = HWSoftmax_hls
-custom_op["OuterShuffle_hls"] = OuterShuffle_hls

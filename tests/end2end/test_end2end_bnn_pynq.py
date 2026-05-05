@@ -42,7 +42,6 @@ from brevitas.export import export_qonnx
 from dataset_loading import cifar, mnist
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -65,6 +64,7 @@ import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
 from finn.core.throughput_test import throughput_test_rtlsim
+from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -94,7 +94,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root, make_build_dir, test_board_map
+from finn.util.basic import get_finn_root, getHWCustomOp, make_build_dir, test_board_map
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -126,7 +126,7 @@ def fold_tfc(model):
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -134,7 +134,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
@@ -150,7 +150,7 @@ def fold_lfc(model):
         (10, 8, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -159,7 +159,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     return model
 
@@ -179,7 +179,7 @@ def fold_cnv_large(model):
         (5, 1),
     ]
     for fcl, (pe, simd) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
@@ -187,7 +187,7 @@ def fold_cnv_large(model):
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
+        swg_inst = getHWCustomOp(swg_layers[i])
         if not swg_inst.get_nodeattr("depthwise"):
             simd = folding[i][1]
             swg_inst.set_nodeattr("SIMD", simd)
@@ -210,7 +210,7 @@ def fold_cnv_small(model):
         (5, 1, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -219,13 +219,13 @@ def fold_cnv_small(model):
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
+        swg_inst = getHWCustomOp(swg_layers[i])
         if not swg_inst.get_nodeattr("depthwise"):
             simd = folding[i][1]
             swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
     inp_qnt.set_nodeattr("depth_trigger_bram", 32000)
     return model
@@ -666,7 +666,7 @@ class TestEnd2End:
         parent_model_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_parent")
         parent_model.save(parent_model_chkpt)
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-        sdp_node = getCustomOp(sdp_node)
+        sdp_node = getHWCustomOp(sdp_node)
         dataflow_model_filename = sdp_node.get_nodeattr("model")
         dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
         dataflow_model_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_model")
@@ -710,7 +710,7 @@ class TestEnd2End:
     @pytest.mark.vivado
     def test_ipgen(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
+        if build_data["toolchain"] == "vitis-xrt" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "minimize_bit_width")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -753,7 +753,7 @@ class TestEnd2End:
         latency = perf["critical_path_cycles"]
         # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
         for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
+            getHWCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
@@ -805,31 +805,50 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.vitis
-    def test_build(self, topology, wbits, abits, board):
+    def test_prepare_for_linking(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
-            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "fifodepth")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        if build_data["toolchain"] == "vitis-xrt":
+            model = model.transform(
+                PrepareForLinking(build_data["part"], target_clk_ns, build_data["toolchain"])
+            )
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "prepare_linking"))
+
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    @pytest.mark.vitis
+    def test_linking(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
+        if build_data["toolchain"] == "vitis-xrt" and ("VITIS_PATH" not in os.environ):
+            pytest.skip("VITIS_PATH not set")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "prepare_linking")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(build_data["build_fxn"])
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "linking"))
+
+    def test_annotate_resources(self, topology, wbits, abits, board):
+        build_data = get_build_env(board, target_clk_ns)
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "linking")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(AnnotateResources("synth", build_data["part"]))
-        model.save(get_checkpoint_name(board, topology, wbits, abits, "build"))
+        model.save(get_checkpoint_name(board, topology, wbits, abits, "annotate_resources"))
 
     @pytest.mark.slow
     @pytest.mark.vivado
     @pytest.mark.vitis
     def test_make_driver(self, topology, wbits, abits, board):
         build_data = get_build_env(board, target_clk_ns)
-        if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
+        if build_data["toolchain"] == "vitis-xrt" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "build")
+        prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "linking")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        board_to_driver_platform = "alveo" if build_data["kind"] == "alveo" else "zynq-iodma"
-        if build_data["kind"] == "alveo" and topology == "tfc":
-            model = model.transform(MakeCPPDriver(board_to_driver_platform, version="latest"))
+        if build_data["toolchain"] == "vitis-xrt" and topology == "tfc":
+            model = model.transform(MakeCPPDriver("vitis-xrt", version="latest"))
+        elif build_data["toolchain"] == "pynq":
+            model = model.transform(MakePYNQDriver("zynq-iodma"))
         else:
-            model = model.transform(MakePYNQDriver(board_to_driver_platform))
+            raise Exception("Unsupported toolchain/topology combination for driver generation")
         model.save(get_checkpoint_name(board, topology, wbits, abits, "driver"))
 
     def test_deploy(self, topology, wbits, abits, board):

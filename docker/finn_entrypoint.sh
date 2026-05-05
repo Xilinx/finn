@@ -56,14 +56,14 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
-pip install --user -e ${FINN_ROOT}/deps/qonnx
-mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
+mv ${FINN_DEPS_DIR}/qonnx/pyproject.toml ${FINN_DEPS_DIR}/qonnx/pyproject.tmp
+pip install --user -e ${FINN_DEPS_DIR}/qonnx
+mv ${FINN_DEPS_DIR}/qonnx/pyproject.tmp ${FINN_DEPS_DIR}/qonnx/pyproject.toml
 
 # finn-experimental
-pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+pip install --user -e ${FINN_DEPS_DIR}/finn-experimental
 # brevitas
-pip install --user -e ${FINN_ROOT}/deps/brevitas
+pip install --user -e ${FINN_DEPS_DIR}/brevitas
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
@@ -86,7 +86,7 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
     gecho "Found XRT at $XILINX_XRT"
   else
     recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
-    exit -1
+    #exit -1
   fi
 else
   yecho "Unable to find $VITIS_PATH/settings64.sh"

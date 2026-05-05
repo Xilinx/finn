@@ -32,7 +32,6 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import BipolarType, DataType, IntType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 from typing import Optional, Union
 
@@ -45,6 +44,7 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
     MinimizeWeightBitWidth,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import getHWCustomOp
 
 
 def make_unit_test_model(
@@ -331,7 +331,7 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
 
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             if external:
@@ -342,7 +342,7 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool, external: bool):
 
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             cur_wdt = DataType[inst.get_nodeattr("weightDataType")]
             exp_wdt = def_wdt if (rww or external) else wdt
@@ -443,7 +443,7 @@ def test_minimize_accumulator_width(
 
     # If runtime-writeable weights, specify as a node attribute
     for node in model.graph.node:
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             if external:
@@ -456,7 +456,7 @@ def test_minimize_accumulator_width(
 
     # Iterate through each node to make sure it functioned properly
     for node in model.graph.node:
-        inst = getCustomOp(node)
+        inst = getHWCustomOp(node)
         if isinstance(inst, (MVAU, VVAU)):
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
             cur_odt = DataType[inst.get_nodeattr("outputDataType")]
@@ -536,7 +536,7 @@ def test_minimize_weight_bit_width_threshold_boundary_values(tdt: DataType):
     model.set_tensor_datatype("outp", DataType["UINT2"])
     model.set_tensor_datatype("thresh", tdt)
 
-    inst = getCustomOp(model.graph.node[0])
+    inst = getHWCustomOp(model.graph.node[0])
     result_dt = inst.minimize_weight_bit_width(model)
 
     assert result_dt is not None
@@ -604,9 +604,9 @@ def test_minimize_accumulator_width_independent_of_thresholds(wdt: DataType, idt
     model_last = model_last.transform(MinimizeAccumulatorWidth())
 
     # Get accumulator datatypes
-    inst_with_thresh = getCustomOp(model_with_thresh.graph.node[0])
-    inst_no_thresh = getCustomOp(model_no_thresh.graph.node[0])
-    inst_last = getCustomOp(model_last.graph.node[0])
+    inst_with_thresh = getHWCustomOp(model_with_thresh.graph.node[0])
+    inst_no_thresh = getHWCustomOp(model_no_thresh.graph.node[0])
+    inst_last = getHWCustomOp(model_last.graph.node[0])
 
     adt_with_thresh = DataType[inst_with_thresh.get_nodeattr("accDataType")]
     adt_no_thresh = DataType[inst_no_thresh.get_nodeattr("accDataType")]
@@ -666,7 +666,7 @@ def test_minimize_accumulator_width_mvau_threshold_boundary_values(tdt: DataType
     # Run MinimizeAccumulatorWidth - should not be affected by large threshold values
     model = model.transform(MinimizeAccumulatorWidth())
 
-    inst = getCustomOp(model.graph.node[0])
+    inst = getHWCustomOp(model.graph.node[0])
     result_adt = DataType[inst.get_nodeattr("accDataType")]
 
     assert result_adt is not None, "Accumulator data type should be set"
@@ -770,7 +770,7 @@ def test_full_bit_width_optimization_pipeline():
     # Step 1: MinimizeWeightBitWidth (first pass)
     model = model.transform(MinimizeWeightBitWidth())
 
-    inst = getCustomOp(model.graph.node[0])
+    inst = getHWCustomOp(model.graph.node[0])
     wdt_after_first = DataType[inst.get_nodeattr("weightDataType")]
 
     # Weight datatype should be minimized
@@ -782,7 +782,7 @@ def test_full_bit_width_optimization_pipeline():
     # Step 2: MinimizeAccumulatorWidth
     model = model.transform(MinimizeAccumulatorWidth())
 
-    inst = getCustomOp(model.graph.node[0])  # Refresh inst after transformation
+    inst = getHWCustomOp(model.graph.node[0])  # Refresh inst after transformation
     acc_dt = DataType[inst.get_nodeattr("accDataType")]
 
     # Accumulator should be minimized (not INT32)

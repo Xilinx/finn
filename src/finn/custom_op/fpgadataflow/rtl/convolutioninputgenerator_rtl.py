@@ -32,7 +32,6 @@ import os
 import shutil
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
@@ -289,10 +288,10 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
             if self.get_nodeattr("depthwise"):
                 node = self.onnx_node
                 im2col_out = context[node.output[0]]
-                simd = getCustomOp(node).get_nodeattr("SIMD")
-                ofm_h, ofm_w = getCustomOp(node).get_nodeattr("OFMDim")
-                k_h, k_w = getCustomOp(node).get_nodeattr("ConvKernelDim")
-                ifm_ch = getCustomOp(node).get_nodeattr("IFMChannels")
+                simd = self.get_nodeattr("SIMD")
+                ofm_h, ofm_w = self.get_nodeattr("OFMDim")
+                k_h, k_w = self.get_nodeattr("ConvKernelDim")
+                ifm_ch = self.get_nodeattr("IFMChannels")
                 im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, k_h * k_w, ifm_ch // simd, simd)
                 im2col_out = im2col_out.transpose(0, 1, 2, 4, 3, 5)
                 im2col_out = im2col_out.reshape(1, ofm_h, ofm_w, ifm_ch * k_h * k_w)

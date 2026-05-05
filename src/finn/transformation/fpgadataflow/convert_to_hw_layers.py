@@ -35,7 +35,6 @@ from qonnx.core.datatype import DataType
 
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -45,6 +44,7 @@ from qonnx.util.onnx import nchw_to_nhwc
 
 # Module containing specializations of elementwise binary operations
 import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
+from finn.util.basic import getHWCustomOp
 
 
 class InferConvInpGen(Transformation):
@@ -68,7 +68,7 @@ class InferConvInpGen(Transformation):
                 if not dt.is_integer():
                     warnings.warn("%s : Input is not int. Can't infer ConvInpGen." % n.name)
                     continue
-                i2c_inst = getCustomOp(n)
+                i2c_inst = getHWCustomOp(n, model)
                 stride_h, stride_w = i2c_inst.get_nodeattr("stride")
                 k_h, k_w = i2c_inst.get_nodeattr("kernel_size")
                 pad_attr = i2c_inst.get_nodeattr("pad_amount")
@@ -124,6 +124,8 @@ class InferConvInpGen(Transformation):
                         SIMD=ifm_ch,
                         name="FMPadding_Batch_" + n.name,
                     )
+                    if hasattr(n, "metadata_props"):
+                        padding_node.metadata_props.extend(n.metadata_props)
                     graph.node.insert(node_ind, padding_node)
 
                 is_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
@@ -146,6 +148,8 @@ class InferConvInpGen(Transformation):
                     is1D=is_1D,
                     name="ConvolutionInputGenerator_" + n.name,
                 )
+                if hasattr(n, "metadata_props"):
+                    ConvInpGen_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
@@ -211,13 +215,13 @@ class InferThresholdingLayer(Transformation):
                 pe = 1
 
                 odt = model.get_tensor_datatype(thl_output)
-                scale = getCustomOp(node).get_nodeattr("out_scale")
+                scale = getHWCustomOp(node, model).get_nodeattr("out_scale")
                 assert scale == 1.0, (
                     f"{node.name}: MultiThreshold out_scale must be 1 for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
                     f"as a custom step to extract scale/bias into separate Add/Mul nodes."
                 )
-                actval = getCustomOp(node).get_nodeattr("out_bias")
+                actval = getHWCustomOp(node, model).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
                     f"{node.name}: MultiThreshold out_bias must be integer for HW conversion. "
                     f"Hint: Consider running ExtractMultiThresholdScaleBias() transformation "
@@ -605,7 +609,7 @@ class InferRequantLayer(Transformation):
                     continue
 
                 # Check MultiThreshold out_scale and out_bias
-                mt_inst = getCustomOp(node)
+                mt_inst = getHWCustomOp(node)
                 out_scale = mt_inst.get_nodeattr("out_scale")
                 out_bias = mt_inst.get_nodeattr("out_bias")
 
@@ -636,7 +640,7 @@ class InferRequantLayer(Transformation):
             elif node.op_type == "Quant":
                 # Handle Quant nodes with scale=1 and zeropt=0
                 # (typically after ExtractQuantScaleZeroPt transformation)
-                node_inst = getCustomOp(node)
+                node_inst = getHWCustomOp(node)
 
                 # Check rounding mode
                 rmode = node_inst.get_nodeattr("rounding_mode")
@@ -815,6 +819,8 @@ class InferUpsample(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    Upsample_HW_node.metadata_props.extend(n.metadata_props)
 
                 # Remove the old node
                 graph.node.insert(node_ind, Upsample_HW_node)
@@ -895,6 +901,9 @@ class InferDuplicateStreamsLayer(Transformation):
                 hls_style="freerunning",
             )
 
+            # take metadata from first node in graph
+            if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                dup_node.metadata_props.extend(model.find_consumer(output_tensor).metadata_props)
             graph.node.insert(0, dup_node)
 
             # connect successors to out tensor clone
@@ -922,9 +931,7 @@ class InferDuplicateStreamsLayer(Transformation):
 
                 if total_consumers >= 2:
                     n_outputs = total_consumers
-
                     dt = model.get_tensor_datatype(output_tensor)
-
                     # create clone tensors
                     out_shape = model.get_tensor_shape(output_tensor)
                     out_tensor_clones = []
@@ -964,6 +971,10 @@ class InferDuplicateStreamsLayer(Transformation):
                         hls_style="freerunning",
                     )
 
+                    if hasattr(model.find_consumer(output_tensor), "metadata_props"):
+                        dup_node.metadata_props.extend(
+                            model.find_consumer(output_tensor).metadata_props
+                        )
                     graph.node.insert(node_ind, dup_node)
 
                     # connect successors to out tensor clone
@@ -1065,6 +1076,8 @@ class InferLabelSelectLayer(Transformation):
                     numInputVectors=num_inp_vecs,
                     name="LabelSelect_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -1152,6 +1165,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     [pool_out, mul_value.name],
                     [result],
                 )
+                if hasattr(node, "metadata_props"):
+                    new_pool.metadata_props.extend(node.metadata_props)
+                    new_mul.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_pool)
                 graph.node.insert(insert_point + 1, new_mul)
                 node_ind += 1
@@ -1192,14 +1208,14 @@ class InferPool(Transformation):
                     sh, sw = list(get_by_name(node.attribute, "strides").ints)
                     dlayout = "NCHW"
                 elif node.op_type == "QuantAvgPool2d":
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     # QuantAvgPool2d has a single scalar attribute
                     # for kernel size and stride (implicit square)
                     kh = kw = inst.get_nodeattr("kernel")
                     sh = sw = inst.get_nodeattr("stride")
                     dlayout = inst.get_nodeattr("data_layout")
                 elif node.op_type == "MaxPoolNHWC":
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     kh, kw = inst.get_nodeattr("kernel_shape")
                     sh, sw = inst.get_nodeattr("strides")
                     dlayout = "NHWC"
@@ -1278,7 +1294,7 @@ class InferPool(Transformation):
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
                     assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
                     accum_bits = inst.get_accum_size()
@@ -2007,8 +2023,8 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         thresholds neither 1 nor MH."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
-                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
-                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
+                        actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
                             consumer.name + ": out_bias must be integer for HW conversion."
                         )
@@ -2068,7 +2084,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             backend="fpgadataflow",
                             MW=mw,
                             MH=mh,
-                            SIMD=simd,
+                            SIMD=simd,  # Height of the input tensor A for dynamic MVAU
                             PE=pe,
                             inputDataType=idt.name,
                             weightDataType=wdt.name,
@@ -2164,11 +2180,11 @@ class InferVectorVectorActivation(Transformation):
                         thresholds neither 1 nor Channels."""
                         )
                         odt = model.get_tensor_datatype(mt_output)
-                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        scale = getHWCustomOp(consumer, model).get_nodeattr("out_scale")
                         assert scale == 1.0, (
                             consumer.name + ": out_scale must be equal to 1.0 for HW conversion."
                         )
-                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        actval = getHWCustomOp(consumer, model).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
                             consumer.name + ": out_bias must be integer for HW conversion."
                         )
@@ -2264,9 +2280,9 @@ class InferHWSoftmax(Transformation):
                     name=n.name,
                     SIMD=1,
                     NumChannels=input_shape[-1],
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
         return (model, graph_modified)
@@ -2400,6 +2416,8 @@ class InferShuffle(Transformation):
                     NumChannels=in_reshaped[-1],
                 )
                 new_node.attribute.extend([perm])
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
 
                 for i in to_remove:
@@ -2736,6 +2754,8 @@ class InferLayerNorm(Transformation):
                     outputDataType=odt.name,
                     name="LayerNorm_" + node.name,
                 )
+                if hasattr(node, "metadata_props"):
+                    new_node.metadata_props.extend(node.metadata_props)
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
@@ -2867,6 +2887,8 @@ class InferCrop(Transformation):
                     cpp_interface="hls_vector",
                     hls_style="freerunning",
                 )
+                if hasattr(n, "metadata_props"):
+                    new_node.metadata_props.extend(n.metadata_props)
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)
                 graph_modified = True

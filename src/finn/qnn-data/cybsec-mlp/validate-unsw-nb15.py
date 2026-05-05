@@ -50,7 +50,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--batchsize", help="samples per batch", type=int, default=1000)
     parser.add_argument(
-        "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
+        "--platform", help="Target platform: zynq-iodma vitis-xrt", default="zynq-iodma"
     )
     parser.add_argument(
         "--bitfile",

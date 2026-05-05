@@ -34,12 +34,12 @@ import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, VitisLink
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -51,8 +51,12 @@ from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarke
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import (
+    getHWCustomOp,
+    pynq_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 from finn.util.test import load_test_checkpoint_or_skip
 
 test_pynq_board = "Pynq-Z1"
@@ -200,7 +204,7 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = create_one_fc_model(mem_mode)
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
@@ -276,16 +280,16 @@ def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(InferDataLayouts())
     model = model.transform(InsertIODMA())
     model = model.transform(Floorplan())
-    assert getCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
-    assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
-    assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
+    assert getHWCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
+    assert getHWCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
+    assert getHWCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
 
 
@@ -302,20 +306,21 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
-    platform = alveo_default_platform[board]
-    fpga_part = alveo_part_map[board]
+    platform = vitis_default_platform[board]
+    fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(fpga_part, period_ns))
     model = model.transform(HLSSynthIP())
-    model = model.transform(VitisBuild(fpga_part, period_ns, platform))
+    model = model.transform(PrepareForLinking(fpga_part, period_ns, "vitis-xrt"))
+    model = model.transform(VitisLink(platform, period_ns))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
-    assert model.get_metadata_prop("platform") == "alveo"
+    assert model.get_metadata_prop("platform") == "vitis-xrt"
     assert os.path.isdir(model.get_metadata_prop("vitis_link_proj"))
     assert os.path.isfile(model.get_metadata_prop("bitfile"))
 
@@ -328,7 +333,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))

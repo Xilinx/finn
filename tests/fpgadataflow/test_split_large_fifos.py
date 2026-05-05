@@ -34,12 +34,11 @@ import shutil
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import get_fifo_split_configs
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -98,7 +97,7 @@ def test_split_large_fifos(depth):
     fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO_rtl")[:-1]
     golden_cfg = get_fifo_split_configs(depth, 256, 32768)
     for i, fifo_node in enumerate(fifo_nodes):
-        inst = getCustomOp(fifo_node)
+        inst = getHWCustomOp(fifo_node)
         fifo_depth = inst.get_nodeattr("depth")
         assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
         assert fifo_depth > 1

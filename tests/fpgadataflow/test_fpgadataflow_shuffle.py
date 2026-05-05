@@ -575,6 +575,7 @@ def test_stitched_ip_shuffle_layer(shuffle_sip_param, datatype, simd):
     assert np.allclose(y_ref, y_hw), "Model output does not match expected output"
 
 
+@pytest.mark.fpgadataflow
 def test_shuffle_config_consolidation():
     dt = DataType["INT8"]
     model = construct_onnx_model(

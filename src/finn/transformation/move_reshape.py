@@ -1,8 +1,8 @@
 import warnings
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_by_name
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -38,7 +38,7 @@ class RemoveCNVtoFCFlatten(Transformation):
                             if is_fpgadataflow_node(producer):
                                 consumer = model.find_consumer(n.output[0])
                                 if consumer.op_type.startswith("MVAU"):
-                                    fc_inst = getCustomOp(consumer)
+                                    fc_inst = getHWCustomOp(consumer, model)
                                     mw = fc_inst.get_nodeattr("MW")
                                     mh = fc_inst.get_nodeattr("MH")
                                     (b, h, w, c) = model.get_tensor_shape(transp_node.input[0])

@@ -30,10 +30,10 @@
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -77,7 +77,7 @@ class InsertHook(Transformation):
                     assert len(consumers) <= 1, (
                         n.name + ": HLS node with fan-out higher than 1 cannot be stitched"
                     )
-                    n0 = getCustomOp(n)
+                    n0 = getHWCustomOp(n, model)
                     n0_hook = n0.get_nodeattr("output_hook")
                     if n0_hook in list_supported_hooks:
                         if n0_hook == "checksum":

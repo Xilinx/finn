@@ -92,10 +92,24 @@ class MVAU_rtl(MVAU, RTLBackend):
 
                 if in_ind == 1:
                     if dynamic_input or self.get_nodeattr("mlo_max_iter"):
-                        reshaped_input = context[inputs].reshape(-1, context[inputs].shape[-1])
-                        self.make_weight_file(
-                            reshaped_input, "decoupled_npy", "{}/input_1.npy".format(code_gen_dir)
-                        )
+                        flat_in = context[inputs].reshape(-1, context[inputs].shape[-1])
+
+                        mw = self.get_nodeattr("MW")
+                        total_rows, mh = flat_in.shape
+
+                        assert total_rows % mw == 0, "Total rows must be a multiple of MW"
+                        n_chunks = total_rows // mw
+                        chunks = np.split(flat_in, n_chunks, axis=0)
+
+                        chunk_paths = []
+                        for i, chunk in enumerate(chunks):
+                            tmp_path = "{}/input_1_chunk_{}.npy".format(code_gen_dir, i)
+                            self.make_weight_file(chunk, "decoupled_npy", tmp_path)
+                            chunk_paths.append(tmp_path)
+
+                        encoded_chunks = [np.load(p) for p in chunk_paths]
+                        concatenated = np.concatenate(encoded_chunks, axis=0)
+                        np.save("{}/input_1.npy".format(code_gen_dir), concatenated)
 
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -111,11 +125,33 @@ class MVAU_rtl(MVAU, RTLBackend):
                     wnbits = wnbits * self.get_nodeattr("SIMD")
                 export_wdt = self.get_input_datatype(1)
 
+                x = context[inputs]
+                mw = self.get_nodeattr("MW")
+
+                flat_in = x.reshape(-1, x.shape[-1])
+                total_rows = flat_in.shape[0]
+                n_chunks = total_rows // mw
+
                 wei = npy_to_rtlsim_input("{}/input_1.npy".format(code_gen_dir), export_wdt, wnbits)
-                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors")) // n_chunks
+
+                wei_list = list(wei)
+                total_len = len(wei_list)
+
+                assert total_len % n_chunks == 0, "Total encoded length not divisible by n_chunks"
+
+                chunk_len = total_len // n_chunks
+
+                wei_chunks = [
+                    wei_list[i * chunk_len : (i + 1) * chunk_len] for i in range(n_chunks)
+                ]
+
+                full_wei_stream = []
+                for c in wei_chunks:
+                    full_wei_stream += c * num_w_reps
 
                 io_dict = {
-                    "inputs": {"in0": inp, "in1": wei * num_w_reps},
+                    "inputs": {"in0": inp, "in1": full_wei_stream},
                     "outputs": {"out0": []},
                 }
             else:
@@ -173,9 +209,10 @@ class MVAU_rtl(MVAU, RTLBackend):
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
-        sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+        wrapper_file = self.get_nodeattr("gen_top_module") + "_wrapper.v"
+        sourcefiles = [os.path.join(code_gen_dir, wrapper_file)] + [
+            rtllib_dir + _ for _ in sourcefiles
+        ]
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
