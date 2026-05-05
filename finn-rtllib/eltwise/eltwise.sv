@@ -52,10 +52,12 @@ module eltwise #(
 	localparam bit  BOTH_FLOAT = A_FLOAT && B_FLOAT;
 	localparam bit  HAVE_SCALE = (B_SCALE != 1.0);
 	localparam int unsigned  BINOPF_LATENCY = HAVE_SCALE? 4 : 2 + IS_MUL;
-	localparam int unsigned  BINOPI_LATENCY = IS_MUL? 2 : 1;
-	localparam int unsigned  LATENCY =
-		BOTH_INT? BINOPI_LATENCY : BINOPF_LATENCY;
-	localparam int unsigned  CREDIT = (LATENCY < 2)? 2 : LATENCY;
+	localparam int unsigned  BINOPI_LATENCY = IS_MUL? 3 : 1;
+	localparam int unsigned  CONV_LATENCY   = (A_FLOAT ^ B_FLOAT)? 1 : 0;
+	localparam int unsigned  LATENCY = BOTH_INT? BINOPI_LATENCY
+	                                           : (BINOPF_LATENCY + CONV_LATENCY);
+
+	localparam int unsigned  CREDIT = LATENCY + 3;
 
 	//=== Parameter Validation =============================================
 	initial begin
@@ -116,6 +118,10 @@ module eltwise #(
 		else     Credit <= Credit + ((give == take)? 0 : give? -1 : 1);
 	end
 
+	//=== Converter Valid Alignment =======================================
+	logic  Take = 1'b0;
+	always_ff @(posedge clk)  Take <= rst? 1'b0 : take;
+
 	//=== Free-running Compute Pipeline ====================================
 	uwire o_vec_t  r;
 	uwire [PE-1:0]  rvld_vec;
@@ -135,13 +141,23 @@ module eltwise #(
 		else if(!A_FLOAT && B_FLOAT) begin : genIF
 			uwire [31:0]  a_fp;
 			int_to_fp32 #(.WIDTH(A_WIDTH), .SIGNED(A_SIGNED)) conv (
-				.ival(a[i]),
-				.fval(a_fp)
+				.ival(a[i]), .fval(a_fp)
 			);
+			logic [31:0]  AFp = '0;
+			logic [31:0]  Bd  = '0;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					AFp <= '0;  Bd <= '0;
+				end
+				else begin
+					AFp <= a_fp;
+					Bd  <= b[i];
+				end
+			end
 			binopf #(.OP(OP), .B_SCALE(B_SCALE), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 				.clk, .rst,
-				.a(a_fp), .avld(take),
-				.b(b[i]), .bload('1),
+				.a(AFp), .avld(Take),
+				.b(Bd), .bload('1),
 				.r(r[i]), .rvld(rvld_vec[i])
 			);
 		end : genIF
@@ -149,13 +165,23 @@ module eltwise #(
 		else if(A_FLOAT && !B_FLOAT) begin : genFI
 			uwire [31:0]  b_fp;
 			int_to_fp32 #(.WIDTH(B_WIDTH), .SIGNED(B_SIGNED)) conv (
-				.ival(b[i]),
-				.fval(b_fp)
+				.ival(b[i]), .fval(b_fp)
 			);
+			logic [31:0]  BFp = '0;
+			logic [31:0]  Ad  = '0;
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					BFp <= '0;  Ad <= '0;
+				end
+				else begin
+					BFp <= b_fp;
+					Ad  <= a[i];
+				end
+			end
 			binopf #(.OP(OP), .B_SCALE(B_SCALE), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 				.clk, .rst,
-				.a(a[i]), .avld(take),
-				.b(b_fp), .bload('1),
+				.a(Ad), .avld(Take),
+				.b(BFp), .bload('1),
 				.r(r[i]), .rvld(rvld_vec[i])
 			);
 		end : genFI

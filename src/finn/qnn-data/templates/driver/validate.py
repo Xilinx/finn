@@ -40,7 +40,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dataset", help="dataset to use (mnist of cifar10)", required=True)
     parser.add_argument(
-        "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
+        "--platform", help="Target platform: zynq-iodma vitis-xrt", default="zynq-iodma"
     )
     parser.add_argument(
         "--bitfile", help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit"

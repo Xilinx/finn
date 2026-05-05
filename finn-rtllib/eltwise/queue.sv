@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
+ * @brief	AXI-Stream queue with credit-based flow control.
  ***************************************************************************/
 
 module queue #(
