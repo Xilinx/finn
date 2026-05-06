@@ -18,10 +18,13 @@ python -m tinydeit.verify_model \
   --reference tinydeit/build/flow/07_specialize_layers.onnx \
   --reference-cppsim-prepare
 python -m tinydeit.build --mode rtl --output-dir tinydeit/build/v80_mlo
+python -m tinydeit.build --mode dcp --output-dir tinydeit/build/v80_mlo_dcp
 ```
 
 `--mode estimate` stops after analytical reports.  `--mode rtl` generates and
-stitches IP.  Add `--stitched-rtlsim` when stitched RTL simulation is required.
+stitches IP.  `--mode dcp` generates stitched IP and a Vivado out-of-context
+DCP without running bitstream packaging.  Add `--stitched-rtlsim` when stitched
+RTL simulation is required.
 The build uses FINN's loop-body FIFO sizing during hardware codegen, then
 inserts deterministic top-level FIFOs.  Full top-level automatic FIFO sizing is
 disabled because it simulates through the rolled `FINNLoop` and is not practical

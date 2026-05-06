@@ -106,7 +106,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         steps = BUILD_STEPS_ESTIMATE
         outputs = [DataflowOutputType.ESTIMATE_REPORTS]
         verify_steps = []
-    elif args.mode == "rtl":
+    elif args.mode in ["rtl", "dcp"]:
         steps = BUILD_STEPS_RTL
         outputs = [DataflowOutputType.ESTIMATE_REPORTS, DataflowOutputType.STITCHED_IP]
         verify_steps = []
@@ -155,6 +155,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         mlo=True,
         auto_fifo_depths=False,
         rtlsim_batch_size=args.rtlsim_batch_size,
+        stitched_ip_gen_dcp=args.mode == "dcp" or args.stitched_ip_dcp,
         no_stdout_redirect=True,
         enable_build_pdb_debug=False,
     )
@@ -207,7 +208,7 @@ def main() -> None:
         default=str((DEFAULT_BUILD_DIR / "v80_mlo").relative_to(repo_path("."))),
     )
     parser.add_argument(
-        "--mode", choices=["estimate", "rtl", "full-rtlsim", "bitfile"], default="rtl"
+        "--mode", choices=["estimate", "rtl", "dcp", "full-rtlsim", "bitfile"], default="rtl"
     )
     parser.add_argument("--board", default=DEFAULT_BOARD)
     parser.add_argument("--clock-ns", type=float, default=DEFAULT_CLOCK_NS)
@@ -217,6 +218,7 @@ def main() -> None:
     parser.add_argument("--rtlsim-batch-size", type=int, default=1)
     parser.add_argument("--node-by-node", action="store_true")
     parser.add_argument("--stitched-rtlsim", action="store_true")
+    parser.add_argument("--stitched-ip-dcp", action="store_true")
     parser.add_argument("--prepared-model", default=None)
     parser.add_argument("--reference-model", default=None)
     parser.add_argument(
