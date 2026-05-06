@@ -485,14 +485,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.calc_numInputVectors())
             base_wmem = super().calc_wmem()
-            mlo = self.get_nodeattr("mlo_max_iter")
-            if mlo and base_wmem > 1:
-                # In MLO mode, tile only enough to match per-iteration
-                # consumption (num_w_reps entries).  base_wmem entries
-                # already exist, so tile by num_w_reps / base_wmem.
-                tile_factor = int(num_w_reps // base_wmem)
-            else:
-                tile_factor = int(num_w_reps)
+            if num_w_reps % base_wmem != 0:
+                raise RuntimeError(
+                    f"{self.onnx_node.name}: const stream length {base_wmem} "
+                    f"does not divide output stream length {num_w_reps}"
+                )
+            # base_wmem folded const vectors already exist in weight_tensor.
+            # Tile only enough to cover the output stream, otherwise broadcast
+            # constants such as [1, C] for [1, T, C] expand quadratically.
+            tile_factor = int(num_w_reps // base_wmem)
             weight_tensor = np.tile(
                 weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
             )
@@ -525,12 +526,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        base_wmem = super().calc_wmem()
         num_w_reps = np.prod(self.calc_numInputVectors())
-        mlo = self.get_nodeattr("mlo_max_iter")
-        if mlo:
-            return int(num_w_reps)
-        return int(base_wmem * num_w_reps)
+        return int(num_w_reps)
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)

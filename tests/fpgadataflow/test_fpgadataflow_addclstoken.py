@@ -125,8 +125,17 @@ def _make_input_dict(model, patches):
 
 
 @pytest.mark.fpgadataflow
-def test_convert_concat_to_addclstoken():
-    model, cls_values = _make_concat_model()
+@pytest.mark.parametrize("finn_dtype", [DataType["INT8"], DataType["FLOAT32"]])
+def test_convert_concat_to_addclstoken(finn_dtype):
+    cls_values = np.asarray([[[1, -2, 3, -4]]], dtype=np.float32)
+    concat = helper.make_node(
+        "Concat",
+        ["cls", "patches"],
+        ["out"],
+        axis=1,
+        name="concat_cls",
+    )
+    model = _make_graph([concat], [1, 4, 4], cls_values, finn_dtype=finn_dtype)
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
     expected = np.concatenate([cls_values, patches], axis=1)
 
@@ -172,6 +181,11 @@ def test_addclstoken_python_execution_with_padding():
         (DataType["INT8"], np.asarray([[[1, -2, 3, -4]]], dtype=np.float32), "32'hfc03fe01"),
         (DataType["UINT4"], np.asarray([[[1, 2, 3, 4]]], dtype=np.float32), "16'h4321"),
         (DataType["BIPOLAR"], np.asarray([[[1, -1, 1, -1]]], dtype=np.float32), "4'h5"),
+        (
+            DataType["FLOAT32"],
+            np.asarray([[[1, -2, 3, -4]]], dtype=np.float32),
+            "128'hc080000040400000c00000003f800000",
+        ),
     ],
 )
 def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_data):

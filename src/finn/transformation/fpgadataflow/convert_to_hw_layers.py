@@ -1535,7 +1535,9 @@ class InferSelectTokenLayer(Transformation):
                 continue
 
             idt = model.get_tensor_datatype(seq_name)
-            if idt is None or not idt.is_integer():
+            if idt is None or (
+                not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
+            ):
                 continue
             odt = model.get_tensor_datatype(node.output[0])
             if odt is None:
@@ -1683,7 +1685,9 @@ class InferAddCLSTokenLayer(Transformation):
                 continue
 
             idt = model.get_tensor_datatype(patch_name)
-            if idt is None or not idt.is_integer():
+            if idt is None or (
+                not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
+            ):
                 continue
             cls_dt = model.get_tensor_datatype(cls_name)
             if cls_dt is None:
