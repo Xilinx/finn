@@ -222,7 +222,7 @@ def test_convert_onnx_where_to_where():
 
     inst = getCustomOp(node)
     assert inst.get_normal_output_shape() == (1, 2, 4)
-    assert inst.get_exp_cycles() == 8
+    assert inst.get_exp_cycles() == 20
 
     ret = execute_onnx(model, {"cond": cond, "xval": xval, "yval": yval})
     assert (ret["out"] == expected).all()
@@ -242,9 +242,7 @@ def test_convert_onnx_where_broadcast_to_where():
     model = _make_onnx_where_model(
         cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape, out_shape=out_shape
     )
-    cond, xval, yval = _make_inputs(
-        cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape
-    )
+    cond, xval, yval = _make_inputs(cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape)
     expected = np.where(cond.astype(bool), xval, yval)
 
     ret = execute_onnx(model, {"cond": cond.astype(bool), "xval": xval, "yval": yval})
@@ -278,9 +276,7 @@ def test_convert_onnx_where_scalar_broadcast_to_where():
     model = _make_onnx_where_model(
         cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape, out_shape=out_shape
     )
-    cond, xval, yval = _make_inputs(
-        cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape
-    )
+    cond, xval, yval = _make_inputs(cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape)
     expected = np.where(cond.astype(bool), xval, yval)
 
     ret = execute_onnx(model, {"cond": cond.astype(bool), "xval": xval, "yval": yval})
@@ -354,9 +350,7 @@ def test_where_python_execution_broadcast():
         y_shape=y_shape,
         out_shape=out_shape,
     )
-    cond, xval, yval = _make_inputs(
-        cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape
-    )
+    cond, xval, yval = _make_inputs(cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape)
     expected = np.where(cond.astype(bool), xval, yval)
 
     ret = execute_onnx(model, {"cond": cond, "xval": xval, "yval": yval})
@@ -400,6 +394,7 @@ def test_where_rtl_codegen(tmp_path, finn_dtype, fold_width):
     assert ".DATA_WIDTH(%d)" % finn_dtype.bitwidth() in core_wrapper_text
     assert ".PE(2)" in core_wrapper_text
     assert ".NDIMS(3)" in core_wrapper_text
+    assert '.RAM_STYLE("auto")' in core_wrapper_text
     assert "in2_V_TDATA" in wrapper_text
     assert "out0_V_TVALID" in wrapper_text
 
@@ -538,9 +533,7 @@ def test_where_rtlsim_broadcast():
         y_shape=y_shape,
         out_shape=out_shape,
     )
-    cond, xval, yval = _make_inputs(
-        cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape
-    )
+    cond, xval, yval = _make_inputs(cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape)
     expected = np.where(cond.astype(bool), xval, yval)
 
     model = model.transform(SpecializeLayers(FPGA_PART))
@@ -591,9 +584,7 @@ def test_where_stitched_ip_rtlsim_broadcast():
         y_shape=y_shape,
         out_shape=out_shape,
     )
-    cond, xval, yval = _make_inputs(
-        cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape
-    )
+    cond, xval, yval = _make_inputs(cond_shape=cond_shape, x_shape=x_shape, y_shape=y_shape)
     expected = np.where(cond.astype(bool), xval, yval)
 
     model.set_metadata_prop("exec_mode", "rtlsim")

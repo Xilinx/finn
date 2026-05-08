@@ -97,6 +97,7 @@ class Where_rtl(Where, RTLBackend):
             "X_WIDTH": x_width,
             "Y_WIDTH": y_width,
             "OUT_WIDTH": out_width,
+            "RAM_STYLE": '"{}"'.format(self.get_nodeattr("ram_style")),
         }
 
         for key, value in code_gen_dict.items():

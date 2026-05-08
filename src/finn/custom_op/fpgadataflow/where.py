@@ -54,6 +54,12 @@ class Where(HWCustomOp):
                 "conditionDataType": ("s", False, "BINARY"),
                 "inputDataType": ("s", True, ""),
                 "outputDataType": ("s", False, ""),
+                "ram_style": (
+                    "s",
+                    False,
+                    "auto",
+                    {"auto", "block", "distributed", "ultra"},
+                ),
                 "inFIFODepths": ("ints", False, [2, 2, 2]),
                 "outFIFODepths": ("ints", False, [2]),
             }
@@ -76,7 +82,10 @@ class Where(HWCustomOp):
         rank = self.get_nodeattr(rank_name)
         shape = tuple(self.get_nodeattr(attr_name))
         if rank >= 0:
-            assert len(shape) == rank, "%s length must match %s" % (attr_name, rank_name)
+            assert len(shape) == rank, "%s length must match %s" % (
+                attr_name,
+                rank_name,
+            )
             return shape
         if len(shape) != 0:
             return shape
@@ -204,7 +213,9 @@ class Where(HWCustomOp):
         return int(np.prod(self.get_folded_output_shape()[:-1]))
 
     def get_exp_cycles(self):
-        return self.get_number_output_values()
+        input_cycles = max(int(np.prod(self.get_folded_input_shape(ind)[:-1])) for ind in range(3))
+        output_cycles = self.get_number_output_values()
+        return input_cycles + output_cycles + 4
 
     def execute_node(self, context, graph):
         node = self.onnx_node

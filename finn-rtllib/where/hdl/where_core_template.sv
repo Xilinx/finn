@@ -69,7 +69,7 @@ module $TOP_MODULE_NAME$_core #(
         end
     endgenerate
 
-    where_broadcast #(
+    where #(
         .DATA_WIDTH($DATA_WIDTH$),
         .PE($PE$),
         .NDIMS($NDIMS$),
@@ -79,7 +79,8 @@ module $TOP_MODULE_NAME$_core #(
         .OUT_SHAPE($OUT_SHAPE$),
         .COND_SHAPE($COND_SHAPE$),
         .X_SHAPE($X_SHAPE$),
-        .Y_SHAPE($Y_SHAPE$)
+        .Y_SHAPE($Y_SHAPE$),
+        .RAM_STYLE($RAM_STYLE$)
     ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),

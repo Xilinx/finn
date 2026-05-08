@@ -4,18 +4,33 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * @author	Oliver Cassidy <oliver.cassidy@amd.com>
+ *
  * @brief	ONNX Where stream operator with multidirectional broadcasting.
  *
  * @description
- *	The three input tensors are consumed once per frame into local word
- *	memories. The output tensor is then emitted in row-major folded order.
- *	This frame-buffered schedule supports full ONNX multidirectional
- *	broadcasting, including reuse across non-contiguous output positions.
+ *	This module implements the ONNX expression:
+ *
+ *		OUT = COND ? X : Y
+ *
+ *	after applying ONNX multidirectional broadcasting across COND, X and Y.
+ *	Each input stream carries one complete tensor frame folded by its own
+ *	innermost dimension. All three frames are first buffered, then output
+ *	words are read in row-major folded order and selected lane by lane.
+ *
+ *		COND stream ---> C frame buffer ---\
+ *		X stream ------> X frame buffer ----+--> registered read --> select --> OUT stream
+ *		Y stream ------> Y frame buffer ---/
+ *
+ *	The frame-buffered schedule is required for broadcast reuse across
+ *	non-contiguous output positions. The read data and selected output are
+ *	registered so the memory output does not feed the AXI/stream output
+ *	combinatorially.
  ***************************************************************************/
 
 `default_nettype none
 
-module where_broadcast #(
+module where #(
 	int unsigned  DATA_WIDTH = 32,
 	int unsigned  PE = 1,
 	int unsigned  NDIMS = 2,
@@ -27,6 +42,7 @@ module where_broadcast #(
 	parameter int unsigned  COND_SHAPE[COND_NDIMS] = '{ default: 1 },
 	parameter int unsigned  X_SHAPE[X_NDIMS]       = '{ default: 1 },
 	parameter int unsigned  Y_SHAPE[Y_NDIMS]       = '{ default: 1 },
+	parameter  RAM_STYLE = "auto",
 
 	localparam int unsigned  OUTER_DIMS = (NDIMS > 1)? NDIMS-1 : 1,
 	localparam int unsigned  COND_PE = (COND_SHAPE[COND_NDIMS-1] == 1)? 1 : PE,
@@ -58,7 +74,7 @@ module where_broadcast #(
 	input	wire logic  ordy
 );
 
-	typedef int unsigned  outer_idx_t[OUTER_DIMS];
+	typedef logic [31:0]  outer_idx_t[OUTER_DIMS];
 	typedef logic [COND_PE-1:0]  cond_word_t;
 	typedef logic [X_PE-1:0][DATA_WIDTH-1:0]  x_word_t;
 	typedef logic [Y_PE-1:0][DATA_WIDTH-1:0]  y_word_t;
@@ -179,6 +195,15 @@ module where_broadcast #(
 	localparam int unsigned  COND_WORDS = cond_word_count();
 	localparam int unsigned  X_WORDS = x_word_count();
 	localparam int unsigned  Y_WORDS = y_word_count();
+	localparam int unsigned  COND_ADDR_WIDTH = (COND_WORDS > 1)? $clog2(COND_WORDS) : 1;
+	localparam int unsigned  X_ADDR_WIDTH = (X_WORDS > 1)? $clog2(X_WORDS) : 1;
+	localparam int unsigned  Y_ADDR_WIDTH = (Y_WORDS > 1)? $clog2(Y_WORDS) : 1;
+	localparam int unsigned  OUT_FOLD_WIDTH = (OUT_FOLDS > 1)? $clog2(OUT_FOLDS) : 1;
+
+	typedef logic [COND_ADDR_WIDTH-1:0]  cond_addr_t;
+	typedef logic [X_ADDR_WIDTH-1:0]     x_addr_t;
+	typedef logic [Y_ADDR_WIDTH-1:0]     y_addr_t;
+	typedef logic [OUT_FOLD_WIDTH-1:0]   out_fold_t;
 
 	initial begin
 		automatic int unsigned  max_dim;
@@ -257,37 +282,74 @@ module where_broadcast #(
 		end
 	end
 
-	//------------------------------------------------------------------------
+	//=======================================================================
 	// Frame Input Buffers
+	(* RAM_STYLE = RAM_STYLE *)
 	cond_word_t  Cmem[COND_WORDS];
+	(* RAM_STYLE = RAM_STYLE *)
 	x_word_t     Xmem[X_WORDS];
+	(* RAM_STYLE = RAM_STYLE *)
 	y_word_t     Ymem[Y_WORDS];
 
-	int unsigned  CWr = 0;
-	int unsigned  XWr = 0;
-	int unsigned  YWr = 0;
+	cond_addr_t  CWr = 0;
+	x_addr_t     XWr = 0;
+	y_addr_t     YWr = 0;
 	logic  CLoaded = 0;
 	logic  XLoaded = 0;
 	logic  YLoaded = 0;
-	logic  Emit = 0;
+	logic  Reading = 0;
+	logic  ReadValid = 0;
+	logic  OValid = 0;
 
-	assign	crdy = !Emit && !CLoaded;
-	assign	xrdy = !Emit && !XLoaded;
-	assign	yrdy = !Emit && !YLoaded;
+	uwire  frame_busy = Reading || ReadValid || OValid;
+	assign	crdy = !frame_busy && !CLoaded;
+	assign	xrdy = !frame_busy && !XLoaded;
+	assign	yrdy = !frame_busy && !YLoaded;
 
 	uwire  c_fire = cvld && crdy;
 	uwire  x_fire = xvld && xrdy;
 	uwire  y_fire = yvld && yrdy;
-	uwire  emit_fire = Emit && ordy;
+	uwire  output_fire = OValid && ordy;
 
 	uwire  c_loaded_now = CLoaded || (c_fire && CWr == COND_WORDS-1);
 	uwire  x_loaded_now = XLoaded || (x_fire && XWr == X_WORDS-1);
 	uwire  y_loaded_now = YLoaded || (y_fire && YWr == Y_WORDS-1);
+	uwire  start_reading = !frame_busy && c_loaded_now && x_loaded_now && y_loaded_now;
 
-	//------------------------------------------------------------------------
+	uwire  frame_done = output_fire && !Reading && !ReadValid;
+
+	always_ff @(posedge clk) begin
+		if(rst || frame_done) begin
+			CWr <= 0;
+			XWr <= 0;
+			YWr <= 0;
+			CLoaded <= 0;
+			XLoaded <= 0;
+			YLoaded <= 0;
+		end
+		else begin
+			if(c_fire) begin
+				Cmem[CWr] <= cdat;
+				CLoaded <= (CWr == COND_WORDS-1);
+				if(CWr != COND_WORDS-1)  CWr <= CWr + 1;
+			end
+			if(x_fire) begin
+				Xmem[XWr] <= xdat;
+				XLoaded <= (XWr == X_WORDS-1);
+				if(XWr != X_WORDS-1)  XWr <= XWr + 1;
+			end
+			if(y_fire) begin
+				Ymem[YWr] <= ydat;
+				YLoaded <= (YWr == Y_WORDS-1);
+				if(YWr != Y_WORDS-1)  YWr <= YWr + 1;
+			end
+		end
+	end
+
+	//=======================================================================
 	// Output Indexing
 	outer_idx_t  OutIdx = '{ default: 0 };
-	int unsigned  OutFold = 0;
+	out_fold_t   OutFold = 0;
 
 	uwire  out_last_fold = (OutFold == OUT_FOLDS-1);
 	logic  out_last_outer;
@@ -297,93 +359,108 @@ module where_broadcast #(
 			out_last_outer &= (OutIdx[i] == OUT_SHAPE[i]-1);
 	end
 	uwire  out_last = out_last_fold && out_last_outer;
-	uwire  frame_done = emit_fire && out_last;
+
+	uwire  output_ready = !OValid || ordy;
+	uwire  read_ready = !ReadValid || output_ready;
+	uwire  read_issue = Reading && read_ready;
 
 	always_ff @(posedge clk) begin
-		if(rst) begin
-			CWr <= 0;
-			XWr <= 0;
-			YWr <= 0;
-			CLoaded <= 0;
-			XLoaded <= 0;
-			YLoaded <= 0;
-			Emit <= 0;
+		if(rst || frame_done) begin
+			Reading <= 0;
+		end
+		else begin
+			if(start_reading)
+				Reading <= 1;
+			else if(read_issue && out_last)
+				Reading <= 0;
+		end
+	end
+
+	always_ff @(posedge clk) begin
+		if(rst || frame_done || start_reading) begin
 			OutIdx <= '{ default: 0 };
 			OutFold <= 0;
 		end
-		else begin
-			if(frame_done) begin
-				CWr <= 0;
-				XWr <= 0;
-				YWr <= 0;
-				CLoaded <= 0;
-				XLoaded <= 0;
-				YLoaded <= 0;
-				Emit <= 0;
-				OutIdx <= '{ default: 0 };
+		else if(read_issue && !out_last) begin
+			if(out_last_fold) begin
+				automatic bit  carry = 1;
 				OutFold <= 0;
-			end
-			else begin
-				if(c_fire) begin
-					Cmem[CWr] <= cdat;
-					CLoaded <= (CWr == COND_WORDS-1);
-					if(CWr != COND_WORDS-1)  CWr <= CWr + 1;
-				end
-				if(x_fire) begin
-					Xmem[XWr] <= xdat;
-					XLoaded <= (XWr == X_WORDS-1);
-					if(XWr != X_WORDS-1)  XWr <= XWr + 1;
-				end
-				if(y_fire) begin
-					Ymem[YWr] <= ydat;
-					YLoaded <= (YWr == Y_WORDS-1);
-					if(YWr != Y_WORDS-1)  YWr <= YWr + 1;
-				end
-				if(!Emit && c_loaded_now && x_loaded_now && y_loaded_now)
-					Emit <= 1;
-				else if(emit_fire) begin
-					if(out_last_fold) begin
-						automatic bit  carry = 1;
-						OutFold <= 0;
-						for(int  i = int'(NDIMS)-2; i >= 0; i--) begin
-							if(carry) begin
-								if(OutIdx[i] == OUT_SHAPE[i]-1) begin
-									OutIdx[i] <= 0;
-								end
-								else begin
-									OutIdx[i] <= OutIdx[i] + 1;
-									carry = 0;
-								end
-							end
+				for(int  i = int'(NDIMS)-2; i >= 0; i--) begin
+					if(carry) begin
+						if(OutIdx[i] == OUT_SHAPE[i]-1) begin
+							OutIdx[i] <= 0;
+						end
+						else begin
+							OutIdx[i] <= OutIdx[i] + 1;
+							carry = 0;
 						end
 					end
-					else
-						OutFold <= OutFold + 1;
 				end
+			end
+			else
+				OutFold <= OutFold + 1;
+		end
+	end
+
+	//=======================================================================
+	// Registered Broadcast Reads
+	uwire cond_addr_t  c_addr = cond_addr_t'(cond_word_addr(OutIdx, OutFold));
+	uwire x_addr_t     x_addr = x_addr_t'(x_word_addr(OutIdx, OutFold));
+	uwire y_addr_t     y_addr = y_addr_t'(y_word_addr(OutIdx, OutFold));
+
+	cond_word_t  CWord = 'x;
+	x_word_t     XWord = 'x;
+	y_word_t     YWord = 'x;
+
+	always_ff @(posedge clk) begin
+		if(rst || frame_done) begin
+			ReadValid <= 0;
+			CWord <= 'x;
+			XWord <= 'x;
+			YWord <= 'x;
+		end
+		else if(read_ready) begin
+			ReadValid <= read_issue;
+			if(read_issue) begin
+				CWord <= Cmem[c_addr];
+				XWord <= Xmem[x_addr];
+				YWord <= Ymem[y_addr];
+			end
+			else begin
+				CWord <= 'x;
+				XWord <= 'x;
+				YWord <= 'x;
 			end
 		end
 	end
 
-	//------------------------------------------------------------------------
+	//=======================================================================
 	// Broadcast Selection
-	uwire logic [31:0]  c_addr = cond_word_addr(OutIdx, OutFold);
-	uwire logic [31:0]  x_addr = x_word_addr(OutIdx, OutFold);
-	uwire logic [31:0]  y_addr = y_word_addr(OutIdx, OutFold);
-	uwire cond_word_t  c_word = Cmem[c_addr];
-	uwire x_word_t     x_word = Xmem[x_addr];
-	uwire y_word_t     y_word = Ymem[y_addr];
-
 	out_word_t  selected;
 	for(genvar  lane = 0; lane < PE; lane++) begin : genSelect
-		uwire  c = (COND_SHAPE[COND_NDIMS-1] == 1)? c_word[0] : c_word[lane];
-		uwire [DATA_WIDTH-1:0]  x = (X_SHAPE[X_NDIMS-1] == 1)? x_word[0] : x_word[lane];
-		uwire [DATA_WIDTH-1:0]  y = (Y_SHAPE[Y_NDIMS-1] == 1)? y_word[0] : y_word[lane];
+		uwire  c = (COND_SHAPE[COND_NDIMS-1] == 1)? CWord[0] : CWord[lane];
+		uwire [DATA_WIDTH-1:0]  x = (X_SHAPE[X_NDIMS-1] == 1)? XWord[0] : XWord[lane];
+		uwire [DATA_WIDTH-1:0]  y = (Y_SHAPE[Y_NDIMS-1] == 1)? YWord[0] : YWord[lane];
 		assign	selected[lane] = c? x : y;
 	end : genSelect
 
-	assign	odat = selected;
-	assign	ovld = Emit;
+	out_word_t  ODat = 'x;
 
-endmodule : where_broadcast
+	always_ff @(posedge clk) begin
+		if(rst || frame_done) begin
+			OValid <= 0;
+			ODat <= 'x;
+		end
+		else if(output_ready) begin
+			OValid <= ReadValid;
+			if(ReadValid)  ODat <= selected;
+			else           ODat <= 'x;
+		end
+	end
+
+	assign	odat = ODat;
+	assign	ovld = OValid;
+
+endmodule : where
 
 `default_nettype wire
