@@ -487,7 +487,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = apply_if_relevant(
         model,
         ["MultiThreshold", "Quant"],
-        to_hw.InferRequantLayer(bitwidth_threshold=8),
+        to_hw.InferRequantLayer(bitwidth_threshold=cfg.requant_bitwidth_threshold),
         "high-bitwidth input quantization as requant",
     )
     model = apply_if_relevant(
@@ -916,6 +916,12 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(PrepareRTLSim())
             model = model.transform(SetExecMode("rtlsim"))
             verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+            # Clear rtlsim_trace attributes to prevent later simulations from
+            # accidentally writing waveform files
+            if cfg.verify_save_rtlsim_waveforms:
+                for node in model.graph.node:
+                    node_inst = getHWCustomOp(node)
+                    node_inst.set_nodeattr("rtlsim_trace", "")
     return model
 
 

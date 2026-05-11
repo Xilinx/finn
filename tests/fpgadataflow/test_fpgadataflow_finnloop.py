@@ -152,7 +152,7 @@ def make_loop_modelwrapper(
             {
                 "NumChannels": mh,
                 "NumOutputStreams": 2,
-                "PE": 2,
+                "PE": 8,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
                 "cpp_interface": "hls_vector",
@@ -323,7 +323,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl4{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": 4,
                 "numSteps": dtype.get_num_possible_values() - 1,
                 "inputDataType": thresholding_input_dtype.name,
                 "weightDataType": thresholding_input_dtype.name,
@@ -519,7 +519,7 @@ def test_finnloop_end2end_mlo(
         "step_create_dataflow_partition",
         # "step_specialize_layers",
         "step_loop_rolling",
-        "step_target_fps_parallelization",
+        # "step_target_fps_parallelization",
         "step_apply_folding_config",
         "step_minimize_bit_width",
         "step_generate_estimate_reports",
@@ -532,7 +532,6 @@ def test_finnloop_end2end_mlo(
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         steps=steps,
-        target_fps=1000,
         synth_clk_period_ns=10.0,
         board="V80",
         rtlsim_batch_size=100,

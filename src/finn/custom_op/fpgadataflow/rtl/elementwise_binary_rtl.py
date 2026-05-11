@@ -538,9 +538,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             return list(folded_lhs[:-1])
         return [1]
 
-    def minimize_weight_bit_width(self, model):
-        super().minimize_weight_bit_width(model)
-
     def _get_rtl_op_name(self):
         """Override in subclasses to return the correct RTL operation name."""
         raise NotImplementedError("Subclasses must implement _get_rtl_op_name")

@@ -7,6 +7,7 @@ pipeline {
     booleanParam(name: 'fpgadataflow', defaultValue: false, description: 'Run fpgadataflow tests')
     booleanParam(name: 'sanity', defaultValue: true, description: 'Run sanity hardware and unit tests')
     booleanParam(name: 'end2end', defaultValue: false, description: 'Run end2end tests')
+    booleanParam(name: 'local_setup', defaultValue: false, description: 'Run local (non-Docker) setup test with Vivado')
   }
   stages {
     stage('Build Docker Image') {
@@ -292,6 +293,44 @@ pipeline {
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_KV260_SOM = "SUCCESS"
+              }
+            }
+          }
+        }
+        stage('Local Setup (non-Docker) with Vivado') {
+          when {
+            expression { return params['local_setup'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            TEST_NAME = "local_setup"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Note: System dependencies must be pre-installed on Jenkins server
+                // Run: sudo ./scripts/install-system-deps.sh
+
+                // Setup local FINN environment
+                sh """
+                  export FINN_HOST_BUILD_DIR=${env.FINN_HOST_BUILD_DIR}
+                  ./setup-local.sh
+                """
+
+                // Run quicktest with Vivado integration tests
+                sh """
+                  export FINN_HOST_BUILD_DIR=${env.FINN_HOST_BUILD_DIR}
+                  source scripts/finn-env.sh
+                  ./scripts/quicktest-local.sh vivado
+                """
+
+                // Use an env variable to help collect test results later in pipeline
+                env.LOCAL_SETUP_RESULT = "SUCCESS"
               }
             }
           }

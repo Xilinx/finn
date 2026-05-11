@@ -318,7 +318,8 @@ def _vvu_rtl_possible(n, fpgapart, model=None):
 
 def _elementwise_rtl_possible(n, fpgapart):
     # Checks whether RTL-based ElementwiseOp is possible.
-    # Supports float/float, int/float, float/int, and int/int paths on Versal.
+    # Only supports float/float and int/float paths on Versal.
+    # Int/int uses HLS to avoid bitwidth mismatch issues after MinimizeBitWidth.
     if not is_versal(fpgapart):
         return False
 
@@ -328,26 +329,17 @@ def _elementwise_rtl_possible(n, fpgapart):
 
     lhs_float = lhs_dtype == "FLOAT32"
     rhs_float = rhs_dtype == "FLOAT32"
-    both_int = not lhs_float and not rhs_float
+
+    # Only use RTL for float/float or int/float scenarios
+    # Int/int defaults to HLS to avoid bitwidth mismatch after MinimizeBitWidth
+    if not lhs_float and not rhs_float:
+        return False
 
     # Float inputs must be FLOAT32 (not FLOAT16 etc.)
     if lhs_float and lhs_dtype != "FLOAT32":
         return False
     if rhs_float and rhs_dtype != "FLOAT32":
         return False
-
-    # Int/int constraints: widths and signedness must match
-    if both_int:
-        if lhs_dtype.bitwidth() != rhs_dtype.bitwidth():
-            return False
-        if lhs_dtype.signed() != rhs_dtype.signed():
-            return False
-        # MUL width limits (DSP58 capacity)
-        op = node_inst._operation[0]  # "Add", "Sub", "Mul"
-        if op == "Mul":
-            max_w = 24 if lhs_dtype.signed() else 23
-            if lhs_dtype.bitwidth() > max_w:
-                return False
 
     lhs_style = node_inst.get_nodeattr("lhs_style")
     rhs_style = node_inst.get_nodeattr("rhs_style")
