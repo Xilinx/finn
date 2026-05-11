@@ -10,7 +10,7 @@ Quickstart
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.2``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
-4. Execute ``./run-docker.sh quicktest`` to verify your installation.
+4. Execute ``./run-docker.sh quicktest verify`` to verify your installation. It is normal to see warnings during the tests - FINN uses warnings to inform users about certain conditions. As long as all tests pass, your installation is successful.
 5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup`, :ref:`Vitis-based Alveo first-time setup`, or :ref:`Slash-based Alveo first-time setup` for board setup.
 6. Optionally, set up a `Vivado/Vitis license`_.
 7. All done! See :ref:`Running FINN in Docker` for the various options on how to run the FINN compiler.
@@ -121,6 +121,85 @@ General FINN Docker tips
 * Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_.
 * If you want a new terminal on an already-running container, you can do this with ``docker exec -it <name_of_container> bash``.
 * The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the finn compiler folder (which is mounted from the host computer) or otherwise backed up.
+
+Running FINN without Docker (Local Installation)
+=================================================
+
+For environments where Docker is not available, FINN can be installed and run locally.
+Note that Docker remains the primary supported method.
+
+Prerequisites
+*************
+
+* Ubuntu 22.04 (other distributions may work but are not officially tested)
+* Python 3.10
+* System dependencies (see below)
+* Vivado/Vitis 2022.2 or later (for synthesis and simulation)
+
+Quick Start
+***********
+
+1. Install system dependencies (requires sudo)::
+
+    sudo ./scripts/install-system-deps.sh
+
+2. Set up Xilinx tools environment variables::
+
+    export FINN_XILINX_PATH=/opt/Xilinx
+    export FINN_XILINX_VERSION=2022.2
+
+3. Clone FINN and run the local setup script::
+
+    git clone https://github.com/Xilinx/finn.git
+    cd finn
+    ./setup-local.sh
+
+   If your system Python is not 3.10, set ``FINN_PYTHON`` to point to a Python 3.10 interpreter::
+
+    export FINN_PYTHON=/path/to/python3.10
+    ./setup-local.sh
+
+4. Activate the FINN environment::
+
+    source scripts/finn-env.sh
+
+5. Verify the installation::
+
+    ./scripts/quicktest-local.sh
+
+Setup Script Options
+********************
+
+The ``setup-local.sh`` script supports several options:
+
+* ``--help``: Show usage information
+* ``--ci``: CI mode (non-interactive, fail fast on errors)
+* ``--skip-xsi``: Skip building finn_xsi (Vivado Python interface)
+* ``--skip-deps``: Skip fetching git dependencies (if already run)
+
+Validation Test Modes
+*********************
+
+The ``quicktest-local.sh`` script supports different test modes:
+
+* ``./scripts/quicktest-local.sh``: Run basic tests (imports, transformations, utilities)
+* ``./scripts/quicktest-local.sh vivado``: Also run a sanity test to check if Vivado integration works (cppsim, rtlsim)
+
+If you plan to use Vivado for synthesis and simulation, we recommend running
+``./scripts/quicktest-local.sh vivado`` to verify that the Vivado integration is
+working correctly.
+
+Limitations
+***********
+
+The local installation has some limitations compared to Docker:
+
+* System dependency versions may vary from the tested Docker environment
+* XRT (Xilinx Runtime) must be installed separately for Alveo support
+* Some edge cases may behave differently due to environment differences
+
+If you encounter issues, please try the Docker-based installation first to verify the
+issue is not environment-specific.
 
 Supported FPGA Hardware
 =======================

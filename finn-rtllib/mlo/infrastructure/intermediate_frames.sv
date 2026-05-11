@@ -399,7 +399,7 @@ logic s_axis_int_tvalid, s_axis_int_tready;
 logic [OLEN_BITS-1:0] s_axis_int_tdata;
 
 logic m_axis_int_tvalid, m_axis_int_tready;
-logic [OLEN_BITS-1:0] m_axis_int_tdata;
+logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
 logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
 always_ff @(posedge aclk) begin

@@ -424,6 +424,9 @@ class DataflowBuildConfig:
     #: Example:
     #:   cfg.kernel_selections = [("finn:MVAU", ["finn:MVAU_rtl", "finn:MVAU_hls"])]
     kernel_selections: Optional[List[tuple]] = None
+    #: If True, suppress assertion errors for configuration checks.
+    #: Warnings and info will still be printed but errors will not halt the build.
+    mute_config_assertions: Optional[bool] = False
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

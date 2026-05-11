@@ -82,9 +82,6 @@ def create_elementwise_model(op_type, lhs_dtype, rhs_dtype, lhs_shape, rhs_shape
     "lhs_dtype,rhs_dtype",
     [
         ("FLOAT32", "FLOAT32"),
-        ("INT8", "INT8"),
-        ("UINT8", "UINT8"),
-        ("INT16", "INT16"),
         ("INT8", "FLOAT32"),
     ],
 )
@@ -245,14 +242,13 @@ def test_elementwise_rtl_stitched_ip(op_type, pe):
 @pytest.mark.parametrize(
     "scenario,op_type,lhs_dtype,rhs_dtype,out_dtype,expected_backend",
     [
-        # INT25 signed MUL exceeds DSP58 capacity (max 24-bit for signed)
-        ("wide_mul_fallback", "ElementwiseMul", "INT25", "INT25", "INT50", "hls"),
-        # Mismatched bitwidths -> fallback to HLS
-        ("mismatched_width_fallback", "ElementwiseAdd", "INT8", "INT16", "INT32", "hls"),
-        # Mismatched signedness -> fallback to HLS
-        ("mismatched_sign_fallback", "ElementwiseAdd", "INT8", "UINT8", "INT32", "hls"),
-        # INT24 signed MUL within DSP58 capacity -> should use RTL
-        ("int24_mul_rtl", "ElementwiseMul", "INT24", "INT24", "INT48", "rtl"),
+        # Int/int scenarios always use HLS (RTL only for float scenarios)
+        ("int_int_uses_hls", "ElementwiseAdd", "INT8", "INT8", "INT9", "hls"),
+        ("int_int_mul_uses_hls", "ElementwiseMul", "INT8", "INT8", "INT16", "hls"),
+        # Float/float uses RTL
+        ("float_float_uses_rtl", "ElementwiseAdd", "FLOAT32", "FLOAT32", "FLOAT32", "rtl"),
+        # Int/float uses RTL
+        ("int_float_uses_rtl", "ElementwiseAdd", "INT8", "FLOAT32", "FLOAT32", "rtl"),
     ],
 )
 @pytest.mark.fpgadataflow

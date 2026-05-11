@@ -843,8 +843,11 @@ class TestEnd2End:
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(board, topology, wbits, abits, "linking")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        if build_data["toolchain"] == "vitis-xrt" and topology == "tfc":
-            model = model.transform(MakeCPPDriver("vitis-xrt", version="latest"))
+        if build_data["toolchain"] == "vitis-xrt":
+            if topology == "tfc":
+                model = model.transform(MakeCPPDriver("vitis-xrt", version="latest"))
+            else:
+                model = model.transform(MakePYNQDriver("vitis-xrt"))
         elif build_data["toolchain"] == "pynq":
             model = model.transform(MakePYNQDriver("zynq-iodma"))
         else:
