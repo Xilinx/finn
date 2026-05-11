@@ -416,6 +416,16 @@ class Thresholding_rtl(Thresholding, RTLBackend):
 
     def generate_params(self, model, path):
         thresholds = model.get_initializer(self.onnx_node.input[1])
+
+        # RTL thresholding uses binary search, which requires sorted thresholds
+        # Check that thresholds are sorted in ascending order along the last axis
+        thresholds_sorted = np.all(np.diff(thresholds, axis=-1) >= 0)
+        assert thresholds_sorted, (
+            f"{self.onnx_node.name}: Thresholds must be sorted in ascending order "
+            "for RTL thresholding (uses binary search). "
+            "Sort thresholds along axis=-1 before inference."
+        )
+
         rt_weights = self.get_nodeattr("runtime_writeable_weights")
         file_name = "{}/memblock.dat".format(path)
         if rt_weights:

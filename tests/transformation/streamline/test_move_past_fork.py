@@ -64,7 +64,9 @@ def test_move_past_fork_transpose():
     new_model = model.transform(MoveTransposePastFork())
     new_model = new_model.transform(GiveUniqueNodeNames())
     nodes = new_model.graph.node
-    assert oxe.compare_execution(model, new_model, {"in0": np.random.rand(*shp).astype(np.float32)})
+    assert oxe.compare_execution(
+        model, new_model, {model.get_first_global_in(): np.random.rand(*shp).astype(np.float32)}
+    )
     assert len(nodes) == 5
     assert not new_model.is_fork_node(get_by_name(nodes, "Transpose_0"))
 
@@ -123,7 +125,7 @@ def test_move_past_fork_linear(ch, ifmdim):
     # Transform
     new_model = model.transform(MoveLinearPastFork())
     new_model = new_model.transform(GiveUniqueNodeNames())
-    inp_dict = {"top_in": np.random.rand(*shp).astype(np.float32)}
+    inp_dict = {model.get_first_global_in(): np.random.rand(*shp).astype(np.float32)}
     # Test
     assert oxe.compare_execution(model, new_model, inp_dict)
     nodes = new_model.graph.node

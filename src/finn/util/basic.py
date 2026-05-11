@@ -69,26 +69,29 @@ pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
 
-# Alveo device and platform mappings
-alveo_part_map = dict()
-alveo_part_map["U50"] = "xcu50-fsvh2104-2L-e"
-alveo_part_map["U200"] = "xcu200-fsgd2104-2-e"
-alveo_part_map["U250"] = "xcu250-figd2104-2L-e"
-alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
-alveo_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
+# Vitis device and platform mappings
+vitis_part_map = dict()
+vitis_part_map["U50"] = "xcu50-fsvh2104-2L-e"
+vitis_part_map["U200"] = "xcu200-fsgd2104-2-e"
+vitis_part_map["U250"] = "xcu250-figd2104-2L-e"
+vitis_part_map["U280"] = "xcu280-fsvh2892-2L-e"
+vitis_part_map["U55C"] = "xcu55c-fsvh2892-2L-e"
 
-alveo_default_platform = dict()
-alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
-alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
-alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
-alveo_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
+vitis_default_platform = dict()
+vitis_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
+vitis_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
+vitis_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
+vitis_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
+vitis_default_platform["U55C"] = "xilinx_u55c_gen3x16_xdma_3_202210_1"
+
+# Slash device mappings
+slash_part_map = dict()
+slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
-part_map = {**pynq_part_map, **alveo_part_map}
+part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
 part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
-part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 
 def get_rtlsim_trace_depth():

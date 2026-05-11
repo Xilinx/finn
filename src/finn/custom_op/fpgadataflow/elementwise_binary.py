@@ -864,7 +864,7 @@ class ElementwiseMax(ElementwiseBinaryOperation):
             return DataType[f"FLOAT{max_bitwidth}"]
         else:
             all_ints = all([self.lhs_dtype.is_integer(), self.rhs_dtype.is_integer()])
-            # Get the width of the data types of the inputs  # noqa: Duplicate
+            # Get the width of the data types of the inputs
             lhs_width = self.lhs_dtype.bitwidth()
             rhs_width = self.rhs_dtype.bitwidth()
             if all_ints:

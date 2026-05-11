@@ -76,6 +76,11 @@ from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.absorb_into_requant import (
     AbsorbElementwiseOpsIntoRequant,
 )
+from finn.transformation.fpgadataflow.alveo_build import (
+    PrepareForLinking,
+    SlashLink,
+    VitisLink,
+)
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -119,7 +124,6 @@ from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
     ShuffleDecomposition,
 )
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.general import ApplyConfig
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -479,7 +483,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = apply_if_relevant(
         model,
         ["MultiThreshold", "Quant"],
-        to_hw.InferRequantLayer(bitwidth_threshold=8),
+        to_hw.InferRequantLayer(bitwidth_threshold=cfg.requant_bitwidth_threshold),
         "high-bitwidth input quantization as requant",
     )
     model = apply_if_relevant(
@@ -908,6 +912,12 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(PrepareRTLSim())
             model = model.transform(SetExecMode("rtlsim"))
             verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
+            # Clear rtlsim_trace attributes to prevent later simulations from
+            # accidentally writing waveform files
+            if cfg.verify_save_rtlsim_waveforms:
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_inst.set_nodeattr("rtlsim_trace", "")
     return model
 
 
@@ -1270,14 +1280,20 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
-                VitisBuild(
+                PrepareForLinking(
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
-                    cfg._resolve_vitis_platform(),
-                    strategy=cfg._resolve_vitis_opt_strategy(),
-                    enable_debug=cfg.enable_hw_debug,
+                    "vitis-xrt",
                     floorplan_file=cfg.vitis_floorplan_file,
                     partition_model_dir=partition_model_dir,
+                )
+            )
+            model = model.transform(
+                VitisLink(
+                    cfg._resolve_vitis_platform(),
+                    cfg.synth_clk_period_ns(),
+                    strategy=cfg._resolve_vitis_opt_strategy(),
+                    enable_debug=cfg.enable_hw_debug,
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
@@ -1289,6 +1305,17 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
+        elif cfg.shell_flow_type == ShellFlowType.SLASH_ALVEO:
+            model = model.transform(
+                PrepareForLinking(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns, "slash-vrt")
+            )
+            model = model.transform(SlashLink(not cfg.enable_hw_sim))
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.vbin")
+            if not cfg.enable_hw_sim:
+                copy(model.get_metadata_prop("slash_report"), bitfile_dir + "/slash_report.xml")
+                post_synth_resources = model.analysis(post_synth_res)
+                with open(report_dir + "/post_synth_resources.json", "w") as f:
+                    json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

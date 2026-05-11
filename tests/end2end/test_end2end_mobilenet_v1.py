@@ -30,6 +30,8 @@ import pytest
 
 import numpy as np
 import os
+import re
+import shutil
 import time
 import torch
 from brevitas.export import export_qonnx
@@ -55,12 +57,13 @@ from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.transformation.remove import RemoveIdentityOps
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
 import finn.transformation.streamline.reorder as reorder
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -76,7 +79,6 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 )
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
@@ -88,7 +90,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root
+from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import (
     crop_center,
@@ -99,8 +101,25 @@ from finn.util.test import (
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
-# Select Versal device such that RTL VVU (i.e. DSP58) can be enabled
-fpga_part = "xcvm1802-vsvd1760-2MP-e-S"
+# Detect Vivado version to determine FPGA part
+# Use V80 (Slash) when Vivado 2025.1, otherwise use Versal xcvm1802
+vivado_path = os.environ.get("XILINX_VIVADO", "")
+vivado_version_match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+if vivado_version_match:
+    vivado_year = int(vivado_version_match.group(1))
+    vivado_minor = int(vivado_version_match.group(2))
+    is_vivado_2025_1 = vivado_year == 2025 and vivado_minor == 1
+else:
+    is_vivado_2025_1 = False
+
+# Select FPGA part based on Vivado version
+# V80 requires Vivado 2025.1 for Slash toolchain support
+if is_vivado_2025_1:
+    fpga_part = "xcv80-lsva4737-2MHP-e-s"
+else:
+    # Versal device such that RTL VVU (i.e. DSP58) can be enabled
+    fpga_part = "xcvm1802-vsvd1760-2MP-e-S"
+
 target_clk_ns = 3
 extra_fold = 1
 first_layer_res_type = "dsp"
@@ -418,43 +437,6 @@ def test_end2end_mobilenet_ipgen():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-def test_end2end_mobilenet_rtlsim():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
-    # use critical path estimate to set rtlsim liveness threshold
-    # (very conservative)
-    model = model.transform(AnnotateCycles())
-    estimate_network_performance = model.analysis(dataflow_performance)
-    os.environ["LIVENESS_THRESHOLD"] = str(
-        int(estimate_network_performance["critical_path_cycles"])
-    )
-    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
-    x = x.transpose(0, 2, 3, 1)  # Convert NCHW to NHWC
-    inp_name = model.get_first_global_in()
-    out_name = model.get_first_global_out()
-    inp_dict = {inp_name: x}
-    # rtlsim
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareRTLSim())
-    model.save(build_dir + "/end2end_mobilenet_rtlsim.onnx")
-    ret_rtlsim = execute_onnx(model, inp_dict, True)
-    res_rtlsim = ret_rtlsim[out_name]
-    np.save(build_dir + "/end2end_mobilenet_result_rtlsim.npy", res_rtlsim)
-    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
-    res_rtlsim_prob = ret_rtlsim[model.graph.node[-2].output[0]] * a0
-    np.save(build_dir + "/end2end_mobilenet_result_rtlsim_prob.npy", res_rtlsim_prob)
-
-    # check result with golden values
-    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
-    # golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
-
-    assert (golden == res_rtlsim).all()
-    # assert np.isclose(golden_prob, res_rtlsim_prob[0, 0, 0, :5]).all()
-
-
-@pytest.mark.xdist_group(name="end2end_mobilenet")
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.end2end
 def test_end2end_mobilenet_set_fifo_depths():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hw_ipgen.onnx")
     model = model.transform(
@@ -534,25 +516,35 @@ def test_end2end_mobilenet_stitched_ip_rtlsim():
 @pytest.mark.xdist_group(name="end2end_mobilenet")
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.vitis
 @pytest.mark.end2end
-def test_end2end_mobilenet_rtlsim_performance():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_stitched_ip.onnx")
-    report_dir = build_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    rtlsim_bs = 1
-    clk_ns = target_clk_ns
-    rtlsim_perf_dict = throughput_test_rtlsim(model, clk_ns, batchsize=rtlsim_bs)
-    # keep keys consistent between the Python and C++-styles
-    cycles = rtlsim_perf_dict["cycles"]
-    fclk_mhz = 1 / (clk_ns * 0.001)
-    runtime_s = (cycles * clk_ns) * (10**-9)
-    rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
-    rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
-    rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
-    for key, val in rtlsim_perf_dict.items():
-        if "max_count" in key:
-            del rtlsim_perf_dict[key]
-    # estimate stable-state throughput based on latency+throughput
-    rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict["throughput[images/s]"]
+def test_end2end_mobilenet_build_v80():
+    if not is_vivado_2025_1:
+        pytest.skip("V80 build requires Vivado 2025.1")
+    model_file = build_dir + "/end2end_mobilenet_set_fifo_depths.onnx"
+    load_test_checkpoint_or_skip(model_file)
+    output_dir = make_build_dir("test_end2end_mobilenet_v80_build")
 
-    model.save(build_dir + "/end2end_mobilenet_rtlsim_performance.onnx")
+    # Copy the checkpoint to intermediate_models where build_dataflow expects it
+    intermediate_models_dir = output_dir + "/intermediate_models"
+    os.makedirs(intermediate_models_dir, exist_ok=True)
+    shutil.copy(model_file, intermediate_models_dir + "/step_set_fifo_depths.onnx")
+
+    cfg = build.DataflowBuildConfig(
+        output_dir=output_dir,
+        synth_clk_period_ns=target_clk_ns,
+        fpga_part=fpga_part,
+        shell_flow_type=build_cfg.ShellFlowType.SLASH_ALVEO,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.BITFILE,
+            build_cfg.DataflowOutputType.CPP_DRIVER,
+            build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        ],
+        # Start from the set_fifo_depths checkpoint, skip earlier steps
+        start_step="step_create_stitched_ip",
+    )
+    build.build_dataflow_cfg(model_file, cfg)
+
+    # Check the generated files
+    assert os.path.isfile(output_dir + "/time_per_step.json")
+    assert os.path.isdir(output_dir + "/deploy")

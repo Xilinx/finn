@@ -55,6 +55,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import make_build_dir
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -437,3 +438,56 @@ def test_fpgadataflow_thresholding_stitched_ip(
     assert (
         y_expected == y_produced
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.fpgadataflow
+def test_rtl_thresholding_unsorted_assertion():
+    """Test that RTL thresholding raises an assertion error for unsorted thresholds.
+
+    RTL thresholding uses binary search, which requires thresholds to be sorted
+    in ascending order. This test verifies that an AssertionError is raised
+    when attempting to generate parameters with unsorted thresholds.
+    """
+    num_input_channels = 4
+    num_steps = 3
+    input_data_type = DataType["INT8"]
+    threshold_data_type = DataType["INT8"]
+    output_data_type = DataType["UINT2"]
+    activation_bias = 0
+    num_input_vecs = [1, 4, 4]
+    pe = 2
+
+    # Generate thresholds but do NOT sort them - intentionally unsorted
+    thresholds = gen_finn_dt_tensor(threshold_data_type, (num_input_channels, num_steps))
+    # Reverse to ensure they're definitely not sorted
+    thresholds = thresholds[:, ::-1].copy()
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Set preferred_impl_style to RTL
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+
+    # Specialize to RTL variant
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    # Try to generate params - should raise AssertionError due to unsorted thresholds
+    build_dir = make_build_dir("test_unsorted_thresh_")
+    with pytest.raises(AssertionError, match="sorted in ascending order"):
+        inst.generate_params(model, build_dir)
