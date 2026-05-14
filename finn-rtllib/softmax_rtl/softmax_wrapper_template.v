@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (C) 2025, Advanced Micro Devices, Inc.
+ * Copyright (C) 2026, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * SPDX-License-Identifier: BSD-3-Clause
@@ -26,11 +26,11 @@ output	[$SIMD$*32-1:0]  out0_V_TDATA
 );
 
 	// flat carrier between input-conv stage and softmaxf core
-	wire [$SIMD$*32-1:0]  xdat_flat;
+	wire [$SIMD$*32-1:0]  idat_flat;
 
 	generate
 		if ($FP32_PASSTHROUGH$) begin : gen_passthrough
-			assign  xdat_flat = in0_V_TDATA;
+			assign  idat_flat = in0_V_TDATA;
 		end
 		else begin : gen_int_conv
 			genvar  i;
@@ -40,7 +40,7 @@ output	[$SIMD$*32-1:0]  out0_V_TDATA
 					.SIGNED($SIGNED$)
 				) u_conv (
 					.ival(in0_V_TDATA[(i+1)*$WIDTH$-1 -: $WIDTH$]),
-					.fval(xdat_flat[(i+1)*32-1 -: 32])
+					.fval(idat_flat[(i+1)*32-1 -: 32])
 				);
 			end
 		end
@@ -54,12 +54,12 @@ output	[$SIMD$*32-1:0]  out0_V_TDATA
 	) impl (
 		.clk(ap_clk),
 		.rst(!ap_rst_n),
-		.xdat(xdat_flat),
-		.xvld(in0_V_TVALID),
-		.xrdy(in0_V_TREADY),
-		.zdat(out0_V_TDATA),
-		.zvld(out0_V_TVALID),
-		.zrdy(out0_V_TREADY)
+		.idat(idat_flat),
+		.ivld(in0_V_TVALID),
+		.irdy(in0_V_TREADY),
+		.odat(out0_V_TDATA),
+		.ovld(out0_V_TVALID),
+		.ordy(out0_V_TREADY)
 	);
 
 endmodule

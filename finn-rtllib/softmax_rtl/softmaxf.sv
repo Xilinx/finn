@@ -39,17 +39,22 @@ module softmaxf #(
 	input	logic  clk,
 	input	logic  rst,
 
-	input	logic [SIMD-1:0][TI_WIDTH-1:0]  xdat,
-	input	logic                           xvld,
-	output	logic                           xrdy,
+	input	logic [SIMD-1:0][TI_WIDTH-1:0]  idat,
+	input	logic                           ivld,
+	output	logic                           irdy,
 
-	output	logic [SIMD-1:0][31:0]  zdat,
-	output	logic                   zvld,
-	input	logic                   zrdy
+	output	logic [SIMD-1:0][31:0]  odat,
+	output	logic                   ovld,
+	input	logic                   ordy
 );
 
 	localparam int unsigned  SUM_INT = $clog2(N*SIMD + 1);
 	localparam int unsigned  SUM_W   = SUM_INT + 23;
+
+	// Mirror of softmaxf_recip's TOTAL_LAT (IN_LAT=1 + NR_ITERS*ITER_LAT(=8)).
+	// Plus 1 cycle for the sum_q output queue and 1 for the recip obuf output
+	// queue, so stage 2's CREDIT_Y can size around the full round trip.
+	localparam int unsigned  RECIP_LAT = 1 + NR_ITERS*8 + 2;
 
 	initial begin
 		if(N % SIMD != 0) begin
@@ -101,7 +106,7 @@ module softmaxf #(
 		.N(N), .SIMD(SIMD), .TI_WIDTH(TI_WIDTH)
 	) max_inst (
 		.clk, .rst,
-		.xdat, .xvld, .xrdy,
+		.xdat(idat), .xvld(ivld), .xrdy(irdy),
 		.ydat(s1_repl), .yvld(s1_repl_vld), .yrdy(s1_repl_rdy),
 		.mdat(s1_max),  .mhas_infty(s1_has_infty),
 		.mvld(s1_max_vld), .mrdy(s1_max_rdy)
@@ -118,7 +123,7 @@ module softmaxf #(
 	uwire                   s2_sum_rdy;
 
 	softmaxf_exp #(
-		.N(N), .SIMD(SIMD), .TI_WIDTH(TI_WIDTH)
+		.N(N), .SIMD(SIMD), .TI_WIDTH(TI_WIDTH), .RECIP_LAT(RECIP_LAT)
 	) exp_inst (
 		.clk, .rst,
 		.xdat(s1_repl), .xvld(s1_repl_vld), .xrdy(s1_repl_rdy),
@@ -153,7 +158,7 @@ module softmaxf #(
 		.clk, .rst,
 		.ydat(s2_exp), .yvld(s2_exp_vld), .yrdy(s2_exp_rdy),
 		.rdat(s3_recip), .rvld(s3_recip_vld), .rrdy(s3_recip_rdy),
-		.zdat, .zvld, .zrdy
+		.zdat(odat), .zvld(ovld), .zrdy(ordy)
 	);
 
 endmodule : softmaxf
@@ -269,9 +274,9 @@ module softmaxf_max #(
 	//===========================================================================
 	// Section: SIMD max reduction tree (combinational compare, registered output)
 	//---------------------------------------------------------------------------
-	uwire logic [31:0]  beat_max;
-	uwire               beat_vld;
-	uwire               beat_is_last;
+	uwire [31:0]  beat_max;
+	uwire         beat_vld;
+	uwire         beat_is_last;
 
 	if(SIMD == 1) begin : genNoTree
 		// Trivial reduction: pass-through with no tree latency.
@@ -326,18 +331,34 @@ module softmaxf_max #(
 		assign  beat_max = tree[0];
 
 		// Valid + last shift registers tracking the tree pipeline.
+		// TREE_LAT==1 (SIMD==2) needs a degenerate "shreg" with no slice;
+		// xsim tolerates [-1:0] but xsynth rejects it.
 		logic [TREE_LAT-1:0]  VldShreg  = '0;
 		logic [TREE_LAT-1:0]  LastShreg = '0;
-		always_ff @(posedge clk) begin
-			if(rst) begin
-				VldShreg  <= '0;
-				LastShreg <= '0;
+		if(TREE_LAT == 1) begin : genShreg1
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					VldShreg  <= '0;
+					LastShreg <= '0;
+				end
+				else begin
+					VldShreg  <= take;
+					LastShreg <= take && in_is_last;
+				end
 			end
-			else begin
-				VldShreg  <= { VldShreg [$left(VldShreg )-1:0], take };
-				LastShreg <= { LastShreg[$left(LastShreg)-1:0], take && in_is_last };
+		end : genShreg1
+		else begin : genShregN
+			always_ff @(posedge clk) begin
+				if(rst) begin
+					VldShreg  <= '0;
+					LastShreg <= '0;
+				end
+				else begin
+					VldShreg  <= { VldShreg [$left(VldShreg )-1:0], take };
+					LastShreg <= { LastShreg[$left(LastShreg)-1:0], take && in_is_last };
+				end
 			end
-		end
+		end : genShregN
 		assign  beat_vld     = VldShreg [$left(VldShreg )];
 		assign  beat_is_last = LastShreg[$left(LastShreg)];
 	end : genTree
@@ -393,7 +414,12 @@ endmodule : softmaxf_max
 module softmaxf_exp #(
 	int unsigned  N,
 	int unsigned  SIMD,
-	int unsigned  TI_WIDTH = 32
+	int unsigned  TI_WIDTH = 32,
+	// Round-trip latency from sum_q push to first stage-4 take, in cycles.
+	// Sized by the parent module to cover the recip pipeline + queue overhead.
+	// y_obuf credit must absorb a full vector PLUS this round trip; otherwise
+	// stage 2 stalls every vector boundary and II degrades to ~recip_lat/BEATS.
+	int unsigned  RECIP_LAT = 20
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -437,11 +463,12 @@ module softmaxf_exp #(
 	localparam int unsigned  Y_LAT    = COMP_LAT;                    // input -> y_obuf
 	localparam int unsigned  S_LAT    = COMP_LAT + TREE_LAT;         // input -> sum_q
 
-	// CREDIT_Y must be at least BEATS so a full vector worth of y values can
-	// buffer in y_obuf before stage 4 starts draining (stage 4 is gated on
-	// rvld which doesn't assert until stage 2 has emitted the per-vector
-	// sum -- i.e. after BEATS takes).  Otherwise the pipeline deadlocks.
-	localparam int unsigned  CREDIT_Y = BEATS + Y_LAT + 3;
+	// y_obuf must hold an entire vector window PLUS the recip round trip,
+	// otherwise stage 2 starves of credit while stage 4 waits for recip(V0)
+	// and the resulting feedback drives steady-state II to ~RECIP_LAT/BEATS.
+	// S_LAT covers the in-stage path to sum_q; RECIP_LAT covers everything
+	// downstream up to and including stage 4's first take of the new vector.
+	localparam int unsigned  CREDIT_Y = BEATS + S_LAT + RECIP_LAT + 3;
 	localparam int unsigned  CREDIT_S = S_LAT + 3;
 
 	initial begin
@@ -556,7 +583,7 @@ module softmaxf_exp #(
 		uwire [$clog2(EXP_NUM_OCTAVES)-1:0]  octave =
 			s_exp[$clog2(EXP_NUM_OCTAVES)-1:0] - 8'd127;
 
-		uwire  is_near_zero = (s_exp < 8'd127);
+		uwire  is_near_zero = (s_exp < 127);
 		uwire  is_clamp     = s_sign && (s_exp >= EXP_CLAMP_EXP);
 
 		uwire [$clog2(EXP_NUM_SEGS)-1:0]  seg_idx =
@@ -584,7 +611,7 @@ module softmaxf_exp #(
 			uwire [31:0]  dsp_a = (j == 0)? EXP_COEFFS[seg_idx][EXP_DEGREE] : s[j-1];
 			uwire [31:0]  dsp_b = (j == 0)? xi                              : XDly[j*DSP_LAT - 1];
 
-			logic [31:0]  dsp_c;
+			uwire [31:0]  dsp_c;
 			if(j == 0) begin : genCdir
 				assign	dsp_c = EXP_COEFFS[seg_idx][EXP_DEGREE-1];
 			end : genCdir
@@ -673,8 +700,8 @@ module softmaxf_exp #(
 		automatic logic [EXP_W-1:0]  sig = { 1'b1, mant };  // implicit-1 significand
 		automatic int           shift;
 		if(sign)                                       return '0;
-		if(exp_bits == 8'd0)                           return '0;
-		if(exp_bits >= 8'd128)                         return '1;
+		if(exp_bits == 0)                              return '0;
+		if(exp_bits >= 128)                            return '1;
 		if(int'(exp_bits) < (127 - SUM_PRECISION))     return '0;
 		shift = 127 - int'(exp_bits);
 		return  EXP_W'(sig >> shift);
@@ -752,7 +779,7 @@ module softmaxf_exp #(
 		for(genvar  i = 0; i < SIMD-1; i++) begin : genNodes
 			uwire red_t  a;
 			if(EDGE_DELAYS[2*i+2]) begin : genDelay
-				red_t  Del = '0;
+				red_t  Del = 'x;
 				always_ff @(posedge clk)  Del <= tree[2*i+2];
 				assign	a = Del;
 			end : genDelay
@@ -760,7 +787,7 @@ module softmaxf_exp #(
 				assign	a = tree[2*i+2];
 			end : genDirect
 
-			red_t  Reg = '0;
+			red_t  Reg = 'x;
 			always_ff @(posedge clk)  Reg <= tree[2*i+1] + a;
 			assign	tree[i] = Reg;
 		end : genNodes
@@ -790,9 +817,13 @@ module softmaxf_exp #(
 	logic [SUM_W-1:0]  SumAcc = '0;
 	uwire [SUM_W-1:0]  new_sum = SumAcc + SUM_W'(beat_sum);
 
+	// MUX-before-ADD: gate both addends so on the last beat the next-state adder
+	// folds to 0 in the same LUT level as the addition (no terminal MUX).
+	uwire [SUM_W-1:0]  acc_base = sum_beat_last? '0 : SumAcc;
+	uwire [SUM_W-1:0]  acc_inc  = sum_beat_last? '0 : SUM_W'(beat_sum);
 	always_ff @(posedge clk) begin
 		if(rst)                SumAcc <= '0;
-		else if(sum_beat_vld)  SumAcc <= sum_beat_last? '0 : new_sum;
+		else if(sum_beat_vld)  SumAcc <= acc_base + acc_inc;
 	end
 
 	uwire  emit_sum = sum_beat_vld && sum_beat_last;
@@ -856,7 +887,8 @@ module softmaxf_recip #(
 	localparam int unsigned  MUL_LAT  = 3;
 	localparam int unsigned  SUB_LAT  = 2;
 	localparam int unsigned  ITER_LAT = MUL_LAT + SUB_LAT + MUL_LAT; // 8
-	localparam int unsigned  TOTAL_LAT = NR_ITERS * ITER_LAT;
+	localparam int unsigned  IN_LAT   = 1;                            // input register stage
+	localparam int unsigned  TOTAL_LAT = IN_LAT + NR_ITERS * ITER_LAT;
 	localparam int unsigned  CREDIT    = TOTAL_LAT + 3;
 
 	localparam logic [31:0]  FP32_TWO   = 32'h40000000;
@@ -883,9 +915,22 @@ module softmaxf_recip #(
 	end
 
 	//===========================================================================
-	// Section: combinational seed (Quake-style integer magic)
+	// Section: input register stage + Quake-style integer-magic seed
+	//   Breaks the long combinational path that runs from softmaxf_exp's
+	//   sum_q register through the parent module's sum_to_fp32 conversion
+	//   and the SEED_MAGIC-xdat subtractor into the first DSPFP32
+	//   multiplier.  XReg/SeedReg also isolate the multiplier inputs from
+	//   the upstream conversion logic, giving the placer freedom to colocate
+	//   the converter with either side.
 	//---------------------------------------------------------------------------
 	uwire [31:0]  seed = SEED_MAGIC - xdat;
+
+	logic [31:0]  XReg    = 'x;
+	logic [31:0]  SeedReg = 'x;
+	always_ff @(posedge clk) begin
+		XReg    <= xdat;
+		SeedReg <= seed;
+	end
 
 	//===========================================================================
 	// Section: NR iteration chain
@@ -899,8 +944,8 @@ module softmaxf_recip #(
 	uwire [31:0]  x_chain[NR_ITERS+1];
 	uwire [31:0]  y_chain[NR_ITERS+1];
 
-	assign	x_chain[0] = xdat;
-	assign	y_chain[0] = seed;
+	assign	x_chain[0] = XReg;
+	assign	y_chain[0] = SeedReg;
 
 	for(genvar  i = 0; i < NR_ITERS; i++) begin : genIter
 		// m1 = x * y  -- both stream, both loaded each cycle
@@ -1035,7 +1080,8 @@ module softmaxf_div #(
 	localparam int unsigned  EXP_W   = 24;
 	localparam int unsigned  BEATS   = N / SIMD;
 	localparam int unsigned  MUL_LAT = 3;
-	localparam int unsigned  CREDIT  = MUL_LAT + 3;
+	localparam int unsigned  IN_LAT  = 1;                       // y_fp register stage
+	localparam int unsigned  CREDIT  = MUL_LAT + IN_LAT + 3;
 
 	initial begin
 		if(N % SIMD != 0) begin
@@ -1108,29 +1154,50 @@ module softmaxf_div #(
 		else     CreditZ <= CreditZ + (give_z == take? 0 : give_z? -1 : 1);
 	end
 
-	// Pop the reciprocal queue at first-beat take; the binopf MUL captures
-	// rdat into the D-equivalent register via bload on the same cycle.
-	assign	rrdy = take && in_is_first;
-
 	//===========================================================================
 	// Section: per-lane FP32 multiply (binopf MUL with broadcast reciprocal)
+	//   YfpReg breaks the long combinational path that runs from softmaxf_exp's
+	//   y_obuf register through ufixed24_to_fp32 into the DSP B inputs.  The
+	//   take/first gating is registered alongside y_fp so binopf's bload of
+	//   rdat aligns with YfpReg in the same cycle.
 	//---------------------------------------------------------------------------
 	uwire [SIMD-1:0][31:0]  y_fp;
 	for(genvar  i = 0; i < SIMD; i++) begin : genConv
 		assign	y_fp[i] = ufixed24_to_fp32(y_cur[i]);
 	end : genConv
 
+	logic [SIMD-1:0][31:0]  YfpReg  = '{ default: 'x };
+	logic                   TakeD1  = 1'b0;
+	logic                   FirstD1 = 1'b0;
+	always_ff @(posedge clk) begin
+		YfpReg <= y_fp;
+		if(rst) begin
+			TakeD1  <= 1'b0;
+			FirstD1 <= 1'b0;
+		end
+		else begin
+			TakeD1  <= take;
+			FirstD1 <= take && in_is_first;
+		end
+	end
+
+	// Pop the reciprocal queue when binopf actually captures rdat -- one
+	// cycle after the first-beat take, due to the YfpReg register stage.
+	// The recip queue holds its head until popped, so rdat remains valid
+	// across the extra cycle.
+	assign	rrdy = FirstD1;
+
 	uwire [SIMD-1:0][31:0]  prod;
 	for(genvar  i = 0; i < SIMD; i++) begin : genMul
 		binopf #(.OP("MUL")) mul_inst (
 			.clk, .rst,
-			.a(y_fp[i]), .avld(take),
-			.b(rdat),    .bload(take && in_is_first),
+			.a(YfpReg[i]), .avld(TakeD1),
+			.b(rdat),      .bload(FirstD1),
 			.r(prod[i]), .rvld()
 		);
 	end : genMul
 
-	logic [MUL_LAT-1:0]  Vld = '0;
+	logic [MUL_LAT+IN_LAT-1:0]  Vld = '0;
 	always_ff @(posedge clk) begin
 		if(rst)  Vld <= '0;
 		else     Vld <= { Vld[$left(Vld)-1:0], take };
