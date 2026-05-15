@@ -808,10 +808,7 @@ def test_mvau_fifocharacterize_rtlsim(
     ],
 )
 @pytest.mark.parametrize(
-    "idt_wdt", [
-        [DataType["UINT4"], DataType["INT4"]],
-        [DataType["UINT8"], DataType["INT8"]],
-    ]
+    "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
 )
 @pytest.mark.parametrize(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
@@ -858,9 +855,6 @@ def test_fpgadataflow_rtl_mvau(
     ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
     ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
     W = gen_finn_dt_tensor(wdt, (mw, mh))
-    # if 7 series, force weights to narrow range
-    # if part == "xc7z020clg400-1":
-    #     W = np.clip(W, wdt.min() + 1, wdt.max())
     model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())

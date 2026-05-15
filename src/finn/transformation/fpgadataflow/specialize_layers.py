@@ -28,7 +28,6 @@
 
 import warnings
 from onnx import helper
-from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
@@ -246,7 +245,8 @@ def _dwc_determine_impl_style(node):
 
 def _mvu_rtl_possible(n, fpgapart, model):
     # Checks whether RTL-based MVU is supported
-    # RTL MVU uses either DSP blocks (for larger bitwidths) or LUT-based compressor (2<=WW<=4 && 2<=AW<=4)
+    # RTL MVU uses either DSP blocks (for larger bitwidths)
+    # or LUT-based compressor (2<=WW<=4 && 2<=AW<=4)
     # Weights must be signed, activations can be unsigned or signed
     # Embedded thresholding and binaryXnorMode are not supported
     node_inst = getCustomOp(n)

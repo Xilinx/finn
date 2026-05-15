@@ -30,7 +30,7 @@ def generate_test(
     accumulator_width: int,
     constant: int,
 ):
-    assert type(pipeline_stages) == int
+    assert isinstance(pipeline_stages, int)
 
     if gates:
         gates = flatten_gates(gates)

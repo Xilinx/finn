@@ -17,7 +17,6 @@ class LUTPlacer(NodeIterator):
         self.occupations = []  # Reset placement state for every compressor
 
     def iter_counter(self, c: Counter):
-        # Place LUT6CY instances manually.
         cascades = self._get_ripple_connected_luts(c)
         self._calculate_and_annotate_placements(cascades)
 
@@ -64,17 +63,6 @@ class LUTPlacer(NodeIterator):
                 self._annotate_placements(cascade, len(self.occupations) - 1, 0)
 
     def _annotate_placements(self, cascade, hu_set, start_idx):
-        """Annotate LUT6CY placement constraints for carry chain packing.
-
-        Places each cascade (ripple chain) into specific BEL positions within a SLICE.
-        Each hu_set represents one SLICE (8 LUTs max). Multiple hu_sets get different
-        Y coordinates to avoid placement conflicts.
-
-        Args:
-            cascade: List of LUT6CY instances forming a carry ripple chain
-            hu_set: SLICE index (0, 1, 2, ...) - maps to RLOC Y coordinate
-            start_idx: Starting BEL position within the SLICE (0-7 = A-H)
-        """
         assert start_idx + len(cascade) <= 8
         for i, lut in enumerate(cascade):
             bel_str = f"{chr(ord('A')+start_idx+i)}5LUT"

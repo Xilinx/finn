@@ -18,7 +18,8 @@ module dotp_{n}x{sa}{na}{sb}{nb}_tb #(
 		SIGNED_A ^^ SIGNED_B? 1 + $clog2(N) /*[-N:0]*/ : $clog2(N+1) /*[0:N]*/,
 	localparam bit  SIGNED_P = NA == 1? SIGNED_A ^^ SIGNED_B : SIGNED_A || SIGNED_B
 )();
-	uwire  clk = 'z;
+	logic  clk = 0;
+	always #5ns clk = ~clk;  // 10ns period = 100MHz
 
 	logic [N-1:0][NA-1:0]  a;
 	logic [N-1:0][NB-1:0]  b;
@@ -44,7 +45,7 @@ module dotp_{n}x{sa}{na}{sb}{nb}_tb #(
 
 			a <= aa;
 			b <= bb;
-			#10ns;
+			repeat({depth} + 1) @(posedge clk);
 			px = $signed({ SIGNED_P && p[NP-1], p });
 			assert((^p !== 1'bx) && (px == pp)) else begin
 				$error("Received %0d [0x%0x] instead of %0d.", px, p, pp);

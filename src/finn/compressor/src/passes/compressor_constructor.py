@@ -68,10 +68,6 @@ class CompressorConstructor:
             c.stages[-1].connect_to(s)
             c.stages.append(s)
 
-        # CRITICAL: This loop can hang if compression_goal is unreachable
-        # add_compression_stage cannot compress height-1 or height-2 columns (requires >= 3)
-        # Therefore compression_goal must be achievable given this constraint
-        # See get_compression_goal() for how this is ensured in accumulate configurations
         while not self.compression_goal_reached(c.stages[-1].output_shape, compression_goal):
             self.add_compression_stage(c, compression_goal, counter_candidates)
 
@@ -80,9 +76,6 @@ class CompressorConstructor:
             self.add_compression_stage(c, compression_goal, counter_candidates)
         self.add_constants_to_stage(c.stages[-1], constants)
 
-        # After constants, check if we need additional compression for accumulator mode.
-        # The ternary adder receives: compressor_output + feedback (height 1).
-        # If any column exceeds final_adder capacity, we need more compression.
         if accumulate:
 
             def post_const_goal(x):
@@ -107,9 +100,15 @@ class CompressorConstructor:
                 enable=enable,
             )
             c.stages.append(acc)
+        # if we dont accumulate, we can choose between a pipelined 
+        # or non-pipelined quaternary final adder when using Versal.
         elif max(c.stages[-1].output_shape) > 1:
             final_stage = CompressionStage()
-            final_stage.append_counter(final_adder(c.stages[-1].output_shape), 0)
+            try:
+                fa = final_adder(c.stages[-1].output_shape, pipelined=True)
+            except TypeError:
+                fa = final_adder(c.stages[-1].output_shape)
+            final_stage.append_counter(fa, 0)
             c.stages.append(final_stage)
 
         for s_p, s_n in zip(c.stages, c.stages[1:]):

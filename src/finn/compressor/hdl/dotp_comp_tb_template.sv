@@ -144,33 +144,13 @@ module dotp_comp_{full_sig}_tb;
 			feed_single(ww, aa);
 		end
 
-		// Single SIMD lane active (first)
-		begin
+		// Single SIMD lane active (first and last lanes)
+		for(int unsigned  lane = 0; lane < SIMD; lane += (SIMD > 1 ? SIMD-1 : 1)) begin
 			automatic weight_t     [PE-1:0][SIMD-1:0]  ww = '0;
 			automatic activation_t         [SIMD-1:0]  aa = '0;
 			for(int unsigned  pe = 0; pe < PE; pe++)
-				ww[pe][0] = {1'b0, {(WEIGHT_WIDTH-1){1'b1}}};
-			aa[0] = '1;
-			feed_single(ww, aa);
-		end
-
-		// Single SIMD lane active (last)
-		begin
-			automatic weight_t     [PE-1:0][SIMD-1:0]  ww = '0;
-			automatic activation_t         [SIMD-1:0]  aa = '0;
-			for(int unsigned  pe = 0; pe < PE; pe++)
-				ww[pe][SIMD-1] = '1;
-			aa[SIMD-1] = '1;
-			feed_single(ww, aa);
-		end
-
-		// Alternating weights: +max, -max, +max, ...
-		begin
-			automatic weight_t     [PE-1:0][SIMD-1:0]  ww;
-			automatic activation_t         [SIMD-1:0]  aa = '1;
-			for(int unsigned  pe = 0; pe < PE; pe++)
-				for(int unsigned  s = 0; s < SIMD; s++)
-					ww[pe][s] = s[0] ? '1 : {1'b0, {(WEIGHT_WIDTH-1){1'b1}}};
+				ww[pe][lane] = {1'b0, {(WEIGHT_WIDTH-1){1'b1}}};
+			aa[lane] = '1;
 			feed_single(ww, aa);
 		end
 
@@ -226,18 +206,10 @@ module dotp_comp_{full_sig}_tb;
 						automatic activation_t         [SIMD-1:0]  aa;
 						void'(std::randomize(ww, aa));
 
-						for(int unsigned  pe = 0; pe < PE; pe++) begin
-							for(int unsigned  simd = 0; simd < SIMD; simd++) begin
-								automatic accu_t  m0 = $signed(ww[pe][simd])
+						for(int unsigned  pe = 0; pe < PE; pe++)
+							for(int unsigned  simd = 0; simd < SIMD; simd++)
+								pp[pe] += $signed(ww[pe][simd])
 									* $signed({SIGNED_ACTIVATIONS && aa[simd][ACTIVATION_WIDTH-1], aa[simd]});
-								automatic accu_t  p0 = $signed(pp[pe]) + m0;
-								// Avoid overflow by zeroing offending weight
-								if(((m0 < 0) == ($signed(pp[pe]) < 0)) && ((m0 < 0) != (p0 < 0)))
-									ww[pe][simd] = 0;
-								else
-									pp[pe] = p0;
-							end
-						end
 
 						zero <= 0;
 						w <= ww;

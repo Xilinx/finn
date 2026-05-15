@@ -11,8 +11,8 @@ from abc import ABC, abstractmethod
 from typing import List
 
 from ...utils.shape import Shape
-from ..nodes import GateAbsorptionCounter
-from ..primitives import LUT2, LUT6, LUT6CY
+from ..nodes import Constant, GateAbsorptionCounter
+from ..primitives import LUT2, LUT6, LUT6_2, LUT6CY
 
 
 def fa_sum(a, b, c):
@@ -109,8 +109,6 @@ class MuxCYPredAdder(GateAbsorptionCounter):
         Similar to VersalPredAdder but uses LUT6_2 with swapped predicate order.
         Each column has 2 gates, each LUT computes: sum = p1 XOR p2 XOR carry_in
         """
-        from ..nodes import Constant
-        from ..primitives import LUT6_2
 
         luts = []
         for i in range(len(self.gates)):
@@ -251,9 +249,6 @@ class MuxCYRippleSum(GateAbsorptionCounter):
         super().__init__(Shape([len(gates)]), Shape([1, (len(gates) + 1) // 2]))
 
     def build_hardware(self):
-        from ..nodes import Constant
-        from ..primitives import LUT6_2
-
         luts = []
         for i in range((len(self.gates) + 1) // 2):
             p1 = self.gates[2 * i]

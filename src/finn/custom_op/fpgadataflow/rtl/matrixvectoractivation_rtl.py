@@ -59,9 +59,6 @@ class MVAU_rtl(MVAU, RTLBackend):
             # add_multi compressor specs for synthesis aggregation
             # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
             "add_multi_comp_specs": ("s", False, ""),
-            # Force disable LUT-based compressors (for benchmarking/comparison)
-            # 0 = auto (use compressor when eligible), 1 = force disable
-            "noCompressor": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
@@ -222,7 +219,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             ]
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + f for f in base_files]
+        ] + [rtllib_dir + _ for _ in base_files]
 
         # Add compressor files if dotp_comp was generated
         comp_name = self.get_nodeattr("comp_module_name")

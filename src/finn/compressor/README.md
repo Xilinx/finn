@@ -73,6 +73,7 @@ The tool can automatically generate a SystemVerilog testbench to fuzzy-test the 
 
 ### Custom Pipeline Depth
 Specify the maximum combinational delay for the compressor using `-p MAX_DEPTH`. Note that the final adder, which has at least one single routing delay, cannot be pipelined.
+This excludes the `Quaternary Adder`, which can be split into two stages when not used in accumulation. The pipelined version is the default if `-a` is not passed.
 
 ### Constant Input
 Aside to the regular, variable compressor inputs, the tool also supports an additional constant input. It can be specified as a binary number by `-c NUMBER`.

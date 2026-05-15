@@ -367,7 +367,6 @@ module mvu_vvu_axi #(
 			/* else */      3 + $clog2(SIMD+1) + (SIMD == 1);
 
 		// Floor at the DSP-equivalent depth so the compressor path (shallow pipeline)
-		// still has enough output queue slots to absorb backpressure transients.
 		localparam int unsigned  DSP_PIPELINE_DEPTH = 3 + $clog2(SIMD+1) + (SIMD == 1);
 		localparam int unsigned  MAX_IN_FLIGHT =
 			CORE_PIPELINE_DEPTH > DSP_PIPELINE_DEPTH? CORE_PIPELINE_DEPTH : DSP_PIPELINE_DEPTH;

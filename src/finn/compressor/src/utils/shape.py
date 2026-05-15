@@ -21,10 +21,10 @@ class Shape:
         return self.t.__iter__()
 
     def __getitem__(self, val):
-        if type(val) == int and val >= len(self.t):
+        if isinstance(val, int) and val >= len(self.t):
             return 0
         r = self.t.__getitem__(val)
-        if type(r) == int:
+        if isinstance(r, int):
             return r
         else:
             return Shape(r)
@@ -39,9 +39,9 @@ class Shape:
         return self.__binary_arithmetic_operation(val, lambda x, y: x - y)
 
     def __binary_arithmetic_operation(self, val, op):
-        if type(val) == int:
+        if isinstance(val, int):
             return Shape([op(el, val) for el in self.t])
-        elif type(val) == Shape:
+        elif isinstance(val, Shape):
             zipped = zip_longest(self.t, val.t, fillvalue=0)
             return Shape([op(a, b) for a, b in zipped])
         else:
