@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # Write to gen/ relative to this script's parent directory (compressor/)
     script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_path = os.path.join(script_dir, "gen", name + ".sv")
-    generate_compressor(
+    comp_depth = generate_compressor(
         target=target,
         shape=Shape((len(col) for col in shape)),
         name=name,
@@ -99,6 +99,7 @@ if __name__ == "__main__":
                         .replace("{signed_a}", str(int(sa)))
                         .replace("{signed_b}", str(int(sb)))
                         .replace("{abs_term}", str(abs_term))
+                        .replace("{depth}", str(comp_depth))
                         .replace("{part}", fpga_part)
                         # Replace relative paths with absolute paths for TCL
                         .replace("hdl/", hdl_dir + "/")

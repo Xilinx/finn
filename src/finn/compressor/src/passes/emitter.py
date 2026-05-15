@@ -71,7 +71,7 @@ class VerilogEmitter:
 
     def save_verilog(self, filename):
         with open(filename, "w") as f:
-            f.writelines(self._out)
+            f.write(self._out.getvalue())
 
 
 class VerilogGenerator(Visitor):
@@ -96,7 +96,8 @@ class VerilogGenerator(Visitor):
                 else:
                     print(f"Could not obey desired name: {o.desired_name}")
             else:
-                subdict[o] = f"wire_{len(subdict)}"
+                new_name = f"wire_{len(subdict)}"
+                subdict[o] = new_name
         elif isinstance(o, Bitmatrix):
             subdict[o] = f"bitmatrix_{len(subdict)}"
         elif isinstance(o, BitmatrixElement):
@@ -217,7 +218,7 @@ class VerilogGenerator(Visitor):
             self.emitter.emitln(f"uwire {self.get_name(w)};")
         self._declared_hardware.add(w)
 
-        if w.has_source not in self._declared_hardware and isinstance(w.source, Wire):
+        if w.source not in self._declared_hardware and isinstance(w.source, Wire):
             w.source.accept(self)
 
         if (
@@ -241,7 +242,7 @@ class VerilogGenerator(Visitor):
             )
         self._declared_hardware.add(lgc)
 
-        if lgc.has_source not in self._declared_hardware and isinstance(lgc.source, Wire):
+        if lgc.source not in self._declared_hardware and isinstance(lgc.source, Wire):
             lgc.source.accept(self)
 
         def emit_inner():

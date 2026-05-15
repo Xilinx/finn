@@ -1,8 +1,9 @@
-#!/usr/bin/env python
+#############################################################################
 # Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
+#############################################################################
 
 """Vivado XSim wrapper for testing generated compressors."""
 

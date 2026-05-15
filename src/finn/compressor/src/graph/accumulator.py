@@ -43,7 +43,6 @@ class AccumulatorStage(Stage):
         self.instances.append(en_neg)
         self.instances.append(rst)
 
-        # Optional clock enable signal (for finnlib integration)
         en_wire = None
         if self.enable:
             en_wire = Wire(desired_name="en")
@@ -54,10 +53,7 @@ class AccumulatorStage(Stage):
         # init=1 on rst delay chain: when enable mode is active, en-gating
         # prevents these registers from capturing the initial rst=1 pulse if
         # en=0 during global reset.  Initialising to 1 ensures the accumulator
-        # feedback is properly zeroed from power-up.  In the current finn(lib)
-        # integration en is hardwired to '1 making this technically redundant,
-        # but the FPGA INIT attribute is free and keeps the design robust
-        # against future uses where en may be gated.
+        # feedback is properly zeroed from power-up.
         rst_del = self.delay_signal(
             rst, self.preceeding_pipeline_stages + 1, en=en_wire, init=1 if self.enable else None
         )

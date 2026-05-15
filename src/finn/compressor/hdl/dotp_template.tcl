@@ -20,7 +20,9 @@ set_property top ${top}_tb $simset
 set_property xsim.simulate.runtime all $simset
 
 # Run Simulation
-launch_simulation
+if {[catch {launch_simulation} err]} {
+    puts "ERROR: Simulation failed: $err"
+}
 close_sim
 
 quit

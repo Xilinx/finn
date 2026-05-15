@@ -83,10 +83,10 @@ else if(!RESET_ZERO && (N == n) && (ARG_WIDTH == w) && (DEPTH >= d) && (0 <= ARG
 	localparam int unsigned  SUM_DELAY = DEPTH - COMP_DELAY; \
 	if(SUM_DELAY == 0)  assign  sum = out; \
 	else begin : genDelay \
-			logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: 'x }; \
+		logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: '0 }; \
 		always_ff @(posedge clk) begin \
-			if(rst)  SumZ <= '{ default: 'x }; \
-			else begin \
+			if(rst)  SumZ <= '{ default: '0 }; \
+			else if(en) begin \
 				for(int unsigned  i = 0; i < SUM_DELAY-1; i++)  SumZ[i] <= SumZ[i+1]; \
 				SumZ[SUM_DELAY-1] <= out; \
 			end \
@@ -169,13 +169,13 @@ end : genComp``n``u``w``_d``d
 	// Delay Output if requested DEPTH exceeds Tree Height
 	if(DEPTH <= L)  assign  sum = sum0;
 	else begin : genDelay
-		localparam logic [SUM_WIDTH-1:0]  SUM_RESET = {(SUM_WIDTH){RESET_ZERO? 1'b0 : 1'bx}};
-		logic [SUM_WIDTH-1:0]  SumZ[DEPTH - L] = '{ default: SUM_RESET };
+		localparam int unsigned  DELAY = DEPTH - L;
+		logic [SUM_WIDTH-1:0]  SumZ[DELAY] = '{ default: '0 };
 		always_ff @(posedge clk) begin
-			if(rst)  SumZ <= '{ default: SUM_RESET };
-			else begin
-				for(int unsigned  i = 0; i < DEPTH-L-1; i++)  SumZ[i] <= SumZ[i+1];
-				SumZ[DEPTH-L-1] <= sum0;
+			if(rst)  SumZ <= '{ default: '0 };
+			else if(en) begin
+				for(int unsigned  i = 0; i < DELAY-1; i++)  SumZ[i] <= SumZ[i+1];
+				SumZ[DELAY-1] <= sum0;
 			end
 		end
 		assign	sum = SumZ[0];

@@ -10,8 +10,8 @@ from abc import abstractstaticmethod
 from typing import List
 
 from ..utils.shape import Shape
-from .nodes import Counter
-from .primitives import CARRY4, LOOKAHEAD8, LUT5, LUT6_2, LUT6CY
+from .nodes import BlackboxOutput, Counter, Logic, Wire
+from .primitives import CARRY4, LOOKAHEAD8, LUT6_2, LUT6CY
 
 
 def FA_sum(a, b, c):
@@ -38,79 +38,9 @@ class FinalAdder(Counter):
     def compression_goal(col):
         pass
 
-
-class VersalTernaryAdder(FinalAdder):
-    @staticmethod
-    def compression_goal(col):
-        return 5 if col == 0 else 3
-
-    def __init__(self, input_shape: Shape):
-        self.input_shape = input_shape
-        output_shape = Shape([1 for _ in range(len(input_shape) + 2)])
-        super().__init__(input_shape, output_shape)
-
-    def build_hardware(self):
-        l8s = [LOOKAHEAD8() for _ in range((len(self.input_shape) + 8) // 8)]
-        luts_chain = [
-            LUT6CY.fromPred(
-                lambda A0, A1, A2, A3, A4, A5: FA_sum(FA_sum(A0, A1, A2), A3, A4),
-                lambda A0, A1, A2, A3, A4, A5: FA_carry(FA_sum(A0, A1, A2), A3, A4),
-                "ternary_adder_chain",
-            )
-            for _ in range(len(self.input_shape) + 1)
-        ]
-        luts_top = []
-        for i in range(len(self.input_shape)):
-            if i % 2 == 0:
-                luts_top.append(LUT5.fromPred(lambda A0, A1, A2, A3, A4: FA_carry(A0, A1, A4)))
-                try_connect(lambda: self.input_wires[i][0].connect_to(luts_top[-1].I0))
-                try_connect(lambda: self.input_wires[i][1].connect_to(luts_top[-1].I1))
-                try_connect(lambda: self.input_wires[i + 1][0].connect_to(luts_top[-1].I2))
-                try_connect(lambda: self.input_wires[i + 1][1].connect_to(luts_top[-1].I3))
-                try_connect(lambda: self.input_wires[i][2].connect_to(luts_top[-1].I4))
-            else:
-                luts_top.append(LUT5.fromPred(lambda A0, A1, A2, A3, A4: FA_carry(A2, A3, A4)))
-                try_connect(lambda: self.input_wires[i - 1][0].connect_to(luts_top[-1].I0))
-                try_connect(lambda: self.input_wires[i - 1][1].connect_to(luts_top[-1].I1))
-                try_connect(lambda: self.input_wires[i][0].connect_to(luts_top[-1].I2))
-                try_connect(lambda: self.input_wires[i][1].connect_to(luts_top[-1].I3))
-                try_connect(lambda: self.input_wires[i][2].connect_to(luts_top[-1].I4))
-
-        for idx, (left, right) in enumerate(zip(luts_top[0::2], luts_top[1::2])):
-            left.annotate(f"HLUTNM = final_adder_{idx}")
-            right.annotate(f"HLUTNM = final_adder_{idx}")
-
-        try_connect(lambda: self.input_wires[0][3].connect_to(luts_chain[0].I3))
-        try_connect(lambda: self.input_wires[0][4].connect_to(luts_chain[0].I4))
-        for i, el in enumerate(luts_chain):
-            try_connect(lambda: self.input_wires[i][0].connect_to(el.I0))
-            try_connect(lambda: self.input_wires[i][1].connect_to(el.I1))
-            try_connect(lambda: self.input_wires[i][2].connect_to(el.I2))
-            el.PROP.connect_to(l8s[i // 8].p_in_ports[i % 8])
-            el.O51.connect_to(self.output_wires[i][0])
-            el.O52.connect_to(l8s[i // 8].c_in_ports[i % 8 + 1])
-
-        for lb, lt in zip(luts_chain[1:], luts_top):
-            lt.O.connect_to(lb.I3)
-
-        # connect carry-ins between lookahead modules
-        for prev, next in zip(l8s, l8s[1:]):
-            prev.COUTH.connect_to(next.CIN)
-
-        # cascade
-        for i in range(1, len(luts_chain)):
-            if i % 2 == 0:
-                l8s[(i - 1) // 8].out_ports[((i - 1) % 8) // 2].connect_to(luts_chain[i].I4)
-            else:
-                luts_chain[i - 1].O52.connect_to(luts_chain[i].I4)
-
-        if len(luts_chain) % 2 == 0:
-            l8s[(len(luts_chain) - 1) // 8].out_ports[len(luts_chain) % 8 // 2 - 1].connect_to(
-                self.output_wires[len(luts_chain)][0]
-            )
-        else:
-            luts_chain[-1].O52.connect_to(self.output_wires[len(luts_chain)][0])
-        self.instances += luts_chain + luts_top + l8s
+    @property
+    def delay(self):
+        return 0
 
 
 class QuaternaryAdder(FinalAdder):
@@ -118,9 +48,34 @@ class QuaternaryAdder(FinalAdder):
     def compression_goal(col):
         return 5 if col <= 1 else 4
 
-    def __init__(self, input_shape: Shape):
+    def __init__(self, input_shape: Shape, pipelined: bool = False):
+        self.pipelined = pipelined
         output_shape = Shape([1 for _ in range(len(input_shape) + 2)])
         super().__init__(input_shape, output_shape)
+
+    @property
+    def delay(self):
+        return 1 if self.pipelined else 0
+
+    def _add_register(self, signal):
+        """
+        Helper that inserts a register (Logic node) after signal and returns the register.
+
+        If signal is a BlackboxOutput, we need an intermediate Wire because
+        the Verilog emitter can't handle Logic with BlackboxOutput as a source.
+        """
+
+        reg = Logic()
+        if isinstance(signal, BlackboxOutput):
+            # Insert a wire between BlackboxOutput and Logic
+            wire = Wire()
+            signal.connect_to(wire)
+            wire.connect_to(reg)
+            self.instances.append(wire)
+        else:
+            signal.connect_to(reg)
+        self.instances.append(reg)
+        return reg
 
     def build_hardware(self):
         # Find the limit up to which the quaternary adder is needed.
@@ -233,22 +188,52 @@ class QuaternaryAdder(FinalAdder):
         try_connect(lambda: self.input_wires[0][4].connect_to(luts_top[0].I4))
         try_connect(lambda: self.input_wires[0][4].connect_to(l8s_top[0].CIN))
 
-        try_connect(lambda: self.input_wires[1][4].connect_to(luts_btm[0].I4))
-        try_connect(lambda: self.input_wires[1][4].connect_to(l8s_btm[0].CIN))
+        # Bottom row carry-in (optionally through register for pipelining)
+        # try_conneect silently fails and goes on
+        # if the input wire is not present. _add.register however
+        # will throw if we try to connect a register to a non-existent input wire,
+        # so we check for existence first whenever we want to add a register.
+        if self.pipelined and len(self.input_wires) > 1 and len(self.input_wires[1]) > 4:
+            btm_cin_reg = self._add_register(self.input_wires[1][4])
+            try_connect(lambda: btm_cin_reg.connect_to(luts_btm[0].I4))
+            try_connect(lambda: btm_cin_reg.connect_to(l8s_btm[0].CIN))
+        else:
+            try_connect(lambda: self.input_wires[1][4].connect_to(luts_btm[0].I4))
+            try_connect(lambda: self.input_wires[1][4].connect_to(l8s_btm[0].CIN))
 
-        # downwards connection
+        # downwards connection (optionally through registers for pipelining)
         for t, d in zip(luts_top[1:], luts_btm):
-            t.O51.connect_to(d.I3)
+            if self.pipelined:
+                reg = self._add_register(t.O51)
+                reg.connect_to(d.I3)
+            else:
+                t.O51.connect_to(d.I3)
         last_top = len(carries_top) - 1
-        carries_top[last_top].connect_to(luts_btm[last_top].I3)
+        if self.pipelined:
+            reg = self._add_register(carries_top[last_top])
+            reg.connect_to(luts_btm[last_top].I3)
+        else:
+            carries_top[last_top].connect_to(luts_btm[last_top].I3)
 
+        # Connect inputs to top and bottom rows
+        # For pipelining: top row connects directly, bottom row through registers
         for idx, (lb, lt) in enumerate(zip(luts_btm, luts_top[:height_4_until])):
-            for el in [lb, lt]:
-                try_connect(lambda: self.input_wires[idx][0].connect_to(el.I0))
-                try_connect(lambda: self.input_wires[idx][1].connect_to(el.I1))
-                try_connect(lambda: self.input_wires[idx][2].connect_to(el.I2))
-
+            # Top row: always direct connection
+            try_connect(lambda: self.input_wires[idx][0].connect_to(lt.I0))
+            try_connect(lambda: self.input_wires[idx][1].connect_to(lt.I1))
+            try_connect(lambda: self.input_wires[idx][2].connect_to(lt.I2))
             try_connect(lambda: self.input_wires[idx][3].connect_to(lt.I3))
+
+            # Bottom row: through registers if pipelined
+            if self.pipelined:
+                for i, port in enumerate([lb.I0, lb.I1, lb.I2]):
+                    if len(self.input_wires[idx]) > i:
+                        reg = self._add_register(self.input_wires[idx][i])
+                        reg.connect_to(port)
+            else:
+                try_connect(lambda: self.input_wires[idx][0].connect_to(lb.I0))
+                try_connect(lambda: self.input_wires[idx][1].connect_to(lb.I1))
+                try_connect(lambda: self.input_wires[idx][2].connect_to(lb.I2))
 
         if tail_length:
             lt = luts_top[height_4_until]
@@ -257,14 +242,39 @@ class QuaternaryAdder(FinalAdder):
             try_connect(lambda: self.input_wires[height_4_until][0].connect_to(lt.I0))
             try_connect(lambda: self.input_wires[height_4_until][1].connect_to(lt.I1))
 
-            try_connect(lambda: self.input_wires[height_4_until + 1][0].connect_to(lb.I0))
-            try_connect(lambda: self.input_wires[height_4_until + 1][1].connect_to(lb.I1))
+            if self.pipelined:
+                if len(self.input_wires) > height_4_until + 1:
+                    if len(self.input_wires[height_4_until + 1]) > 0:
+                        reg0 = self._add_register(self.input_wires[height_4_until + 1][0])
+                        reg0.connect_to(lb.I0)
+                    if len(self.input_wires[height_4_until + 1]) > 1:
+                        reg1 = self._add_register(self.input_wires[height_4_until + 1][1])
+                        reg1.connect_to(lb.I1)
+            else:
+                try_connect(lambda: self.input_wires[height_4_until + 1][0].connect_to(lb.I0))
+                try_connect(lambda: self.input_wires[height_4_until + 1][1].connect_to(lb.I1))
 
         for idx, lb in enumerate(luts_btm[height_4_until + 1 :]):
-            try_connect(lambda: self.input_wires[idx + height_4_until + 1][0].connect_to(lb.I0))
-            try_connect(lambda: self.input_wires[idx + height_4_until + 1][1].connect_to(lb.I1))
-            try_connect(lambda: self.input_wires[idx + height_4_until + 2][0].connect_to(lb.I2))
-            try_connect(lambda: self.input_wires[idx + height_4_until + 2][1].connect_to(lb.I3))
+            if self.pipelined:
+                col1 = idx + height_4_until + 1
+                col2 = idx + height_4_until + 2
+                if len(self.input_wires) > col1 and len(self.input_wires[col1]) > 0:
+                    reg0 = self._add_register(self.input_wires[col1][0])
+                    reg0.connect_to(lb.I0)
+                if len(self.input_wires) > col1 and len(self.input_wires[col1]) > 1:
+                    reg1 = self._add_register(self.input_wires[col1][1])
+                    reg1.connect_to(lb.I1)
+                if len(self.input_wires) > col2 and len(self.input_wires[col2]) > 0:
+                    reg2 = self._add_register(self.input_wires[col2][0])
+                    reg2.connect_to(lb.I2)
+                if len(self.input_wires) > col2 and len(self.input_wires[col2]) > 1:
+                    reg3 = self._add_register(self.input_wires[col2][1])
+                    reg3.connect_to(lb.I3)
+            else:
+                try_connect(lambda: self.input_wires[idx + height_4_until + 1][0].connect_to(lb.I0))
+                try_connect(lambda: self.input_wires[idx + height_4_until + 1][1].connect_to(lb.I1))
+                try_connect(lambda: self.input_wires[idx + height_4_until + 2][0].connect_to(lb.I2))
+                try_connect(lambda: self.input_wires[idx + height_4_until + 2][1].connect_to(lb.I3))
 
         def connect_carry_to_lut(carries, luts):
             for carry, lut in zip(carries, luts[1:]):
@@ -272,14 +282,24 @@ class QuaternaryAdder(FinalAdder):
 
         connect_carry_to_lut(carries_top, luts_top)
         connect_carry_to_lut(carries_btm, luts_btm)
-        luts_top[0].O51.connect_to(self.output_wires[0][0])
+
+        # First output bit comes from top row - must be registered when pipelined
+        if self.pipelined:
+            reg = self._add_register(luts_top[0].O51)
+            reg.connect_to(self.output_wires[0][0])
+        else:
+            luts_top[0].O51.connect_to(self.output_wires[0][0])
 
         for idx, lb in enumerate(luts_btm):
             lb.O51.connect_to(self.output_wires[idx + 1][0])
 
         carries_btm[len(luts_btm) - 1].connect_to(self.output_wires[len(luts_btm) + 1][0])
 
-        luts_top[-1].O52.connect_to(luts_btm[len(luts_top) - 1].I3)
+        if self.pipelined:
+            reg = self._add_register(luts_top[-1].O52)
+            reg.connect_to(luts_btm[len(luts_top) - 1].I3)
+        else:
+            luts_top[-1].O52.connect_to(luts_btm[len(luts_top) - 1].I3)
 
         self.instances += luts_top + luts_btm + l8s_btm + l8s_top
 

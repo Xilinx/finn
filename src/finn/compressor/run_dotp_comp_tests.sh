@@ -8,20 +8,25 @@
 # @author    Simon Gerber <simon.gerber@amd.com>
 #############################################################################
 
-# Run dotp_comp integration tests for multiple configurations.
-# Uses dotp_finn.py to generate the compressor core (comp.sv),
-# then instantiates it from the static dotp_comp template via XSim.
-#
-# Usage: ./run_dotp_comp_tests.sh [versal|7series]
+# Usage: ./run_dotp_comp_tests.sh [target]
+#   target: versal, 7series, ultrascale (default: versal)
 
 ((${KEEP_LOG:=0}))
 ((${MAX_WORKERS:=12}))
-TARGET="${1:-versal}"  # Default to versal
 
-SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
-FINN_SRC="$(cd "$SRC_DIR/../.." && pwd)"
-export PYTHONPATH="$FINN_SRC${PYTHONPATH:+:$PYTHONPATH}"
-: "${WORK_DIR:=${FINN_HOST_BUILD_DIR:-/tmp/finn_compressor_tests}}"
+# Parse target argument
+TARGET="${1:-versal}"
+
+# Paths (all absolute for portability)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+HDL_DIR="$SCRIPT_DIR/hdl"
+GEN_DIR="$SCRIPT_DIR/gen"
+FINN_SRC="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# PYTHONPATH needs to point to where finn.compressor can be imported from (src/)
+export PYTHONPATH="$FINN_SRC/src${PYTHONPATH:+:$PYTHONPATH}"
+
+# Vivado working directory (isolated temp, unique per invocation)
+WORK_DIR="/tmp/finn_compressor_tests_$$"
 
 if ! command -v vivado >/dev/null 2>&1; then
 	echo "ERROR: vivado not found in PATH." >&2
@@ -29,86 +34,84 @@ if ! command -v vivado >/dev/null 2>&1; then
 fi
 
 echo "Vivado: $(command -v vivado)"
-echo "Settings: KEEP_LOG=$KEEP_LOG MAX_WORKERS=$MAX_WORKERS WORK_DIR=$WORK_DIR"
+echo "Settings: KEEP_LOG=$KEEP_LOG MAX_WORKERS=$MAX_WORKERS"
 echo "Target: $TARGET"
 
-source "$SRC_DIR/lib/test_common.sh"
+source "$SCRIPT_DIR/lib/test_common.sh"
 
-# Test configs: --pe PE --simd SIMD --ww WW --aw AW --accu_width ACCU [--signed_activations]
+# Test configs: PE SIMD WW AW ACCU SIGNED_ACT
+# Format: "PE SIMD WW AW ACCU SIGNED" where SIGNED=1 for signed activations, 0 otherwise
 # Target is set via script argument, applied to all tests
 TESTS=(
-	"--pe 2 --simd 8 --ww 1 --aw 1 --accu_width 16"
-	"--pe 2 --simd 8 --ww 1 --aw 1 --accu_width 16 --signed_activations"
-	"--pe 2 --simd 8 --ww 2 --aw 1 --accu_width 16"
-	"--pe 2 --simd 8 --ww 2 --aw 2 --accu_width 16 --signed_activations"
-	"--pe 2 --simd 4 --ww 2 --aw 2 --accu_width 16 --signed_activations"
-	"--pe 2 --simd 16 --ww 2 --aw 2 --accu_width 16 --signed_activations"
-	"--pe 1 --simd 8 --ww 2 --aw 2 --accu_width 16 --signed_activations"
-	"--pe 4 --simd 8 --ww 2 --aw 2 --accu_width 16 --signed_activations"
+	"2 8 1 1 16 0"
+	"2 8 1 1 16 1"
+	"2 8 2 1 16 0"
+	"2 8 2 2 16 1"
+	"2 4 2 2 16 1"
+	"2 16 2 2 16 1"
+	"1 8 2 2 16 1"
+	"4 8 2 2 16 1"
 )
 
-function parse_config {
-	local pe="" simd="" ww="" aw="" accu="" signed_act=""
-	CFG_SIGNED_FLAG=""
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-			--pe)    pe="$2"; shift 2;;
-			--simd)  simd="$2"; shift 2;;
-			--ww)    ww="$2"; shift 2;;
-			--aw)    aw="$2"; shift 2;;
-			--accu_width) accu="$2"; shift 2;;
-			--signed_activations) signed_act="_sa"; CFG_SIGNED_FLAG="--signed_activations"; shift;;
-			*) shift;;
-		esac
-	done
-	CFG_PE="$pe"; CFG_SIMD="$simd"; CFG_WW="$ww"; CFG_AW="$aw"; CFG_ACCU="$accu"
-	CFG_LABEL="pe${pe}_simd${simd}_ww${ww}_aw${aw}_accu${accu}${signed_act}"
-	# Sanitize label for SystemVerilog identifiers
-	CFG_LABEL="${CFG_LABEL//-/_}"
-	# Set FPGA part and target flag based on TARGET variable
+# Set FPGA part based on TARGET variable
+function get_fpga_part {
 	if [[ "$TARGET" == "7series" ]]; then
-		CFG_PART="xc7z020clg400-1"  # Pynq-Z1
-		CFG_TARGET_FLAG="--target 7-Series"
+		echo "xc7z020clg400-1"  # Pynq-Z1
 	elif [[ "$TARGET" == "ultrascale" ]]; then
-		CFG_PART="xczu9eg-ffvb1156-2-e"  # ZCU102
-		CFG_TARGET_FLAG="--target UltraScale"
+		echo "xczu9eg-ffvb1156-2-e"  # ZCU102
 	else
-		CFG_PART="xcvc1902-vsva2197-2MP-e-S"  # Versal VCK190
-		CFG_TARGET_FLAG=""
+		echo "xcvc1902-vsva2197-2MP-e-S"  # Versal VCK190
 	fi
+}
+
+# Build label from config
+function make_label {
+	local pe=$1 simd=$2 ww=$3 aw=$4 accu=$5 signed=$6
+	local label="pe${pe}_simd${simd}_ww${ww}_aw${aw}_accu${accu}"
+	[ "$signed" -eq 1 ] && label="${label}_sa"
+	echo "${label//-/_}"  # Sanitize for SystemVerilog
 }
 
 function run_sim {
 	local label="$1"
-	local tcl="$SRC_DIR/gen/$label/dotp_comp_${label}.tcl"
-	local out="$SRC_DIR/gen/$label/dotp_comp_${label}.runner.out"
-	local log=(-nolog); [ "$KEEP_LOG" -gt 0 ] && log=(-log "$SRC_DIR/gen/$label/sim.log")
+	local work="$WORK_DIR/$label"
+	local tcl="$GEN_DIR/$label/dotp_comp_${label}.tcl"
+	local out="$GEN_DIR/$label/dotp_comp_${label}.runner.out"
+	local log=(-nolog); [ "$KEEP_LOG" -gt 0 ] && log=(-log "$GEN_DIR/$label/sim.log")
 
-	mkdir -p "$WORK_DIR"
-	(cd "$WORK_DIR" && vivado "${log[@]}" -nojournal -mode batch -source "$tcl" >"$out" 2>&1)
+	mkdir -p "$work"
+	(cd "$work" && vivado "${log[@]}" -nojournal -mode batch -source "$tcl" >"$out" 2>&1)
 	check_vivado_errors "$out" "$label"
 	exit $?
 }
 
 # Phase 1: Generate
 LABELS=()
+FPGA_PART=$(get_fpga_part)
 echo -e "Generating configs:\n"
-for args in "${TESTS[@]}"; do
-	CFG_SIGNED_FLAG=""
-	# shellcheck disable=SC2086
-	parse_config $args
-	label="$CFG_LABEL"
+for test in "${TESTS[@]}"; do
+	read -r pe simd ww aw accu signed <<< "$test"
+	label=$(make_label "$pe" "$simd" "$ww" "$aw" "$accu" "$signed")
 	LABELS+=("$label")
-	out_dir="gen/$label"
+	out_dir="$GEN_DIR/$label"
 	mkdir -p "$out_dir"
 
 	echo "  $label ..."
 
+	# Build target flag (Versal is default, no flag needed)
+	target_flag=""
+	[[ "$TARGET" == "7series" ]] && target_flag="--target 7-Series"
+	[[ "$TARGET" == "ultrascale" ]] && target_flag="--target UltraScale"
+
+	# Build signed activations flag
+	signed_flag=""
+	[ "$signed" -eq 1 ] && signed_flag="--signed_activations"
+
 	# Generate compressor
 	# shellcheck disable=SC2086
 	gen_out=$(python3 -m finn.compressor.src.dotp_finn \
-		--simd "$CFG_SIMD" --ww "$CFG_WW" --aw "$CFG_AW" \
-		--accu_width "$CFG_ACCU" $CFG_SIGNED_FLAG $CFG_TARGET_FLAG \
+		--simd "$simd" --ww "$ww" --aw "$aw" --accu_width "$accu" \
+		$signed_flag $target_flag \
 		--dotp-template hdl/dotp_comp_template.sv \
 		--dotp-output-name dotp_comp.sv \
 		-o "$out_dir" 2>&1)
@@ -119,17 +122,22 @@ for args in "${TESTS[@]}"; do
 	comp_depth=$(echo "$gen_out" | sed -n 's/^ *Pipeline depth:[[:space:]]*//p' | head -n 1 | grep -Eo '[0-9]+' || true)
 	[ -z "$comp_depth" ] && { echo "ERROR: No depth for $label" >&2; exit 1; }
 
+	# Extract dotp module name from generated file
+	dotp_module=$(grep "^module" "$out_dir/dotp_comp.sv" | sed 's/module \([^ #]*\).*/\1/')
+	[ -z "$dotp_module" ] && { echo "ERROR: No dotp module name for $label" >&2; exit 1; }
+
 	# Expand TB
-	sed -e "s/{pe}/$CFG_PE/g" -e "s/{simd}/$CFG_SIMD/g" \
-	    -e "s/{ww}/$CFG_WW/g" -e "s/{aw}/$CFG_AW/g" \
-	    -e "s/{accu_width}/$CFG_ACCU/g" \
-	    -e "s/{signed_act}/$([ -n "$CFG_SIGNED_FLAG" ] && echo 1 || echo 0)/g" \
+	sed -e "s/{pe}/$pe/g" -e "s/{simd}/$simd/g" \
+	    -e "s/{ww}/$ww/g" -e "s/{aw}/$aw/g" \
+	    -e "s/{accu_width}/$accu/g" \
+	    -e "s/{signed_act}/$signed/g" \
 	    -e "s/{full_sig}/$label/g" -e "s/{comp_depth}/$comp_depth/g" \
-	    hdl/dotp_comp_tb_template.sv > "$out_dir/dotp_comp_${label}_tb.sv"
+	    -e "s/{dotp_module}/$dotp_module/g" \
+	    "$HDL_DIR/dotp_comp_tb_template.sv" > "$out_dir/dotp_comp_${label}_tb.sv"
 
 	# Expand TCL
-	sed -e "s/{label}/$label/g" -e "s|{src_dir}|$SRC_DIR|g" -e "s/{part}/$CFG_PART/g" \
-	    hdl/dotp_comp_template.tcl > "$out_dir/dotp_comp_${label}.tcl"
+	sed -e "s/{label}/$label/g" -e "s|{src_dir}|$SCRIPT_DIR|g" -e "s/{part}/$FPGA_PART/g" \
+	    "$HDL_DIR/dotp_comp_template.tcl" > "$out_dir/dotp_comp_${label}.tcl"
 done
 echo
 
