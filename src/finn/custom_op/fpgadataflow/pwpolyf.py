@@ -197,7 +197,7 @@ class PWPolyF(HWCustomOp):
         # lazy import to avoid hard dependency on torch at module level
         import torch  # noqa: PLC0415
 
-        from finn.util.pwpolyf import PiecewisePolyActivation  # noqa: PLC0415
+        from finn.util.torch_hw_modules import PiecewisePolyActivation  # noqa: PLC0415
 
         degree = self.get_nodeattr("degree")
         mod = PiecewisePolyActivation(func, K=K, degree=degree)

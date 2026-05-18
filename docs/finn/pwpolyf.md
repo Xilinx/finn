@@ -138,9 +138,10 @@ Attributes on the explicit PWPolyF ONNX node:
 
 | File | Purpose |
 |------|---------|
+| `util/torch_hw_modules.py` | PyTorch activation module, ONNX export, software simulation |
 | `custom_op/fpgadataflow/pwpolyf.py` | Base HW op (shape, folding, resource estimates, cppsim) |
 | `custom_op/fpgadataflow/rtl/pwpolyf_rtl.py` | RTL backend (HDL generation, package generation, rtlsim, IPI) |
-| `util/pwpolyf.py` | PyTorch activation module, ONNX export, software simulation |
+| `util/pwpolyf.py` | Compatibility imports for existing PWPolyF utility users |
 | `transformation/fpgadataflow/convert_to_hw_layers.py` | `InferPWPolyFLayer` transformation |
 | `builder/build_dataflow_steps.py` | Build pipeline integration |
 | `transformation/fpgadataflow/set_folding.py` | Folding support (pe_ops list) |

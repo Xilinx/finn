@@ -32,7 +32,12 @@ import struct
 
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
-from finn.util.pwpolyf import CLAMP_CFG, NUM_OCTAVES, SUPPORTED_FUNCS, _fit_coefficients
+from finn.util.torch_hw_modules import (
+    CLAMP_CFG,
+    NUM_OCTAVES,
+    SUPPORTED_FUNCS,
+    _fit_coefficients,
+)
 
 
 def _float_to_hex(f):

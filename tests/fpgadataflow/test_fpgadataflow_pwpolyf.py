@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.pwpolyf import PiecewisePolyActivation
+from finn.util.torch_hw_modules import PiecewisePolyActivation
 
 test_fpga_part = "xcve2002-sbva484-2MP-e-S"
 non_versal_fpga_part = "xczu3eg-sbva484-1-e"
