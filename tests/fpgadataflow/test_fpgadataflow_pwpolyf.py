@@ -1,30 +1,5 @@
-# Copyright (C) 2026, Advanced Micro Devices, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
 
@@ -41,7 +16,6 @@ from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.custom_op.fpgadataflow.rtl.pwpolyf_rtl import generate_coeffs_pkg
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPWPolyFLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -52,7 +26,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.util.torch_hw_modules import PiecewisePolyActivation
 
-test_fpga_part = "xcve2002-sbva484-2MP-e-S"
+test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 non_versal_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
@@ -89,6 +63,14 @@ def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
     return model
+
+
+def make_pwpolyf_rtl_inst(K=3, degree=2):
+    model = make_pwpolyf_modelwrapper("gelu", K, 4, [1])
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    inst = getCustomOp(model.graph.node[0])
+    inst.set_nodeattr("degree", degree)
+    return inst
 
 
 @pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
@@ -590,8 +572,8 @@ def test_pwpolyf_erf_gelu_execution():
 @pytest.mark.parametrize("K", [2, 3, 4])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_generate_coeffs_pkg(K):
-    """Verify generate_coeffs_pkg produces valid SystemVerilog package."""
-    pkg = generate_coeffs_pkg(K)
+    """Verify PWPolyF_rtl coefficient generation produces valid SystemVerilog."""
+    pkg = make_pwpolyf_rtl_inst(K=K)._generate_coeffs_pkg()
 
     assert "package pwpolyf_pkg" in pkg
     assert "endpackage" in pkg
@@ -613,9 +595,9 @@ def test_pwpolyf_generate_coeffs_pkg(K):
 @pytest.mark.parametrize("degree", [1, 2, 3])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_generate_coeffs_pkg_degree(degree):
-    """Verify generate_coeffs_pkg respects degree parameter."""
+    """Verify PWPolyF_rtl coefficient generation respects degree parameter."""
     K = 3
-    pkg = generate_coeffs_pkg(K, degree=degree)
+    pkg = make_pwpolyf_rtl_inst(K=K, degree=degree)._generate_coeffs_pkg()
 
     assert "DEGREE      = %d;" % degree in pkg
     # Each segment line should have degree+1 coefficient values
