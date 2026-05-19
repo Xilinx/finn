@@ -85,7 +85,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
             npy_file = f"{code_gen_dir}/input1_MVAU_rtl_id_{idx}.npy"
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
-            mvau_op = getCustomOp(downstream)
+            mvau_op = getHWCustomOp(downstream)
             mh = mvau_op.get_nodeattr("MH")
             mw = mvau_op.get_nodeattr("MW")
             wdt_width = mvau_op.get_input_datatype(1).bitwidth()

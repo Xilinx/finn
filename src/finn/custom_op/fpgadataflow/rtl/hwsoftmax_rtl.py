@@ -7,10 +7,9 @@
 # @author       Shane T. Fleming <shane.fleming@amd.com>
 ############################################################################
 
+import numpy as np
 import os
 import shutil
-
-import numpy as np
 
 from finn.custom_op.fpgadataflow.hwsoftmax import HWSoftmax
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend

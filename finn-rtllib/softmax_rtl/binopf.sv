@@ -115,7 +115,7 @@ module binopf #(
 				if(en_d)  D1 <= dd;
 				M <= { $shortrealtobits($bitstoshortreal(A1)*$bitstoshortreal(HAVE_SCALE? bb : B1)), M[2] };
 				P4 <= $shortrealtobits(
-					$bitstoshortreal((opmode[6]<<31) ^ C[CREGS]) + 
+					$bitstoshortreal((opmode[6]<<31) ^ C[CREGS]) +
 					$bitstoshortreal((opmode[5]<<31) ^ (HAVE_MUL? M[3] : D1))
 				);
 			end
