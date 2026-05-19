@@ -27,13 +27,14 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 from finn.util.data_packing import finnpy_to_packed_bytearray
 
@@ -173,6 +174,13 @@ def get_deps_dir():
             "2. You're importing finn before calling this function\n"
             "3. Or manually set FINN_DEPS_DIR to your FINN deps directory"
         )
+
+
+def get_vivado_version() -> Optional[Tuple[int, int]]:
+    """Extract Vivado version as (year, minor) tuple from XILINX_VIVADO."""
+    path = os.environ.get("XILINX_VIVADO", "")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
+    return (int(match.group(1)), int(match.group(2))) if match else None
 
 
 def get_liveness_threshold_cycles():

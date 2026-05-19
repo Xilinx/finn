@@ -32,7 +32,10 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.lookup import Lookup
+from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
+
+RAM_STYLES = {"auto": "AUTO", "block": "BRAM", "distributed": "LUTRAM", "ultra": "URAM"}
 
 
 class Lookup_hls(Lookup, HLSBackend):
@@ -46,6 +49,28 @@ class Lookup_hls(Lookup, HLSBackend):
         my_attrs.update(Lookup.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
+
+    def _check_uram_codegen_support(self, fpgapart):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode != "internal_embedded" or ram_style != "ultra":
+            return
+        assert is_versal(fpgapart), (
+            "Lookup_hls with internal_embedded URAM requires a Versal target. "
+            "Use a non-URAM ram_style or an external/runtime-writeable memory implementation "
+            "for non-Versal targets."
+        )
+        vivado_version = get_vivado_version()
+        assert vivado_version is None or vivado_version >= (2024, 2), (
+            "Lookup_hls with internal_embedded URAM requires Vivado/Vitis HLS 2024.2 "
+            "or newer because older HLS versions cannot initialize URAM-backed "
+            "global/static embedding tables."
+        )
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Generates c++ code and tcl script for ip generation."""
+        self._check_uram_codegen_support(fpgapart)
+        super().code_generation_ipgen(model, fpgapart, clk)
 
     def global_includes(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -152,7 +177,12 @@ class Lookup_hls(Lookup, HLSBackend):
         my_pragmas.append("#pragma HLS INTERFACE axis port=out0_V")
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if mem_mode == "internal_embedded":
-            my_pragmas.append("#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM")
+            ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
+            storage_type = "RAM_S2P" if ram_style == "URAM" else "ROM_2P"
+            my_pragmas.append(
+                "#pragma HLS BIND_STORAGE variable=embeddings "
+                "type=%s impl=%s" % (storage_type, ram_style)
+            )
         elif mem_mode == "external":
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
             my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")

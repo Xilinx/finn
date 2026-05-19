@@ -364,7 +364,10 @@ class VVAU(HWCustomOp):
 
     def uram_efficiency_estimation(self):
         """Function for URAM efficiency estimation: actual parameter storage
-        needed divided by the allocated URAM storage (from estimation)"""
+        needed divided by the allocated URAM storage (from estimation)."""
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
         wdt = self.get_input_datatype(1)
         W = wdt.bitwidth()
         D_in = int(np.prod(self.get_nodeattr("Kernel")))

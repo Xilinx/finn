@@ -89,16 +89,20 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         odt_bits = odt.bitwidth()
         t_channels = self.get_nodeattr("NumChannels")
         cf = t_channels / pe
+        # For MLO, multiply depth by number of sets (iterations)
+        mlo_sets = max(1, self.get_nodeattr("mlo_max_iter"))
         is_uniform = self.get_nodeattr("uniform_thres")
         if is_uniform:
-            ret = [(odt_bits - x, cf * (2**x)) for x in range(1, odt_bits)]
+            ret = [(odt_bits - x, cf * (2**x) * mlo_sets) for x in range(1, odt_bits)]
         else:
-            ret = [(wdt_bits, (cf) * 2**x) for x in range(odt_bits)]
+            ret = [(wdt_bits, cf * (2**x) * mlo_sets) for x in range(odt_bits)]
         return ret
 
-    def get_memory_estimate(self):
-        """return the memory estimate for this node"""
+    def _get_memory_estimate_details(self):
+        """return resource count, used bits and allocated capacity by memory type"""
         res_dict = {}
+        used_bits = {}
+        capacity_bits = {}
         depth_trigger_bram = self.get_nodeattr("depth_trigger_bram")
         depth_trigger_uram = self.get_nodeattr("depth_trigger_uram")
         pe = self.get_nodeattr("PE")
@@ -113,9 +117,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
                     primitives = {k: v for (k, v) in mem_primitives_versal.items() if "URAM" in k}
             alts = get_memutil_alternatives(mem_cfg, primitives)
             primary_alt = alts[0]
-            res_type = primary_alt[0].split("_")[0]
+            primitive_name = primary_alt[0]
+            if primitive_name.startswith("BRAM"):
+                res_type = "BRAM"
+            else:
+                res_type = primitive_name.split("_")[0]
             res_count, eff, waste = primary_alt[1]
+            primitive_width, primitive_depth = mem_primitives_versal[primitive_name]
             res_dict[res_type] = res_dict.get(res_type, 0) + pe * res_count
+            used_bits[res_type] = used_bits.get(res_type, 0) + pe * width * depth
+            capacity_bits[res_type] = capacity_bits.get(res_type, 0) + (
+                pe * res_count * primitive_width * primitive_depth
+            )
+        return res_dict, used_bits, capacity_bits
+
+    def get_memory_estimate(self):
+        """return the memory estimate for this node"""
+        res_dict, _, _ = self._get_memory_estimate_details()
         return res_dict
 
     def bram_estimation(self):
@@ -132,6 +150,23 @@ class Thresholding_rtl(Thresholding, RTLBackend):
         """return the number of LUTs required for this node"""
         res_dict = self.get_memory_estimate()
         return res_dict.get("LUTRAM", 0)
+
+    def bram_efficiency_estimation(self):
+        """return BRAM parameter storage efficiency for this node"""
+        _, used_bits, capacity_bits = self._get_memory_estimate_details()
+        if capacity_bits.get("BRAM", 0) == 0:
+            return 1
+        return used_bits["BRAM"] / capacity_bits["BRAM"]
+
+    def uram_efficiency_estimation(self):
+        """return URAM parameter storage efficiency for this node."""
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        _, used_bits, capacity_bits = self._get_memory_estimate_details()
+        if capacity_bits.get("URAM", 0) == 0:
+            return 1
+        return used_bits["URAM"] / capacity_bits["URAM"]
 
     def get_all_meminit_filenames(self, abspath=False):
         "Return a list of all .dat memory initializer files used for this node"

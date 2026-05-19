@@ -5,7 +5,6 @@
 
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -16,7 +15,7 @@ from finn.builder.build_dataflow_config import (
     DataflowOutputType,
     ShellFlowType,
 )
-from finn.util.basic import part_map, pynq_part_map, vitis_part_map
+from finn.util.basic import get_vivado_version, part_map, pynq_part_map, vitis_part_map
 
 
 class Severity(Enum):
@@ -42,13 +41,6 @@ class Report:
 
     def has_errors(self) -> bool:
         return any(c.severity == Severity.ERROR and not c.passed for c in self.checks)
-
-
-def get_vivado_version() -> Optional[Tuple[int, int]]:
-    """Extract Vivado version as (year, minor) tuple from XILINX_VIVADO."""
-    path = os.environ.get("XILINX_VIVADO", "")
-    match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
-    return (int(match.group(1)), int(match.group(2))) if match else None
 
 
 def _check(name, severity, condition, msg_fail, suggestion=None):

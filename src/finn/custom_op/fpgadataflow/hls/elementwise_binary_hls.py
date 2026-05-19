@@ -37,6 +37,7 @@ import finn.custom_op.fpgadataflow.elementwise_binary as elementwise_binary
 from finn.custom_op.fpgadataflow.elementwise_binary import ElementwiseBinaryOperation
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
+from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -93,10 +94,44 @@ class ElementwiseBinaryOperation_hls(
             if self.lhs_style == "const":
                 self.set_nodeattr("lhs_style", "input")
 
+    def _has_embedded_initializer(self, model):
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode != "internal_embedded":
+            return False
+        mlo = self.get_nodeattr("mlo_max_iter")
+        lhs_embedded = model.get_initializer(self.onnx_node.input[0]) is not None
+        rhs_embedded = model.get_initializer(self.onnx_node.input[1]) is not None and not mlo
+        return lhs_embedded or rhs_embedded
+
+    def _check_uram_codegen_support(self, model, fpgapart):
+        if self.get_nodeattr("ram_style") != "ultra":
+            return
+        mem_mode = self.get_nodeattr("mem_mode")
+        mlo = self.get_nodeattr("mlo_max_iter")
+        if mem_mode == "internal_embedded" and self._has_embedded_initializer(model):
+            assert is_versal(fpgapart), (
+                "ElementwiseBinaryOperation_hls with internal_embedded URAM constants requires "
+                "a Versal target. Use internal_decoupled memory mode or a non-URAM "
+                "ram_style for non-Versal targets."
+            )
+            vivado_version = get_vivado_version()
+            assert vivado_version is None or vivado_version >= (2024, 2), (
+                "ElementwiseBinaryOperation_hls with internal_embedded URAM constants requires "
+                "Vitis HLS 2024.2 or newer because older versions cannot initialize "
+                "URAM-backed arrays."
+            )
+        elif mem_mode == "internal_decoupled" or mlo:
+            assert is_versal(fpgapart), (
+                "ElementwiseBinaryOperation_hls with internal_decoupled URAM requires "
+                "a Versal target, as URAM cannot be initialized from bitfile on non-Versal "
+                "devices and runtime-writeable weights are not supported for this layer."
+            )
+
     # Note: End of shape and datatype utilities
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
+        self._check_uram_codegen_support(model, fpgapart)
         super().code_generation_ipgen(model, fpgapart, clk)
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "internal_decoupled" or self.get_nodeattr("mlo_max_iter"):
@@ -121,6 +156,7 @@ class ElementwiseBinaryOperation_hls(
         out_shape = self.get_folded_output_shape(ind=0)
         # Type of memory to use for storing constant parameters
         ram_style = RAM_STYLES[self.get_nodeattr("ram_style")]
+        storage_type = "RAM_S2P" if ram_style == "URAM" else "ROM_2P"
 
         # Check whether there are already pragmas in the code generation
         # dictionary
@@ -161,7 +197,7 @@ class ElementwiseBinaryOperation_hls(
                 # Add pragma configuring the storage type to use for the parameter
                 # tensors: This is a constant parameter implemented as dual-port ROM
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    f"#pragma HLS BIND_STORAGE variable=lhs type=ROM_2P impl={ram_style}"
+                    f"#pragma HLS BIND_STORAGE variable=lhs type={storage_type} impl={ram_style}"
                 )
                 # Add pragma to partition the parameter tensor along the last
                 # dimensions, i.e., the PE dimension for parallel access
@@ -203,7 +239,7 @@ class ElementwiseBinaryOperation_hls(
                 # Add pragma configuring the storage type to use for the parameter
                 # tensors: This is a constant parameter implemented as dual-port ROM
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    f"#pragma HLS BIND_STORAGE variable=rhs type=ROM_2P impl={ram_style}"
+                    f"#pragma HLS BIND_STORAGE variable=rhs type={storage_type} impl={ram_style}"
                 )
                 # Add pragma to partition the parameter tensor along the last
                 # dimensions, i.e., the PE dimension for parallel access

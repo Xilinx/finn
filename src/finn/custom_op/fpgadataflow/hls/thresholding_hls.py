@@ -35,6 +35,7 @@ from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.thresholding import Thresholding
+from finn.util.basic import get_vivado_version, is_versal
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -67,7 +68,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
                 {"internal_embedded", "internal_decoupled"},
             ),
             # string defining memory type
-            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
+            "ram_style": ("s", False, "distributed", {"distributed", "block", "ultra"}),
             # (mem_mode = internal_decoupled only) whether weights (thresholds) will be
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -83,18 +84,50 @@ class Thresholding_hls(Thresholding, HLSBackend):
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
+    def _threshold_mem_width(self):
+        pe = self.get_nodeattr("PE")
+        weight_bits = self.get_input_datatype(1).bitwidth()
+        n_thres_steps = self.get_nodeattr("numSteps")
+        return pe * weight_bits * n_thres_steps
+
     def bram_estimation(self):
         """Calculates BRAM cost if resource set to BRAM"""
         style = self.get_nodeattr("ram_style")
-        P = self.get_nodeattr("PE")
-        idt = self.get_input_datatype(0)
-        A = idt.bitwidth()
+        mem_width = self._threshold_mem_width()
         tmem = self.calc_tmem()
 
         if style == "block" and tmem > 1:
-            return int(ceil(A * P / 16)) * int(ceil(tmem / 1024))
+            return int(ceil(mem_width / 16)) * int(ceil(tmem / 1024))
         else:
             return 0
+
+    def uram_estimation(self):
+        """Calculates URAM cost if resource set to URAM"""
+        style = self.get_nodeattr("ram_style")
+        tmem = self.calc_tmem()
+        if style == "ultra" and tmem > 1:
+            return int(ceil(self._threshold_mem_width() / 72)) * int(ceil(tmem / 4096))
+        else:
+            return 0
+
+    def bram_efficiency_estimation(self):
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = self._threshold_mem_width() * self.calc_tmem()
+        bram16_est_capacity = bram16_est * 18 * 1024
+        return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = self._threshold_mem_width() * self.calc_tmem()
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
 
     def lut_estimation(self):
         """Calculates LUT cost, taking memory resource type into account"""
@@ -108,7 +141,7 @@ class Thresholding_hls(Thresholding, HLSBackend):
         comparator_cost = A * P
         # cost of LUTRAM
         if style == "distributed" and tmem > 1:
-            lutram_cost = P * A * int(ceil(tmem / 64))
+            lutram_cost = self._threshold_mem_width() * int(ceil(tmem / 64))
         else:
             lutram_cost = 0
         # total cost
@@ -125,6 +158,25 @@ class Thresholding_hls(Thresholding, HLSBackend):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
         mem_mode = self.get_nodeattr("mem_mode")
+        if self.get_nodeattr("ram_style") == "ultra":
+            if mem_mode == "internal_embedded":
+                if not is_versal(fpgapart):
+                    raise Exception(
+                        "URAM thresholds with internal_embedded mode are not supported "
+                        "on non-Versal devices, as URAM cannot be initialized from bitfile."
+                    )
+                vivado_version = get_vivado_version()
+                assert vivado_version is None or vivado_version >= (2024, 2), (
+                    "URAM thresholds with internal_embedded mode require Vitis HLS 2024.2 "
+                    "or newer because older versions cannot initialize URAM-backed arrays."
+                )
+            elif mem_mode == "internal_decoupled":
+                if not is_versal(fpgapart):
+                    runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
+                    assert (
+                        runtime_writeable == 1
+                    ), """Layer with URAM thresholds must have runtime_writeable_weights=1
+                        if Ultrascale device is targeted."""
         if mem_mode == "internal_decoupled":
             self.generate_hdl_memstream(fpgapart)
 
@@ -576,10 +628,15 @@ class Thresholding_hls(Thresholding, HLSBackend):
                     self.code_gen_dict["$PRAGMAS$"].append(
                         ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_BRAM")
                     )
+                elif ram_style == "ultra":
+                    self.code_gen_dict["$PRAGMAS$"].append(
+                        "#pragma HLS BIND_STORAGE variable=threshs.m_thresholds "
+                        "type=RAM_S2P impl=URAM"
+                    )
                 else:
                     raise Exception(
                         """Invalid value for attribute ram_style! Is currently set to: {}
-                    has to be set to one of ("block", "distributed")""".format(
+                    has to be set to one of ("block", "distributed", "ultra")""".format(
                             ram_style
                         )
                     )
