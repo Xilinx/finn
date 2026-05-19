@@ -100,7 +100,7 @@ class CompressorConstructor:
                 enable=enable,
             )
             c.stages.append(acc)
-        # if we dont accumulate, we can choose between a pipelined 
+        # if we dont accumulate, we can choose between a pipelined
         # or non-pipelined quaternary final adder when using Versal.
         elif max(c.stages[-1].output_shape) > 1:
             final_stage = CompressionStage()
