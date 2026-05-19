@@ -360,13 +360,7 @@ class HWCustomOp(CustomOp):
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
                 theight = self.get_nodeattr("TH")
-                gemm_type = self.get_nodeattr("gemm_type")
-                if gemm_type in ("mmau_1d", "mmau_2d"):
-                    cu_simd = self.get_nodeattr("CU_SIMD")
-                    clen = (simd + cu_simd - 1) // cu_simd
-                    n_reps = np.prod(self.get_nodeattr("numInputVectors")) // clen
-                else:
-                    n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
+                n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
                 en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             else:
                 # Eltwise layers only have one parallelism parameter
@@ -385,12 +379,7 @@ class HWCustomOp(CustomOp):
 
             # Compute IWSIMD and WSIMD for the fetch_weights wrapper
             if self.onnx_node.op_type in ops:
-                gemm_type = self.get_nodeattr("gemm_type")
-                if gemm_type in ("mmau_1d", "mmau_2d"):
-                    cu_simd = self.get_nodeattr("CU_SIMD")
-                    iwsimd = pe * cu_simd
-                    wsimd = pe * cu_simd
-                elif theight > 1:
+                if theight > 1:
                     iwsimd = (pe * simd) // theight
                     wsimd = (pe * simd) // theight
                 else:
