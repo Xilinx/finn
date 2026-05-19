@@ -1,5 +1,6 @@
 import pytest
 
+import glob
 import numpy as np
 import os
 import re
@@ -858,8 +859,6 @@ def test_finnloop_end2end_mlo_tiled(
     build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
     # Dump weight files for hardware debug
-    import glob
-
     built_model = ModelWrapper(tmp_output_dir + "/mlo_model.onnx")
     for node in built_model.graph.node:
         if node.op_type == "FINNLoop":

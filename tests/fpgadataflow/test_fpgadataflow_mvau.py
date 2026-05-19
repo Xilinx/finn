@@ -955,6 +955,7 @@ def test_fpgadataflow_rtl_tiled_mvau(mh, mw, pe, simd, th, idt_wdt, clk_ns):
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of tiled stitched-IP RTL model!"
 
+
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.parametrize("mw", [16])
 @pytest.mark.parametrize("n_vectors", [32])

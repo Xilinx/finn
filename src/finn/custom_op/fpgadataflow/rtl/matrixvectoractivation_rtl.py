@@ -365,7 +365,6 @@ class MVAU_rtl(MVAU, RTLBackend):
         return template_path, code_gen_dict
 
     def get_rtl_file_list(self, abspath=False):
-        gemm_type = self.get_nodeattr("gemm_type")
         if abspath:
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen") + "/"
             if self.get_nodeattr("TH") > 1:

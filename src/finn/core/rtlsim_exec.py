@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import json
 import numpy as np
 import os
 from qonnx.custom_op.registry import getCustomOp
@@ -362,8 +363,6 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     # automatically load AXI-MM weight images for external_mem nodes
     aximm_weights_json = model.get_metadata_prop("vivado_stitch_aximm_weights")
     if aximm_weights_json is not None:
-        import json
-
         aximm_weights = json.loads(aximm_weights_json)
         for aximm_name, npy_path in aximm_weights.items():
             weight_npy = np.load(npy_path)
