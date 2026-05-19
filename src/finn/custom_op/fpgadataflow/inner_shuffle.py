@@ -90,3 +90,19 @@ class InnerShuffle(HWCustomOp):
         fold = int(np.prod(normal_ishape) / simd)
         folded_ishape = [fold, simd]
         return tuple(folded_ishape)
+
+    def get_exp_cycles(self):
+        """Estimate cycles for the double-buffered InnerShuffle RTL.
+
+        The RTL uses two BRAM banks with page_size = I*J/SIMD. The first page
+        must be fully written before reads can begin, adding one extra page of
+        latency beyond the streaming throughput. Empirically verified to match
+        cycles_rtlsim within atol=10.
+        """
+        in_shape = self.get_nodeattr("in_shape")
+        simd = self.get_nodeattr("SIMD")
+        I_dim = in_shape[-2]
+        J_dim = in_shape[-1]
+        page_size = I_dim * J_dim // simd
+        total_elems = int(np.prod(in_shape)) // simd
+        return 2 * total_elems + page_size

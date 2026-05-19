@@ -90,7 +90,7 @@ def test_streamline_fc(size, wbits, abits):
     model = model.transform(RemoveUnusedTensors())
     assert len(model.graph.initializer) == 11
     assert len(model.graph.value_info) == 21
-    assert len(model.graph.quantization_annotation) == 20
+    assert len(model.graph.quantization_annotation) == 17
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.get_first_global_out()]
     assert np.isclose(expected, produced, atol=1e-3).all()

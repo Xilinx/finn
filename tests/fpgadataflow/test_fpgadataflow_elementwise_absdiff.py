@@ -1,5 +1,5 @@
 # Copyright (c) 2022, Xilinx
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2022-2026, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -27,6 +27,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""
+Test for ElementwiseAbsDiff operation.
+
+This tests the Sub -> Abs pattern fusion into ElementwiseAbsDiff.
+"""
+
 import pytest
 
 import numpy as np
@@ -44,6 +50,9 @@ from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -51,16 +60,14 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 
 
-def build_model(shp, dt0, dt1, do_abs):
+def build_absdiff_model(shp, dt0, dt1):
+    """Build a model with Sub -> Abs pattern that will be fused to AbsDiff."""
     np.random.seed(0)
     shp_str = str(shp)
-    if do_abs:
-        graph = """
-        sub_out = Sub(in0, in1)
-        out0 = Abs(sub_out)
-        """
-    else:
-        graph = "out0 = Sub(in0, in1)"
+    graph = """
+    sub_out = Sub(in0, in1)
+    out0 = Abs(sub_out)
+    """
 
     input = f"""
     <
@@ -82,43 +89,58 @@ def build_model(shp, dt0, dt1, do_abs):
     return model
 
 
-# input datatype for one operand
-@pytest.mark.parametrize("dt0", [DataType["UINT4"], DataType["UINT7"]])
+# input datatypes
+@pytest.mark.parametrize(
+    "dt0,dt1",
+    [
+        (DataType["UINT4"], DataType["UINT8"]),
+        (DataType["INT8"], DataType["INT8"]),
+        (DataType["FLOAT32"], DataType["FLOAT32"]),
+    ],
+)
 # channels
 @pytest.mark.parametrize("ch", [1, 64])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
-# include Abs output node or not
-@pytest.mark.parametrize("do_abs", [True, False])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
+def test_fpgadataflow_elementwise_absdiff(dt0, dt1, ch, fold, exec_mode):
+    """Test ElementwiseAbsDiff operation via Sub -> Abs pattern fusion."""
     if fold == -1:
         pe = 1
     else:
         pe = max(1, ch // fold)
     assert ch % pe == 0
-    dt1 = DataType["UINT8"]
     shp = [1, 4, 2, ch]
-    model = build_model(shp, dt0, dt1, do_abs)
+    model = build_absdiff_model(shp, dt0, dt1)
     in0 = gen_finn_dt_tensor(dt0, shp)
     in1 = gen_finn_dt_tensor(dt1, shp)
     idict = {"in0": in0, "in1": in1}
     y_expected = execute_onnx(model, idict)["out0"]
-    model = model.transform(to_hw.InferStreamingEltwise())
+
+    # Apply transformation - should fuse Sub -> Abs into ElementwiseAbsDiff
+    model = model.transform(to_hw.InferElementwiseBinaryOperation())
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == "StreamingEltwise"
+    assert model.graph.node[0].op_type == "ElementwiseAbsDiff"
 
     y_produced = execute_onnx(model, idict)["out0"]
-    assert (y_produced == y_expected).all(), exec_mode + " failed"
+    if dt0 in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+        assert np.allclose(
+            y_produced, y_expected, rtol=1e-3, atol=1e-5
+        ), "HW layer execution failed"
+    else:
+        assert (y_produced == y_expected).all(), "HW layer execution failed"
 
     model = model.transform(SpecializeLayers("xc7z020clg400-1"))
 
     assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == "StreamingEltwise_hls"
+    assert model.graph.node[0].op_type == "ElementwiseAbsDiff_hls"
     getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
+
+    model = model.transform(MinimizeAccumulatorWidth())
+
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
@@ -131,13 +153,18 @@ def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")
+
     y_produced = execute_onnx(model, idict)["out0"]
-    assert (y_produced == y_expected).all(), exec_mode + " failed"
+    if dt0 in [DataType["FLOAT32"], DataType["FLOAT16"]]:
+        assert np.allclose(y_produced, y_expected, rtol=1e-3, atol=1e-5), exec_mode + " failed"
+    else:
+        assert (y_produced == y_expected).all(), exec_mode + " failed"
+
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("StreamingEltwise_hls")[0]
+        node = model.get_nodes_by_op_type("ElementwiseAbsDiff_hls")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0

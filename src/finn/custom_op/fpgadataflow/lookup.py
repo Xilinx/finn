@@ -57,9 +57,15 @@ class Lookup(HWCustomOp):
             # Input shape
             "InputShape": ("ints", False, [1]),
             # Memory mode
-            # internal_embedded : parameters baked into bitfile (BRAM)
+            # internal_embedded : parameters baked into bitfile
             # external : lookup performed in external memory over AXI MM
             "mem_mode": ("s", False, "internal_embedded", ["internal_embedded", "external"]),
+            # FPGA resource type for internal_embedded lookup table storage
+            # auto -- let Vitis HLS decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM
+            "ram_style": ("s", False, "block", {"auto", "block", "distributed", "ultra"}),
             # Width for AXI-MM interface
             # only relevant when mem_mode="external"
             "ext_mem_width": ("i", False, 32),
@@ -190,14 +196,24 @@ class Lookup(HWCustomOp):
 
     def bram_estimation(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "internal_embedded":
-            # current calculation assumes embeddings always stored in BRAM_18Ks
-            # when mem_mode is internal_embedded
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style in ["auto", "block"]:
             width_factor = ceil(self.get_outstream_width() / 16)
             depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
             return width_factor * depth_factor
         else:
             # TODO can we estimate BRAMs for the DMA engine?
+            return 0
+
+    def uram_estimation(self):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style == "ultra":
+            width_factor = ceil(self.get_outstream_width() / 72)
+            depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 4096)
+            return width_factor * depth_factor
+        else:
+            # TODO can we estimate URAMs for the DMA engine?
             return 0
 
     def bram_efficiency_estimation(self):
@@ -207,6 +223,27 @@ class Lookup(HWCustomOp):
         ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
         bram16_est_capacity = bram16_est * 18 * 1024
         return ebits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
+        uram_est_capacity = uram_est * 72 * 4096
+        return ebits / uram_est_capacity
+
+    def lut_estimation(self):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ram_style = self.get_nodeattr("ram_style")
+        if mem_mode == "internal_embedded" and ram_style == "distributed":
+            width = self.get_outstream_width()
+            depth = self.get_nodeattr("NumEmbeddings")
+            return width * ceil(depth / 64)
+        else:
+            return 0
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

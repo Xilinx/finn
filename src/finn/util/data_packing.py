@@ -60,7 +60,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     if pad_to_nbits < 4:
         pad_to_nbits = 4
     # ensure input is a numpy array with float values
-    if type(array) != np.ndarray or array.dtype != np.float32:
+    if type(array) is not np.ndarray or array.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         array = np.asarray(array, dtype=np.float32)
     # ensure one-dimensional array to pack
@@ -145,7 +145,7 @@ def pack_innermost_dim_as_hex_string(
     pack_innermost_dim_as_hex_string(B, DataType["UINT2"], 8) == eB
     """
 
-    if type(ndarray) != np.ndarray or ndarray.dtype not in [np.float32, np.float16]:
+    if type(ndarray) is not np.ndarray or ndarray.dtype not in [np.float32, np.float16]:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
@@ -163,7 +163,7 @@ def unpack_innermost_dim_from_hex_string(
     such that any padding in the packing dimension is removed. If reverse_inner
     is set, the innermost unpacked dimension will be reversed."""
 
-    if type(ndarray) != np.ndarray:
+    if type(ndarray) is not np.ndarray:
         raise Exception(
             """unpack_innermost_dim_from_hex_string needs ndarray
         as input"""
@@ -243,7 +243,7 @@ def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_
     emitted string.
     """
     hls_dtype = dtype.get_hls_datatype_str()
-    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
+    if type(ndarray) is not np.ndarray or ndarray.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
     if pack_innermost_dim:
@@ -265,9 +265,9 @@ def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_
     # define a function to convert a single element into a C++ init string
     # a single element can be a hex string if we are using packing
     def elem2str(x):
-        if type(x) == str or type(x) == np.str_:
+        if type(x) is str or type(x) is np.str_:
             return '%s("%s", 16)' % (hls_dtype, x)
-        elif type(x) == np.float32:
+        elif type(x) is np.float32:
             if dtype.is_integer():
                 return str(int(x))
             else:
@@ -299,6 +299,11 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
         inp = np.load(input_file)
     else:
         raise Exception("input_file must be ndarray or filename for .npy")
+
+    # Check for NaN/Inf before packing for rtlsim
+    assert not np.isnan(inp).any(), "NaN values detected in rtlsim input"
+    assert not np.isinf(inp).any(), "Inf values detected in rtlsim input"
+
     if (
         inp.shape[-1] == 1
         and input_dtype.is_integer()
@@ -330,6 +335,11 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits, rev
     )
     # make copy before saving the array
     out_array = out_array.copy()
+
+    # Check for NaN/Inf after unpacking rtlsim output
+    assert not np.isnan(out_array).any(), "NaN values detected in rtlsim output"
+    assert not np.isinf(out_array).any(), "Inf values detected in rtlsim output"
+
     if path is not None:
         np.save(path, out_array)
     return out_array

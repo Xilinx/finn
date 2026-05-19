@@ -45,6 +45,9 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hw_layers import InferThresholdingLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -52,37 +55,72 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import get_vivado_version, is_versal, make_build_dir
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
-def generate_random_threshold_values(
+def generate_edge_threshold_values(
     data_type, num_input_channels, num_steps, narrow=False, per_tensor=False
 ):
+    """Generate threshold values that include edge cases (min/max of datatype range)."""
     if per_tensor:
         num_input_channels = 1
     if narrow:
         num_steps -= 1
-    if data_type.is_integer():
-        return np.random.randint(
-            data_type.min(),
-            data_type.max() + 1,
-            (num_input_channels, num_steps),
-        ).astype(np.float32)
-    elif data_type.is_fixed_point():
-        return (
-            np.random.randint(
-                data_type.min() / data_type.scale_factor(),
-                data_type.max() / data_type.scale_factor() + 1,
-                (num_input_channels, num_steps),
-            ).astype(np.float32)
-            * data_type.scale_factor()
-        )
+
+    # Use gen_finn_dt_tensor to generate valid values for the datatype
+    thresholds = gen_finn_dt_tensor(data_type, (num_input_channels, num_steps))
+
+    # Get min and max for this datatype
+    dt_min = data_type.min()
+    dt_max = data_type.max()
+
+    # Replace first and last threshold per channel with min and max
+    # if num_steps >=2
+    if num_steps >= 2:
+        for ch in range(num_input_channels):
+            thresholds[ch, 0] = dt_min
+            thresholds[ch, -1] = dt_max
+
+    # For FLOAT16, preserve the dtype; otherwise convert to float32
+    if data_type == DataType["FLOAT16"]:
+        return thresholds.astype(np.float16)
     else:
-        return (np.random.randn(num_input_channels, num_steps) * 1000).astype(
-            data_type.to_numpy_dt()
-        )
+        return thresholds.astype(np.float32)
+
+
+def generate_edge_input_tensor(data_type, shape):
+    """Generate input tensor that includes edge cases (min/max of datatype range)."""
+    # Use gen_finn_dt_tensor to generate valid values for the datatype
+    values = gen_finn_dt_tensor(data_type, shape)
+
+    # Flatten to easily replace some values
+    flat_values = values.flatten()
+    total_elements = len(flat_values)
+
+    # Get min and max for this datatype
+    dt_min = data_type.min()
+    dt_max = data_type.max()
+
+    # Replace some values with min and max
+    num_edge_values = max(1, min(total_elements // 4, 10))
+
+    # Set first few elements to min
+    flat_values[:num_edge_values] = dt_min
+    # Set next few elements to max
+    flat_values[num_edge_values : 2 * num_edge_values] = dt_max
+
+    # Shuffle to distribute edge cases throughout
+    np.random.shuffle(flat_values)
+
+    reshaped = flat_values.reshape(shape)
+    # For FLOAT16, ensure the array is actually float16
+    if data_type == DataType["FLOAT16"]:
+        return reshaped.astype(np.float16)
+    else:
+        return reshaped
 
 
 def sort_thresholds_increasing(thresholds):
@@ -161,6 +199,7 @@ def make_single_multithresholding_modelwrapper(
     [
         (DataType["INT8"], DataType["INT25"]),
         (DataType["UINT5"], DataType["UINT8"]),
+        (DataType["INT8"], DataType["INT7"]),
         (DataType["FLOAT32"], DataType["FLOAT32"]),
         (DataType["FLOAT16"], DataType["FLOAT16"]),
         (DataType["FIXED<6,2>"], DataType["FIXED<8,4>"]),
@@ -227,8 +266,8 @@ def test_fpgadataflow_thresholding(
         if narrow and activation.signed():
             activation_bias += 1
 
-    # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(
+    # Generate thresholds with edge cases (min/max) and sort in ascending order
+    thresholds = generate_edge_threshold_values(
         threshold_data_type, num_input_channels, num_steps, narrow, per_tensor
     )
 
@@ -246,8 +285,8 @@ def test_fpgadataflow_thresholding(
         num_input_channels,
     )
 
-    # calculate reference output
-    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    # calculate reference output with edge case inputs (min/max values)
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
 
     input_dict = {model.get_first_global_in(): x}
     y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
@@ -276,6 +315,7 @@ def test_fpgadataflow_thresholding(
     inst.set_nodeattr("PE", pe)
     if round_thresh is True:
         model = model.transform(RoundAndClipThresholds())
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
 
     if impl_style == "hls":
@@ -322,7 +362,7 @@ def test_fpgadataflow_thresholding(
     ],
 )
 @pytest.mark.parametrize("fold", [-1, 1, 2])
-@pytest.mark.parametrize("ram_style", ["distributed", "block"])
+@pytest.mark.parametrize("ram_style", ["distributed", "block", "ultra"])
 @pytest.mark.parametrize("part", ["xcvc1902-vsva2197-2MP-e-S", "xczu7ev-ffvc1156-2-e"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -330,6 +370,9 @@ def test_fpgadataflow_thresholding(
 def test_fpgadataflow_thresholding_stitched_ip(
     num_input_channels, num_input_vecs, activation, idt_tdt_cfg, fold, ram_style, part
 ):
+    if ram_style == "ultra" and not is_versal(part):
+        pytest.skip("URAM threshold memstream initialization requires a Versal target")
+
     input_data_type, threshold_data_type = idt_tdt_cfg
     num_steps = activation.get_num_possible_values() - 1
 
@@ -340,8 +383,8 @@ def test_fpgadataflow_thresholding_stitched_ip(
     output_data_type = activation
     activation_bias = activation.min()
 
-    # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(
+    # Generate thresholds with edge cases (min/max) and sort in ascending order
+    thresholds = generate_edge_threshold_values(
         threshold_data_type, num_input_channels, num_steps, False, False
     )
 
@@ -359,8 +402,8 @@ def test_fpgadataflow_thresholding_stitched_ip(
         num_input_channels,
     )
 
-    # calculate reference output
-    x = gen_finn_dt_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    # calculate reference output with edge case inputs (min/max values)
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
 
     input_dict = {model.get_first_global_in(): x}
     y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
@@ -382,6 +425,7 @@ def test_fpgadataflow_thresholding_stitched_ip(
     inst.set_nodeattr("mem_mode", "internal_decoupled")
     inst.set_nodeattr("ram_style", ram_style)
 
+    model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(GiveUniqueNodeNames())
     # Run stitched-ip RTLsim to have memstream in the test loop
     model = model.transform(InsertAndSetFIFODepths(part, target_clk_ns))
@@ -397,3 +441,173 @@ def test_fpgadataflow_thresholding_stitched_ip(
     assert (
         y_expected == y_produced
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+
+
+@pytest.mark.parametrize("num_input_channels", [6, 16])
+@pytest.mark.parametrize("activation", [DataType["UINT4"], DataType["INT4"]])
+@pytest.mark.parametrize(
+    "idt_tdt_cfg",
+    [
+        (DataType["INT8"], DataType["INT8"]),
+        (DataType["UINT8"], DataType["UINT8"]),
+    ],
+)
+@pytest.mark.parametrize("fold", [-1, 2])
+@pytest.mark.parametrize(
+    "ram_style, part",
+    [
+        ("distributed", "xczu3eg-sbva484-1-e"),
+        ("block", "xczu3eg-sbva484-1-e"),
+        ("ultra", "xcvc1902-vsva2197-2MP-e-S"),  # URAM requires Versal
+    ],
+)
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_thresholding_hls_internal_embedded_ram_style(
+    num_input_channels,
+    activation,
+    idt_tdt_cfg,
+    fold,
+    ram_style,
+    part,
+    exec_mode,
+):
+    """Test HLS Thresholding with internal_embedded mode and different ram_style options."""
+    # Skip URAM on old Vitis HLS versions
+    if ram_style == "ultra":
+        vivado_version = get_vivado_version()
+        if vivado_version is not None and vivado_version < (2024, 2):
+            pytest.skip("URAM with internal_embedded requires Vitis HLS 2024.2+")
+
+    num_input_vecs = [1]
+    input_data_type, threshold_data_type = idt_tdt_cfg
+    num_steps = activation.get_num_possible_values() - 1
+
+    if fold == -1:
+        fold = num_input_channels
+    pe = num_input_channels // fold
+    if num_input_channels % pe != 0:
+        pytest.skip("Invalid folding configuration. Skipping test.")
+
+    output_data_type = activation
+    activation_bias = activation.min()
+
+    # Generate thresholds with edge cases and sort in ascending order
+    thresholds = generate_edge_threshold_values(
+        threshold_data_type, num_input_channels, num_steps, False, False
+    )
+    thresholds = sort_thresholds_increasing(thresholds)
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    # Calculate reference output
+    x = generate_edge_input_tensor(input_data_type, tuple(num_input_vecs + [num_input_channels]))
+    input_dict = {model.get_first_global_in(): x}
+    y_expected = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Transform to HLS implementation
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "hls")
+    model = model.transform(SpecializeLayers(part))
+    model = model.transform(InferShapes())
+    assert model.graph.node[0].op_type == "Thresholding_hls"
+
+    node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+    inst.set_nodeattr("mem_mode", "internal_embedded")
+    inst.set_nodeattr("ram_style", ram_style)
+
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(MinimizeWeightBitWidth())
+    model = model.transform(GiveUniqueNodeNames())
+
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+    elif exec_mode == "rtlsim":
+        model = model.transform(PrepareIP(part, target_clk_ns))
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+
+    y_produced = oxe.execute_onnx(model, input_dict)[model.get_first_global_out()]
+    assert (y_produced.astype(np.float32) == y_expected.astype(np.float32)).all()
+
+    if exec_mode == "rtlsim":
+        hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+        assert model.graph.node[0].name in hls_synt_res_est
+        node = model.get_nodes_by_op_type(model.graph.node[0].op_type)[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+        assert exp_cycles != 0
+
+
+@pytest.mark.fpgadataflow
+def test_rtl_thresholding_unsorted_assertion():
+    """Test that RTL thresholding raises an assertion error for unsorted thresholds.
+
+    RTL thresholding uses binary search, which requires thresholds to be sorted
+    in ascending order. This test verifies that an AssertionError is raised
+    when attempting to generate parameters with unsorted thresholds.
+    """
+    num_input_channels = 4
+    num_steps = 3
+    input_data_type = DataType["INT8"]
+    threshold_data_type = DataType["INT8"]
+    output_data_type = DataType["UINT2"]
+    activation_bias = 0
+    num_input_vecs = [1, 4, 4]
+    pe = 2
+
+    # Generate thresholds but do NOT sort them - intentionally unsorted
+    thresholds = gen_finn_dt_tensor(threshold_data_type, (num_input_channels, num_steps))
+    # Reverse to ensure they're definitely not sorted
+    thresholds = thresholds[:, ::-1].copy()
+
+    model = make_single_multithresholding_modelwrapper(
+        thresholds,
+        input_data_type,
+        threshold_data_type,
+        output_data_type,
+        activation_bias,
+        num_input_vecs,
+        num_input_channels,
+    )
+
+    model = model.transform(InferThresholdingLayer())
+
+    # Set preferred_impl_style to RTL
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("preferred_impl_style", "rtl")
+
+    # Specialize to RTL variant
+    model = model.transform(SpecializeLayers("xcvc1902-vsva2197-2MP-e-S"))
+    assert model.graph.node[0].op_type == "Thresholding_rtl"
+
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", pe)
+
+    # Try to generate params - should raise AssertionError due to unsorted thresholds
+    build_dir = make_build_dir("test_unsorted_thresh_")
+    with pytest.raises(AssertionError, match="sorted in ascending order"):
+        inst.generate_params(model, build_dir)

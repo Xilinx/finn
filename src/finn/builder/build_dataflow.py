@@ -36,6 +36,11 @@ import time
 import traceback
 from qonnx.core.modelwrapper import ModelWrapper
 
+from finn.builder.build_dataflow_checks import (
+    format_report,
+    run_all_config_checks,
+    save_report,
+)
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
@@ -128,17 +133,47 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
+
+    # Run configuration checks
+    config_report = run_all_config_checks(cfg)
+    print(format_report(config_report))
+    report_path = save_report(config_report, cfg.output_dir)
+    print(f"Configuration check report saved to: {report_path}")
+
+    if config_report.has_errors():
+        if cfg.mute_config_assertions is True:
+            print("WARNING: Configuration errors detected but muted by mute_config_assertions=True")
+            print("Build may fail or produce unexpected results.")
+        else:
+            raise AssertionError(
+                "Configuration check failed with errors. "
+                "Fix the issues above or set mute_config_assertions=True to proceed."
+            )
+
     step_num = 1
     time_per_step = dict()
     build_dataflow_steps = resolve_build_steps(cfg)
     # set up logger
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(asctime)s] %(message)s",
-        filename=cfg.output_dir + "/build_dataflow.log",
-        filemode="a",
-    )
+    # Note: basicConfig() is ignored if logging already configured (e.g., in Jupyter)
+    # So we explicitly add a file handler to ensure build_dataflow.log is created
     log = logging.getLogger("build_dataflow")
+    log.setLevel(logging.DEBUG)
+    log.propagate = (
+        False  # Prevent propagation to root logger (avoids duplicate console output in Jupyter)
+    )
+
+    # Create file handler for build_dataflow.log
+    log_file_handler = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
+    log_file_handler.setLevel(logging.DEBUG)
+    log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
+
+    # Remove any existing handlers from this logger to avoid duplicates
+    for handler in log.handlers[:]:
+        log.removeHandler(handler)
+
+    # Add the file handler (only file output, no console output)
+    log.addHandler(log_file_handler)
+
     stdout_logger = StreamToLogger(log, logging.INFO)
     stderr_logger = StreamToLogger(log, logging.ERROR)
     stdout_orig = sys.stdout

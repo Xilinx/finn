@@ -74,8 +74,8 @@ def test_absorb_opposite_transposes():
     model = model.transform(InferShapes())
     new_model = model.transform(AbsorbConsecutiveTransposes())
     new_model = new_model.transform(InferShapes())
-    inp_dict = {"top_in": np.random.rand(*shp).astype(np.float32)}
-    assert ox.compare_execution(model, model, inp_dict)
+    inp_dict = {new_model.get_first_global_in(): np.random.rand(*shp).astype(np.float32)}
+    assert ox.compare_execution(new_model, model, inp_dict)
     assert len(new_model.graph.node) == 6
     for n in new_model.graph.node:
         assert new_model.graph.node[0].op_type != "Transpose"

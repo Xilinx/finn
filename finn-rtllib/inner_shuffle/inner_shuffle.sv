@@ -81,12 +81,13 @@ module inner_shuffle #(
 
 	// assertion checks for ensuring that the constraints are satisfied
 	initial begin
-		if (I%SIMD != 0) begin
-			$fatal(1, "Error! Assertion I%SIMD == 0 is not met for this circuit");
+		if(I%SIMD != 0) begin
+			$error("I%%SIMD == 0 constraint violated.");
+			$finish;
 		end
 	end
 
-	function int unsigned gcd(input int unsigned  a, input int unsigned  b);
+	function automatic int unsigned gcd(input int unsigned  a, input int unsigned  b);
 		return (b == 0) ? a : gcd(b, a%b);
 	endfunction : gcd
 
@@ -99,22 +100,21 @@ module inner_shuffle #(
 	uwire [BITS-1:0]                d_in      [SIMD-1:0];
 	uwire [BITS-1:0]                d_out     [SIMD-1:0];
 	uwire  rd_req_en;
-	uwire [SIMD-1:0] rd_req_rdy;
+	uwire [SIMD-1:0]  rd_req_rdy;
 	uwire  rd_req_rdy_all = &rd_req_rdy;
-	logic [$clog2(BANK_DEPTH)-1:0]  raddr     [SIMD-1:0];
-	uwire rd_dat_vld [SIMD-1:0];
-	uwire rd_dat_rdy;
-	assign rd_dat_rdy = osb_rdy && rd_pattern_sb_ovld;
-	uwire rd_pattern_sb_irdy;
-	uwire rd_pattern_sb_ovld;
-	for(genvar i = 0; i<SIMD; i++) begin : gen_mem_banks
+	uwire [$clog2(BANK_DEPTH)-1:0]  raddr     [SIMD-1:0];
+	uwire  rd_dat_vld [SIMD-1:0];
+	uwire  rd_pattern_sb_irdy;
+	uwire  rd_pattern_sb_ovld;
+	uwire  osb_rdy;
+	uwire  rd_dat_rdy = osb_rdy && rd_pattern_sb_ovld;
+	for(genvar  i = 0; i < SIMD; i++) begin : gen_mem_banks
 		elasticmem #(
 			.WIDTH(BITS),
 			.DEPTH(BANK_DEPTH),
 			.RAM_STYLE(RAM_STYLE)
 		) mem_banks_inst (
-			.clk(clk),
-			.rst(rst),
+			.clk, .rst,
 
 			.wr_data(d_in[i]),
 			.wr_addr(wr_addr),
@@ -225,9 +225,9 @@ module inner_shuffle #(
 	function automatic rotidx_vec_t generate_initial_rev_rd_pattern();
 		rotidx_vec_t rd_pat_0 = RD_INIT_PAT;
 		rotidx_vec_t rev_rd_pat_0;
-		for(int i = 0; i< SIMD; i++)
-			for( int j = 0; j<SIMD; j++)
-				if( rd_pat_0[j] == i) begin
+		for(int  i = 0; i < SIMD; i++)
+			for(int  j = 0; j < SIMD; j++)
+				if(rd_pat_0[j] == i) begin
 					rev_rd_pat_0[i] = j;
 					break;
 				end
@@ -243,10 +243,10 @@ module inner_shuffle #(
 		foreach(rd_pat_1[i])  rd_pat_1[i] = (rd_pat_0[i] + 1) % SIMD;
 
 		// Calculate permutation indices
-		foreach (rd_pat_0[i])
-			foreach (rd_pat_1[j])
-				if (rd_pat_0[i] == rd_pat_1[j]) begin
-					if (reverse == 1)
+		foreach(rd_pat_0[i])
+			foreach(rd_pat_1[j])
+				if(rd_pat_0[i] == rd_pat_1[j]) begin
+					if(reverse == 1)
 						perm_pattern[j] = i;
 					else
 						perm_pattern[i] = j;
@@ -263,74 +263,67 @@ module inner_shuffle #(
 	// Job tracking and bank page locking
 	logic [1:0] WrJobsDone = 2'b00; // Bit vector tracking when writes have been completed to pages
 	logic CurrentPageRd = 0;     // 0 - reading from PAGE A, 1 - reading from PAGE B
-	uwire [$clog2(BANK_DEPTH)-1:0] page_rd_offset;
-	uwire osb_rdy; // output skid buffer ready signal
-	uwire rd_guard = !CurrentPageRd && !WrJobsDone[0] && !WrJobsDone[1];
+	uwire [$clog2(BANK_DEPTH)-1:0]  page_rd_offset;
+	uwire  rd_guard = !CurrentPageRd && !WrJobsDone[0] && !WrJobsDone[1];
 	uwire rd_inc = rd_req_en && rd_req_rdy_all;
 
 	// Counts reads across the columns
-	logic[$clog2(I)-1 : 0] RdICnt = 0; // 0, ..., I - 1
+	logic [$clog2(I)-1:0]  RdICnt = 0; // 0, ..., I - 1
 	uwire col_read = ((I-SIMD) & ~RdICnt) == 0;
 	always_ff @(posedge clk) begin: rdidx_i_counters
-		if(rst) RdICnt <= 0;
-		else if (rd_inc) begin
-			RdICnt <= RdICnt + (col_read ? -(I-SIMD) : SIMD);
-		end
+		if(rst)          RdICnt <= 0;
+		else if(rd_inc)  RdICnt <= RdICnt + (col_read ? -(I-SIMD) : SIMD);
 	end : rdidx_i_counters
 
 	// Counts reads across the rows
-	logic[$clog2(J)-1 : 0] RdJCnt = 0; // 0, ..., J - 1
+	logic [$clog2(J)-1:0]  RdJCnt = 0; // 0, ..., J - 1
 	always_ff @(posedge clk) begin: rdidx_j_counters
 		if(rst) RdJCnt <= 0;
-		else if (rd_inc & col_read) begin
+		else if(rd_inc & col_read) begin
 			automatic logic wrap = ((J-1) & ~RdJCnt) == 0;
 			RdJCnt <= RdJCnt + (wrap ? -(J-1) : 1);
 		end
 	end : rdidx_j_counters
 
 	// Read bank muxing
-	uwire [$clog2(SIMD)-1:0] t_srcs[SIMD][SIMD];
-	for (genvar i = 0; i < SIMD; i++) begin
-    		assign t_srcs[i][0] = REV_RD_INIT_PAT[i];
-    		for (genvar ofs = 1; ofs < SIMD; ofs++)
-        		assign t_srcs[i][ofs] = REV_RD_INIT_PAT[(i + (SIMD - ofs)) % SIMD];
-		assign raddr[i] = read_addr[t_srcs[i][RdJCnt%SIMD]];
+	uwire [$clog2(SIMD)-1:0]  t_srcs[SIMD][SIMD];
+	for(genvar  i = 0; i < SIMD; i++) begin
+		assign	t_srcs[i][0] = REV_RD_INIT_PAT[i];
+		for(genvar  ofs = 1; ofs < SIMD; ofs++)
+			assign	t_srcs[i][ofs] = REV_RD_INIT_PAT[(i + (SIMD - ofs)) % SIMD];
+		assign	raddr[i] = read_addr[t_srcs[i][RdJCnt%SIMD]];
 	end
 
 	// Initial read addresses
 	function automatic bank_addr_t init_rdaddr();
 		bank_addr_t a;
-		foreach(a[i])
-			a[i] = (i*J)/SIMD;
+		foreach(a[i])  a[i] = (i*J)/SIMD;
 		return  a;
 	endfunction : init_rdaddr
 	localparam bank_addr_t  RD_ADDR_INIT = init_rdaddr();
 
-	localparam int unsigned WR_ROT_RADDR = SIMD/WR_ROTATIONS;
 	uwire page_boundary = (((J-1) & ~RdJCnt) == 0) & (((I-SIMD) & ~RdICnt) == 0);
-	uwire rdaddr_hor_inc[SIMD]; // tracks the horizontal increments for the rdaddr
+	uwire  rdaddr_hor_inc[SIMD];
 	uwire [$clog2(BANK_DEPTH)-1:0] rdaddr_vert_inc = (RdICnt != 0) ? J : 0;
 	uwire [$clog2(BANK_DEPTH)-1:0] rdaddr_col_dec = (RdICnt == 0) && (RdJCnt !=0 )  ? ((I/SIMD) -1)*J : 0;
-	uwire [$clog2(BANK_DEPTH)-1:0] read_addr [SIMD-1:0];
+	uwire [$clog2(BANK_DEPTH)-1:0]  read_addr [SIMD-1:0];
 
 	// Read address update logic
-	for(genvar i = 0; i < SIMD; i++)
-		assign rdaddr_hor_inc[i] = ((RdJCnt != 0) && (RdICnt == 0) && ((RdJCnt + i*(J%SIMD))%SIMD)==0);
-
-	for(genvar i=0; i<SIMD; i++)
-		assign read_addr[i] = ReadAddrReg[i] + rdaddr_hor_inc[i] + rdaddr_vert_inc - rdaddr_col_dec;
+	for(genvar  i = 0; i < SIMD; i++) begin
+		assign	rdaddr_hor_inc[i] = ((RdJCnt != 0) && (RdICnt == 0) && ((RdJCnt + i*(J%SIMD))%SIMD)==0);
+		assign	read_addr[i] = ReadAddrReg[i] + rdaddr_hor_inc[i] + rdaddr_vert_inc - rdaddr_col_dec;
+	end
 
 	bank_addr_t ReadAddrReg = RD_ADDR_INIT;
-	always_ff @(posedge clk)
+	always_ff @(posedge clk) begin
 		if(rst) ReadAddrReg <= RD_ADDR_INIT;
-		else
-			if (rd_inc) begin
-				ReadAddrReg <= read_addr;
-				if(page_boundary)
-					for(int i=0; i<SIMD; i++)
-						ReadAddrReg[i] <= RD_ADDR_INIT[i] + page_rd_offset;
+		else if(rd_inc) begin
+			ReadAddrReg <= read_addr;
+			if(page_boundary) begin
+				foreach(ReadAddrReg[i])  ReadAddrReg[i] <= RD_ADDR_INIT[i] + page_rd_offset;
 			end
-	// --------------------------------------------------------------------------
+		end
+	end
 
 
 	// --------------------------------------------------------------------------
@@ -339,18 +332,19 @@ module inner_shuffle #(
 	assign rd_req_en  = !rd_guard && rd_pattern_sb_irdy; // We can read once the guard is not up
 
 	always_ff @(posedge clk) begin
-		if (rst) begin
+		if(rst) begin
 			WrJobsDone <= 2'b00;
 			CurrentPageRd <= 0;
-		end else begin
+		end
+		else begin
 			// Track if we have completed a job
-			if (wr_addr == PAGE_OFFSET   - 1) WrJobsDone[0] <= 1;
-			if (wr_addr == 2*PAGE_OFFSET - 1) WrJobsDone[1] <= 1;
+			if(WrAddr == PAGE_OFFSET   - 1) WrJobsDone[0] <= 1;
+			if(WrAddr == 2*PAGE_OFFSET - 1) WrJobsDone[1] <= 1;
 
 			// Clear the relevant job once it is read
-			if (page_boundary && (rd_req_en && rd_req_rdy_all)) begin
+			if(page_boundary && (rd_req_en && rd_req_rdy_all)) begin
 				WrJobsDone[CurrentPageRd] <= 0;
-		       		CurrentPageRd <= !CurrentPageRd;
+				CurrentPageRd <= !CurrentPageRd;
 			end
 		end
 	end
@@ -360,49 +354,36 @@ module inner_shuffle #(
 
 	// Forward the current RD_PATTERN row onto the next pipeline stage
 	rotidx_vec_t RdPat = RD_INIT_PAT;
-	packed_rotidx_vec_t rd_pat_forwarded_packed;
-	rotidx_vec_t rd_pat_forwarded;
+	uwire packed_rotidx_vec_t  rd_pat_forwarded_packed;
+	uwire rotidx_vec_t  rd_pat_forwarded;
 
 	// Structural remapping using the output of the memory banks
 	// and the Read rotation from the previous clock cycle that was
 	// used to generate the read addresses.
-    	uwire [SIMD-1:0][BITS-1:0] remapped_data; // remapped output
-	for(genvar i=0; i<SIMD; i++) assign remapped_data[i] = d_out[rd_pat_forwarded[i]];
+	uwire [SIMD-1:0][BITS-1:0]  remapped_data;
+	for(genvar  i = 0; i < SIMD; i++)  assign  remapped_data[i] = d_out[rd_pat_forwarded[i]];
 
 	// the next permutation of the rd pattern
-	rotidx_vec_t rd_pat_next;
-	for(genvar i=0; i<SIMD; i++) assign rd_pat_next[i] = RdPat[REV_RD_PERM_PAT[i]];
+	uwire rotidx_vec_t  rd_pat_next;
+	for(genvar  i = 0; i < SIMD; i++)  assign  rd_pat_next[i] = RdPat[REV_RD_PERM_PAT[i]];
 
 	//  Read Counter for Rotation tracking
-	logic [$clog2(RD_ROT_PERIOD)-1:0] RdCnt = 0; // 0, ... , RD_ROT_PERIOD-1
-	uwire rd_rotate = ((RD_ROT_PERIOD-1) & ~RdCnt) == 0;
+	logic signed [$clog2(RD_ROT_PERIOD-1):0]  RdCnt = RD_ROT_PERIOD-2;	// RD_ROT_PERIOD-2, ..., 0, -1
+	uwire  rd_rotate = RdCnt[$left(RdCnt)];
 	always_ff @(posedge clk) begin: rd_counter
-		if(rst) RdCnt <= 0;
-		else if (rd_inc) begin
-			automatic logic wrap = rd_rotate | page_boundary;
-			RdCnt <= RdCnt + (rd_rotate ? -(RD_ROT_PERIOD-1) : 1);
-		end
+		if(rst)          RdCnt <= RD_ROT_PERIOD-2;
+		else if(rd_inc)  RdCnt <= RdCnt + (rd_rotate? RD_ROT_PERIOD-1 : -1);
 	end : rd_counter
-
-	// Read Col count : tracks how many columns have been read
-	logic [$clog2(SIMD)-1:0] RdColCnt = 0; // 0, ... , SIMD-1
-	uwire col_wrap = ((SIMD-1) & ~RdColCnt) == 0;
-	always_ff @(posedge clk) begin : rd_col_counter
-		if (rst) RdColCnt <= 0;
-		else if (rd_inc & rd_rotate) begin
-			RdColCnt <= (page_boundary | col_wrap) ? -(I-1) : 1;
-		end
-	end : rd_col_counter
 
 	// Assign next pattern state
 	always_ff @(posedge clk) begin : rd_pattern_assignment
 		if(rst)
 			RdPat <= RD_INIT_PAT;
 		else begin
-			if (rd_inc) begin
-				if (rd_rotate)
+			if(rd_inc) begin
+				if(rd_rotate)
 					RdPat <= rd_pat_next;
-				if (page_boundary)
+				if(page_boundary)
 					RdPat <= RD_INIT_PAT;
 			end
 		end
@@ -414,8 +395,7 @@ module inner_shuffle #(
 		.DATA_WIDTH($bits(packed_rotidx_vec_t))
 	)
 	rd_pattern_skid (
-		.clk(clk),
-		.rst(rst),
+		.clk, .rst,
 
 		.idat(packed_rotidx_vec_t'(RdPat)),
 		.ivld(rd_req_en),
@@ -437,8 +417,7 @@ module inner_shuffle #(
 		.DATA_WIDTH(SIMD*BITS)
 	)
 	oskidbf_inst (
-		.clk(clk),
-		.rst(rst),
+		.clk, .rst,
 
 		.idat(remapped_data),
 		.ivld(osb_vld),

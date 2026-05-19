@@ -56,7 +56,7 @@ module binopf #(
 	logic [1:0]  ovf;
 	logic [1:0]  unf;
 	always_ff @(posedge clk) begin
-		automatic logic [1:0]  msk = { HAVE_MUL && Vld[2], HAVE_ADD && rvld };
+		automatic logic [1:0]  msk = { HAVE_MUL && Vld[1+HAVE_MUL], HAVE_ADD && rvld };
 		assert(!(inv & msk)) else $warning("%m generated invalid output.");
 		assert(!(ovf & msk)) else $warning("%m generated an overflow.");
 		assert(!(unf & msk)) else $warning("%m generated an underflow.");

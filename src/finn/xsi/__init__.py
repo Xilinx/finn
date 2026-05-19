@@ -18,6 +18,7 @@ Usage:
         import finn_xsi.adapter
 """
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -65,9 +66,11 @@ def _load_modules() -> bool:
         sys.path.insert(0, str(xsi_path))
 
     try:
-        import finn_xsi.adapter
-        import finn_xsi.sim_engine
-        import xsi
+        # Imports must be inside function: modules require dynamic path setup
+        # and may not exist if finn_xsi extension is not built
+        import finn_xsi.adapter  # noqa: PLC0415
+        import finn_xsi.sim_engine  # noqa: PLC0415
+        import xsi  # noqa: PLC0415
 
         _xsi_module = xsi
         _adapter_module = finn_xsi.adapter
@@ -76,14 +79,10 @@ def _load_modules() -> bool:
         return True
     except ImportError as e:
         # Log the specific import error for debugging
-        import logging
-
         logging.debug(f"Failed to import finn_xsi modules: {e}")
         return False
     except Exception as e:
         # Catch any unexpected errors during module loading
-        import logging
-
         logging.warning(f"Unexpected error loading finn_xsi: {type(e).__name__}: {e}")
         return False
     finally:

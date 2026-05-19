@@ -137,14 +137,20 @@ def make_multi_io_modelwrapper(ch, pe, idt):
     out1 = helper.make_tensor_value_info("out1", TensorProto.FLOAT, [1, ch])
 
     addstreams_node = helper.make_node(
-        "AddStreams",
+        "ElementwiseAdd",
         ["in0", "in1"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        NumChannels=ch,
+        lhs_shape=[1, ch],
+        rhs_shape=[1, ch],
+        out_shape=[1, ch],
+        lhs_dtype=idt.name,
+        rhs_dtype=idt.name,
+        out_dtype=idt.name,
+        lhs_style="input",
+        rhs_style="input",
         PE=pe,
-        inputDataTypes=[idt.name, idt.name],
         inFIFODepths=[2, 2],
     )
     duplicate_node = helper.make_node(

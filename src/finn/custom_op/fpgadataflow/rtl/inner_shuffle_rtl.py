@@ -91,9 +91,9 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         }
         with open(template_path, "r") as f:
             template = f.read()
-        for key_name in code_gen_dict:
+        for key_name, value in code_gen_dict.items():
             key = f"${key_name}$"
-            template = template.replace(key, str(code_gen_dict[key_name]))
+            template = template.replace(key, str(value))
 
         with open(os.path.join(code_gen_dir, f"{self.get_verilog_top_module_name()}.v"), "w") as f:
             f.write(template)
@@ -102,7 +102,7 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
 
-        sv_files = ["inner_shuffle.sv", "skid.sv", "elasticmem.sv"]
+        sv_files = ["inner_shuffle.sv", "skid.sv", "elasticmem.sv", "queue.sv"]
         for sv_files in sv_files:
             shutil.copy(f"{rtlsrc}/{sv_files}", code_gen_dir)
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -121,6 +121,7 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
             f"{rtllib_dir}/inner_shuffle.sv",
             f"{rtllib_dir}/skid.sv",
             f"{rtllib_dir}/elasticmem.sv",
+            f"{rtllib_dir}/queue.sv",
             f"{code_gen_dir}{top_module}.v",
         ]
 
@@ -128,7 +129,13 @@ class InnerShuffle_rtl(InnerShuffle, RTLBackend):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         top_module = self.get_nodeattr("gen_top_module")
-        sourcefiles = ["inner_shuffle.sv", "skid.sv", "elasticmem.sv", f"{top_module}.v"]
+        sourcefiles = [
+            "inner_shuffle.sv",
+            "skid.sv",
+            "queue.sv",
+            "elasticmem.sv",
+            f"{top_module}.v",
+        ]
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
 
         cmd = []
