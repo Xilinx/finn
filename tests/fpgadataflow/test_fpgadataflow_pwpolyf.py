@@ -109,8 +109,9 @@ def test_pwpolyf_cppsim(func, num_channels, num_input_vecs, fold):
 @pytest.mark.fpgadataflow
 def test_pwpolyf_onnx_export(func):
     K = 3
+    degree = 3
     num_channels = 32
-    mod = PiecewisePolyActivation(func, K=K)
+    mod = PiecewisePolyActivation(func, K=K, degree=degree)
     mod.eval()
     dummy = torch.randn(1, num_channels)
 
@@ -138,14 +139,16 @@ def test_pwpolyf_onnx_export(func):
     func_attr = {a.name: a for a in node.attribute}
     assert func_attr["func"].s.decode("utf-8") == func
     assert func_attr["K"].i == K
+    assert func_attr["degree"].i == degree
 
 
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_infer_transform(func):
     K = 3
+    degree = 3
     num_channels = 16
-    mod = PiecewisePolyActivation(func, K=K)
+    mod = PiecewisePolyActivation(func, K=K, degree=degree)
     mod.eval()
     dummy = torch.randn(1, num_channels)
 
@@ -178,6 +181,7 @@ def test_pwpolyf_infer_transform(func):
     inst = getCustomOp(node)
     assert inst.get_nodeattr("func") == func
     assert inst.get_nodeattr("K") == K
+    assert inst.get_nodeattr("degree") == degree
     assert inst.get_nodeattr("NumChannels") == num_channels
     assert inst.get_nodeattr("PE") == 1
     assert inst.get_nodeattr("inputDataType") == "FLOAT32"
@@ -186,7 +190,7 @@ def test_pwpolyf_infer_transform(func):
     input_dict = {"inp": x}
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
-    ref_mod = PiecewisePolyActivation(func, K=K)
+    ref_mod = PiecewisePolyActivation(func, K=K, degree=degree)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)

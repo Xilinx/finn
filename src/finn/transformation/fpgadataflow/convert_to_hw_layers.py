@@ -353,6 +353,8 @@ class InferPWPolyFLayer(Transformation):
                 func = get_by_name(node.attribute, "func").s.decode("utf-8")
                 K_attr = get_by_name(node.attribute, "K")
                 K = K_attr.i if K_attr is not None else 3
+                degree_attr = get_by_name(node.attribute, "degree")
+                degree = degree_attr.i if degree_attr is not None else 2
 
                 new_node = self._make_pwpolyf_node(
                     pwp_input,
@@ -362,6 +364,7 @@ class InferPWPolyFLayer(Transformation):
                     idt,
                     "PWPolyF_" + node.name,
                     K,
+                    degree,
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(node)

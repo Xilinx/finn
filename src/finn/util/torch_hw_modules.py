@@ -117,10 +117,10 @@ class PWPolyFFunction(torch.autograd.Function):
     """Emit a single PWPolyF ONNX node during legacy torch.onnx export."""
 
     @staticmethod
-    def forward(ctx, x, coeffs, neg_clamp_val, pos_clamp_val, func, K):
+    def forward(ctx, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
         num_subs = 1 << K
         num_segs = 1 + 2 * NUM_OCTAVES * num_subs
-        degree = coeffs.shape[1] - 1
+        degree = int(degree)
         pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
 
         orig_shape = x.shape
@@ -144,8 +144,8 @@ class PWPolyFFunction(torch.autograd.Function):
         return y.view(orig_shape)
 
     @staticmethod
-    def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K):
-        return g.op("PWPolyF", x, func_s=func, K_i=K)
+    def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
+        return g.op("PWPolyF", x, func_s=func, K_i=K, degree_i=degree)
 
 
 class PiecewisePolyActivation(nn.Module):
@@ -186,6 +186,7 @@ class PiecewisePolyActivation(nn.Module):
                 self.pos_clamp_val,
                 self.func,
                 self.K,
+                self.degree,
             )
 
         orig_shape = x.shape
