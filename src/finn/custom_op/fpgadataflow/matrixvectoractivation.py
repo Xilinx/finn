@@ -318,7 +318,7 @@ class MVAU(HWCustomOp):
         elif ind == 1:
             match mem_mode:
                 case "dynamic":
-                    folded_input_shape = (1, mw, nf, pe)
+                    folded_input_shape = tuple(vecs[:2] + [mw] + [nf, pe])
                 case "external" | "external_mem" | "internal_decoupled":
                     folded_input_shape = (n_vecs, sf * nf, (simd * pe) // theight)
                 case _:
