@@ -45,6 +45,14 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.selecttoken\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.selecttoken_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingfifo\_rtl
 -------------------------------------------------
 

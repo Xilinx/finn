@@ -1265,9 +1265,89 @@ class InferConcatLayer(Transformation):
         return (model, graph_modified)
 
 
+class InferSelectTokenLayer(Transformation):
+    """Convert scalar Gather(input, token_index, axis=1) into SelectToken."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type != "Gather":
+                continue
+
+            axis = get_by_name(node.attribute, "axis")
+            if axis is None or len(node.input) != 2:
+                continue
+
+            seq_name = node.input[0]
+            idx_name = node.input[1]
+            idx_init = model.get_initializer(idx_name)
+            if idx_init is None or idx_init.size != 1:
+                continue
+            if model.get_initializer(seq_name) is not None:
+                continue
+
+            seq_shape = model.get_tensor_shape(seq_name)
+            if seq_shape is None or any(x is None for x in seq_shape):
+                continue
+
+            rank = len(seq_shape)
+            gather_axis = axis.i if axis.i >= 0 else axis.i + rank
+            if rank != 3 or gather_axis != 1:
+                continue
+
+            token_index = int(idx_init.flatten()[0])
+            num_tokens = int(seq_shape[1])
+            if token_index < 0:
+                token_index += num_tokens
+            if token_index < 0 or token_index >= num_tokens:
+                continue
+
+            out_shape = model.get_tensor_shape(node.output[0])
+            exp_oshape = [int(seq_shape[0]), int(seq_shape[2])]
+            if out_shape is not None and list(out_shape) != exp_oshape:
+                continue
+            if seq_shape[0] != 1:
+                continue
+
+            idt = model.get_tensor_datatype(seq_name)
+            if idt is None or not idt.is_integer():
+                continue
+            odt = model.get_tensor_datatype(node.output[0])
+            if odt is None:
+                odt = idt
+            elif odt != idt:
+                continue
+
+            new_node = helper.make_node(
+                "SelectToken",
+                [seq_name],
+                node.output,
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                name="SelectToken_" + node.name,
+                NumTokens=num_tokens,
+                NumChannels=int(seq_shape[2]),
+                TokenIndex=token_index,
+                SIMD=1,
+                inputDataType=idt.name,
+                outputDataType=odt.name,
+            )
+            graph.node.insert(node_ind, new_node)
+            graph.node.remove(node)
+            graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
 class InferSplitLayer(Transformation):
     """Convert suitable Split nodes (operating on last/-1 axis)
-    into StreamingConcat HW layers."""
+    into StreamingSplit HW layers."""
 
     def apply(self, model):
         graph = model.graph

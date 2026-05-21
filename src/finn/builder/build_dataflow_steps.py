@@ -541,6 +541,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Lookup layers
+    model = apply_if_relevant(model, ["Gather"], to_hw.InferSelectTokenLayer(), "token selection")
     model = apply_if_relevant(model, ["Gather"], to_hw.InferLookupLayer(), "lookup layers")
 
     # Activation functions
