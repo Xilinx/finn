@@ -67,6 +67,11 @@ ELEMENTWISE_BINARY_OPS = [
     for op_type, cls in inspect.getmembers(elementwise_binary_hls, inspect.isclass)
     if issubclass(cls, elementwise_binary_hls.ElementwiseBinaryOperation_hls)
 ]
+ELEMENTWISE_BINARY_RTL_OPS = [
+    "ElementwiseAdd_rtl",
+    "ElementwiseSub_rtl",
+    "ElementwiseMul_rtl",
+]
 
 
 class SetFolding(Transformation):
@@ -113,9 +118,12 @@ class SetFolding(Transformation):
         self.two_pass_relaxation = two_pass_relaxation
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
+        self.optimize_attribute_vals(node_inst, divisors(max_val), attr_name)
+
+    def optimize_attribute_vals(self, node_inst, vals, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
-        for val in divisors(max_val):
-            node_inst.set_nodeattr(attr_name, val)
+        for val in vals:
+            node_inst.set_nodeattr(attr_name, int(val))
             cyc = node_inst.get_exp_cycles()
             if cyc < self.target_cycles_per_frame:
                 # finish if target met
@@ -131,6 +139,7 @@ class SetFolding(Transformation):
             "Thresholding_hls",
             "Thresholding_rtl",
             *ELEMENTWISE_BINARY_OPS,
+            *ELEMENTWISE_BINARY_RTL_OPS,
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator has a special case when depthwise=1
@@ -147,6 +156,14 @@ class SetFolding(Transformation):
             "StreamingConcat_hls",
             "LayerNorm_rtl",
             "Shuffle",
+            "AddCLSToken_rtl",
+            "HWSoftmax_hls",
+            "HWSoftmax_rtl",
+            "InnerShuffle",
+            "InnerShuffle_rtl",
+            "OuterShuffle",
+            "OuterShuffle_hls",
+            "SelectToken_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -272,8 +289,25 @@ class SetFolding(Transformation):
                                 break
                         else:
                             break
+                elif op_type in ["HWSoftmax_hls", "HWSoftmax_rtl"]:
+                    max_simd = int(node_inst.get_normal_input_shape()[-1])
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                elif op_type in ["InnerShuffle", "InnerShuffle_rtl"]:
+                    max_simd = int(node_inst.get_normal_output_shape()[-1])
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                elif op_type in ["OuterShuffle", "OuterShuffle_hls"]:
+                    dims = [
+                        int(node_inst.get_normal_input_shape()[-1]),
+                        int(node_inst.get_normal_output_shape()[-1]),
+                    ]
+                    self.optimize_attribute_vals(
+                        node_inst, common_divisors(dims), "SIMD"
+                    )
                 else:
-                    max_simd = node_inst.get_nodeattr("NumChannels")
+                    try:
+                        max_simd = node_inst.get_nodeattr("NumChannels")
+                    except AttributeError:
+                        max_simd = int(node_inst.get_normal_input_shape()[-1])
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)

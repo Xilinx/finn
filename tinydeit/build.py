@@ -24,8 +24,11 @@ from finn.builder.build_dataflow_config import (
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import getHWCustomOp
+from finn.util.config import extract_model_config_to_json
+from qonnx.transformation.general import GiveUniqueNodeNames
 from tinydeit.common import (
     DEFAULT_BOARD,
     DEFAULT_BUILD_CSV,
@@ -88,12 +91,72 @@ def step_round_mlo_threshold_params(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
+DEFAULT_FOLDING_TARGET_CYCLES = 15000
+
+FOLDING_HW_ATTRS = [
+    "PE",
+    "SIMD",
+    "parallel_window",
+    "ram_style",
+    "resType",
+    "mem_mode",
+    "runtime_writeable_weights",
+    "depth_trigger_uram",
+    "depth_trigger_bram",
+]
+
+
+def _canonicalize_loop_body_names(model: ModelWrapper) -> ModelWrapper:
+    model = model.transform(GiveUniqueNodeNames())
+    for node in model.get_nodes_by_op_type("FINNLoop"):
+        node_inst = getHWCustomOp(node)
+        loop_body = node_inst.get_nodeattr("body")
+        loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
+        node_inst.set_nodeattr("body", loop_body.graph)
+    return model
+
+
+def step_tinydeit_post_transpose_parallelization(
+    model: ModelWrapper, cfg: DataflowBuildConfig
+) -> ModelWrapper:
+    """Re-run folding after Shuffle decomposition creates final shuffle nodes.
+
+    FINN's standard target-fps folding step runs before TinyDeiT's transpose
+    decomposition.  The actual stitched design contains InnerShuffle/OuterShuffle
+    nodes created later, so this final pass makes their SIMD and the surrounding
+    RTL operators match the same aggressive target.
+    """
+
+    if not getattr(cfg, "tinydeit_post_transpose_folding", True):
+        return model
+
+    target_cycles_per_frame = cfg._resolve_cycles_per_frame()
+    if target_cycles_per_frame is None:
+        print("No target_fps provided, skipping step_tinydeit_post_transpose_parallelization.")
+        return model
+
+    model = model.transform(
+        SetFolding(
+            target_cycles_per_frame,
+            mvau_wwidth_max=cfg.mvau_wwidth_max,
+            two_pass_relaxation=cfg.folding_two_pass_relaxation,
+        ),
+        apply_to_subgraphs=True,
+    )
+    model = _canonicalize_loop_body_names(model)
+    extract_model_config_to_json(
+        model, cfg.output_dir + "/auto_folding_config.json", FOLDING_HW_ATTRS
+    )
+    return model
+
+
 BUILD_STEPS_ESTIMATE = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_minimize_bit_width",
     step_round_mlo_threshold_params,
     "step_transpose_decomposition",
+    step_tinydeit_post_transpose_parallelization,
     "step_generate_estimate_reports",
 ]
 
@@ -145,11 +208,13 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         ]
         verify_steps = [VerificationStepType.FOLDED_HLS_CPPSIM]
 
-    return DataflowBuildConfig(
+    cfg = DataflowBuildConfig(
         output_dir=str(output_dir),
         synth_clk_period_ns=args.clock_ns,
         board=args.board,
         target_fps=args.target_fps,
+        mvau_wwidth_max=args.mvau_wwidth_max,
+        folding_two_pass_relaxation=args.folding_two_pass_relaxation,
         standalone_thresholds=True,
         infer_shuffle_skip_first=False,
         save_intermediate_models=True,
@@ -170,6 +235,8 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         no_stdout_redirect=True,
         enable_build_pdb_debug=False,
     )
+    cfg.tinydeit_post_transpose_folding = args.post_transpose_folding
+    return cfg
 
 
 BUILD_CSV_FIELDS = [
@@ -231,7 +298,46 @@ def _folding_summary(config: dict) -> dict:
     return summary
 
 
-def _resource_summary(ooc: dict, post_synth: dict) -> dict:
+def _parse_int_cell(cell: str) -> int:
+    return int(cell.replace(",", "").strip())
+
+
+def _partition_resource_summary(report_path: Path) -> dict:
+    if not report_path.is_file():
+        return {}
+
+    key_map = {
+        "Total LUTs": "stitched_LUT",
+        "Logic LUTs": "stitched_Logic_LUT",
+        "LUTRAMs": "stitched_LUTRAM",
+        "SRLs": "stitched_SRL",
+        "FFs": "stitched_FF",
+        "RAMB36": "stitched_BRAM_36K",
+        "RAMB18": "stitched_BRAM_18K",
+        "URAM": "stitched_URAM",
+        "DSP Blocks": "stitched_DSP",
+    }
+    headers = None
+    with report_path.open() as f:
+        for line in f:
+            if not line.startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.split("|")[1:-1]]
+            if len(cells) < 2:
+                continue
+            if cells[0] == "Instance" and cells[1] == "Module":
+                headers = cells
+                continue
+            if cells[0] == "finn_design_wrapper" and headers is not None:
+                return {
+                    key_map[header]: _parse_int_cell(value)
+                    for header, value in zip(headers, cells)
+                    if header in key_map
+                }
+    return {}
+
+
+def _resource_summary(ooc: dict, post_synth: dict, output_dir: Path) -> dict:
     resource_keys = [
         "LUT",
         "FF",
@@ -244,7 +350,10 @@ def _resource_summary(ooc: dict, post_synth: dict) -> dict:
         "total_power_W",
     ]
     source = ooc or post_synth or {}
-    return {key: source[key] for key in resource_keys if key in source}
+    summary = {key: source[key] for key in resource_keys if key in source}
+    partition_report = output_dir / "stitched_ip" / "finn_design_partition_util.rpt"
+    summary.update(_partition_resource_summary(partition_report))
+    return summary
 
 
 def _timing_status(ooc: dict) -> str:
@@ -285,7 +394,7 @@ def record_build_result(
         "wns_ns": ooc.get("WNS", ""),
         "fmax_mhz": ooc.get("fmax_mhz", ""),
         "estimated_throughput_fps": ooc.get("estimated_throughput_fps", ""),
-        "resources": _json_cell(_resource_summary(ooc, post_synth)),
+        "resources": _json_cell(_resource_summary(ooc, post_synth, output_dir)),
         "folding_pe_simd": _json_cell(_folding_summary(final_config)),
         "build_step_times": _json_cell(step_times),
         "output_dir": str(output_dir),
@@ -359,6 +468,31 @@ def main() -> None:
     parser.add_argument("--clock-ns", type=float, default=DEFAULT_CLOCK_NS)
     parser.add_argument("--target-fps", type=int, default=DEFAULT_TARGET_FPS)
     parser.add_argument(
+        "--folding-target-cycles",
+        type=int,
+        default=DEFAULT_FOLDING_TARGET_CYCLES,
+        help=(
+            "Aggressive folding target in cycles/frame. The build converts this "
+            "to an equivalent target FPS; set to 0 to use --target-fps directly."
+        ),
+    )
+    parser.add_argument("--mvau-wwidth-max", type=int, default=10000)
+    parser.add_argument(
+        "--folding-two-pass-relaxation",
+        dest="folding_two_pass_relaxation",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--no-folding-two-pass-relaxation",
+        dest="folding_two_pass_relaxation",
+        action="store_false",
+    )
+    parser.add_argument(
+        "--no-post-transpose-folding",
+        dest="post_transpose_folding",
+        action="store_false",
+    )
+    parser.add_argument(
         "--build-csv", default=str(DEFAULT_BUILD_CSV.relative_to(repo_path(".")))
     )
     parser.add_argument("--atol", type=float, default=1e-1)
@@ -375,7 +509,13 @@ def main() -> None:
     parser.add_argument("--reference-cppsim-workers", type=int, default=None)
     parser.add_argument("--skip-reference-io", action="store_true")
     parser.set_defaults(reference_cppsim_prepare=True)
+    parser.set_defaults(folding_two_pass_relaxation=False, post_transpose_folding=True)
     args = parser.parse_args()
+
+    if args.folding_target_cycles and args.folding_target_cycles > 0:
+        target_cycles_per_sec = 10**9 / args.clock_ns
+        target_fps_from_cycles = int(round(target_cycles_per_sec / args.folding_target_cycles))
+        args.target_fps = max(args.target_fps, target_fps_from_cycles)
 
     output_dir = repo_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
