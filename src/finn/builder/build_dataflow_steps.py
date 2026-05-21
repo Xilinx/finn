@@ -502,6 +502,9 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     )
 
     # Streaming operations
+    model = apply_if_relevant(
+        model, ["Concat"], to_hw.InferAddCLSTokenLayer(), "CLS token insertion"
+    )
     model = apply_if_relevant(model, ["Concat"], to_hw.InferConcatLayer(), "concat layers")
     model = apply_if_relevant(model, ["Split"], to_hw.InferSplitLayer(), "split layers")
 
