@@ -53,6 +53,14 @@ finn.custom\_op.fpgadataflow.selecttoken\_rtl
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.where\_rtl
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.rtl.where_rtl
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.fpgadataflow.streamingfifo\_rtl
 -------------------------------------------------
 
