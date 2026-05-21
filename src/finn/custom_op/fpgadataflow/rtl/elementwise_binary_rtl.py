@@ -482,7 +482,7 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
             )
 
-        if weight_file_mode == "decoupled_verilog_dat":
+        if "decoupled" in weight_file_mode:
             num_w_reps = np.prod(self.calc_numInputVectors())
             base_wmem = super().calc_wmem()
             mlo = self.get_nodeattr("mlo_max_iter")
@@ -496,6 +496,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             weight_tensor = np.tile(
                 weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
             )
+            weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
+            if weight_file_mode == "decoupled_npy":
+                np.save(weight_file_name, weight_tensor)
+                return
 
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
