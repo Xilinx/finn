@@ -33,7 +33,7 @@
 module local_weight_buffer #(
     int unsigned              PE,
     int unsigned              SIMD,
-    int unsigned              WEIGHT_WIDTH,
+    int unsigned              WEIGHT_WIDTH = 8,
     int unsigned              MH,
     int unsigned              MW,
     int unsigned              N_REPS,

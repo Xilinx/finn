@@ -50,11 +50,8 @@ module ram_p_c #(
 
   (* ram_style = RAM_STYLE *) logic [DATA_BITS-1:0] ram[DEPTH];
 
-  reg [DATA_BITS-1:0] a_data_reg = 0;
-  reg [DATA_BITS-1:0] b_data_reg = 0;
-
-  reg [DATA_BITS-1:0] a_data_q = 0;
-  reg [DATA_BITS-1:0] b_data_q = 0;
+  logic [DATA_BITS-1:0] a_data_reg = 0;
+  logic [DATA_BITS-1:0] b_data_reg = 0;
 
   always_ff @(posedge clk) begin
     if(a_en) begin
