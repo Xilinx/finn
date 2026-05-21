@@ -89,6 +89,7 @@ MANIFEST
 /dataset/
 /data/
 *.csv
+!tinydeit/builds.csv
 
 # Google Drive key for dashboard
 /gdrive-key/

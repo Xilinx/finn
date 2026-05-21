@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import numpy as np
+import socket
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -23,6 +28,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import getHWCustomOp
 from tinydeit.common import (
     DEFAULT_BOARD,
+    DEFAULT_BUILD_CSV,
     DEFAULT_BUILD_DIR,
     DEFAULT_CHECKPOINT,
     DEFAULT_CLOCK_NS,
@@ -109,6 +115,8 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
     elif args.mode in ["rtl", "dcp"]:
         steps = BUILD_STEPS_RTL
         outputs = [DataflowOutputType.ESTIMATE_REPORTS, DataflowOutputType.STITCHED_IP]
+        if args.mode == "dcp":
+            outputs.append(DataflowOutputType.OOC_SYNTH)
         verify_steps = []
         if args.stitched_rtlsim:
             verify_steps.append(VerificationStepType.STITCHED_IP_RTLSIM)
@@ -159,6 +167,140 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         no_stdout_redirect=True,
         enable_build_pdb_debug=False,
     )
+
+
+BUILD_CSV_FIELDS = [
+    "timestamp_utc",
+    "hostname",
+    "git_commit",
+    "mode",
+    "board",
+    "clock_ns",
+    "target_fps",
+    "return_code",
+    "timing_status",
+    "wns_ns",
+    "fmax_mhz",
+    "estimated_throughput_fps",
+    "resources",
+    "folding_pe_simd",
+    "build_step_times",
+    "output_dir",
+    "model_path",
+    "report_dir",
+    "stitched_ip_dir",
+    "dcp_paths",
+]
+
+
+def _load_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    with path.open() as f:
+        return json.load(f)
+
+
+def _json_cell(payload) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repo_path("."),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def _folding_summary(config: dict) -> dict:
+    attrs = ["PE", "SIMD", "TH", "MW", "MH", "mem_mode", "resType", "ram_style", "gemm_type"]
+    summary = {}
+    for node_name, node_cfg in sorted(config.items()):
+        if node_name == "Defaults" or not isinstance(node_cfg, dict):
+            continue
+        node_summary = {attr: node_cfg[attr] for attr in attrs if attr in node_cfg}
+        if any(attr in node_summary for attr in ["PE", "SIMD", "TH"]):
+            summary[node_name] = node_summary
+    return summary
+
+
+def _resource_summary(ooc: dict, post_synth: dict) -> dict:
+    resource_keys = [
+        "LUT",
+        "FF",
+        "DSP",
+        "BRAM",
+        "BRAM_18K",
+        "BRAM_36K",
+        "URAM",
+        "SRL",
+        "total_power_W",
+    ]
+    source = ooc or post_synth or {}
+    return {key: source[key] for key in resource_keys if key in source}
+
+
+def _timing_status(ooc: dict) -> str:
+    if not ooc:
+        return "not_run"
+    wns = ooc.get("WNS")
+    if wns is None:
+        return "unknown"
+    return "met" if float(wns) >= 0 else "failed"
+
+
+def record_build_result(
+    args: argparse.Namespace,
+    output_dir: Path,
+    model_path: Path,
+    return_code: int,
+) -> Path:
+    output_dir = output_dir.resolve()
+    report_dir = output_dir / "report"
+    final_config = _load_json(output_dir / "final_hw_config.json")
+    if not final_config:
+        final_config = _load_json(output_dir / "auto_folding_config.json")
+    ooc = _load_json(report_dir / "ooc_synth_and_timing.json")
+    post_synth = _load_json(report_dir / "post_synth_resources.json")
+    step_times = _load_json(output_dir / "time_per_step.json")
+    dcp_paths = sorted(str(path.resolve()) for path in output_dir.glob("stitched_ip/**/*.dcp"))
+
+    row = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "hostname": socket.gethostname(),
+        "git_commit": _git_commit(),
+        "mode": args.mode,
+        "board": args.board,
+        "clock_ns": args.clock_ns,
+        "target_fps": args.target_fps,
+        "return_code": return_code,
+        "timing_status": _timing_status(ooc),
+        "wns_ns": ooc.get("WNS", ""),
+        "fmax_mhz": ooc.get("fmax_mhz", ""),
+        "estimated_throughput_fps": ooc.get("estimated_throughput_fps", ""),
+        "resources": _json_cell(_resource_summary(ooc, post_synth)),
+        "folding_pe_simd": _json_cell(_folding_summary(final_config)),
+        "build_step_times": _json_cell(step_times),
+        "output_dir": str(output_dir),
+        "model_path": str(model_path.resolve()),
+        "report_dir": str(report_dir),
+        "stitched_ip_dir": str((output_dir / "stitched_ip").resolve()),
+        "dcp_paths": _json_cell(dcp_paths),
+    }
+
+    csv_path = repo_path(args.build_csv)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not csv_path.is_file()
+    with csv_path.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=BUILD_CSV_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+    return csv_path
 
 
 def prepare_cppsim(model: ModelWrapper, num_workers: int | None) -> ModelWrapper:
@@ -213,6 +355,9 @@ def main() -> None:
     parser.add_argument("--board", default=DEFAULT_BOARD)
     parser.add_argument("--clock-ns", type=float, default=DEFAULT_CLOCK_NS)
     parser.add_argument("--target-fps", type=int, default=DEFAULT_TARGET_FPS)
+    parser.add_argument(
+        "--build-csv", default=str(DEFAULT_BUILD_CSV.relative_to(repo_path(".")))
+    )
     parser.add_argument("--atol", type=float, default=1e-1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--rtlsim-batch-size", type=int, default=1)
@@ -262,8 +407,12 @@ def main() -> None:
             args.reference_cppsim_prepare,
             args.reference_cppsim_workers,
         )
-    build.build_dataflow_cfg(str(model_path), cfg)
+    ret = build.build_dataflow_cfg(str(model_path), cfg)
+    csv_path = record_build_result(args, output_dir, model_path, ret)
+    print(f"Build CSV: {csv_path}")
     print(f"Build output: {output_dir}")
+    if ret != 0:
+        raise SystemExit(ret)
 
 
 if __name__ == "__main__":

@@ -23,9 +23,10 @@ from typing import Any, Iterable
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHECKPOINT = REPO_ROOT / "onnx-checkpoints" / "deit_tiny_quant.onnx"
 DEFAULT_BUILD_DIR = REPO_ROOT / "tinydeit" / "build"
+DEFAULT_BUILD_CSV = REPO_ROOT / "tinydeit" / "builds.csv"
 DEFAULT_BOARD = "V80"
 DEFAULT_TARGET_FPS = 1000
-DEFAULT_CLOCK_NS = 10.0
+DEFAULT_CLOCK_NS = 1000.0 / 300.0
 TRANSFORMER_DEPTH = 12
 
 EXPORTED_PWPOLYF_SEQUENCE = [
@@ -92,6 +93,7 @@ LAYER_NORM_OP_TYPES = {
 SOFTMAX_OP_TYPES = {"Softmax", "HWSoftmax", "HWSoftmax_hls", "HWSoftmax_rtl"}
 
 RTL_PREFERRED_OP_TYPES = [
+    "MVAU",
     "HWSoftmax",
     "LayerNorm",
     "PWPolyF",

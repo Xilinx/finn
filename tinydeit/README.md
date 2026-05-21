@@ -3,9 +3,9 @@
 This directory contains the TinyDeiT FINN flow for the quantized checkpoint in
 `onnx-checkpoints/deit_tiny_quant.onnx`.
 
-The flow targets `V80` by default.  It collapses the exported polynomial GELU
+The flow targets `V80` at 300 MHz by default.  It collapses the exported polynomial GELU
 subgraphs into `PWPolyF`, converts the graph to FINN dataflow operators, prefers
-RTL implementations for softmax/PWPolyF/LayerNorm/eltwise where supported, then
+RTL implementations for MVAU/softmax/PWPolyF/LayerNorm/eltwise where supported, then
 rolls the 12 repeated transformer blocks into a `FINNLoop` for MLO.
 
 Typical usage from the repository root inside FINN Docker:
@@ -23,8 +23,11 @@ python -m tinydeit.build --mode dcp --output-dir tinydeit/build/v80_mlo_dcp
 
 `--mode estimate` stops after analytical reports.  `--mode rtl` generates and
 stitches IP.  `--mode dcp` generates stitched IP and a Vivado out-of-context
-DCP without running bitstream packaging.  Add `--stitched-rtlsim` when stitched
-RTL simulation is required.
+DCP plus timing/resource reports without running bitstream packaging.  Add
+`--stitched-rtlsim` when stitched RTL simulation is required.
+Each `tinydeit.build` invocation appends `tinydeit/builds.csv` with folding
+information, timing status, resources, step timings, DCP paths, and the build
+output path on `/scratch`.
 The build uses FINN's loop-body FIFO sizing during hardware codegen, then
 inserts deterministic top-level FIFOs.  Full top-level automatic FIFO sizing is
 disabled because it simulates through the rolled `FINNLoop` and is not practical

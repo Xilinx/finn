@@ -27,6 +27,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+
+# Dictionary of HWCustomOp implementations
+custom_op = dict()
+
+
+# Registers a class into the custom_op dictionary
+# Note: This must be defined first, before importing any custom op
+# implementation to avoid "importing partially initialized module" issues.
+def register_custom_op(cls):
+    # The class must actually implement HWCustomOp
+    assert issubclass(cls, HWCustomOp), f"{cls} must subclass {HWCustomOp}"
+    # Insert the class into the custom_op dictionary by its name
+    custom_op[cls.__name__] = cls
+    # Pass through the class unmodified
+    return cls
+
+
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
