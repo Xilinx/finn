@@ -44,12 +44,11 @@ class DuplicateStreams_hls(DuplicateStreams, HLSBackend):
 
     def verify_node(self):
         info_messages = []
-        # verify that "backend" is set to "fpgadataflow"
-        backend_value = self.get_nodeattr("backend")
-        if backend_value == "fpgadataflow":
+        # verify that "backend" is set correctly
+        if self.get_nodeattr("backend") == "hls":
             info_messages.append("Attribute backend is set correctly")
         else:
-            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+            info_messages.append('Attribute backend should set to "hls"')
 
         # verify that all necessary attributes exist
         try:

@@ -277,6 +277,13 @@ class DataflowBuildConfig:
     #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
 
+    #: During Streamlining it might happen that a channelwise operator gets merged into
+    #: a per-tensor thresholding node, that changes the first dim of the threshold array
+    #: from 1 to number of channels.
+    #: Setting this parameter to True will prevent this but please note that this might
+    #: result in additional standalone floating point operations that need to be implemented
+    preserve_thresh_shape: Optional[bool] = False
+
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
     #: If set to False, the folding_config_file can be used to specify sizes
@@ -351,6 +358,11 @@ class DataflowBuildConfig:
     #: Otherwise, these will be suppressed and only appear in the build log.
     verbose: Optional[bool] = False
 
+    #: When True, stdout/stderr will not be redirected even when verbose=False.
+    #: Useful for applications using terminal-aware libraries (e.g., Rich, tqdm)
+    #: that require direct terminal access and break with stream redirection.
+    no_stdout_redirect: Optional[bool] = False
+
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
     #: When specified:
@@ -405,6 +417,16 @@ class DataflowBuildConfig:
     #: If True, suppress assertion errors for configuration checks.
     #: Warnings and info will still be printed but errors will not halt the build.
     mute_config_assertions: Optional[bool] = False
+
+    #: (Optional) List of (kernel_name, backend_names) tuples for explicit
+    #: backend priority selection. Currently only used with Brainsmith.
+    #:
+    #: Format: [(kernel_name, [backend_name_list])]
+    #:   - kernel_name: String name of kernel in global registry ("source:component_name")
+    #:   - backend_name_list: Backend names in priority order, tries first match
+    #: Example:
+    #:   cfg.kernel_selections = [("finn:MVAU", ["finn:MVAU_rtl", "finn:MVAU_hls"])]
+    kernel_selections: Optional[List[tuple]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

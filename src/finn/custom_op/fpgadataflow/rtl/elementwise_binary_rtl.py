@@ -146,6 +146,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         a_width = lhs_dtype.bitwidth()
         b_width = rhs_dtype.bitwidth()
 
+        a_core_stream_bits = pe * a_width
+        b_core_stream_bits = pe * b_width
+        o_core_stream_bits = pe * out_dtype.bitwidth()
+
         code_gen_dict = {
             "TOP_MODULE_NAME": self.get_verilog_top_module_name(),
             "PE": pe,
@@ -158,9 +162,12 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "A_SIGNED": 1 if (not lhs_float and lhs_dtype.signed()) else 0,
             "B_WIDTH": b_width,
             "B_SIGNED": 1 if (not rhs_float and rhs_dtype.signed()) else 0,
-            "A_STREAM_BITS": pe * a_width,
-            "B_STREAM_BITS": pe * b_width,
-            "O_STREAM_BITS": pe * out_dtype.bitwidth(),
+            "A_CORE_STREAM_BITS": a_core_stream_bits,
+            "B_CORE_STREAM_BITS": b_core_stream_bits,
+            "O_CORE_STREAM_BITS": o_core_stream_bits,
+            "A_STREAM_BITS": roundup_to_integer_multiple(a_core_stream_bits, 8),
+            "B_STREAM_BITS": roundup_to_integer_multiple(b_core_stream_bits, 8),
+            "O_STREAM_BITS": roundup_to_integer_multiple(o_core_stream_bits, 8),
         }
 
         with open(template_path, "r") as f:
@@ -485,14 +492,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
         if weight_file_mode == "decoupled_verilog_dat":
             num_w_reps = np.prod(self.calc_numInputVectors())
             base_wmem = super().calc_wmem()
-            mlo = self.get_nodeattr("mlo_max_iter")
-            if mlo and base_wmem > 1:
-                # In MLO mode, tile only enough to match per-iteration
-                # consumption (num_w_reps entries).  base_wmem entries
-                # already exist, so tile by num_w_reps / base_wmem.
-                tile_factor = int(num_w_reps // base_wmem)
-            else:
-                tile_factor = int(num_w_reps)
+            if num_w_reps % base_wmem != 0:
+                raise RuntimeError(
+                    f"{self.onnx_node.name}: const stream length {base_wmem} "
+                    f"does not divide output stream length {num_w_reps}"
+                )
+            # base_wmem folded const vectors already exist in weight_tensor.
+            # Tile only enough to cover the output stream, otherwise broadcast
+            # constants such as [1, C] for [1, T, C] expand quadratically.
+            tile_factor = int(num_w_reps // base_wmem)
             weight_tensor = np.tile(
                 weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
             )
@@ -525,12 +533,8 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        base_wmem = super().calc_wmem()
         num_w_reps = np.prod(self.calc_numInputVectors())
-        mlo = self.get_nodeattr("mlo_max_iter")
-        if mlo:
-            return int(num_w_reps)
-        return int(base_wmem * num_w_reps)
+        return int(num_w_reps)
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)

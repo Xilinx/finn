@@ -30,9 +30,10 @@
 import numpy as np
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_datatypes import InferDataTypes
+
+from finn.util.basic import getHWCustomOp
 
 
 class RoundAndClipThresholds(Transformation):
@@ -96,7 +97,7 @@ class RoundAndClipThresholds(Transformation):
                 model.set_tensor_datatype(node.input[1], tdt)
                 # If hw op we need to set the weight data type attribute as well
                 if op_type.startswith("Thresholding"):
-                    inst = getCustomOp(node)
+                    inst = getHWCustomOp(node)
                     inst.set_nodeattr("weightDataType", tdt.name)
                 # ones
                 if np.any(new_thresholds != thresholds):
@@ -110,7 +111,7 @@ class RoundAndClipThresholds(Transformation):
 
             # Handle MVAU and VVAU nodes with thresholds (noActivation=0)
             elif op_type.startswith("MVAU") or op_type.startswith("VVAU"):
-                inst = getCustomOp(node)
+                inst = getHWCustomOp(node)
                 # Only process if node has thresholds (noActivation=0)
                 if inst.get_nodeattr("noActivation") == 0 and len(node.input) > 2:
                     thresholds = model.get_initializer(node.input[2])

@@ -118,8 +118,17 @@ def _make_input_dict(model, tokens):
 
 
 @pytest.mark.fpgadataflow
-def test_convert_gather_to_selecttoken():
-    model = _make_gather_model(token_index=2)
+@pytest.mark.parametrize("finn_dtype", [DataType["INT8"], DataType["FLOAT32"]])
+def test_convert_gather_to_selecttoken(finn_dtype):
+    idx_values = np.asarray(2, dtype=np.int64)
+    gather = helper.make_node(
+        "Gather",
+        ["tokens", "idx"],
+        ["out"],
+        axis=1,
+        name="gather_token",
+    )
+    model = _make_graph([gather], [1, 4], idx_values, finn_dtype=finn_dtype)
     tokens = np.arange(16, dtype=np.float32).reshape(1, 4, 4)
     expected = tokens[:, 2, :]
 
@@ -160,7 +169,12 @@ def test_selecttoken_python_execution(token_index):
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize(
     "finn_dtype,fold_width",
-    [(DataType["INT8"], 16), (DataType["UINT4"], 8), (DataType["BIPOLAR"], 2)],
+    [
+        (DataType["INT8"], 16),
+        (DataType["UINT4"], 8),
+        (DataType["BIPOLAR"], 2),
+        (DataType["FLOAT32"], 64),
+    ],
 )
 def test_selecttoken_rtl_codegen(tmp_path, finn_dtype, fold_width):
     model = _make_selecttoken_model(token_index=3, simd=2, finn_dtype=finn_dtype)

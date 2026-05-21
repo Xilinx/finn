@@ -34,7 +34,6 @@ import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
@@ -51,7 +50,12 @@ from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import pynq_part_map, vitis_default_platform, vitis_part_map
+from finn.util.basic import (
+    getHWCustomOp,
+    pynq_part_map,
+    vitis_default_platform,
+    vitis_part_map,
+)
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.util.vivado import parse_ooc_synth_results
 
@@ -200,7 +204,7 @@ def create_two_fc_model(mem_mode="internal_decoupled"):
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = create_one_fc_model(mem_mode)
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
@@ -271,16 +275,16 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(InferDataLayouts())
     model = model.transform(InsertIODMA())
     model = model.transform(Floorplan())
-    assert getCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
-    assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
-    assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
+    assert getHWCustomOp(model.graph.node[0]).get_nodeattr("partition_id") == 0
+    assert getHWCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
+    assert getHWCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
 
 
@@ -301,7 +305,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     fpga_part = vitis_part_map[board]
     model = create_two_fc_model("external" if extw else "internal_decoupled")
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
@@ -324,7 +328,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
-        sdp_node = getCustomOp(model.graph.node[0])
+        sdp_node = getHWCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))

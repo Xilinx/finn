@@ -42,7 +42,6 @@ from brevitas.export import export_qonnx
 from dataset_loading import cifar, mnist
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -95,7 +94,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_finn_root, make_build_dir, test_board_map
+from finn.util.basic import get_finn_root, getHWCustomOp, make_build_dir, test_board_map
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -127,7 +126,7 @@ def fold_tfc(model):
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -135,7 +134,7 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
@@ -151,7 +150,7 @@ def fold_lfc(model):
         (10, 8, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -160,7 +159,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("resType", "lut")
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
     return model
 
@@ -180,7 +179,7 @@ def fold_cnv_large(model):
         (5, 1),
     ]
     for fcl, (pe, simd) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("mem_mode", "internal_decoupled")
@@ -188,7 +187,7 @@ def fold_cnv_large(model):
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
+        swg_inst = getHWCustomOp(swg_layers[i])
         if not swg_inst.get_nodeattr("depthwise"):
             simd = folding[i][1]
             swg_inst.set_nodeattr("SIMD", simd)
@@ -211,7 +210,7 @@ def fold_cnv_small(model):
         (5, 1, "distributed"),
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
-        fcl_inst = getCustomOp(fcl)
+        fcl_inst = getHWCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
@@ -220,13 +219,13 @@ def fold_cnv_small(model):
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
     for i in range(len(swg_layers)):
-        swg_inst = getCustomOp(swg_layers[i])
+        swg_inst = getHWCustomOp(swg_layers[i])
         if not swg_inst.get_nodeattr("depthwise"):
             simd = folding[i][1]
             swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("ram_style", "distributed")
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_rtl")[0]
-    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt = getHWCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("depth_trigger_uram", 32000)
     inp_qnt.set_nodeattr("depth_trigger_bram", 32000)
     return model
@@ -667,7 +666,7 @@ class TestEnd2End:
         parent_model_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_parent")
         parent_model.save(parent_model_chkpt)
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-        sdp_node = getCustomOp(sdp_node)
+        sdp_node = getHWCustomOp(sdp_node)
         dataflow_model_filename = sdp_node.get_nodeattr("model")
         dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
         dataflow_model_chkpt = get_checkpoint_name(board, topology, wbits, abits, "dataflow_model")
@@ -754,7 +753,7 @@ class TestEnd2End:
         latency = perf["critical_path_cycles"]
         # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
         for fifo_layer in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
+            getHWCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))

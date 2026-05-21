@@ -27,31 +27,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-
-# Dictionary of HWCustomOp implementations
-custom_op = dict()
-
-
-# Registers a class into the custom_op dictionary
-# Note: This must be defined first, before importing any custom op
-# implementation to avoid "importing partially initialized module" issues.
-def register_custom_op(cls):
-    # The class must actually implement HWCustomOp
-    assert issubclass(cls, HWCustomOp), f"{cls} must subclass {HWCustomOp}"
-    # Insert the class into the custom_op dictionary by its name
-    custom_op[cls.__name__] = cls
-    # Pass through the class unmodified
-    return cls
-
-
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
-
-# Import the submodule containing specializations of ElementwiseBinaryOperation
-# Note: This will automatically register all decorated classes into this domain
-import finn.custom_op.fpgadataflow.elementwise_binary
 from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
@@ -59,6 +37,27 @@ from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
 )
 from finn.custom_op.fpgadataflow.crop import Crop
 from finn.custom_op.fpgadataflow.duplicatestreams import DuplicateStreams
+
+# Also import ElementwiseBinary variants
+from finn.custom_op.fpgadataflow.elementwise_binary import (
+    ElementwiseAbsDiff,
+    ElementwiseAdd,
+    ElementwiseAnd,
+    ElementwiseBinaryOperation,
+    ElementwiseBitwiseAnd,
+    ElementwiseBitwiseOr,
+    ElementwiseBitwiseXor,
+    ElementwiseDiv,
+    ElementwiseEqual,
+    ElementwiseGreater,
+    ElementwiseGreaterOrEqual,
+    ElementwiseLess,
+    ElementwiseLessOrEqual,
+    ElementwiseMul,
+    ElementwiseOr,
+    ElementwiseSub,
+    ElementwiseXor,
+)
 from finn.custom_op.fpgadataflow.fmpadding import FMPadding
 from finn.custom_op.fpgadataflow.fmpadding_pixel import FMPadding_Pixel
 from finn.custom_op.fpgadataflow.globalaccpool import GlobalAccPool

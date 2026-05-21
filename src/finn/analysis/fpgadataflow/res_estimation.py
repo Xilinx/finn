@@ -48,7 +48,7 @@ def res_estimation(model, fpgapart):
     res_dict = {}
     for node in model.graph.node:
         if is_hls_node(node) or is_rtl_node(node):
-            inst = registry.getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             res_dict[node.name] = inst.node_res_estimation(fpgapart)
 
     return res_dict

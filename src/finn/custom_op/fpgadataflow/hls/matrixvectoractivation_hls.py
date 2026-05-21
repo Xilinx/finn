@@ -577,7 +577,6 @@ class MVAU_hls(MVAU, HLSBackend):
             nbits = self.get_instream_width(0)
             inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             self.reset_rtlsim(sim)
-
             if (
                 dynamic_input
                 or mem_mode in ["external", "internal_decoupled"]

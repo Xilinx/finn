@@ -32,7 +32,6 @@ import multiprocessing as mp
 import os
 import subprocess
 import warnings
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
@@ -40,15 +39,15 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
-def is_external_input(model, node, i):
+def is_external_input(node, model, i):
     # indicate whether input i of node should be made external
     # True only if input is unconnected and has no initializer
-    # Only esception is second input of FC layers when mem_mode is external
-    node_inst = getCustomOp(node)
+    # Only exception is second input of FC layers when mem_mode is external
+    node_inst = getHWCustomOp(node, model)
     op_type = node.op_type
     producer = model.find_producer(node.input[i])
     if producer is None:
@@ -61,7 +60,7 @@ def is_external_input(model, node, i):
     return False
 
 
-def is_external_output(model, node, i):
+def is_external_output(node, model, i):
     # indicate whether output i of node should be made external
     # True only if output is unconnected
     consumers = model.find_consumers(node.output[i])
@@ -87,9 +86,18 @@ class CreateStitchedIP(Transformation):
     """
 
     def __init__(
-        self, fpgapart, clk_ns, ip_name="finn_design", run_synth=False, run_pnr=False, signature=[]
+        self,
+        fpgapart,
+        clk_ns,
+        ip_name="finn_design",
+        run_synth=False,
+        run_pnr=False,
+        signature=[],
+        vitis=None,
     ):
         super().__init__()
+        if vitis is not None:
+            run_synth = vitis
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
@@ -120,18 +128,18 @@ class CreateStitchedIP(Transformation):
             "axilite": [],
         }
 
-    def is_double_pumped(self, node):
+    def is_double_pumped(self, node, model):
         if node.op_type.startswith("MVAU"):
-            inst = getCustomOp(node)
+            inst = getHWCustomOp(node, model)
             try:
                 pumped_compute = inst.get_nodeattr("pumpedCompute")
             except AttributeError:
                 pumped_compute = 0
             return pumped_compute or inst.get_nodeattr("pumpedMemory")
 
-    def connect_clk_rst(self, node):
+    def connect_clk_rst(self, node, model):
         inst_name = node.name
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         clock_intf_name = node_inst.get_verilog_top_module_intf_names()["clk"][0]
         reset_intf_name = node_inst.get_verilog_top_module_intf_names()["rst"][0]
         # make clock and reset external, if they aren't already
@@ -158,7 +166,7 @@ class CreateStitchedIP(Transformation):
                 % (inst_name, clock_intf_name)
             )
         # make clk2x external, if it isn't already and connect clk2x
-        if self.is_double_pumped(node):
+        if self.is_double_pumped(node, model):
             clock2x_intf_name = node_inst.get_verilog_top_module_intf_names()["clk2x"][0]
             if not self.clock2x_is_external:
                 self.connect_cmds.append(
@@ -169,7 +177,7 @@ class CreateStitchedIP(Transformation):
                 self.intf_names["clk2x"] = ["ap_clk2x"]
             # otherwise connect clk2x
             else:
-                if self.is_double_pumped(node):
+                if self.is_double_pumped(node, model):
                     self.connect_cmds.append(
                         "connect_bd_net [get_bd_ports ap_clk2x] [get_bd_pins %s/%s]"
                         % (inst_name, clock2x_intf_name)
@@ -177,8 +185,8 @@ class CreateStitchedIP(Transformation):
 
     def connect_axi(self, node, model):
         inst_name = node.name
-        node_inst = getCustomOp(node)
         inputs = [inp.name for inp in model.graph.input]
+        node_inst = getHWCustomOp(node, model)
         axilite_intf_name = node_inst.get_verilog_top_module_intf_names()["axilite"]
         aximm_intf_name = node_inst.get_verilog_top_module_intf_names()["aximm"]
         if len(axilite_intf_name) != 0:
@@ -281,9 +289,9 @@ class CreateStitchedIP(Transformation):
                 self.has_aximm = True
                 self.aximm_idx += 1
 
-    def connect_m_axis_external(self, node, idx=None):
+    def connect_m_axis_external(self, node, model, idx=None):
         inst_name = node.name
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         output_intf_names = node_inst.get_verilog_top_module_intf_names()["m_axis"]
         # make output axis external
         for i in range(len(output_intf_names)):
@@ -305,9 +313,9 @@ class CreateStitchedIP(Transformation):
             )
             self.m_axis_idx += 1
 
-    def connect_s_axis_external(self, node, idx=None):
+    def connect_s_axis_external(self, node, model, idx=None):
         inst_name = node.name
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
 
         # make input axis external
@@ -323,15 +331,15 @@ class CreateStitchedIP(Transformation):
                 "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
                 % (self.s_axis_idx, input_intf_name)
             )
-            self.has_s_axis = True
             self.intf_names["s_axis"].append(
                 ("s_axis_%d" % self.s_axis_idx, input_intf_names[i][1])
             )
+            self.has_s_axis = True
             self.s_axis_idx += 1
 
-    def connect_ap_none_external(self, node):
+    def connect_ap_none_external(self, node, model):
         inst_name = node.name
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node, model)
         input_intf_names = node_inst.get_verilog_top_module_intf_names()["ap_none"]
         # make external
         for i in range(len(input_intf_names)):
@@ -406,41 +414,45 @@ class CreateStitchedIP(Transformation):
                 calling CreateStitchedIP."""
             )
         if model.graph.node[0].op_type == "StreamingFIFO_rtl":
-            firstfifo = getCustomOp(model.graph.node[0])
+            firstfifo = getHWCustomOp(model.graph.node[0], model)
             if firstfifo.get_nodeattr("impl_style") == "vivado":
                 warnings.warn(
                     """First FIFO has impl_style=vivado, which may cause
                     simulation glitches (e.g. dropping the first input sample
                     after reset)."""
                 )
+        global_inp_names = [inp.name for inp in model.graph.input]
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_hls_node(node) or is_rtl_node(
                 node
             ), "All nodes must be FINN fpgadataflow nodes."
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
             self.create_cmds += node_inst.code_generation_ipi()
-            self.connect_clk_rst(node)
-            self.connect_ap_none_external(node)
+            self.connect_clk_rst(node, model)
+            self.connect_ap_none_external(node, model)
             self.connect_axi(node, model)
             for i in range(len(node.input)):
-                if not is_external_input(model, node, i):
+                if not is_external_input(node, model, i):
                     producer = model.find_producer(node.input[i])
                     if producer is None:
                         continue
                     j = list(producer.output).index(node.input[i])
-                    src_intf_name = getCustomOp(producer).get_verilog_top_module_intf_names()[
-                        "m_axis"
-                    ][j][0]
+                    src_intf_name = getHWCustomOp(
+                        producer, model
+                    ).get_verilog_top_module_intf_names()["m_axis"][j][0]
                     dst_intf_name = node_inst.get_verilog_top_module_intf_names()["s_axis"][i][0]
                     self.connect_cmds.append(
                         "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                         "[get_bd_intf_pins %s/%s]"
                         % (producer.name, src_intf_name, node.name, dst_intf_name)
                     )
+                else:
+                    if node.input[i] not in global_inp_names:
+                        self.connect_s_axis_external(node, model, idx=i)
 
         # process external inputs and outputs in top-level graph input order
         for input in model.graph.input:
@@ -449,18 +461,18 @@ class CreateStitchedIP(Transformation):
             assert inp_cons != [], "No consumer for input " + inp_name
             assert len(inp_cons) == 1, "Multiple consumers for input " + inp_name
             node = inp_cons[0]
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             for i in range(len(node.input)):
                 if node.input[i] == inp_name:
-                    self.connect_s_axis_external(node, idx=i)
+                    self.connect_s_axis_external(node, model, idx=i)
         for output in model.graph.output:
             out_name = output.name
             node = model.find_producer(out_name)
             assert node is not None, "No producer for output " + out_name
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node, model)
             for i in range(len(node.output)):
                 if node.output[i] == out_name:
-                    self.connect_m_axis_external(node, idx=i)
+                    self.connect_m_axis_external(node, model, idx=i)
 
         if self.signature:
             # extract number of checksum layer from graph

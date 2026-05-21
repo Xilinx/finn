@@ -1,30 +1,11 @@
-# Copyright (c) 2020 Xilinx, Inc.
+############################################################################
+# Copyright (C) 2025, Advanced Micro Devices, Inc.
 # All rights reserved.
+# Portions of this content consist of AI generated content.
 #
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
+# SPDX-License-Identifier: BSD-3-Clause
 #
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of Xilinx nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+############################################################################
 
 import os
 import warnings
@@ -32,68 +13,76 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.util.basic import get_by_name
 
+# Supported backend attribute values for fpgadataflow nodes
+SUPPORTED_BACKENDS = {"fpgadataflow", "hls", "rtl"}
+
+
+def _get_backend_value(node):
+    """Helper to extract backend value from a node. Returns None if not found."""
+    if node is None:
+        return None
+    n_backend = get_by_name(node.attribute, "backend")
+    return n_backend.s.decode("UTF-8") if n_backend is not None else None
+
 
 def is_fpgadataflow_node(node):
-    """Returns True if given node is fpgadataflow node. Otherwise False."""
-    is_node = False
-    if node is not None:
-        if is_custom_op(node.domain):
-            n_backend = get_by_name(node.attribute, "backend")
-            if n_backend is not None:
-                backend_value = n_backend.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    is_node = True
+    """Returns True if given node has backend 'fpgadataflow', 'hls', or 'rtl'."""
+    if is_custom_op(node.domain) is False:
+        return False
+    backend_value = _get_backend_value(node)
+    return backend_value in SUPPORTED_BACKENDS
 
-    return is_node
+
+def is_backend_node(node, backend_name):
+    """Returns True if given node is of specified backend."""
+    if is_custom_op(node.domain) is False:
+        return False
+
+    backend_value = _get_backend_value(node)
+    if backend_value is None:
+        return False
+
+    # Direct backend match
+    if backend_value == backend_name:
+        return True
+
+    # Legacy approach: finn domain indicates implementation style
+    if backend_value == "fpgadataflow":
+        return node.domain == f"finn.custom_op.fpgadataflow.{backend_name}"
+
+    return False
 
 
 def is_hls_node(node):
     """Returns True if given node is hls node. Otherwise False."""
-    is_node = False
-    if node is not None:
-        if node.domain == "finn.custom_op.fpgadataflow.hls":
-            n_backend = get_by_name(node.attribute, "backend")
-            if n_backend is not None:
-                backend_value = n_backend.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    is_node = True
-
-    return is_node
+    return is_backend_node(node, "hls")
 
 
 def is_rtl_node(node):
     """Returns True if given node is rtl node. Otherwise False."""
-    is_node = False
-    if node is not None:
-        if node.domain == "finn.custom_op.fpgadataflow.rtl":
-            n_backend = get_by_name(node.attribute, "backend")
-            if n_backend is not None:
-                backend_value = n_backend.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    is_node = True
-
-    return is_node
+    return is_backend_node(node, "rtl")
 
 
 def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
     """
-    Detect if model contains both floating-point HLS Elementwise ops and RTL LayerNorm.
-
     This combination causes incorrect simulation results in xsim due to DSP
     primitive initialization conflicts. The hardware is correct - only
     simulation is affected.
 
-    Note: Only HLS Elementwise ops using floating-point datatypes are flagged,
-    as integer-only HLS Elementwise ops don't use DSP primitives.
+    HLS ops that use floating-point and trigger the conflict:
+    - HLS Elementwise ops with FLOAT32 datatypes
+    - HWSoftmax_hls (uses hls::exp)
+    - LayerNorm_hls (uses hls::rsqrt)
+    - Requant_hls with FLOAT32 input
 
     Args:
         model: ModelWrapper to check
         check_subgraphs: If True, also check inside FINNLoop bodies
 
     Returns:
-        Tuple of (has_conflict, hls_elementwise_ops, rtl_dsp_ops)
+        Tuple of (has_conflict, hls_fp_ops, rtl_dsp_ops)
         - has_conflict: bool, True if both types of ops are present
-        - hls_elementwise_ops: list of floating-point HLS Elementwise node names
+        - hls_fp_ops: list of floating-point HLS node names
         - rtl_dsp_ops: list of RTL LayerNorm node names
     """
     # RTL ops that use DSPFP32 primitive (via binopf.sv)
@@ -101,17 +90,29 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
         "LayerNorm_rtl",
     }
 
+    # HLS ops that always use floating-point operations (via hls_math.h)
+    HLS_FP_OPS = {
+        "HWSoftmax_hls",
+        "LayerNorm_hls",
+        "Requant_hls",
+    }
+
     HLS_DOMAIN = "finn.custom_op.fpgadataflow.hls"
 
-    hls_elementwise_ops = []
+    hls_fp_ops = []
     rtl_dsp_ops = []
 
     def check_nodes(nodes, prefix=""):
         for node in nodes:
             full_name = f"{prefix}{node.name}" if prefix else node.name
 
+            # Check for HLS ops that always use floating-point
+            if node.op_type in HLS_FP_OPS:
+                hls_fp_ops.append(full_name)
+
             # Check for HLS Elementwise ops with floating-point datatypes
-            if node.op_type.startswith("Elementwise") and node.domain == HLS_DOMAIN:
+            # (integer-only Elementwise ops don't use FP DSP)
+            elif node.op_type.startswith("Elementwise") and node.domain == HLS_DOMAIN:
                 try:
                     node_inst = getCustomOp(node)
                     # Check if any of the datatypes are floating-point
@@ -123,10 +124,10 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
                         or rhs_dtype.get_canonical_name().startswith("FLOAT")
                         or out_dtype.get_canonical_name().startswith("FLOAT")
                     ):
-                        hls_elementwise_ops.append(full_name)
+                        hls_fp_ops.append(full_name)
                 except (KeyError, AttributeError):
                     # If we can't check datatypes, assume it could be floating-point
-                    hls_elementwise_ops.append(full_name)
+                    hls_fp_ops.append(full_name)
 
             # Check for RTL ops using DSPFP32
             if node.op_type in RTL_DSP_OPS:
@@ -143,8 +144,8 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
 
     check_nodes(model.graph.node)
 
-    has_conflict = len(hls_elementwise_ops) > 0 and len(rtl_dsp_ops) > 0
-    return has_conflict, hls_elementwise_ops, rtl_dsp_ops
+    has_conflict = len(hls_fp_ops) > 0 and len(rtl_dsp_ops) > 0
+    return has_conflict, hls_fp_ops, rtl_dsp_ops
 
 
 def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
@@ -152,7 +153,7 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
     Check for HLS+RTL DSP conflict and issue warning if detected.
 
     This is used to warn users before running rtlsim verification when the
-    model contains both HLS Elementwise ops and RTL ops that use DSPFP32.
+    model contains both HLS floating-point ops and RTL LayerNorm.
     This combination causes incorrect simulation results in xsim due to
     conflicting DSP primitive initializations.
 
@@ -172,10 +173,10 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
             f"\n{'='*70}\n"
             f"HLS+RTL DSP CONFLICT DETECTED - SKIPPING {verification_type.upper()}\n"
             f"{'='*70}\n"
-            f"The model contains both HLS Elementwise ops and RTL LayerNorm.\n"
+            f"The model contains both HLS floating-point ops and RTL LayerNorm.\n"
             f"This causes INCORRECT simulation results in xsim (Vivado version <= 2025.2).\n"
             f"\n"
-            f"HLS Elementwise ops: {hls_ops}\n"
+            f"HLS floating-point ops: {hls_ops}\n"
             f"RTL LayerNorm ops: {rtl_ops}\n"
             f"\n"
             f"The HARDWARE implementation is CORRECT - only xsim is currently affected.\n"

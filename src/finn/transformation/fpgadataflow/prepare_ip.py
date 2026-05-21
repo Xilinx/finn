@@ -28,11 +28,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import qonnx.custom_op.registry as registry
 import warnings
 from qonnx.transformation.base import Transformation
 
-from finn.util.basic import make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -43,7 +42,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
-        inst = registry.getCustomOp(node)
+        inst = getHWCustomOp(node, model)
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
         # ensure that there is a directory

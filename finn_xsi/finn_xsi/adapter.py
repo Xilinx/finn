@@ -47,7 +47,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
 
         # sort src list so that packages are loaded first
         # these packages must be compiled before modules that depend on them
-        pkg_patterns = ["swg_pkg", "mvu_pkg", "pwpolyf_pkg"]
+        pkg_patterns = ["swg_pkg", "mvu_pkg", "pwpolyf_pkg", "softmaxf_pkg"]
         srcs_list = sorted(
             source_list, key=lambda s: (not any(pkg in s for pkg in pkg_patterns), s)
         )
@@ -86,6 +86,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "floating_point_v7_1_18",
         "floating_point_v7_1_15",
         "floating_point_v7_1_19",
+        "floating_point_v7_1_20",
+        "floating_point_v7_0_25",
         "floating_point_v7_1_21",
         "floating_point_v7_0_26",
     ]

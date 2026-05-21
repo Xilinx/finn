@@ -95,6 +95,23 @@ part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
 part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
 
+def getHWCustomOp(node, model=None, **kwargs):
+    """Wrapper for getCustomOp that handles kernel schema transformations.
+
+    Args:
+        node: ONNX node to get custom op for
+        model: Optional ModelWrapper for kernel schema transformation (default: None)
+        **kwargs: Additional arguments to pass to getCustomOp (e.g., onnx_opset_version)
+
+    Returns:
+        Custom op instance, with kernel model applied if applicable
+    """
+    custom_op = getCustomOp(node, **kwargs)
+    if hasattr(custom_op, "kernel_schema"):
+        custom_op.build_design_space(model)
+    return custom_op
+
+
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim. Controllable
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
@@ -121,9 +138,12 @@ def get_finn_root():
         return os.environ["FINN_ROOT"]
     except KeyError:
         raise Exception(
-            """Environment variable FINN_ROOT must be set
-        correctly. Please ensure you have launched the Docker contaier correctly.
-        """
+            "Environment variable FINN_ROOT must be set. "
+            "This should happen automatically when importing finn. "
+            "Please ensure:\n"
+            "1. You've installed FINN correctly (pip install -e . or via Docker)\n"
+            "2. You're importing finn before calling this function\n"
+            "3. Or manually set FINN_ROOT to your FINN installation directory"
         )
 
 
@@ -145,6 +165,22 @@ def get_vivado_version() -> Optional[Tuple[int, int]]:
     path = os.environ.get("XILINX_VIVADO", "")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", path)
     return (int(match.group(1)), int(match.group(2))) if match else None
+
+
+def get_deps_dir():
+    "Return the directory that contains FINN dependencies."
+
+    try:
+        return os.environ["FINN_DEPS_DIR"]
+    except KeyError:
+        raise Exception(
+            "Environment variable FINN_DEPS_DIR must be set. "
+            "This should happen automatically when importing finn. "
+            "Please ensure:\n"
+            "1. You've installed FINN correctly (pip install -e . or via Docker)\n"
+            "2. You're importing finn before calling this function\n"
+            "3. Or manually set FINN_DEPS_DIR to your FINN deps directory"
+        )
 
 
 def get_liveness_threshold_cycles():

@@ -42,6 +42,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import getHWCustomOp
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 test_fpga_part = "xc7z020clg400-1"
@@ -77,6 +78,26 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
 
 def prepare_inputs(input_tensor, dt):
     return {"inp": input_tensor}
+
+
+@pytest.mark.fpgadataflow
+def test_wide_fifo_qsrl_storage_is_split():
+    model = make_single_fifo_modelwrapper(
+        [1, 3, 197, 197], 249, [1, 3, 197, 1, 197], DataType["INT22"]
+    )
+    model = model.transform(SpecializeLayers(test_fpga_part))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+
+    fifo_inst = getHWCustomOp(model.graph.node[0], model)
+    code_gen_dir = fifo_inst.get_nodeattr("code_gen_dir_ipgen")
+    top_module = fifo_inst.get_verilog_top_module_name()
+    with open(os.path.join(code_gen_dir, top_module + ".v"), "r") as f:
+        generated_rtl = f.read()
+
+    assert "fifo_chunk_0" in generated_rtl
+    assert "fifo_chunk_1" in generated_rtl
+    assert ".width(4336)" not in generated_rtl
 
 
 # shape

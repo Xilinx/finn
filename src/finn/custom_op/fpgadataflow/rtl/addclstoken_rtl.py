@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import shutil
+from bitstring import BitArray
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
@@ -55,6 +56,8 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
         bitwidth = dtype.bitwidth()
         if dtype == DataType["BIPOLAR"]:
             int_value = int((value + 1) // 2)
+        elif not dtype.is_integer() and not dtype.is_fixed_point():
+            int_value = BitArray(float=float(value), length=bitwidth).uint
         else:
             if dtype.is_fixed_point():
                 value = value / dtype.scale_factor()

@@ -29,30 +29,35 @@
 import numpy as np
 import warnings
 from onnx import helper
-from qonnx.custom_op.registry import getCustomOp
+from qonnx.custom_op.registry import hasCustomOp
 from qonnx.transformation.base import Transformation
 
-from finn.custom_op.fpgadataflow.hls import custom_op as hls_variants
-from finn.custom_op.fpgadataflow.rtl import custom_op as rtl_variants
-from finn.util.basic import get_dsp_block, is_versal
+from finn.util.basic import get_dsp_block, getHWCustomOp, is_versal
 
 
 def _determine_impl_style(node, fpgapart, model):
     optype = node.op_type
 
-    # check if there is an HLS or RTL variant or both
-    hls_variant = optype + "_hls" in hls_variants.keys()
-    rtl_variant = optype + "_rtl" in rtl_variants.keys()
+    # Use new hasCustomOp API to check for HLS/RTL variants
+    # First check in the node's domain
+    hls_variant = hasCustomOp(f"{node.domain}.hls", f"{optype}_hls")
+    rtl_variant = hasCustomOp(f"{node.domain}.rtl", f"{optype}_rtl")
+
+    # If not found in node's domain, check in FINN's default domains
+    if not hls_variant:
+        hls_variant = hasCustomOp("finn.custom_op.fpgadataflow.hls", f"{optype}_hls")
+    if not rtl_variant:
+        rtl_variant = hasCustomOp("finn.custom_op.fpgadataflow.rtl", f"{optype}_rtl")
 
     # check if user has specified a preferred_impl_style
-    node_inst = getCustomOp(node)
+    node_inst = getHWCustomOp(node, model)
     impl_style = node_inst.get_nodeattr("preferred_impl_style")
 
     # if impl_style not set, for "simple" layers always try
     # to use rtl variant if available
     if impl_style == "":
         if optype == "StreamingDataWidthConverter":
-            return _dwc_determine_impl_style(node)
+            return _dwc_determine_impl_style(node, model)
         if rtl_variant:
             if optype == "MVAU":
                 idt = node_inst.get_input_datatype(0)
@@ -68,7 +73,7 @@ def _determine_impl_style(node, fpgapart, model):
                 wdt = node_inst.get_input_datatype(1)
                 inp_width_fit = idt.bitwidth() >= 4
                 weight_width_fit = wdt.bitwidth() >= 4
-                if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart):
+                if inp_width_fit and weight_width_fit and _vvu_rtl_possible(node, fpgapart, model):
                     return "rtl"
                 else:
                     return "hls"
@@ -87,6 +92,11 @@ def _determine_impl_style(node, fpgapart, model):
                     return "rtl"
                 else:
                     _raise_pwpolyf_unsupported(node, fpgapart)
+            elif optype == "HWSoftmax":
+                if _softmax_rtl_possible(node, fpgapart):
+                    return "rtl"
+                else:
+                    return "hls"
             elif optype == "Requant":
                 if _requant_rtl_possible(node, fpgapart):
                     return "rtl"
@@ -129,7 +139,7 @@ def _determine_impl_style(node, fpgapart, model):
     elif impl_style == "rtl":
         # rtl dwc does not support every inWidth to outWidth ratio
         if optype == "StreamingDataWidthConverter":
-            if _dwc_determine_impl_style(node) != "rtl":
+            if _dwc_determine_impl_style(node, model) != "rtl":
                 warn_str = """RTL implementation of DWC requires
                             stream widths that are integer width ratios
                             from each other. Node %s will automatically be
@@ -153,7 +163,7 @@ def _determine_impl_style(node, fpgapart, model):
                 warnings.warn(warn_str)
                 return "hls"
         elif optype == "VVAU":
-            if _vvu_rtl_possible(node, fpgapart):
+            if _vvu_rtl_possible(node, fpgapart, model):
                 return "rtl"
             else:
                 warn_str = """There is no RTL variant for %s. The node will automatically be
@@ -164,7 +174,6 @@ def _determine_impl_style(node, fpgapart, model):
                 )
                 warnings.warn(warn_str)
                 return "hls"
-
         elif optype == "PWPolyF":
             if _pwpolyf_rtl_possible(node, fpgapart):
                 return "rtl"
@@ -177,6 +186,17 @@ def _determine_impl_style(node, fpgapart, model):
                 warn_str = """There is no RTL variant for %s. The node will automatically be
                         set to HLS variant. The RTL Layernorm layer currently only supports
                         float32 inputs and uses DSP58, so only versal devices supported.""" % (
+                    node.name,
+                )
+                warnings.warn(warn_str)
+                return "hls"
+        elif optype == "HWSoftmax":
+            if _softmax_rtl_possible(node, fpgapart):
+                return "rtl"
+            else:
+                warn_str = """There is no RTL variant for %s. The node will automatically be
+                        set to HLS variant. The RTL SoftMax layer uses DSPFP32, so only
+                        versal devices are supported.""" % (
                     node.name,
                 )
                 warnings.warn(warn_str)
@@ -230,9 +250,9 @@ def _determine_impl_style(node, fpgapart, model):
         )
 
 
-def _dwc_determine_impl_style(node):
+def _dwc_determine_impl_style(node, model=None):
     # when possible use rtl variant
-    dwc = getCustomOp(node)
+    dwc = getHWCustomOp(node, model)
     dwc_in_width = dwc.get_nodeattr("inWidth")
     dwc_out_width = dwc.get_nodeattr("outWidth")
     # check if rtl variant can be used
@@ -252,7 +272,7 @@ def _mvu_rtl_possible(n, fpgapart, model):
     # Please note, DSP48E1 does only support narrow range for weights
     # Next to that, embedded thresholding functionality is not supported
     # and neither binaryxnormode computation.
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n, model)
     # first check if no Activation or binary xnor mode and return False
     # immediately if one of them is True
     no_activation = node_inst.get_nodeattr("noActivation") == 0
@@ -262,8 +282,6 @@ def _mvu_rtl_possible(n, fpgapart, model):
 
     # check if weights are signed, if not return False
     wdt = node_inst.get_input_datatype(1)
-    if not wdt.signed():
-        return False
 
     # check which dsp block is available on fpga
     dsp_block = get_dsp_block(fpgapart)
@@ -290,12 +308,12 @@ def _mvu_rtl_possible(n, fpgapart, model):
     return inp_width_in_range and weight_width_in_range
 
 
-def _vvu_rtl_possible(n, fpgapart):
+def _vvu_rtl_possible(n, fpgapart, model=None):
     # Checks whether RTL-based VVU is supported
     # Currently, we only support RTL-VVU on DSP58 up to 8sx9s inputs
     # (8-bit signed weights x (9-bit signed OR 8-bit (un)signed) activations).
     # Next to that, embedded thresholding functionality is not supported.
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n, model)
     if not node_inst.get_nodeattr("noActivation"):
         return False
     if not is_versal(fpgapart):
@@ -317,7 +335,7 @@ def _elementwise_rtl_possible(n, fpgapart):
     if not is_versal(fpgapart):
         return False
 
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n)
     lhs_dtype = node_inst.get_input_datatype(0)
     rhs_dtype = node_inst.get_input_datatype(1)
 
@@ -364,7 +382,7 @@ def _layernorm_rtl_possible(n, fpgapart):
     # Currently, we only support float32 inputs and versal fabric
     if not is_versal(fpgapart):
         return False
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n)
     idt = node_inst.get_input_datatype(0)
     if idt != "FLOAT32":
         return False
@@ -386,13 +404,19 @@ def _raise_pwpolyf_unsupported(n, fpgapart):
     )
 
 
+def _softmax_rtl_possible(n, fpgapart):
+    # Checks whether RTL-based SoftMax is supported.
+    # The RTL softmax core uses DSPFP32, so only Versal devices are supported.
+    return is_versal(fpgapart)
+
+
 def _requant_rtl_possible(n, fpgapart):
     # Checks whether RTL-based Requant is supported
     # RTL Requant requires:
     # - Integer input (not float)
     # - Unsigned output (RTL clips to [0, 2^N-1])
     # - Full range (narrow=0)
-    node_inst = getCustomOp(n)
+    node_inst = getHWCustomOp(n)
     idt = node_inst.get_input_datatype(0)
     odt = node_inst.get_output_datatype(0)
     narrow = node_inst.get_nodeattr("narrow")
@@ -413,7 +437,13 @@ class SpecializeLayers(Transformation):
         graph_modified = False
         for node in graph.node:
             # Skip nodes that are not hw layers
-            if not node.domain == "finn.custom_op.fpgadataflow":
+            if not (
+                node.domain.endswith(".custom_op.fpgadataflow")
+                or (
+                    node.domain.startswith("brainsmith.kernels")
+                    and not (node.domain.endswith(".hls") or node.domain.endswith(".rtl"))
+                )
+            ):
                 continue
             # For shuffle nodes the specialisation happens after
             # the ShuffleDecomposition transformation with a
@@ -428,12 +458,18 @@ class SpecializeLayers(Transformation):
                 optype,
                 node.input,
                 node.output,
-                domain="finn.custom_op.fpgadataflow." + impl_style,
+                domain=f"{node.domain}.{impl_style}",
             )
-            # add all attributes
+            # Copy all attributes except mak_style and backend
             for attribute in node.attribute:
-                if attribute.name != "preferred_impl_style":
+                if attribute.name not in ["preferred_impl_style", "backend"]:
                     new_node.attribute.append(attribute)
+
+            if hasattr(node, "metadata_props"):
+                new_node.metadata_props.extend(node.metadata_props)
+            # Set backend attribute to match implementation style
+            new_node.attribute.append(helper.make_attribute("backend", impl_style))
+
             graph.node.insert(node_ind, new_node)
             # remove old nodes
             graph.node.remove(node)

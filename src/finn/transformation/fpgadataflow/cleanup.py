@@ -28,10 +28,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import qonnx.custom_op.registry as registry
 import shutil
 from qonnx.transformation.base import Transformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -57,7 +57,7 @@ class CleanUp(Transformation):
             if is_fpgadataflow_node(node):
                 try:
                     # lookup op_type in registry of CustomOps
-                    inst = registry.getCustomOp(node)
+                    inst = getHWCustomOp(node, model)
                     # delete code_gen_dir from cppsim
                     code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
                     if os.path.isdir(code_gen_dir):

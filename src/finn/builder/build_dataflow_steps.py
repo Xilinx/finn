@@ -34,7 +34,6 @@ import shutil
 from copy import deepcopy
 from functools import partial
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -132,7 +131,11 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import get_liveness_threshold_cycles, get_rtlsim_trace_depth
+from finn.util.basic import (
+    get_liveness_threshold_cycles,
+    get_rtlsim_trace_depth,
+    getHWCustomOp,
+)
 from finn.util.config import (
     extract_model_config_consolidate_shuffles,
     extract_model_config_to_json,
@@ -240,7 +243,7 @@ def verify_step(
             # Handle node-level waveforms (only for node-by-node rtlsim)
             if step_name == "node_by_node_rtlsim":
                 for node in model.graph.node:
-                    node_inst = getCustomOp(node)
+                    node_inst = getHWCustomOp(node)
                     node_wdb_path = node_inst.get_nodeattr("rtlsim_trace")
                     if node_wdb_path is not None and os.path.isfile(node_wdb_path):
                         new_node_wdb_path = node_wdb_path.replace(".wdb", "_%d.wdb" % b)
@@ -255,7 +258,7 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
         # switch impl_style=vivado components to rtl
         # StreamingFIFO must have impl_style=rtl
         for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO_rtl"):
-            inst = getCustomOp(fifo_layer)
+            inst = getHWCustomOp(fifo_layer, verify_model)
             if inst.get_nodeattr("impl_style") != "rtl":
                 inst.set_nodeattr("impl_style", "rtl")
                 inst.set_nodeattr("code_gen_dir_ipgen", "")
@@ -285,7 +288,7 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
 
 
 def prepare_loop_ops_fifo_sizing(node, cfg):
-    node_inst = getCustomOp(node)
+    node_inst = getHWCustomOp(node)  # No model context: read only
     loop_model = node_inst.get_nodeattr("body")
     loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
     # go first into subgraph to check if there are other loop ops
@@ -310,6 +313,7 @@ def prepare_loop_ops_fifo_sizing(node, cfg):
             swg_exception=cfg.default_swg_exception,
             vivado_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
+            cfg_n_inferences=cfg.fifosim_n_inferences,
         )
     )
     loop_model = loop_model.transform(SplitLargeFIFOs())
@@ -320,7 +324,7 @@ def prepare_loop_ops_fifo_sizing(node, cfg):
 
 
 def prepare_loop_ops_ipgen(node, cfg):
-    node_inst = getCustomOp(node)
+    node_inst = getHWCustomOp(node)  # No model context: read only
     loop_model = node_inst.get_nodeattr("body")
     # go first into subgraph to check if there are other loop ops
     loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
@@ -612,7 +616,7 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
     sdp_node = sdp_nodes[0]
-    sdp_node = getCustomOp(sdp_node)
+    sdp_node = getHWCustomOp(sdp_node, parent_model)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     if cfg.save_intermediate_models:
         parent_model.save(cfg.output_dir + "/intermediate_models/dataflow_parent.onnx")
@@ -655,7 +659,7 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
     has_shuffle = True if model.get_nodes_by_op_type("Shuffle") else False
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node)
         loop_model = node_inst.get_nodeattr("body")
         has_shuffle = True if loop_model.get_nodes_by_op_type("Shuffle") else False
 
@@ -668,7 +672,7 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
         for node in loop_nodes:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node)  # read-only
             loop_model = node_inst.get_nodeattr("body")
             loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
             node_inst.set_nodeattr("body", loop_model.graph)
@@ -696,7 +700,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         model = model.transform(GiveUniqueNodeNames())
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
         for node in loop_nodes:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node)
             loop_model = node_inst.get_nodeattr("body")
             loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
             node_inst.set_nodeattr("body", loop_model.graph)
@@ -727,7 +731,7 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(GiveUniqueNodeNames())
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node)
         loop_model = node_inst.get_nodeattr("body")
         loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
         node_inst.set_nodeattr("body", loop_model.graph)
@@ -766,7 +770,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         # generate reports for MLO nodes
         loop_nodes = model.get_nodes_by_op_type("FINNLoop")
         for node in loop_nodes:
-            node_inst = getCustomOp(node)
+            node_inst = getHWCustomOp(node)
             loop_model = node_inst.get_nodeattr("body")
             ops_and_params = loop_model.analysis(op_and_param_counts)
             with open(report_dir + f"/op_and_param_counts_{node.name}.json", "w") as f:
@@ -839,7 +843,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
             verify_out_dir = cfg.output_dir + "/verification_output"
             os.makedirs(verify_out_dir, exist_ok=True)
             for loop_node in model.get_nodes_by_op_type("FINNLoop"):
-                loop_inst = getCustomOp(loop_node)
+                loop_inst = getHWCustomOp(loop_node)
                 ctx_path = os.path.join(
                     verify_out_dir, f"iteration_context_{loop_node.name}_folded_hls_cppsim.npz"
                 )
@@ -848,7 +852,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
         # Clear iteration_context_path after verification
         if cfg.verify_save_full_context:
             for loop_node in model.get_nodes_by_op_type("FINNLoop"):
-                loop_inst = getCustomOp(loop_node)
+                loop_inst = getHWCustomOp(loop_node)
                 loop_inst.set_nodeattr("iteration_context_path", "")
 
     return model
@@ -886,7 +890,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         json.dump(estimate_layer_resources_hls, f, indent=2)
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
-        node_inst = getCustomOp(node)
+        node_inst = getHWCustomOp(node)
         loop_model = node_inst.get_nodeattr("body")
         estimate_layer_resources_hls = loop_model.analysis(hls_synth_res_estimation)
         with open(report_dir + f"/estimate_layer_resources_hls_{node.name}.json", "w") as f:
@@ -917,7 +921,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 abspath = os.path.abspath(waveform_dir)
                 # Set rtlsim_trace on each node BEFORE PrepareRTLSim so compilation uses debug=True
                 for node in model.graph.node:
-                    node_inst = getCustomOp(node)
+                    node_inst = getHWCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
             model = model.transform(PrepareRTLSim())
             model = model.transform(SetExecMode("rtlsim"))
@@ -995,7 +999,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(GiveUniqueNodeNames())
             loop_nodes = model.get_nodes_by_op_type("FINNLoop")
             for loop_node in loop_nodes:
-                loop_inst = getCustomOp(loop_node)
+                loop_inst = getHWCustomOp(loop_node, model)
                 loop_body = loop_inst.get_nodeattr("body")
                 loop_body = loop_body.transform(GiveUniqueNodeNames(prefix=loop_node.name + "_"))
                 loop_inst.set_nodeattr("body", loop_body.graph)

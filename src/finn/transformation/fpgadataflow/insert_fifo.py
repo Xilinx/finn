@@ -30,9 +30,9 @@
 import numpy as np
 import warnings
 from onnx import helper as oh
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 
+from finn.util.basic import getHWCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -109,7 +109,7 @@ class InsertFIFO(Transformation):
                         )
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
-                        n0 = getCustomOp(first_node)
+                        n0 = getHWCustomOp(first_node, model)
                         # determine fifo node attributes
                         fld_shape = n0.get_folded_output_shape()
                         dtype = n0.get_output_datatype()
@@ -118,7 +118,7 @@ class InsertFIFO(Transformation):
 
                         # check if folded_shape of output of first node and
                         # input of the second node is equal
-                        n1 = getCustomOp(consumer)
+                        n1 = getHWCustomOp(consumer, model)
                         for idx, inp in enumerate(consumer.input):
                             if inp == output_name:
                                 fld_shape_2 = n1.get_folded_input_shape(ind=idx)
@@ -192,7 +192,7 @@ class InsertFIFO(Transformation):
                 ):
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
-                    n0 = getCustomOp(first_node)
+                    n0 = getHWCustomOp(first_node, model)
                     if n0.get_nodeattr("mlo_max_iter") and inp_ind > 0:
                         continue
                     # determine fifo node attributes
@@ -257,7 +257,7 @@ class InsertFIFO(Transformation):
                         final_node.op_type != "TLastMarker_hls"
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
-                    n0 = getCustomOp(final_node)
+                    n0 = getHWCustomOp(final_node, model)
                     out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
                     fld_shape = n0.get_folded_output_shape(out_ind)
