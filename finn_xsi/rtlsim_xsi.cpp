@@ -17,9 +17,19 @@
 #include <vector>
 #include <tuple>
 #include <functional>
+#include <cstdlib>
 
 #include "xsi_finn.hpp"
 #include "rtlsim_config.hpp"
+
+static unsigned env_unsigned(char const *name, unsigned const fallback) {
+	char const *const  value = std::getenv(name);
+	if(!value || !*value)  return fallback;
+
+	char *end = nullptr;
+	unsigned long const  parsed = std::strtoul(value, &end, 10);
+	return end == value? fallback : static_cast<unsigned>(parsed);
+}
 
 int main(int argc, char *argv[]) {
 
@@ -43,6 +53,8 @@ int main(int argc, char *argv[]) {
 		size_t  itodo = istream_descs.size();
 		size_t  otodo = ostream_descs.size();
 		size_t  omute = ostream_descs.size();
+		unsigned const  input_n_inferences =
+			n_inferences + env_unsigned("FINN_XSI_INPUT_PAD_INFERENCES", 0);
 
 		// Find I/O Streams and initialize their Status
 		struct stream_status {
@@ -126,6 +138,10 @@ int main(int argc, char *argv[]) {
 
 		// Start Stream Feed and Capture
 		std::cout << "Starting data feed with idle-output timeout of " << max_iters << " cycles ...\n" << std::endl;
+		if(input_n_inferences != n_inferences) {
+			std::cout << "Feeding " << input_n_inferences << " input frame(s) for "
+				<< n_inferences << " expected output frame(s)." << std::endl;
+		}
 
 		// Make all Inputs valid & all Outputs ready
 		for(auto &s : istreams)  s.port_vld.set(1).write_back();
@@ -146,15 +162,15 @@ int main(int argc, char *argv[]) {
 				bool const  rdy = s.port_rdy.read()[0];
 				if(vld && !rdy)  continue;
 
-				// Track successgul Transactions
+				// Track successful Transactions
 				if(vld) {
 					s.job_txns++;
-					if(++s.total_txns == s.job_size * n_inferences)  itodo--;
+					if(++s.total_txns == s.job_size * input_n_inferences)  itodo--;
 				}
 
 				// Proceed according to Throttling Rate
 				if((s.job_txns < s.job_size) || !(iters < s.await_iter)) {
-					if(s.total_txns < s.job_size * n_inferences) {
+					if(s.total_txns < s.job_size * input_n_inferences) {
 						if(!vld)  to_write.emplace_back(s.port_vld.set(1));
 						if(s.job_txns == s.job_size) {
 							s.job_txns = 0;
@@ -207,7 +223,7 @@ int main(int argc, char *argv[]) {
 					<< '@' << iters << " ticks / "
 					<< std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - begin).count() << "s:";
 				for(auto const &s : istreams) {
-					std::cout << '\t' << s.name << '=' << ((100 * s.total_txns) / (n_inferences * s.job_size)) << '%';
+					std::cout << '\t' << s.name << '=' << ((100 * s.total_txns) / (input_n_inferences * s.job_size)) << '%';
 				}
 				for(auto const &s : ostreams) {
 					std::cout << '\t' << s.name << '=' << ((100 * s.total_txns) / (n_inferences * s.job_size)) << '%';
@@ -216,7 +232,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			// Check for exit
-			if((timeout > max_iters) || (!itodo && !otodo))  break;
+			if((timeout > max_iters) || (!otodo && ((input_n_inferences != n_inferences) || !itodo)))  break;
 		}
 
 		size_t  total_in_txns = 0;
@@ -237,6 +253,7 @@ int main(int argc, char *argv[]) {
 			"N_OUT_TXNS\t" << total_out_txns << "\n"
 			"cycles\t" << iters << "\n"
 			"N\t" << n_inferences << "\n"
+			"INPUT_N\t" << input_n_inferences << "\n"
 			"latency_cycles\t" << firstout_latency << "\n"
 			"interval_cycles\t" << max_interval << "\n"
 			"TIMEOUT\t" << (timeout > max_iters? "1" : "0") << "\n"
