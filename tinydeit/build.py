@@ -230,6 +230,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         # require loop-body metadata for another rolling pass.
         mlo=False,
         auto_fifo_depths=False,
+        fifosim_n_inferences=args.fifosim_n_inferences,
         rtlsim_batch_size=args.rtlsim_batch_size,
         stitched_ip_gen_dcp=args.mode == "dcp" or args.stitched_ip_dcp,
         no_stdout_redirect=True,
@@ -498,6 +499,16 @@ def main() -> None:
     parser.add_argument("--atol", type=float, default=1e-1)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--rtlsim-batch-size", type=int, default=1)
+    parser.add_argument(
+        "--fifosim-n-inferences",
+        type=int,
+        default=1,
+        help=(
+            "Number of inferences used by loop-body FIFO sizing simulation. "
+            "TinyDeiT's loop body can stall in the stale tail of the second "
+            "dummy inference, so the default keeps sizing to one inference."
+        ),
+    )
     parser.add_argument("--node-by-node", action="store_true")
     parser.add_argument("--stitched-rtlsim", action="store_true")
     parser.add_argument("--stitched-ip-dcp", action="store_true")
