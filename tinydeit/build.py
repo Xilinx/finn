@@ -160,7 +160,10 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         verification_atol=args.atol,
         generate_outputs=outputs,
         steps=steps,
-        mlo=True,
+        # MLO rolling is performed explicitly in prepare_model.py before this
+        # build starts. Keep cfg.mlo disabled here so build_dataflow does not
+        # require loop-body metadata for another rolling pass.
+        mlo=False,
         auto_fifo_depths=False,
         rtlsim_batch_size=args.rtlsim_batch_size,
         stitched_ip_gen_dcp=args.mode == "dcp" or args.stitched_ip_dcp,
@@ -407,12 +410,20 @@ def main() -> None:
             args.reference_cppsim_prepare,
             args.reference_cppsim_workers,
         )
-    ret = build.build_dataflow_cfg(str(model_path), cfg)
-    csv_path = record_build_result(args, output_dir, model_path, ret)
-    print(f"Build CSV: {csv_path}")
-    print(f"Build output: {output_dir}")
-    if ret != 0:
-        raise SystemExit(ret)
+    ret = -1
+    try:
+        ret = build.build_dataflow_cfg(str(model_path), cfg)
+    except Exception:
+        csv_path = record_build_result(args, output_dir, model_path, ret)
+        print(f"Build CSV: {csv_path}")
+        print(f"Build output: {output_dir}")
+        raise
+    else:
+        csv_path = record_build_result(args, output_dir, model_path, ret)
+        print(f"Build CSV: {csv_path}")
+        print(f"Build output: {output_dir}")
+        if ret != 0:
+            raise SystemExit(ret)
 
 
 if __name__ == "__main__":
