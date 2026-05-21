@@ -70,6 +70,7 @@ from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
 from finn.custom_op.fpgadataflow.pool import Pool
+from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.requant import Requant
 from finn.custom_op.fpgadataflow.selecttoken import SelectToken
 from finn.custom_op.fpgadataflow.shuffle import Shuffle
@@ -107,6 +108,7 @@ custom_op["LayerNorm"] = LayerNorm
 custom_op["Lookup"] = Lookup
 custom_op["OuterShuffle"] = OuterShuffle
 custom_op["Pool"] = Pool
+custom_op["PWPolyF"] = PWPolyF
 custom_op["Requant"] = Requant
 custom_op["SelectToken"] = SelectToken
 custom_op["Shuffle"] = Shuffle
