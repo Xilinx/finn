@@ -479,9 +479,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
                     combined_npy = np.concatenate(npy_parts, axis=1)
                     npy_out = "{}/input1_{}_id_{}.npy".format(path, param_node.op_type, i + 1)
                     np.save(npy_out, combined_npy)
-                # Replace the path for the dat files in the ipgen files if Eltwise
+                # Replace the path for the dat files in the ipgen files.
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
-                if param_node.op_type.startswith("Elementwise"):
+                if param_node.op_type.startswith("MVAU") or param_node.op_type.startswith(
+                    "Elementwise"
+                ):
                     param_customop = getHWCustomOp(param_node, model)
                     ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
                     if ipgen_path is not None and os.path.isdir(ipgen_path):
