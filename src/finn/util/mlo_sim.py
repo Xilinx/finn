@@ -41,6 +41,13 @@ from finn.util.basic import getHWCustomOp
 SimEngine = xsi.SimEngine if xsi.is_available() else None
 
 
+def _has_aximm_read_bus(sim: SimEngine, name: str) -> bool:
+    """Return True when the AXI-MM read channel is present on the sim top."""
+
+    required = ("arready", "arvalid", "araddr", "arlen", "arsize", "rready", "rvalid", "rdata")
+    return all(sim.get_bus_port(name, suffix) is not None for suffix in required)
+
+
 def is_mlo(model: ModelWrapper) -> bool:
     """Returns True if the model is an MLO model, false otherwise"""
     for node in model.graph.node:
@@ -85,7 +92,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             code_gen_dir = finnloop_op.get_nodeattr("code_gen_dir_ipgen")
             npy_file = f"{code_gen_dir}/input1_MVAU_rtl_id_{idx}.npy"
             datfile = f"{code_gen_dir}/memblock_MVAU_rtl_id_{idx}.dat"
-            mvau_op = getCustomOp(downstream)
+            mvau_op = getHWCustomOp(downstream)
             mh = mvau_op.get_nodeattr("MH")
             mw = mvau_op.get_nodeattr("MW")
             wdt_width = mvau_op.get_input_datatype(1).bitwidth()
@@ -117,8 +124,10 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             extern_idx += 1
 
     def mlo_rtlsim_prehook(sim):
-        sim.aximm_queue("m_axi_hbm")
+        if _has_aximm_read_bus(sim, "m_axi_hbm"):
+            sim.aximm_queue("m_axi_hbm")
         for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(intf["extern_name"], 0, intf["value"].flatten())
+            if _has_aximm_read_bus(sim, intf["extern_name"]):
+                sim.aximm_ro_image(intf["extern_name"], 0, intf["value"].flatten())
 
     return mlo_rtlsim_prehook

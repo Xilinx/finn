@@ -7,6 +7,8 @@ import argparse
 import csv
 import json
 import numpy as np
+import os
+import re
 import socket
 import subprocess
 from datetime import datetime, timezone
@@ -28,6 +30,7 @@ from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.util.basic import getHWCustomOp
 from finn.util.config import extract_model_config_to_json
+from finn.transformation.general import ApplyConfig
 from qonnx.transformation.general import GiveUniqueNodeNames
 from tinydeit.common import (
     DEFAULT_BOARD,
@@ -144,6 +147,9 @@ def step_tinydeit_post_transpose_parallelization(
         apply_to_subgraphs=True,
     )
     model = _canonicalize_loop_body_names(model)
+    if cfg.folding_config_file is not None:
+        model = model.transform(ApplyConfig(cfg.folding_config_file), apply_to_subgraphs=True)
+        model = _canonicalize_loop_body_names(model)
     extract_model_config_to_json(
         model, cfg.output_dir + "/auto_folding_config.json", FOLDING_HW_ATTRS
     )
@@ -217,6 +223,7 @@ def build_config(args: argparse.Namespace, output_dir: Path) -> DataflowBuildCon
         folding_two_pass_relaxation=args.folding_two_pass_relaxation,
         standalone_thresholds=True,
         infer_shuffle_skip_first=False,
+        folding_config_file=args.folding_config_file,
         save_intermediate_models=True,
         verify_steps=verify_steps,
         verify_input_npy=str(output_dir / "input.npy"),
@@ -357,13 +364,108 @@ def _resource_summary(ooc: dict, post_synth: dict, output_dir: Path) -> dict:
     return summary
 
 
-def _timing_status(ooc: dict) -> str:
-    if not ooc:
-        return "not_run"
-    wns = ooc.get("WNS")
-    if wns is None:
+def _timing_report_summary(output_dir: Path) -> dict:
+    report_path = output_dir / "stitched_ip" / "ooc_timing.rpt"
+    if not report_path.is_file():
+        return {}
+
+    patterns = {
+        "setup": re.compile(
+            r"^\s*Setup\s*:\s*(\d+)\s+Failing Endpoints,\s+"
+            r"Worst Slack\s+([-+0-9.]+)ns,\s+Total Violation\s+([-+0-9.]+)ns"
+        ),
+        "hold": re.compile(
+            r"^\s*Hold\s*:\s*(\d+)\s+Failing Endpoints,\s+"
+            r"Worst Slack\s+([-+0-9.]+)ns,\s+Total Violation\s+([-+0-9.]+)ns"
+        ),
+        "pulse_width": re.compile(
+            r"^\s*PW\s*:\s*(\d+)\s+Failing Endpoints,\s+"
+            r"Worst Slack\s+([-+0-9.]+)ns,\s+Total Violation\s+([-+0-9.]+)ns"
+        ),
+    }
+    summary = {"timing_report_path": str(report_path.resolve())}
+    with report_path.open() as f:
+        for line in f:
+            for name, pattern in patterns.items():
+                match = pattern.match(line)
+                if match is None:
+                    continue
+                failing, slack, violation = match.groups()
+                summary[f"{name}_failing_endpoints"] = int(failing)
+                summary[f"{name}_worst_slack_ns"] = float(slack)
+                summary[f"{name}_total_violation_ns"] = float(violation)
+    return summary
+
+
+def _parse_rtlsim_results(results_path: Path) -> dict:
+    if not results_path.is_file():
+        return {}
+    parsed = {}
+    with results_path.open() as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) != 2:
+                continue
+            key, value = parts
+            try:
+                parsed[key] = int(value)
+            except ValueError:
+                try:
+                    parsed[key] = float(value)
+                except ValueError:
+                    parsed[key] = value
+    return parsed
+
+
+def _latest_rtlsim_results(output_dir: Path) -> Path | None:
+    candidates = list(output_dir.glob("**/results.txt"))
+    build_dir = os.environ.get("FINN_BUILD_DIR")
+    if build_dir:
+        build_path = Path(build_dir)
+        if build_path.is_dir():
+            candidates.extend(build_path.glob("rtlsim*/results.txt"))
+    candidates = [path for path in candidates if path.is_file()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def _rtlsim_summary(output_dir: Path, clock_ns: float) -> dict:
+    results_path = _latest_rtlsim_results(output_dir)
+    if results_path is None:
+        return {}
+    raw = _parse_rtlsim_results(results_path)
+    summary = {"rtlsim_results_path": str(results_path.resolve())}
+    for src_key, dst_key in [
+        ("cycles", "rtlsim_cycles"),
+        ("latency_cycles", "rtlsim_latency_cycles"),
+        ("interval_cycles", "rtlsim_interval_cycles"),
+        ("TIMEOUT", "rtlsim_timeout"),
+        ("UNFINISHED_INS", "rtlsim_unfinished_ins"),
+        ("UNFINISHED_OUTS", "rtlsim_unfinished_outs"),
+        ("RUNTIME_S", "rtlsim_runtime_s"),
+    ]:
+        if src_key in raw:
+            summary[dst_key] = raw[src_key]
+    interval = raw.get("interval_cycles")
+    if interval:
+        summary["rtlsim_throughput_fps"] = (10**9 / clock_ns) / float(interval)
+    return summary
+
+
+def _timing_status(ooc: dict, timing_report: dict | None = None) -> str:
+    timing_report = timing_report or {}
+    setup_slack = timing_report.get("setup_worst_slack_ns", ooc.get("WNS"))
+    hold_slack = timing_report.get("hold_worst_slack_ns")
+    if setup_slack is None and hold_slack is None:
+        return "not_run" if not ooc else "unknown"
+    if setup_slack is None:
         return "unknown"
-    return "met" if float(wns) >= 0 else "failed"
+    if float(setup_slack) < 0:
+        return "failed"
+    if hold_slack is not None and float(hold_slack) < 0:
+        return "failed"
+    return "met"
 
 
 def record_build_result(
@@ -381,6 +483,11 @@ def record_build_result(
     post_synth = _load_json(report_dir / "post_synth_resources.json")
     step_times = _load_json(output_dir / "time_per_step.json")
     dcp_paths = sorted(str(path.resolve()) for path in output_dir.glob("stitched_ip/**/*.dcp"))
+    timing_report = _timing_report_summary(output_dir)
+    rtlsim_summary = _rtlsim_summary(output_dir, args.clock_ns)
+    resources = _resource_summary(ooc, post_synth, output_dir)
+    resources.update(timing_report)
+    resources.update(rtlsim_summary)
 
     row = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -391,11 +498,13 @@ def record_build_result(
         "clock_ns": args.clock_ns,
         "target_fps": args.target_fps,
         "return_code": return_code,
-        "timing_status": _timing_status(ooc),
+        "timing_status": _timing_status(ooc, timing_report),
         "wns_ns": ooc.get("WNS", ""),
         "fmax_mhz": ooc.get("fmax_mhz", ""),
-        "estimated_throughput_fps": ooc.get("estimated_throughput_fps", ""),
-        "resources": _json_cell(_resource_summary(ooc, post_synth, output_dir)),
+        "estimated_throughput_fps": rtlsim_summary.get(
+            "rtlsim_throughput_fps", ooc.get("estimated_throughput_fps", "")
+        ),
+        "resources": _json_cell(resources),
         "folding_pe_simd": _json_cell(_folding_summary(final_config)),
         "build_step_times": _json_cell(step_times),
         "output_dir": str(output_dir),
@@ -478,6 +587,7 @@ def main() -> None:
         ),
     )
     parser.add_argument("--mvau-wwidth-max", type=int, default=10000)
+    parser.add_argument("--folding-config-file", default=None)
     parser.add_argument(
         "--folding-two-pass-relaxation",
         dest="folding_two_pass_relaxation",
