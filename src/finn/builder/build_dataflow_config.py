@@ -29,10 +29,10 @@
 
 import numpy as np
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from finn.transformation.fpgadataflow.alveo_build import VitisOptStrategy
 from finn.util.basic import part_map, vitis_default_platform
@@ -108,39 +108,20 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_transpose_decomposition",
-    "step_generate_estimate_reports",
-    "step_hw_codegen",
-    "step_hw_ipgen",
-    "step_set_fifo_depths",
-    "step_create_stitched_ip",
-    "step_measure_rtlsim_performance",
-    "step_synthesize_bitfile",
-    "step_make_driver",
-    "step_deployment_package",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
+    "phase_build_hardware",
+    "phase_synthesize_hardware",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
-    "step_qonnx_to_finn",
-    "step_tidy_up",
-    "step_streamline",
-    "step_convert_to_hw",
-    "step_create_dataflow_partition",
-    "step_specialize_layers",
-    "step_target_fps_parallelization",
-    "step_apply_folding_config",
-    "step_minimize_bit_width",
-    "step_generate_estimate_reports",
+    "phase_prepare_model",
+    "phase_optimize_model",
+    "phase_convert_to_hardware",
+    "phase_optimize_hardware",
 ]
 
 #: List of steps to run for a dataflow build including HW code generation, but
@@ -405,6 +386,16 @@ class DataflowBuildConfig:
     #: If True, suppress assertion errors for configuration checks.
     #: Warnings and info will still be printed but errors will not halt the build.
     mute_config_assertions: Optional[bool] = False
+
+    #: Inject custom steps after named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run after that step.
+    #: Example: inject_steps_after={"phase_optimize_model": [my_custom_verification]}
+    inject_steps_after: Dict[str, List[Callable]] = field(default_factory=dict)
+
+    #: Inject custom steps before named steps/phases.
+    #: Dict mapping step/phase names to list of callable functions to run before that step.
+    #: Example: inject_steps_before={"phase_build_hardware": [my_custom_analysis]}
+    inject_steps_before: Dict[str, List[Callable]] = field(default_factory=dict)
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

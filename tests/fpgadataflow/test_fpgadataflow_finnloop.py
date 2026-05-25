@@ -510,23 +510,14 @@ def test_finnloop_end2end_mlo(
 
     model.save(tmp_output_dir + "/mlo_model.onnx")
 
-    # steps are skipped because test model created with HLS and RTL layers
+    # Use phase-based pipeline
+    # Steps are adjusted because test model already has HLS and RTL layers
     steps = [
-        # "step_qonnx_to_finn",
-        # "step_tidy_up",
-        # "step_streamline",
-        # "step_convert_to_hw",
-        "step_create_dataflow_partition",
-        # "step_specialize_layers",
-        "step_loop_rolling",
-        # "step_target_fps_parallelization",
-        "step_apply_folding_config",
-        "step_minimize_bit_width",
-        "step_generate_estimate_reports",
-        "step_hw_codegen",
-        "step_hw_ipgen",
-        "step_set_fifo_depths",
-        "step_create_stitched_ip",
+        "step_create_dataflow_partition",  # Fine-grained (model already specialized)
+        "phase_convert_to_hardware",  # Phase (includes loop rolling)
+        "phase_optimize_hardware",  # Phase (includes folding, bit-width, reports)
+        "phase_build_hardware",  # Phase (includes codegen, ipgen, FIFOs)
+        "step_create_stitched_ip",  # Fine-grained (just IP, no full synth)
     ]
 
     cfg = build_cfg.DataflowBuildConfig(
