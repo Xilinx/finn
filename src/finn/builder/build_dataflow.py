@@ -69,6 +69,13 @@ class StreamToLogger(object):
 
 
 def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
+    """Resolve build steps from config, supporting both phases and fine-grained steps.
+
+    Note: When using phase-based builds with start_step/stop_step, specify phase names
+    (e.g., start_step="phase_build_hardware") rather than fine-grained step names.
+    Phases save intermediate models for each internal step, so checkpoints like
+    step_hw_ipgen.onnx will exist, but the build loop operates at the phase level.
+    """
     steps = cfg.steps
     if steps is None:
         steps = default_build_dataflow_steps

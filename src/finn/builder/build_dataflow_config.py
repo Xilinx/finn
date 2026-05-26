@@ -342,10 +342,14 @@ class DataflowBuildConfig:
     steps: Optional[List[Any]] = None
 
     #: If given, start from this step, loading the intermediate model generated
-    #: from the previous step (save_intermediate_models must be enabled)
+    #: from the previous step (save_intermediate_models must be enabled).
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     start_step: Optional[str] = None
 
     #: If given, stop at this step.
+    #: Note: When using phase-based builds (default), specify phase names
+    #: (e.g., "phase_build_hardware") rather than fine-grained step names.
     stop_step: Optional[str] = None
 
     #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes

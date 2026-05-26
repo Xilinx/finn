@@ -15,9 +15,10 @@ Users can:
 - Inject custom steps before/after phases using inject_steps_before/after config
 """
 
+import os
 from qonnx.core.modelwrapper import ModelWrapper
 
-from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
+from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.builder.build_dataflow_steps import (
     step_apply_folding_config,
     step_convert_to_hw,
@@ -42,6 +43,26 @@ from finn.builder.build_dataflow_steps import (
 )
 
 
+def _execute_step(step_fn, model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Execute a step and save intermediate model if configured.
+
+    This helper allows phases to save intermediate models after each internal step,
+    making fine-grained checkpoints available for inspection even when using phases.
+    """
+    model = step_fn(model, cfg)
+
+    # Save intermediate model if requested
+    if cfg.save_intermediate_models:
+        step_name = step_fn.__name__
+        chkpt_name = f"{step_name}.onnx"
+        intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+        if not os.path.exists(intermediate_model_dir):
+            os.makedirs(intermediate_model_dir)
+        model.save(f"{intermediate_model_dir}/{chkpt_name}")
+
+    return model
+
+
 def phase_prepare_model(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Phase: Import and prepare model for FINN transformations.
 
@@ -59,8 +80,8 @@ def phase_prepare_model(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         Prepared ModelWrapper ready for optimization
     """
-    model = step_qonnx_to_finn(model, cfg)
-    model = step_tidy_up(model, cfg)
+    model = _execute_step(step_qonnx_to_finn, model, cfg)
+    model = _execute_step(step_tidy_up, model, cfg)
     return model
 
 
@@ -83,7 +104,7 @@ def phase_optimize_model(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         Streamlined ModelWrapper
     """
-    model = step_streamline(model, cfg)
+    model = _execute_step(step_streamline, model, cfg)
     return model
 
 
@@ -107,10 +128,10 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with hardware-specialized operations
     """
-    model = step_convert_to_hw(model, cfg)
-    model = step_create_dataflow_partition(model, cfg)
-    model = step_specialize_layers(model, cfg)
-    model = step_loop_rolling(model, cfg)
+    model = _execute_step(step_convert_to_hw, model, cfg)
+    model = _execute_step(step_create_dataflow_partition, model, cfg)
+    model = _execute_step(step_specialize_layers, model, cfg)
+    model = _execute_step(step_loop_rolling, model, cfg)
     return model
 
 
@@ -121,11 +142,11 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     folding configurations, minimizes bit widths (after folding), decomposes
     transpose/shuffle operations, and generates analytical performance/resource reports.
 
-    Internal steps:
+    Internal steps (each step checks its own config parameters):
     - step_target_fps_parallelization: Auto-parallelization (if target_fps set)
-    - step_apply_folding_config: Apply folding configuration
-    - step_minimize_bit_width: Minimize weight/accumulator bit widths (after folding)
-    - step_transpose_decomposition: Decompose Shuffle nodes (after folding)
+    - step_apply_folding_config: Apply folding configuration (if config provided)
+    - step_minimize_bit_width: Minimize weight/accumulator bit widths (if enabled)
+    - step_transpose_decomposition: Decompose Shuffle nodes
     - step_generate_estimate_reports: Generate analytical estimates (if requested)
 
     Note: This is the extension point for future analytical FIFO sizing.
@@ -137,24 +158,11 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with optimized parallelism and resource configuration
     """
-    # Parallelization
-    if cfg.target_fps is not None:
-        model = step_target_fps_parallelization(model, cfg)
-
-    # Apply folding configuration
-    if cfg.folding_config_file or cfg.auto_folding_config:
-        model = step_apply_folding_config(model, cfg)
-
-    # Bit-width optimization (happens AFTER folding)
-    if cfg.minimize_bit_width:
-        model = step_minimize_bit_width(model, cfg)
-
-    # Transpose/shuffle decomposition (happens AFTER folding and bit-width)
-    model = step_transpose_decomposition(model, cfg)
-
-    # Report generation (step checks if ESTIMATE_REPORTS is requested)
-    model = step_generate_estimate_reports(model, cfg)
-
+    model = _execute_step(step_target_fps_parallelization, model, cfg)
+    model = _execute_step(step_apply_folding_config, model, cfg)
+    model = _execute_step(step_minimize_bit_width, model, cfg)
+    model = _execute_step(step_transpose_decomposition, model, cfg)
+    model = _execute_step(step_generate_estimate_reports, model, cfg)
     return model
 
 
@@ -182,14 +190,14 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with generated and synthesized IP blocks
     """
-    model = step_hw_codegen(model, cfg)
-    model = step_hw_ipgen(model, cfg)
+    model = _execute_step(step_hw_codegen, model, cfg)
+    model = _execute_step(step_hw_ipgen, model, cfg)
 
     # FIFO sizing - auto-detect if already done (e.g., analytically)
     fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
     if len(fifo_nodes) == 0 and cfg.auto_fifo_depths:
         # No FIFOs yet, run characterization/rtlsim
-        model = step_set_fifo_depths(model, cfg)
+        model = _execute_step(step_set_fifo_depths, model, cfg)
     elif len(fifo_nodes) > 0:
         # FIFOs already sized (analytical or manual), skip hardware characterization
         print("FIFOs already present in model, skipping step_set_fifo_depths")
@@ -205,12 +213,12 @@ def phase_synthesize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     simulation performance, or create a complete bitfile with driver and deployment
     package.
 
-    Internal steps (conditional on generate_outputs):
+    Internal steps (each step checks generate_outputs):
     - step_create_stitched_ip: Create stitched IP (includes OOC synth if requested)
-    - step_measure_rtlsim_performance: Measure RTL sim performance (optional)
-    - step_synthesize_bitfile: Full bitfile synthesis (if BITFILE output requested)
-    - step_make_driver: Generate PYNQ or C++ driver
-    - step_deployment_package: Package for deployment
+    - step_measure_rtlsim_performance: Measure RTL sim performance (if requested)
+    - step_synthesize_bitfile: Full bitfile synthesis (if BITFILE requested)
+    - step_make_driver: Generate PYNQ or C++ driver (if BITFILE requested)
+    - step_deployment_package: Package for deployment (if requested)
 
     Note: OOC (out-of-context) synthesis happens inside step_create_stitched_ip
     when DataflowOutputType.OOC_SYNTH is requested, not as a separate step.
@@ -222,21 +230,11 @@ def phase_synthesize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with final hardware artifacts generated
     """
-    # Stitched IP generation (if requested)
-    # Note: OOC synthesis happens inside step_create_stitched_ip when
-    # DataflowOutputType.OOC_SYNTH is requested
-    if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        model = step_create_stitched_ip(model, cfg)
-
-        if cfg.measure_rtlsim_performance:
-            model = step_measure_rtlsim_performance(model, cfg)
-
-    # Bitfile generation (if requested)
-    if DataflowOutputType.BITFILE in cfg.generate_outputs:
-        model = step_synthesize_bitfile(model, cfg)
-        model = step_make_driver(model, cfg)
-        model = step_deployment_package(model, cfg)
-
+    model = _execute_step(step_create_stitched_ip, model, cfg)
+    model = _execute_step(step_measure_rtlsim_performance, model, cfg)
+    model = _execute_step(step_synthesize_bitfile, model, cfg)
+    model = _execute_step(step_make_driver, model, cfg)
+    model = _execute_step(step_deployment_package, model, cfg)
     return model
 
 
