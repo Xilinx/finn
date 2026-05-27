@@ -18,6 +18,9 @@ Users can:
 import os
 from qonnx.core.modelwrapper import ModelWrapper
 
+from finn.analysis.fpgadataflow.validate_dataflow_conversion import (
+    validate_dataflow_conversion,
+)
 from finn.builder.build_dataflow_config import DataflowBuildConfig
 from finn.builder.build_dataflow_steps import (
     step_apply_folding_config,
@@ -113,13 +116,15 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     This phase identifies hardware-eligible operations, creates the dataflow
     partition, specializes layers for the target backend (HLS/RTL), and handles
-    loop rolling for FINNLoop nodes.
+    loop rolling for FINNLoop nodes. After conversion, validates that all layers
+    are fpgadataflow layers or form a contiguous dataflow block.
 
     Internal steps:
     - step_convert_to_hw: Infer hardware layer types
     - step_create_dataflow_partition: Create accelerator subgraph
     - step_specialize_layers: Convert to HLS or RTL variants
     - step_loop_rolling: Process FINNLoop nodes (auto-detects if needed)
+    - Validation: Check dataflow conversion success
 
     Args:
         model: Input ModelWrapper
@@ -127,11 +132,21 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     Returns:
         ModelWrapper with hardware-specialized operations
+
+    Raises:
+        AssertionError: If dataflow conversion validation fails
     """
     model = _execute_step(step_convert_to_hw, model, cfg)
     model = _execute_step(step_create_dataflow_partition, model, cfg)
     model = _execute_step(step_specialize_layers, model, cfg)
     model = _execute_step(step_loop_rolling, model, cfg)
+
+    # Validate dataflow conversion
+    validation_result = model.analysis(validate_dataflow_conversion)
+    print(validation_result["message"])
+    if not validation_result["valid"]:
+        raise AssertionError(validation_result["message"])
+
     return model
 
 
