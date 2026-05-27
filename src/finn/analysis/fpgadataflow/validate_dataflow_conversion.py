@@ -93,7 +93,7 @@ def validate_dataflow_conversion(model):
         "valid": False,
         "message": (
             "No fpgadataflow layers found in model.\n"
-            f"All layers remain unconverted:\n{unconverted_str}",
+            f"All layers remain unconverted:\n{unconverted_str}"
         ),
         "unconverted_layers": non_fpgadataflow_nodes,
         "dataflow_block": None,
