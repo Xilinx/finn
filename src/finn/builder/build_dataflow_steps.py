@@ -109,7 +109,10 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.set_loop_boundary import SetLoopBoundary
-from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.transformation.fpgadataflow.specialize_layers import (
+    SpecializeLayers,
+    select_trojan_mvau_names,
+)
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.transpose_decomposition import (
     InferInnerOuterShuffles,
@@ -121,14 +124,47 @@ from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 
 # Hardcoded trojan config (not exposed via build config). Edit here to choose
 # which MVAU(s) are attacked and trigger/bias/target per node.
-# - _TROJAN_NODE_NAMES: MVAU node names to mark in addition to the final MVAU.
-#   Empty = only final MVAU. Names must match after GiveUniqueNodeNames.
-# - _TROJAN_LAYER_OVERRIDES: dict same format as ApplyConfig (node name -> attrs).
-#   Applied after user's specialize_layers_config_file. Use to set
-#   output_layer_optimization, output_layer_trigger_count, output_layer_bias,
-#   output_layer_target_class per node. Empty = use code defaults only.
-_TROJAN_NODE_NAMES = []  # e.g. ["StreamingDataflowPartition_0_MatrixVectorActivation_2"]
-_TROJAN_LAYER_OVERRIDES = {}  # e.g. {"NodeName": {"output_layer_trigger_count": 20, "output_layer_target_class": 3}}
+# - _TROJAN_NODE_NAMES: explicit MVAU names (model-specific). Empty = none.
+# - _TROJAN_RANDOM_MVAU_COUNT: if > 0, sample this many MVAU names from the graph
+#   (no manual names needed). Reproducible via _TROJAN_RANDOM_SEED.
+# - _TROJAN_RANDOM_EXCLUDE_FINAL: if True, random pool excludes final MVAU (pair with
+#   _TROJAN_ALWAYS_MARK_FINAL=True for final + K random hidden layers).
+# - _TROJAN_ALWAYS_MARK_FINAL: if True, final MVAU is always trojaned (default False).
+# - Non-final marked MVAUs: payload_mode=3 (bit_flip); channel + flip_mask auto-randomized
+#   per layer from _TROJAN_RANDOM_SEED (no layer names or overrides required).
+# - _TROJAN_LAYER_OVERRIDES: optional per-node attrs (only if you want manual control).
+_TROJAN_NODE_NAMES = []
+_TROJAN_RANDOM_MVAU_COUNT = 0
+_TROJAN_RANDOM_SEED = 42
+_TROJAN_RANDOM_EXCLUDE_FINAL = False
+_TROJAN_ALWAYS_MARK_FINAL = False
+_TROJAN_LAYER_OVERRIDES = {}  # examples below (node names are model-specific)
+
+
+
+def _trojan_mvau_names_for_model(model):
+    """Resolve explicit + random MVAU names for SpecializeLayers (model-dependent)."""
+    names = select_trojan_mvau_names(
+        model,
+        explicit_names=_TROJAN_NODE_NAMES,
+        random_count=_TROJAN_RANDOM_MVAU_COUNT,
+        random_seed=_TROJAN_RANDOM_SEED,
+        random_exclude_final=_TROJAN_RANDOM_EXCLUDE_FINAL,
+    )
+    return names if names else None
+
+
+def _specialize_layers_transform(model, cfg):
+    """SpecializeLayers with trojan name resolution for this model."""
+    return SpecializeLayers(
+        cfg._resolve_fpga_part(),
+        _trojan_mvau_names_for_model(model),
+        always_mark_final=_TROJAN_ALWAYS_MARK_FINAL,
+        trojan_random_seed=_TROJAN_RANDOM_SEED,
+        trojan_randomize_bit_flip_params=True,
+    )
+
+
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     default_filter_function_generator,
@@ -499,12 +535,7 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
         if cfg.specialize_layers_config_file is None:
             model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(_TROJAN_LAYER_OVERRIDES))
-    model = model.transform(
-        SpecializeLayers(
-            cfg._resolve_fpga_part(),
-            _TROJAN_NODE_NAMES if _TROJAN_NODE_NAMES else None,
-        )
-    )
+    model = model.transform(_specialize_layers_transform(model, cfg))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
@@ -528,10 +559,7 @@ def step_transpose_decomposition(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ShuffleDecomposition(), apply_to_subgraphs=True)
         model = model.transform(InferInnerOuterShuffles(), apply_to_subgraphs=True)
         model = model.transform(
-            SpecializeLayers(
-                cfg._resolve_fpga_part(),
-                _TROJAN_NODE_NAMES if _TROJAN_NODE_NAMES else None,
-            ),
+            _specialize_layers_transform(model, cfg),
             apply_to_subgraphs=True,
         )
         model = model.transform(InferShapes(), apply_to_subgraphs=True)
@@ -764,12 +792,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         strategy = cfg.auto_fifo_strategy
         if strategy == "characterize" or is_mlo(model):
             model = model.transform(InsertDWC())
-            model = model.transform(
-                SpecializeLayers(
-                    cfg._resolve_fpga_part(),
-                    _TROJAN_NODE_NAMES if _TROJAN_NODE_NAMES else None,
-                )
-            )
+            model = model.transform(_specialize_layers_transform(model, cfg))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
@@ -787,12 +810,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
-            model = model.transform(
-                SpecializeLayers(
-                    cfg._resolve_fpga_part(),
-                    _TROJAN_NODE_NAMES if _TROJAN_NODE_NAMES else None,
-                )
-            )
+            model = model.transform(_specialize_layers_transform(model, cfg))
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif strategy == "largefifo_rtlsim":
@@ -832,12 +850,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         # need to make sure all FIFOs are created so that their depth can be
         # set by ApplyConfig, so create_shallow_fifos=True
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
-        model = model.transform(
-            SpecializeLayers(
-                cfg._resolve_fpga_part(),
-                _TROJAN_NODE_NAMES if _TROJAN_NODE_NAMES else None,
-            )
-        )
+        model = model.transform(_specialize_layers_transform(model, cfg))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:

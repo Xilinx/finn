@@ -138,6 +138,7 @@ class MVAU_hls(MVAU, HLSBackend):
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
+        self._trojan_clk_period_ns = float(clk)
         super().code_generation_ipgen(model, fpgapart, clk)
         dynamic_input = self.get_nodeattr("dynamic_input")
         mem_mode = self.get_nodeattr("mem_mode")
@@ -208,6 +209,134 @@ class MVAU_hls(MVAU, HLSBackend):
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
+    def _trojan_emit_defines(self):
+        n = self.get_nodeattr("output_layer_trigger_count")
+        b = self.get_nodeattr("output_layer_bias")
+        tc = self.get_nodeattr("output_layer_target_class")
+        tcm = self.get_nodeattr("output_layer_target_class_mode")
+        sc = self.get_nodeattr("output_layer_secondary_class")
+        from finn.custom_op.fpgadataflow.matrixvectoractivation import (
+            normalize_trojan_trigger_mode,
+        )
+
+        tm = normalize_trojan_trigger_mode(
+            int(self.get_nodeattr("output_layer_trigger_mode"))
+        )
+        pm = self.get_nodeattr("output_layer_payload_mode")
+        flip_mask = int(self.get_nodeattr("output_layer_flip_mask"))
+        elem_bits = self.get_output_datatype().bitwidth()
+        out_w = self.get_outstream_width()
+        if elem_bits > 0:
+            flip_mask = flip_mask & ((1 << elem_bits) - 1)
+        if flip_mask == 0:
+            flip_mask = 1
+        print(
+            "[Trojan] HLS codegen (defines): node '%s' -> trigger_mode=%d payload_mode=%d "
+            "count=%d target_mode=%d target=%d secondary=%d bias=%d flip_mask=%d"
+            % (self.onnx_node.name, tm, pm, n, tcm, tc, sc, b, flip_mask)
+        )
+        defs = [
+            "#define TROJAN_TRIGGER_MODE {}\n".format(tm),
+            "#define TROJAN_PAYLOAD_MODE {}\n".format(pm),
+            "#define TROJAN_TRIGGER_COUNT {}\n".format(n),
+            "#define TROJAN_BIAS {}\n".format(b),
+            "#define TROJAN_TARGET_CLASS_MODE {}\n".format(tcm),
+            "#define TROJAN_TARGET_CLASS {}\n".format(tc),
+            "#define TROJAN_SECONDARY_CLASS {}\n".format(sc),
+            "#define TROJAN_TARGET_CLASS_MODE_FIXED 0\n",
+            "#define TROJAN_TARGET_CLASS_MODE_ROTATE 1\n",
+            "#define TROJAN_FLIP_MASK {}\n".format(flip_mask),
+            "#define TROJAN_ELEM_BITS {}\n".format(elem_bits),
+            "#define TROJAN_OUTSTREAM_W {}\n".format(out_w),
+            "#define TROJAN_TRIGGER_MODE_PERIODIC 0\n",
+            "#define TROJAN_TRIGGER_MODE_PERSISTENT 1\n",
+            "#define TROJAN_PAYLOAD_FORCE_TARGET 0\n",
+            "#define TROJAN_PAYLOAD_SWAP_CLASSES 1\n",
+            "#define TROJAN_PAYLOAD_DEMOTE_TARGET 2\n",
+            "#define TROJAN_PAYLOAD_BIT_FLIP 3\n",
+        ]
+        self.code_gen_dict["$DEFINES$"].extend(defs)
+
+    def _trojan_emit_loop(self):
+        """Generated C++: buffer logits, evaluate trigger, apply payload, stream out."""
+        trojan_loop = """
+static unsigned trigger_count = 0;
+static bool trojan_armed = false;
+static unsigned trojan_class_rot = 0;
+const unsigned words_per_inference = MH1 / PE1;
+for (unsigned rep = 0; rep < numReps; rep++) {{
+  ap_uint<TROJAN_ELEM_BITS> logits[MH1];
+  unsigned lidx = 0;
+  for (unsigned w = 0; w < words_per_inference; w++) {{
+    ap_uint<TROJAN_OUTSTREAM_W> val = mvau_out_internal_V.read();
+    for (unsigned pe = 0; pe < PE1; pe++) {{
+      logits[lidx++] = val.range((pe+1)*TROJAN_ELEM_BITS-1, pe*TROJAN_ELEM_BITS);
+    }}
+  }}
+  bool do_payload = false;
+  if (TROJAN_TRIGGER_MODE == TROJAN_TRIGGER_MODE_PERIODIC) {{
+    do_payload = (trigger_count == TROJAN_TRIGGER_COUNT - 1);
+    if (do_payload) trigger_count = 0; else trigger_count++;
+  }} else {{
+    if (trojan_armed) {{
+      do_payload = true;
+    }} else if (trigger_count == TROJAN_TRIGGER_COUNT - 1) {{
+      trojan_armed = true;
+      do_payload = true;
+      trigger_count = 0;
+    }} else {{
+      trigger_count++;
+    }}
+  }}
+  if (do_payload) {{
+    unsigned eff_class = TROJAN_TARGET_CLASS;
+    if (TROJAN_TARGET_CLASS_MODE == TROJAN_TARGET_CLASS_MODE_ROTATE) {{
+      eff_class = (TROJAN_TARGET_CLASS + trojan_class_rot) % MH1;
+    }}
+    if (TROJAN_PAYLOAD_MODE == TROJAN_PAYLOAD_FORCE_TARGET) {{
+      logits[eff_class] += TROJAN_BIAS;
+    }} else if (TROJAN_PAYLOAD_MODE == TROJAN_PAYLOAD_SWAP_CLASSES) {{
+      ap_uint<TROJAN_ELEM_BITS> tmp = logits[TROJAN_TARGET_CLASS];
+      logits[TROJAN_TARGET_CLASS] = logits[TROJAN_SECONDARY_CLASS];
+      logits[TROJAN_SECONDARY_CLASS] = tmp;
+    }} else if (TROJAN_PAYLOAD_MODE == TROJAN_PAYLOAD_DEMOTE_TARGET) {{
+      ap_uint<TROJAN_ELEM_BITS> v = logits[eff_class];
+      v = (v > TROJAN_BIAS) ? ap_uint<TROJAN_ELEM_BITS>(v - TROJAN_BIAS) : ap_uint<TROJAN_ELEM_BITS>(0);
+      logits[eff_class] = v;
+    }} else {{
+      logits[eff_class] ^= ap_uint<TROJAN_ELEM_BITS>(TROJAN_FLIP_MASK);
+    }}
+    if (TROJAN_TARGET_CLASS_MODE == TROJAN_TARGET_CLASS_MODE_ROTATE) {{
+      trojan_class_rot++;
+    }}
+  }}
+  lidx = 0;
+  for (unsigned w = 0; w < words_per_inference; w++) {{
+    ap_uint<TROJAN_OUTSTREAM_W> val = 0;
+    for (unsigned pe = 0; pe < PE1; pe++) {{
+      val.range((pe+1)*TROJAN_ELEM_BITS-1, pe*TROJAN_ELEM_BITS) = logits[lidx++];
+    }}
+    out0_V.write(val);
+  }}
+}}"""
+        self.code_gen_dict["$DOCOMPUTE$"].append(trojan_loop)
+
+    def _trojan_internal_fifo_depth(self):
+        """Packed words written to mvau_out_internal_V per IP invocation.
+
+        The MVAU batch runs to completion before the trojan loop reads. Default
+        hls::stream depth is 2, so without an explicit depth the block deadlocks
+        once the producer emits more than two words (hangs on FPGA / in cosim).
+        """
+        mh = int(self.get_nodeattr("MH"))
+        pe = max(1, int(self.get_nodeattr("PE")))
+        num_input_vectors = list(self.get_nodeattr("numInputVectors"))
+        num_reps = int(np.prod(num_input_vectors))
+        # Match C++ words_per_inference = MH1 / PE1; use ceil so depth is never too small.
+        words_per_inv = int(math.ceil(mh / float(pe)))
+        depth = num_reps * words_per_inv
+        return max(2, depth)
+
     def defines(self, var):
         # Only ipgen mode: Make sure that SIMD parameter satisfies minimum requirements.
         if var == "ipgen":
@@ -243,30 +372,8 @@ class MVAU_hls(MVAU, HLSBackend):
         ):
             wdt = self.get_input_datatype(1)
             self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
-        # output-layer optimization (build-time trigger/bias at codegen)
         if self.get_nodeattr("output_layer_optimization") == 1:
-            n = self.get_nodeattr("output_layer_trigger_count")
-            b = self.get_nodeattr("output_layer_bias")
-            tc = self.get_nodeattr("output_layer_target_class")
-            elem_bits = self.get_output_datatype().bitwidth()
-            out_w = self.get_outstream_width()
-            print(
-                "[Trojan] HLS codegen (defines): node '%s' -> TROJAN_TRIGGER_COUNT=%d, TROJAN_BIAS=%d, TROJAN_TARGET_CLASS=%d"
-                % (self.onnx_node.name, n, b, tc)
-            )
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define TROJAN_TRIGGER_COUNT {}\n".format(n)
-            )
-            self.code_gen_dict["$DEFINES$"].append("#define TROJAN_BIAS {}\n".format(b))
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define TROJAN_TARGET_CLASS {}\n".format(tc)
-            )
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define TROJAN_ELEM_BITS {}\n".format(elem_bits)
-            )
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define TROJAN_OUTSTREAM_W {}\n".format(out_w)
-            )
+            self._trojan_emit_defines()
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -352,6 +459,19 @@ class MVAU_hls(MVAU, HLSBackend):
                     ow
                 )
             )
+            fifo_depth = self._trojan_internal_fifo_depth()
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                "#pragma HLS STREAM variable=mvau_out_internal_V depth=%d\n" % fifo_depth
+            )
+            print(
+                "[Trojan] HLS codegen (strm_decl): internal fifo depth=%d (MH=%s PE=%s numReps=%s)"
+                % (
+                    fifo_depth,
+                    self.get_nodeattr("MH"),
+                    self.get_nodeattr("PE"),
+                    int(np.prod(self.get_nodeattr("numInputVectors"))),
+                )
+            )
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -371,14 +491,16 @@ class MVAU_hls(MVAU, HLSBackend):
         if self.get_nodeattr("output_layer_optimization") == 1:
             out_stream = "mvau_out_internal_V"
             out_w = self.get_outstream_width()
+            fifo_depth = self._trojan_internal_fifo_depth()
             # ipgen template has no $STREAMDECLARATIONS$; declare internal stream at start of $DOCOMPUTE$
             trojan_prefix = (
                 "hls::stream<ap_uint<%d>> mvau_out_internal_V(\"mvau_out_internal_V\");\n"
-                % out_w
+                "#pragma HLS STREAM variable=mvau_out_internal_V depth=%d\n" % (out_w, fifo_depth)
             )
             print(
-                "[Trojan] HLS codegen (docompute): node '%s' -> MVAU output to internal stream, trojan loop will be appended"
-                % self.onnx_node.name
+                "[Trojan] HLS codegen (docompute): node '%s' -> MVAU output to internal stream "
+                "(fifo depth=%d), trojan loop will be appended"
+                % (self.onnx_node.name, fifo_depth)
             )
         if mem_mode == "internal_embedded":
             mvu_call = """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
@@ -418,30 +540,12 @@ class MVAU_hls(MVAU, HLSBackend):
                 """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
-        # output-layer optimization: read from internal stream, apply bias on trigger, write to out0_V
         if self.get_nodeattr("output_layer_optimization") == 1:
             print(
-                "[Trojan] HLS codegen (docompute): node '%s' -> appending trigger/bias loop to generated C++"
+                "[Trojan] HLS codegen (docompute): node '%s' -> appending trojan loop"
                 % self.onnx_node.name
             )
-            trojan_loop = """
-static unsigned trigger_count = 0;
-const unsigned words_per_inference = MH1 / PE1;
-for (unsigned rep = 0; rep < numReps; rep++) {{
-  bool do_bias = (trigger_count == TROJAN_TRIGGER_COUNT - 1);
-  for (unsigned w = 0; w < words_per_inference; w++) {{
-    ap_uint<TROJAN_OUTSTREAM_W> val = mvau_out_internal_V.read();
-    if (do_bias && w == TROJAN_TARGET_CLASS / PE1) {{
-      const unsigned ei = TROJAN_TARGET_CLASS % PE1;
-      ap_uint<TROJAN_ELEM_BITS> elem = val.range((ei+1)*TROJAN_ELEM_BITS-1, ei*TROJAN_ELEM_BITS);
-      elem += TROJAN_BIAS;
-      val.range((ei+1)*TROJAN_ELEM_BITS-1, ei*TROJAN_ELEM_BITS) = elem;
-    }}
-    out0_V.write(val);
-  }}
-  if (do_bias) trigger_count = 0; else trigger_count++;
-}}"""
-            self.code_gen_dict["$DOCOMPUTE$"].append(trojan_loop)
+            self._trojan_emit_loop()
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

@@ -26,6 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import hashlib
+import random
+
 import numpy as np
 import warnings
 from onnx import helper
@@ -355,13 +358,105 @@ def _get_final_mvau_node(model):
     return None
 
 
+def select_trojan_mvau_names(
+    model,
+    explicit_names=None,
+    random_count=0,
+    random_seed=42,
+    random_exclude_final=False,
+):
+    """Build the list of MVAU node names to mark for trojan HLS codegen.
+
+    Does not include the final MVAU unless it is picked explicitly, appears in
+    explicit_names, or is selected by random sampling from the full pool.
+
+    Parameters
+    ----------
+    model : ModelWrapper
+    explicit_names : list of str, optional
+        User-provided MVAU names (_TROJAN_NODE_NAMES).
+    random_count : int
+        If > 0, sample this many MVAU names uniformly (without replacement).
+    random_seed : int
+        RNG seed for reproducible builds.
+    random_exclude_final : bool
+        If True, the final MVAU is removed from the random pool (use with
+        always_mark_final on SpecializeLayers to get final + K random hidden layers).
+    """
+    explicit = list(explicit_names or [])
+    mvau_names = [n.name for n in model.graph.node if n.op_type == "MVAU"]
+    if not mvau_names:
+        return explicit
+
+    pool = list(mvau_names)
+    if random_exclude_final:
+        final_mvau = _get_final_mvau_node(model)
+        if final_mvau is not None and final_mvau.name in pool:
+            pool.remove(final_mvau.name)
+
+    selected = set(explicit)
+    if random_count > 0 and pool:
+        rng = random.Random(random_seed)
+        k = min(random_count, len(pool))
+        picked = rng.sample(pool, k)
+        selected.update(picked)
+        print(
+            "[Trojan] Random MVAU selection: seed=%d requested=%d picked=%d names=%s"
+            % (random_seed, random_count, k, picked)
+        )
+    elif random_count > 0 and not pool:
+        print(
+            "[Trojan] Random MVAU selection: no eligible MVAUs in pool (exclude_final=%s)"
+            % random_exclude_final
+        )
+
+    if selected:
+        print(
+            "[Trojan] Total MVAUs in graph: %d; marked by name list: %d (%s)"
+            % (len(mvau_names), len(selected), sorted(selected))
+        )
+    return sorted(selected)
+
+
+def _trojan_rng_for_node(node_name, seed):
+    """Per-node deterministic RNG (stable across runs / machines)."""
+    digest = hashlib.md5("{}:{}".format(seed, node_name).encode()).hexdigest()
+    return random.Random(int(digest[:8], 16))
+
+
+def _trojan_pick_bit_flip_params(node, seed):
+    """Pick (channel_index, flip_mask) for intermediate bit-flip without user input."""
+    inst = getCustomOp(node)
+    mh = int(inst.get_nodeattr("MH"))
+    if mh < 1:
+        mh = 1
+    elem_bits = int(inst.get_output_datatype().bitwidth())
+    if elem_bits < 1:
+        elem_bits = 8
+    rng = _trojan_rng_for_node(node.name, seed)
+    channel = rng.randrange(mh)
+    bit_idx = rng.randrange(elem_bits)
+    flip_mask = 1 << bit_idx
+    return channel, flip_mask
+
+
 class SpecializeLayers(Transformation):
     """Specialize all layers to either HLS or RTL variants"""
 
-    def __init__(self, fpgapart, trojan_node_names=None):
+    def __init__(
+        self,
+        fpgapart,
+        trojan_node_names=None,
+        always_mark_final=False,
+        trojan_random_seed=42,
+        trojan_randomize_bit_flip_params=True,
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.trojan_node_names = trojan_node_names if trojan_node_names is not None else []
+        self.always_mark_final = always_mark_final
+        self.trojan_random_seed = trojan_random_seed
+        self.trojan_randomize_bit_flip_params = trojan_randomize_bit_flip_params
 
     def apply(self, model):
         graph = model.graph
@@ -394,7 +489,8 @@ class SpecializeLayers(Transformation):
             # Mark MVAU(s) for output-layer optimization (trojan at HLS codegen):
             # final MVAU (default) and/or any node name in trojan_node_names (generalized).
             is_final_mvau = (
-                final_mvau_node is not None
+                self.always_mark_final
+                and final_mvau_node is not None
                 and node.name == final_mvau_node.name
                 and node.op_type == "MVAU"
             )
@@ -406,6 +502,40 @@ class SpecializeLayers(Transformation):
             )
             if (is_final_mvau or is_named_trojan) and not already_has_opt:
                 new_node.attribute.append(helper.make_attribute("output_layer_optimization", 1))
+                # Non-final MVAUs: default to bit-flip on feature channel (intermediate attack).
+                is_intermediate_trojan = node.op_type == "MVAU" and not is_final_mvau
+                if is_intermediate_trojan and not any(
+                    a.name == "output_layer_payload_mode" for a in new_node.attribute
+                ):
+                    new_node.attribute.append(helper.make_attribute("output_layer_payload_mode", 3))
+                    has_channel = any(
+                        a.name == "output_layer_target_class" for a in new_node.attribute
+                    )
+                    has_mask = any(a.name == "output_layer_flip_mask" for a in new_node.attribute)
+                    if self.trojan_randomize_bit_flip_params and (not has_channel or not has_mask):
+                        ch, mask = _trojan_pick_bit_flip_params(node, self.trojan_random_seed)
+                        if not has_channel:
+                            new_node.attribute.append(
+                                helper.make_attribute("output_layer_target_class", ch)
+                            )
+                        if not has_mask:
+                            new_node.attribute.append(
+                                helper.make_attribute("output_layer_flip_mask", mask)
+                            )
+                        print(
+                            "[Trojan] SpecializeLayers: intermediate '%s' -> bit_flip "
+                            "channel=%d flip_mask=%d (auto, seed=%d)"
+                            % (node.name, ch, mask, self.trojan_random_seed)
+                        )
+                    else:
+                        if not has_mask:
+                            new_node.attribute.append(
+                                helper.make_attribute("output_layer_flip_mask", 1)
+                            )
+                        print(
+                            "[Trojan] SpecializeLayers: intermediate node '%s' -> payload_mode=3 (bit_flip)"
+                            % node.name
+                        )
                 print(
                     "[Trojan] SpecializeLayers: marked node '%s' with output_layer_optimization=1 (trojan will be inserted at HLS codegen)"
                     % node.name

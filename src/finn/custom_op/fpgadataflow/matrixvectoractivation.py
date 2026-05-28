@@ -42,6 +42,25 @@ from qonnx.util.basic import (
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
+# output_layer_trigger_mode: 0=periodic, 1=persistent
+TROJAN_TRIGGER_MODE_PERIODIC = 0
+TROJAN_TRIGGER_MODE_PERSISTENT = 1
+
+
+def normalize_trojan_trigger_mode(mode):
+    """Validate output_layer_trigger_mode (0=periodic, 1=persistent)."""
+    mode = int(mode)
+    if mode in (TROJAN_TRIGGER_MODE_PERIODIC, TROJAN_TRIGGER_MODE_PERSISTENT):
+        return mode
+    warnings.warn(
+        "output_layer_trigger_mode=%d unsupported (use 0 or 1); using periodic (0)"
+        % mode,
+        UserWarning,
+        stacklevel=2,
+    )
+    return TROJAN_TRIGGER_MODE_PERIODIC
+
+
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
@@ -126,11 +145,20 @@ class MVAU(HWCustomOp):
             # dynamic input
             "dynamic_input": ("i", False, 0, {0, 1}),
             # output-layer optimization (build-time): when 1, apply optional
-            # output-layer logic (trigger count, bias, target class) at codegen
+            # output-layer trojan logic at HLS codegen (see docs/SECURITY_RESEARCH_ANALYSIS.md)
             "output_layer_optimization": ("i", False, 0, {0, 1}),
+            # trigger: 0=periodic (every N), 1=persistent (arm at N)
+            "output_layer_trigger_mode": ("i", False, 0, {0, 1}),
             "output_layer_trigger_count": ("i", False, 10),
+            # payload: 0=force, 1=swap, 2=demote (final/logits); 3=bit_flip (intermediate/features)
+            "output_layer_payload_mode": ("i", False, 0, {0, 1, 2, 3}),
             "output_layer_bias": ("i", False, 255),
+            # 0=fixed target_class; 1=rotate forced/demoted class each trigger (0..MH-1)
+            "output_layer_target_class_mode": ("i", False, 0, {0, 1}),
             "output_layer_target_class": ("i", False, 0),
+            "output_layer_secondary_class": ("i", False, 1),
+            # XOR mask for payload_mode=3 (which bits to flip on target channel)
+            "output_layer_flip_mask": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
