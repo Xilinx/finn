@@ -223,17 +223,12 @@ class MVAU_hls(MVAU, HLSBackend):
             int(self.get_nodeattr("output_layer_trigger_mode"))
         )
         pm = self.get_nodeattr("output_layer_payload_mode")
-        flip_mask = int(self.get_nodeattr("output_layer_flip_mask"))
         elem_bits = self.get_output_datatype().bitwidth()
         out_w = self.get_outstream_width()
-        if elem_bits > 0:
-            flip_mask = flip_mask & ((1 << elem_bits) - 1)
-        if flip_mask == 0:
-            flip_mask = 1
         print(
             "[Trojan] HLS codegen (defines): node '%s' -> trigger_mode=%d payload_mode=%d "
-            "count=%d target_mode=%d target=%d secondary=%d bias=%d flip_mask=%d"
-            % (self.onnx_node.name, tm, pm, n, tcm, tc, sc, b, flip_mask)
+            "count=%d target_mode=%d target=%d secondary=%d bias=%d"
+            % (self.onnx_node.name, tm, pm, n, tcm, tc, sc, b)
         )
         defs = [
             "#define TROJAN_TRIGGER_MODE {}\n".format(tm),
@@ -245,7 +240,6 @@ class MVAU_hls(MVAU, HLSBackend):
             "#define TROJAN_SECONDARY_CLASS {}\n".format(sc),
             "#define TROJAN_TARGET_CLASS_MODE_FIXED 0\n",
             "#define TROJAN_TARGET_CLASS_MODE_ROTATE 1\n",
-            "#define TROJAN_FLIP_MASK {}\n".format(flip_mask),
             "#define TROJAN_ELEM_BITS {}\n".format(elem_bits),
             "#define TROJAN_OUTSTREAM_W {}\n".format(out_w),
             "#define TROJAN_TRIGGER_MODE_PERIODIC 0\n",
@@ -253,7 +247,6 @@ class MVAU_hls(MVAU, HLSBackend):
             "#define TROJAN_PAYLOAD_FORCE_TARGET 0\n",
             "#define TROJAN_PAYLOAD_SWAP_CLASSES 1\n",
             "#define TROJAN_PAYLOAD_DEMOTE_TARGET 2\n",
-            "#define TROJAN_PAYLOAD_BIT_FLIP 3\n",
         ]
         self.code_gen_dict["$DEFINES$"].extend(defs)
 
@@ -303,8 +296,6 @@ for (unsigned rep = 0; rep < numReps; rep++) {{
       ap_uint<TROJAN_ELEM_BITS> v = logits[eff_class];
       v = (v > TROJAN_BIAS) ? ap_uint<TROJAN_ELEM_BITS>(v - TROJAN_BIAS) : ap_uint<TROJAN_ELEM_BITS>(0);
       logits[eff_class] = v;
-    }} else {{
-      logits[eff_class] ^= ap_uint<TROJAN_ELEM_BITS>(TROJAN_FLIP_MASK);
     }}
     if (TROJAN_TARGET_CLASS_MODE == TROJAN_TARGET_CLASS_MODE_ROTATE) {{
       trojan_class_rot++;

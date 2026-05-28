@@ -130,8 +130,6 @@ from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 # - _TROJAN_RANDOM_EXCLUDE_FINAL: if True, random pool excludes final MVAU (pair with
 #   _TROJAN_ALWAYS_MARK_FINAL=True for final + K random hidden layers).
 # - _TROJAN_ALWAYS_MARK_FINAL: if True, final MVAU is always trojaned (default False).
-# - Non-final marked MVAUs: payload_mode=3 (bit_flip); channel + flip_mask auto-randomized
-#   per layer from _TROJAN_RANDOM_SEED (no layer names or overrides required).
 # - _TROJAN_LAYER_OVERRIDES: optional per-node attrs (only if you want manual control).
 _TROJAN_NODE_NAMES = []
 _TROJAN_RANDOM_MVAU_COUNT = 0
@@ -161,7 +159,6 @@ def _specialize_layers_transform(model, cfg):
         _trojan_mvau_names_for_model(model),
         always_mark_final=_TROJAN_ALWAYS_MARK_FINAL,
         trojan_random_seed=_TROJAN_RANDOM_SEED,
-        trojan_randomize_bit_flip_params=True,
     )
 
 

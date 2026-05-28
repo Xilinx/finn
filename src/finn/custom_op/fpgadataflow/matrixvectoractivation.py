@@ -150,15 +150,13 @@ class MVAU(HWCustomOp):
             # trigger: 0=periodic (every N), 1=persistent (arm at N)
             "output_layer_trigger_mode": ("i", False, 0, {0, 1}),
             "output_layer_trigger_count": ("i", False, 10),
-            # payload: 0=force, 1=swap, 2=demote (final/logits); 3=bit_flip (intermediate/features)
-            "output_layer_payload_mode": ("i", False, 0, {0, 1, 2, 3}),
+            # payload: 0=force, 1=swap, 2=demote
+            "output_layer_payload_mode": ("i", False, 0, {0, 1, 2}),
             "output_layer_bias": ("i", False, 255),
             # 0=fixed target_class; 1=rotate forced/demoted class each trigger (0..MH-1)
             "output_layer_target_class_mode": ("i", False, 0, {0, 1}),
             "output_layer_target_class": ("i", False, 0),
             "output_layer_secondary_class": ("i", False, 1),
-            # XOR mask for payload_mode=3 (which bits to flip on target channel)
-            "output_layer_flip_mask": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
