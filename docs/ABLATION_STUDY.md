@@ -15,11 +15,11 @@ removing bit-flip intermediate payloads.
 
 | Run ID | Placement | Trigger | Payload | Notes |
 |--------|-----------|---------|---------|-------|
-| A1-T0 | Final MVAU | Periodic | Force class 3 | Count trigger |
-| A1-T2 | Final MVAU | Persistent | Force class 3 | Arms at N, then always |
+| **A0** | None | Disabled | None | Baseline (no trojan) |
+| A1-T0 | Final MVAU | Periodic | Force class 3 | Every N-th inference |
+| A1-T2 | Final MVAU | Persistent | Force class 3 | Activation at N, then every inference |
 | A2-P1 | Final MVAU | Periodic | Swap (3↔7) | Class-pair inversion |
 | A2-P2 | Final MVAU | Periodic | Demote class 3 | Lower target logit |
-| B0-clean | None | Disabled | None | Baseline |
 
 ---
 
@@ -57,6 +57,10 @@ Then use `<NAME>` in `_TROJAN_LAYER_OVERRIDES`.
 ---
 
 ## 4. Run configurations
+
+### A0 (baseline)
+
+No trojan overrides. Use `ABLATION_ENABLED = False` in `tfc_end2end_example_baseline.ipynb`.
 
 ### A1-T0 (periodic force)
 
@@ -114,6 +118,7 @@ Then use `<NAME>` in `_TROJAN_LAYER_OVERRIDES`.
 
 | Notebook | Run ID |
 |----------|--------|
+| `tfc_end2end_example_baseline.ipynb` | **A0** |
 | `tfc_end2end_example_first.ipynb` | A1-T0 |
 | `tfc_end2end_example_second.ipynb` | A1-T2 |
 | `tfc_end2end_example_third.ipynb` | A2-P1 |
@@ -135,8 +140,8 @@ Then use `<NAME>` in `_TROJAN_LAYER_OVERRIDES`.
 
 ## 7. Execution workflow
 
-1. Set run-specific attrs in `_TROJAN_LAYER_OVERRIDES`.
-2. Build and save predictions for run.
-3. Run baseline (`B0-clean`) with trojan disabled.
-4. Compare predictions and compute metrics.
+1. Run **A0** first (`tfc_end2end_example_baseline.ipynb`, `ABLATION_ENABLED = False`).
+2. For each trojan run, set attrs in `_TROJAN_LAYER_OVERRIDES` (or notebook ablation cells).
+3. Build and save predictions under `build_dir/ablation/<RUN_ID>/`.
+4. Compare all trojan runs against **A0** and compute metrics.
 
