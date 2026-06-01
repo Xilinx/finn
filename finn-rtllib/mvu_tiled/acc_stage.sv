@@ -51,30 +51,39 @@ module acc_stage #(
 );
 
 //
-// Adder tree
+// Adder tree + accumulator add
 //
 
-localparam integer TREE_HEIGHT = $clog2(CHAINLEN);
-localparam integer ADD_LAT = TREE_HEIGHT + 1;
+localparam integer TREE_DEPTH = $clog2(CHAINLEN);
+localparam integer ADD_LAT = TREE_DEPTH + 1;
 
 logic [PE-1:0][ACCU_WIDTH-1:0] dat_acc;
 logic [PE-1:0][ACCU_WIDTH-1:0] dat_int;
 
-for(genvar i = 0; i < PE; i++) begin
-    add_tree #(
-		.CHAINLEN(CHAINLEN),
-		.ACCU_WIDTH(ACCU_WIDTH),
-        .TREE_HEIGHT(TREE_HEIGHT)
-	) inst_add_stage (
-		.clk(clk),
-		.rst(rst),
-        .en(en),
+for(genvar i = 0; i < PE; i++) begin : genAdd
+    // Tree reduction of CHAINLEN DSP partial products
+    logic [ACCU_WIDTH-1:0]  add_arg[CHAINLEN];
+    for(genvar k = 0; k < CHAINLEN; k++)
+        assign  add_arg[k] = idat[i][k];
 
-		.idat(idat[i]),
-		.iacc(dat_acc[i]),
-		.odat(dat_int[i])
-	);
-end
+    localparam int unsigned  SUM_WIDTH = $clog2(CHAINLEN) + ACCU_WIDTH;
+    uwire [SUM_WIDTH-1:0]  tree_sum;
+    add_multi #(
+        .N(CHAINLEN),
+        .DEPTH(TREE_DEPTH),
+        .ARG_WIDTH(ACCU_WIDTH)
+    ) inst_add (
+        .clk(clk), .rst(rst), .en(en),
+        .arg(add_arg),
+        .sum(tree_sum)
+    );
+
+    // Accumulator add (1 registered stage)
+    always_ff @(posedge clk) begin
+        if(rst)       dat_int[i] <= 'x;
+        else if(en)   dat_int[i] <= tree_sum[ACCU_WIDTH-1:0] + dat_acc[i];
+    end
+end : genAdd
 
 // REG
 logic [ADD_LAT:0] val;
