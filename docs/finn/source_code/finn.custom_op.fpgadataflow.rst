@@ -136,6 +136,15 @@ finn.custom\_op.fpgadataflow.pool
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.pwpolyf
+--------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.pwpolyf
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.custom\_op.fpgadataflow.streamingdataflowpartition
 --------------------------------------------------------
 
