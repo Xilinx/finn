@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1450" height="720" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- Vivado-style block diagram with horizontal decision flow -->
+  <defs>
+    <!-- Arrowhead -->
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#333" />
+    </marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#2E7D32" />
+    </marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#C62828" />
+    </marker>
+
+    <!-- Decision diamond pattern -->
+    <pattern id="decisionFill" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect width="4" height="4" fill="#FFF3CD"/>
+    </pattern>
+
+    <!-- Block shadow -->
+    <filter id="blockShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="2" dy="2" result="offsetblur"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Grid lines (subtle, like Vivado) -->
+  <g stroke="#E8E8E8" stroke-width="0.5" opacity="0.3">
+    <line x1="0" y1="300" x2="1450" y2="300"/>
+    <line x1="200" y1="0" x2="200" y2="720"/>
+    <line x1="450" y1="0" x2="450" y2="720"/>
+    <line x1="750" y1="0" x2="750" y2="720"/>
+    <line x1="1050" y1="0" x2="1050" y2="720"/>
+    <line x1="1350" y1="0" x2="1350" y2="720"/>
+  </g>
+
+  <!-- ========== TOP ROW: DECISION FLOW (HORIZONTAL) ========== -->
+
+  <!-- Entry Node: MVAU -->
+  <g id="entry" filter="url(#blockShadow)">
+    <rect x="30" y="40" width="220" height="220" rx="5" fill="#E3F2FD" stroke="#1565C0" stroke-width="3"/>
+    <rect x="30" y="40" width="220" height="35" rx="5" fill="#1976D2" stroke="#1565C0" stroke-width="2"/>
+    <text x="140" y="63" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">
+      MVAU Node
+    </text>
+    <text x="140" y="125" font-family="Segoe UI, Arial, sans-serif" font-size="11" text-anchor="middle">
+      Pre-specialization
+    </text>
+  </g>
+
+  <!-- Arrow from Entry to Decision 1 (CENTERED) -->
+  <line x1="253" y1="150" x2="297" y2="150" stroke="#333" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- Decision 1: RTL vs HLS -->
+  <g id="decision1">
+    <rect x="300" y="40" width="240" height="220" rx="5" fill="url(#decisionFill)" stroke="#FFA726" stroke-width="3" filter="url(#blockShadow)"/>
+    <rect x="300" y="40" width="240" height="35" rx="5" fill="#FF9800" stroke="#F57C00" stroke-width="2"/>
+    <text x="420" y="63" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+      Decision 1: RTL Eligible?
+    </text>
+
+    <!-- Decision parameters in box -->
+    <text x="310" y="100" font-family="Consolas, monospace" font-size="10" font-weight="bold">Attributes:</text>
+    <text x="310" y="120" font-family="Consolas, monospace" font-size="9">• wdt.signed() == True</text>
+    <text x="310" y="138" font-family="Consolas, monospace" font-size="9">• noActivation == 0</text>
+    <text x="310" y="156" font-family="Consolas, monospace" font-size="9">• binaryXnorMode != 1</text>
+
+    <text x="420" y="240" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      specialize_layers.py:218-268
+    </text>
+    <text x="420" y="251" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      _mvu_rtl_possible()
+    </text>
+  </g>
+
+  <!-- Arrow from Decision 1 to Decision 2 (YES/pass, CENTERED) -->
+  <line x1="543" y1="150" x2="587" y2="150" stroke="#2E7D32" stroke-width="3" marker-end="url(#arrowGreen)"/>
+  <text x="565" y="135" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#2E7D32">YES</text>
+
+  <!-- Decision 2: DOTP Compressor Eligible -->
+  <g id="decision2">
+    <rect x="590" y="40" width="240" height="220" rx="5" fill="url(#decisionFill)" stroke="#FFA726" stroke-width="3" filter="url(#blockShadow)"/>
+    <rect x="590" y="40" width="240" height="35" rx="5" fill="#FF9800" stroke="#F57C00" stroke-width="2"/>
+    <text x="710" y="58" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">
+      Decision 2: DOTP
+    </text>
+    <text x="710" y="70" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">
+      Compressor Eligible?
+    </text>
+
+    <text x="600" y="90" font-family="Consolas, monospace" font-size="10" font-weight="bold">Bitwidth:</text>
+    <text x="600" y="110" font-family="Consolas, monospace" font-size="9">• ww ≤ 4</text>
+    <text x="600" y="123" font-family="Consolas, monospace" font-size="9">• aw ≤ 4</text>
+
+    <text x="600" y="145" font-family="Consolas, monospace" font-size="10" font-weight="bold">Mode:</text>
+    <text x="600" y="160" font-family="Consolas, monospace" font-size="9">• pumpedCompute == 0</text>
+
+    <text x="710" y="240" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      matrixvectoractivation_rtl.py:318
+    </text>
+    <text x="710" y="251" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      _is_dotp_comp_eligible()
+    </text>
+  </g>
+
+  <!-- Arrow from Decision 2 to Decision 2.5 (NO/fail) -->
+  <line x1="833" y1="150" x2="877" y2="150" stroke="#C62828" stroke-width="3" marker-end="url(#arrowRed)"/>
+  <text x="855" y="135" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#C62828">NO</text>
+
+  <!-- Decision 2.5: genINT8 Eligible -->
+  <g id="decision2_5">
+    <rect x="880" y="40" width="240" height="220" rx="5" fill="url(#decisionFill)" stroke="#FFA726" stroke-width="3" filter="url(#blockShadow)"/>
+    <rect x="880" y="40" width="240" height="35" rx="5" fill="#FF9800" stroke="#F57C00" stroke-width="2"/>
+    <text x="1000" y="63" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">
+      genINT8 Eligible?
+    </text>
+
+    <text x="890" y="90" font-family="Consolas, monospace" font-size="9" font-weight="bold">DSP58 Optimization:</text>
+    <text x="890" y="105" font-family="Consolas, monospace" font-size="8">• VERSION == Versal (DSP58)</text>
+    <text x="890" y="118" font-family="Consolas, monospace" font-size="8">• NUM_LANES ≤ 3</text>
+    <text x="890" y="131" font-family="Consolas, monospace" font-size="8">• WW ≤ 8, AW ≤ 9</text>
+
+    <text x="1000" y="240" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      mvu_vvu_axi.sv:332
+    </text>
+    <text x="1000" y="251" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      (genINT8 decision)
+    </text>
+  </g>
+
+  <!-- Arrow from Decision 2.5 to DSP + Lane Compressors (NO/genSoftVec, horizontal) -->
+  <line x1="1123" y1="150" x2="1167" y2="150" stroke="#C62828" stroke-width="3" marker-end="url(#arrowRed)"/>
+  <text x="1145" y="135" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#C62828">NO</text>
+
+  <!-- Arrow from Decision 2.5 to genINT8 (YES, downward to terminal row) -->
+  <line x1="1000" y1="263" x2="1000" y2="357" stroke="#2E7D32" stroke-width="3" marker-end="url(#arrowGreen)"/>
+  <text x="1025" y="310" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#2E7D32">YES</text>
+
+  <!-- Terminal: genINT8 (bottom row, aligned under Decision 2.5) -->
+  <g id="terminal_genINT8" filter="url(#blockShadow)">
+    <rect x="880" y="360" width="240" height="180" rx="5" fill="#B3E5FC" stroke="#0277BD" stroke-width="3"/>
+    <rect x="880" y="360" width="240" height="35" rx="5" fill="#0288D1" stroke="#0277BD" stroke-width="2"/>
+    <text x="1000" y="383" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+      genINT8
+    </text>
+    <text x="1000" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="11" text-anchor="middle" font-weight="bold">
+      DSP58 Specialized
+    </text>
+    <text x="1000" y="430" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      mvu_vvu_8sx9_dsp58.sv
+    </text>
+    <text x="1000" y="445" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      No add_multi needed
+    </text>
+    <text x="1000" y="460" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      Fits in DSP58 width
+    </text>
+    <line x1="890" y1="475" x2="1110" y2="475" stroke="#0288D1" stroke-width="1"/>
+    <text x="1000" y="492" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#01579B">
+      Versal only (DSP58)
+    </text>
+    <text x="1000" y="507" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#01579B">
+      VERSION==Versal, lanes≤3, WW≤8, AW≤9
+    </text>
+    <text x="1000" y="526" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#01579B" font-style="italic">
+      mvu_vvu_8sx9_dsp58.sv
+    </text>
+  </g>
+
+
+  <!-- ========== BRANCHING ARROWS DOWN TO TERMINALS (CENTERED) ========== -->
+
+  <!-- Decision 1 NO → HLS (CENTERED to box) -->
+  <line x1="430" y1="263" x2="430" y2="357" stroke="#C62828" stroke-width="3" marker-end="url(#arrowRed)"/>
+  <text x="455" y="310" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#C62828">NO</text>
+
+  <!-- Decision 2 YES → DOTP Compressor (CENTERED to box) -->
+  <line x1="710" y1="263" x2="710" y2="357" stroke="#2E7D32" stroke-width="3" marker-end="url(#arrowGreen)"/>
+  <text x="735" y="310" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#2E7D32">YES</text>
+
+  <!-- ========== BOTTOM ROW: TERMINAL IMPLEMENTATIONS (3 remaining) ========== -->
+
+  <!-- Terminal 1: HLS Path (CENTERED under Decision 1) -->
+  <g id="terminal_hls" filter="url(#blockShadow)">
+    <rect x="320" y="360" width="220" height="180" rx="5" fill="#BDBDBD" stroke="#424242" stroke-width="3"/>
+    <rect x="320" y="360" width="220" height="35" rx="5" fill="#616161" stroke="#424242" stroke-width="2"/>
+    <text x="430" y="383" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+      HLS Path
+    </text>
+    <text x="430" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="11" text-anchor="middle" font-weight="bold">
+      Vivado HLS Synthesis
+    </text>
+    <text x="430" y="430" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      C++ code generation
+    </text>
+    <text x="430" y="445" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      Default: resType="lut"
+    </text>
+    <text x="430" y="460" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      (DSP via attribute)
+    </text>
+    <line x1="330" y1="475" x2="530" y2="475" stroke="#616161" stroke-width="1"/>
+    <text x="430" y="492" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#333">
+      Fallback for all configs
+    </text>
+    <text x="430" y="507" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#333">
+      Flexible but less optimal
+    </text>
+    <text x="430" y="526" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#555" font-style="italic">
+      matrixvectoractivation_hls.py
+    </text>
+  </g>
+
+  <!-- Terminal 2: DOTP Compressor (CENTERED under Decision 2) -->
+  <g id="terminal_dotp" filter="url(#blockShadow)">
+    <rect x="600" y="360" width="220" height="180" rx="5" fill="#C8E6C9" stroke="#2E7D32" stroke-width="3"/>
+    <rect x="600" y="360" width="220" height="35" rx="5" fill="#43A047" stroke="#2E7D32" stroke-width="2"/>
+    <text x="710" y="383" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+      DOTP Compressor
+    </text>
+    <text x="710" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="11" text-anchor="middle" font-weight="bold">
+      Full LUT-Based Compute
+    </text>
+    <text x="710" y="430" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      Replaces DSP entirely
+    </text>
+    <text x="710" y="445" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      Fused accumulation
+    </text>
+    <text x="710" y="460" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      USE_COMPRESSOR=1
+    </text>
+    <line x1="610" y1="475" x2="810" y2="475" stroke="#43A047" stroke-width="1"/>
+    <text x="710" y="492" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#1B5E20">
+      comp_&lt;SIMD&gt;x&lt;s|u&gt;&lt;WW&gt;
+    </text>
+    <text x="710" y="507" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#1B5E20">
+      &lt;s|u&gt;&lt;AW&gt;_a&lt;ACC&gt;.sv
+    </text>
+    <text x="710" y="526" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#1B5E20" font-style="italic">
+      dotp_finn.py, dotp_comp.sv
+    </text>
+  </g>
+
+  <!-- Terminal 3: DSP + Lane Compressors (same row as decisions) -->
+  <g id="terminal_dsp_comp" filter="url(#blockShadow)">
+    <rect x="1170" y="40" width="240" height="220" rx="5" fill="#DCEDC8" stroke="#558B2F" stroke-width="3"/>
+    <rect x="1170" y="40" width="240" height="35" rx="5" fill="#7CB342" stroke="#558B2F" stroke-width="2"/>
+    <text x="1290" y="63" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" fill="white">
+      DSP + Lane Comps
+    </text>
+    <text x="1290" y="95" font-family="Segoe UI, Arial, sans-serif" font-size="11" text-anchor="middle" font-weight="bold">
+      Hybrid Implementation
+    </text>
+    <text x="1290" y="115" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      genSoftVec: mvu.sv
+    </text>
+    <text x="1290" y="130" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      DSP multiply-accumulate
+    </text>
+    <text x="1290" y="145" font-family="Consolas, monospace" font-size="9" text-anchor="middle">
+      add_multi.sv w/ comps
+    </text>
+    <line x1="1180" y1="160" x2="1400" y2="160" stroke="#7CB342" stroke-width="1"/>
+    <text x="1290" y="177" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#33691E">
+      All lanes use compressors
+    </text>
+    <text x="1290" y="192" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#33691E">
+      comp_&lt;N&gt;u&lt;W&gt;_d&lt;D&gt;.sv
+    </text>
+    <text x="1290" y="240" font-family="Consolas, monospace" font-size="9" text-anchor="middle" fill="#666" font-style="italic">
+      add_multi_finn.py
+    </text>
+  </g>
+
+  <!-- ========== LEGEND ========== -->
+  <g id="legend">
+    <rect x="20" y="570" width="1410" height="130" fill="#F8F9FA" stroke="#999" stroke-width="1.5" rx="5"/>
+
+    <!-- Title -->
+    <text x="40" y="595" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold">
+      Parameter Reference
+    </text>
+
+    <!-- Left side: Parameter definitions -->
+    <text x="40" y="620" font-family="Consolas, monospace" font-size="12">
+      <tspan font-weight="bold">WW:</tspan> Weight Width (bitwidth) |
+      <tspan font-weight="bold">AW:</tspan> Activation Width (bitwidth) |
+      <tspan font-weight="bold">SIMD:</tspan> Parallelism factor (folding)
+    </text>
+
+    <text x="40" y="640" font-family="Consolas, monospace" font-size="12">
+      <tspan font-weight="bold">idt:</tspan> Input datatype (idt.bw() → AW) |
+      <tspan font-weight="bold">wdt:</tspan> Weight datatype (wdt.bw() → WW) |
+      <tspan font-weight="bold">pumpedCompute:</tspan> Double-pumping (2x clock)
+    </text>
+
+    <text x="40" y="660" font-family="Consolas, monospace" font-size="12">
+      <tspan font-weight="bold">version:</tspan> DSP type (1=DSP48E1/7-Series, 2=DSP48E2/UltraScale+, 3=DSP58/Versal)
+    </text>
+
+    <text x="40" y="680" font-family="Consolas, monospace" font-size="12">
+      <tspan font-weight="bold">Platform support:</tspan> RTL backend supports all FPGA families. Compressor paths work on Versal, UltraScale+, 7-Series.
+    </text>
+
+    <!-- Right side: Color legend -->
+    <text x="1230" y="595" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="bold">
+      Implementation Types
+    </text>
+
+    <rect x="1230" y="610" width="15" height="15" fill="#C8E6C9" stroke="#2E7D32" stroke-width="1"/>
+    <text x="1250" y="621" font-family="Segoe UI, Arial, sans-serif" font-size="12">LUT-based</text>
+
+    <rect x="1230" y="632" width="15" height="15" fill="#DCEDC8" stroke="#558B2F" stroke-width="1"/>
+    <text x="1250" y="643" font-family="Segoe UI, Arial, sans-serif" font-size="12">Hybrid</text>
+
+    <rect x="1230" y="654" width="15" height="15" fill="#B3E5FC" stroke="#0277BD" stroke-width="1"/>
+    <text x="1250" y="665" font-family="Segoe UI, Arial, sans-serif" font-size="12">DSP-based (genINT8)</text>
+
+    <rect x="1230" y="676" width="15" height="15" fill="#BDBDBD" stroke="#424242" stroke-width="1"/>
+    <text x="1250" y="687" font-family="Segoe UI, Arial, sans-serif" font-size="12">HLS fallback</text>
+  </g>
+
+</svg>

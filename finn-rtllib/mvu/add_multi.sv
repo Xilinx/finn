@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Pipelined multi-input adder tree.
+ * @brief	Pipelined multi-input adder using LUT-based compressors.
  * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *****************************************************************************/
 
@@ -50,13 +50,65 @@ module add_multi import mvu_pkg::*; #(
 	output	logic [SUM_WIDTH-1:0]  sum
 );
 
-	localparam int unsigned  L = $clog2(N);  // Number of levels with reductions
+//---------------------------------------------------------------------------
+// Compressor Path
+//
+// CATCH_COMP entries instantiate a generated compressor module for a
+// specific (N, ARG_WIDTH, delay) triple.  The macro transposes arg[i][j]
+// to the column-major bit-vector expected by the compressor and pads any
+// remaining DEPTH with a shift-register delay.
+//
+// Generated compressors have no en port — when en=0, upstream holds
+// inputs stable and the downstream accumulator does not latch, so
+// correctness is preserved.
 
-	uwire [SUM_WIDTH-1:0]  sum0;
-	if(L < 1) begin : genTrivial
+`define CATCH_COMP(n,w,d) \
+else if(!RESET_ZERO && (N == n) && (ARG_WIDTH == w) && (DEPTH >= d) && (0 <= ARG_LO)) begin : genComp``n``u``w``_d``d \
+	initial $display("[ADD_MULTI_PATH] COMP N=%0d D=%0d W=%0d", N, DEPTH, ARG_WIDTH); \
+\
+	uwire [N*ARG_WIDTH-1:0]  in; \
+	uwire [SUM_WIDTH  -1:0]  out; \
+	for(genvar  i = 0; i < N; i++) begin : genIn \
+		for(genvar  j = 0; j < ARG_WIDTH; j++) begin : genBit \
+				assign	in[j*N+i] = arg[i][j]; \
+		end : genBit \
+	end : genIn \
+	comp_``n``u``w``_d``d comp_inst ( \
+		.clk, \
+		.in, .out \
+	); \
+	initial assert($bits(out) >= $bits(comp_inst.out)) else $warning("CATCH_COMP(%0d,%0d,%0d): compressor output width %0d > SUM_WIDTH %0d", n, w, d, $bits(comp_inst.out), SUM_WIDTH); \
+\
+	localparam int unsigned  COMP_DELAY = d; \
+	localparam int unsigned  SUM_DELAY = DEPTH - COMP_DELAY; \
+	if(SUM_DELAY == 0)  assign  sum = out; \
+	else begin : genDelay \
+		logic [SUM_WIDTH-1:0]  SumZ[SUM_DELAY] = '{ default: '0 }; \
+		always_ff @(posedge clk) begin \
+			if(rst)  SumZ <= '{ default: '0 }; \
+			else if(en) begin \
+				for(int unsigned  i = 0; i < SUM_DELAY-1; i++)  SumZ[i] <= SumZ[i+1]; \
+				SumZ[SUM_DELAY-1] <= out; \
+			end \
+		end \
+		assign	sum = SumZ[0]; \
+	end : genDelay \
+end : genComp``n``u``w``_d``d
+
+	if(0) begin end
+	// FINN_GENERATED_COMP_ENTRIES
+
+//- Generic Behavioral Addition ---------
+	else begin : genGeneric
+
+	localparam int unsigned  L = $clog2(N);  // Tree levels
+
+	logic [SUM_WIDTH-1:0]  sum0;
+	if(L < 1) begin : genPassThrough
 		assign	sum0 = arg[0];
-	end : genTrivial
+	end : genPassThrough
 	else begin : genTree
+		initial $display("[ADD_MULTI_PATH] TREE N=%0d D=%0d W=%0d", N, DEPTH, ARG_WIDTH);
 		localparam int unsigned  D = L < DEPTH? L : DEPTH;  // Pipeline stages absorbed by tree
 
 		// Compute the count of decendents for all nodes in the reduction trees.
@@ -117,16 +169,18 @@ module add_multi import mvu_pkg::*; #(
 	// Delay Output if requested DEPTH exceeds Tree Height
 	if(DEPTH <= L)  assign  sum = sum0;
 	else begin : genDelay
-		localparam logic [SUM_WIDTH-1:0]  SUM_RESET = {(SUM_WIDTH){RESET_ZERO? 1'b0 : 1'bx}};
-		logic [SUM_WIDTH-1:0]  SumZ[DEPTH - L] = '{ default: SUM_RESET };
+		localparam int unsigned  DELAY = DEPTH - L;
+		logic [SUM_WIDTH-1:0]  SumZ[DELAY] = '{ default: '0 };
 		always_ff @(posedge clk) begin
-			if(rst)  SumZ <= '{ default: SUM_RESET };
-			else begin
-				for(int unsigned  i = 0; i < DEPTH-L-1; i++)  SumZ[i] <= SumZ[i+1];
-				SumZ[DEPTH-L-1] <= sum0;
+			if(rst)  SumZ <= '{ default: '0 };
+			else if(en) begin
+				for(int unsigned  i = 0; i < DELAY-1; i++)  SumZ[i] <= SumZ[i+1];
+				SumZ[DELAY-1] <= sum0;
 			end
 		end
 		assign	sum = SumZ[0];
 	end : genDelay
+
+	end : genGeneric
 
 endmodule : add_multi
