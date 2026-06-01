@@ -144,7 +144,7 @@ def test_fpgadataflow_split(exec_mode, idt):
             CreateStitchedIP(
                 fpga_part,
                 clk_ns,
-                vitis=False,
+                run_synth=False,
             )
         )
         model.set_metadata_prop("exec_mode", "rtlsim")

@@ -211,7 +211,7 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
         npy_type = "half" if elem_hls_type == "half" else "float"
 
         self.code_gen_dict["$READNPYDATA$"] = [
-            f"npy2apintstream<InPacked, TI, TI_WIDTH, {npy_type}>(",
+            f"npy2apintstream<InPacked, TI, {npy_type}>(",
             f'"{code_gen_dir}/input_0.npy", in0_V, false',
             ");",
         ]
@@ -232,7 +232,7 @@ static inline T clip(T const x, TLo const lo, THi const hi) {
         npy_type = "half" if elem_hls_type == "half" else "float"
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            f"apintstream2npy<OutPacked, TO, TO_WIDTH, {npy_type}>(",
+            f"apintstream2npy<OutPacked, TO, {npy_type}>(",
             f'out0_V, {shape}, "{code_gen_dir}/output_0.npy", false',
             ");",
         ]

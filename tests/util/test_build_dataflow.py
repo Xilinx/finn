@@ -64,6 +64,16 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
     assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
+
+    # Verify OOC P&R flow results are present in report directory
+    assert os.path.isfile(
+        output_dir + "/report/ooc_synth_and_timing.json"
+    ), "OOC P&R results not found in report directory"
+
+    # Also verify the raw Vivado reports are in stitched_ip
+    assert os.path.isfile(
+        output_dir + "/stitched_ip/ooc_utilization.rpt"
+    ), "OOC utilization report not found in stitched_ip directory"
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")

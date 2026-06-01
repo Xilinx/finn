@@ -94,9 +94,9 @@ def test_npy2vectorstream(test_shape, dtype):
     with open(test_dir + "/test.cpp", "w") as f:
         f.write("\n".join(test_app_string))
     cmd_compile = """
-g++ -o test_npy2vectorstream test.cpp $FINN_ROOT/deps/cnpy/cnpy.cpp \
--I$FINN_ROOT/deps/cnpy/ -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
---std=c++14 -lz """.format(
+g++ -o test_npy2vectorstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
+-I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
+--std=c++17 -lz """.format(
         os.environ["HLS_PATH"], os.environ["VITIS_PATH"]
     )
     with open(test_dir + "/compile.sh", "w") as f:

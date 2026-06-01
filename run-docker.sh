@@ -93,7 +93,6 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_BUILD_EXTRA=""}
 : ${FINN_SKIP_DEP_REPOS="0"}
 : ${FINN_SKIP_BOARD_FILES="0"}
-: ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 : ${FINN_SINGULARITY=""}
@@ -253,7 +252,6 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
-DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647

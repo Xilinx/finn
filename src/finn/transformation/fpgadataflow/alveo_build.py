@@ -258,7 +258,9 @@ class PrepareForLinking(Transformation):
             kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
+                CreateStitchedIP(
+                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, run_synth=True
+                )
             )
             if self.platform == "vitis-xrt":
                 kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))

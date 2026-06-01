@@ -124,7 +124,6 @@ default_build_dataflow_steps = [
     "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
-    "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_make_driver",
     "step_deployment_package",

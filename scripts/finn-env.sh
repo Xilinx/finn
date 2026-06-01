@@ -55,12 +55,6 @@ export FINN_HOST_BUILD_DIR="${FINN_HOST_BUILD_DIR:-/tmp/finn_local_$(whoami)}"
 export FINN_BUILD_DIR="$FINN_HOST_BUILD_DIR"
 mkdir -p "$FINN_BUILD_DIR"
 
-# Add oh-my-xilinx to PATH
-export OHMYXILINX="$FINN_ROOT/deps/oh-my-xilinx"
-if [ -d "$OHMYXILINX" ]; then
-    export PATH="$PATH:$OHMYXILINX"
-fi
-
 # Board files path
 export FINN_BOARD_FILES_PATH="$FINN_ROOT/deps/board_files"
 

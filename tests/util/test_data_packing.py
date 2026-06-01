@@ -61,8 +61,7 @@ def test_npy2apintstream(test_shape, dtype):
     ndarray = gen_finn_dt_tensor(dtype, test_shape)
     test_dir = make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
-    elem_bits = dtype.bitwidth()
-    packed_bits = shape[-1] * elem_bits
+    packed_bits = shape[-1] * dtype.bitwidth()
     packed_hls_type = "ap_uint<%d>" % packed_bits
     elem_hls_type = dtype.get_hls_datatype_str()
     npy_in = test_dir + "/in.npy"
@@ -91,21 +90,22 @@ def test_npy2apintstream(test_shape, dtype):
     test_app_string += ["int main(int argc, char *argv[]) {"]
     test_app_string += ["hls::stream<%s> teststream;" % packed_hls_type]
     test_app_string += [
-        'npy2apintstream<%s, %s, %d, %s>("%s", teststream);'
-        % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+        'npy2apintstream<%s, %s, %s>("%s", teststream);'
+        % (packed_hls_type, elem_hls_type, npy_type, npy_in)
     ]
     test_app_string += [
-        'apintstream2npy<%s, %s, %d, %s>(teststream, %s, "%s");'
-        % (packed_hls_type, elem_hls_type, elem_bits, npy_type, shape_cpp_str, npy_out)
+        'apintstream2npy<%s, %s, %s>(teststream, %s, "%s");'
+        % (packed_hls_type, elem_hls_type, npy_type, shape_cpp_str, npy_out)
     ]
     test_app_string += ["return 0;"]
     test_app_string += ["}"]
     with open(test_dir + "/test.cpp", "w") as f:
         f.write("\n".join(test_app_string))
     cmd_compile = """
-g++ -o test_npy2apintstream test.cpp $FINN_ROOT/deps/cnpy/cnpy.cpp \
--I$FINN_ROOT/deps/cnpy/ -I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
---std=c++11 -lz""".format(
+g++ -o test_npy2apintstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp \
+-I{}/include -I{}/include -I$FINN_ROOT/src/finn/qnn-data/cpp \
+-I$FINN_ROOT/deps/finn-hlslib \
+--std=c++17 -lz""".format(
         os.environ["HLS_PATH"], os.environ["VITIS_PATH"]
     )
     with open(test_dir + "/compile.sh", "w") as f:

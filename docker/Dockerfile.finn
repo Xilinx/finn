@@ -57,7 +57,6 @@ RUN apt-get update && \
     libzmq3-dev \
     libpixman-1-0 \
     nano \
-    zsh \
     rsync \
     git \
     openssh-client \
