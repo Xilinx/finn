@@ -112,11 +112,6 @@ assign inc_acc = val[ADD_LAT-1];
 // Accumulation
 //
 
-localparam integer TH_BITS = $clog2(TH);
-
-logic [TH_BITS-1:0] cnt_prep = 0;
-logic prep = 1'b1;
-
 logic fifo_in_tvalid, fifo_in_tready;
 logic fifo_out_tvalid, fifo_out_tready;
 logic [PE*ACCU_WIDTH-1:0] fifo_in_tdata, fifo_out_tdata;
@@ -137,27 +132,21 @@ Q_srl #(
     .maxcount()
 );
 
+logic signed [$clog2(TH):0] cnt_prep = -TH;
+uwire prep = cnt_prep[$left(cnt_prep)];
+always_ff @(posedge clk) begin
+    if(rst)  cnt_prep <= -TH;
+    else     cnt_prep <= cnt_prep + prep;
+end
+
 always_ff @(posedge clk) begin
     if(rst) begin
-        cnt_prep <= 0;
-        prep <= 1'b1;
-
-        odat <= 'X;
-        oval <= 1'b0;
+        odat <= 'x;
+        oval <= 0;
     end
-    else begin
-        if(cnt_prep == TH-1) begin
-            prep <= 1'b0;
-            cnt_prep <= 0;
-        end
-        else begin
-            cnt_prep <= cnt_prep + 1;
-        end
-
-        if(en) begin
-            odat <= dat_int;
-            oval <= val_int && last_int;
-        end
+    else if(en) begin
+        odat <= dat_int;
+        oval <= val_int && last_int;
     end
 end
 

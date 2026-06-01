@@ -173,11 +173,12 @@ module cu_mvau_tiled #(
                 .IS_CLK_INVERTED(1'b0),             // Optional inversion for CLK
                 .IS_INMODE_INVERTED(5'b00000),      // Optional inversion for INMODE
                 .IS_NEGATE_INVERTED(3'b000),        // Optional inversion for NEGATE
-                .IS_OPMODE_INVERTED({ 2'b00 , // W: LAST ? (L[1] ? 0 : P) : 0
-                                    3'b000, // Z: FIRST ? 0 : PCIN
-                                    2'b01, // Y: M
-                                    2'b01  // X: M
-                }), // Optional inversion for OPMODE
+                .IS_OPMODE_INVERTED({
+                    2'b00,  // W: 0 (unused, accumulation is external)
+                    3'b000, // Z: 0 (unused)
+                    2'b01,  // Y: M (multiply)
+                    2'b01   // X: M (multiply)
+                }), // Static OPMODE='0 inverted to select P = M (multiply-only)
                 .IS_RSTALLCARRYIN_INVERTED(1'b0),   // Optional inversion for RSTALLCARRYIN
                 .IS_RSTALUMODE_INVERTED(1'b0),      // Optional inversion for RSTALUMODE
                 .IS_RSTA_INVERTED(1'b0),            // Optional inversion for RSTA
@@ -201,7 +202,7 @@ module cu_mvau_tiled #(
                 .DREG(0),                           // Pipeline stages for D (0-1)
                 .INMODEREG(1),                      // Pipeline stages for INMODE (0-1)
                 .MREG(1),                           // Multiplier pipeline stages (0-1)
-                .OPMODEREG(1),                      // Pipeline stages for OPMODE (0-1)
+                .OPMODEREG(0),                      // No register needed: OPMODE is static
                 .PREG(PREG),                        // Number of pipeline stages for P (0-1)
                 .RESET_MODE("SYNC")                 // Selection of synchronous or asynchronous reset. (ASYNC, SYNC).
             )
@@ -238,7 +239,7 @@ module cu_mvau_tiled #(
                         INTERNAL_REGS==2 ? 1'b0 : 1'b1
                 }),                                 // 5-bit input: INMODE control
                 .NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
-                .OPMODE('0),                        // 9-bit input: Operation mode
+                .OPMODE('0),                        // 9-bit input: Static (inverted to X=Y=M, W=Z=0)
                 // Data inputs: Data Ports
                 .A({ 7'bx, a_in_i[j] }),            // 34-bit input: A data
                 .B(b_in_i[i][j]),                   // 24-bit input: B data
@@ -255,7 +256,7 @@ module cu_mvau_tiled #(
                 .CEB2(INTERNAL_REGS==2 ? en : '0),  // 1-bit input: Clock enable for 2nd stage BREG
                 .CEC('0),                           // 1-bit input: Clock enable for CREG
                 .CECARRYIN('0),                     // 1-bit input: Clock enable for CARRYINREG
-                .CECTRL(en),                        // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
+                .CECTRL('0),                        // 1-bit input: Clock enable for OPMODEREG and CARRYINSELREG
                 .CED('0),                           // 1-bit input: Clock enable for DREG
                 .CEINMODE(en),                      // 1-bit input: Clock enable for INMODEREG
                 .CEM(en),                           // 1-bit input: Clock enable for MREG
@@ -265,7 +266,7 @@ module cu_mvau_tiled #(
                 .RSTALUMODE('0),                    // 1-bit input: Reset for ALUMODEREG
                 .RSTB('0),                          // 1-bit input: Reset for BREG
                 .RSTC('0),                          // 1-bit input: Reset for CREG
-                .RSTCTRL(rst),                      // 1-bit input: Reset for OPMODEREG and CARRYINSELREG
+                .RSTCTRL('0),                       // 1-bit input: Reset for OPMODEREG and CARRYINSELREG
                 .RSTD('0),                          // 1-bit input: Reset for DREG and ADREG
                 .RSTINMODE(rst),                    // 1-bit input: Reset for INMODE register
                 .RSTM('0),                          // 1-bit input: Reset for MREG

@@ -137,11 +137,23 @@ module mvu_tiled_axi #(
 	uwire avld;
 	uwire ardy;
 
-	replay_buff_tile #(.XC(MW/SIMD), .YC(TH), .W($bits(mvu_flatin_t)), .N_REPS(MH/PE), .IO_TILED(IN_TILED)) activation_replay (
+	localparam int unsigned  SF = MW / SIMD;
+	localparam int unsigned  NF = MH / PE;
+
+	uwire [2:0]  act_done;
+	input_gen #(
+		.DATA_WIDTH($bits(mvu_flatin_t)),
+		.FM_SIZE(SF * TH),
+		.D(3),
+		.DIMS('{NF, SF, TH}),
+		.COEFS('{0, 1, SF})
+	) activation_replay (
 		.clk(ap_clk), .rst(rst),
-		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
-		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast)
+		.idat(mvu_flatin_t'(s_axis_input_tdata)),
+		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready),
+		.odat(amvau), .ovld(avld), .olst(), .odone(act_done), .ordy(ardy)
 	);
+	assign	alast = act_done[1];
 
 	//- Unflatten weights ---------------------------------------------------
 	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]  mvu_w_t;
@@ -185,7 +197,7 @@ module mvu_tiled_axi #(
 		uwire dsp_p_t  dsp_p;
 
 		// TODO: No double-pumping in the initial implementation
-		assign	dsp_en  = en;
+		uwire	dsp_en = en;
 
 		assign	dsp_last = alast && istb;
 		assign	dsp_zero = !istb;
@@ -265,10 +277,18 @@ module mvu_tiled_axi #(
 	//-------------------- Output reordering --------------------\\
 
 	if(OUT_TILED == 0) begin
-		reorder_out #(.W(OUTPUT_STREAM_WIDTH_BA), .XC(MH/PE), .YC(TH)) inst_reorder_out (
+		input_gen #(
+			.DATA_WIDTH(OUTPUT_STREAM_WIDTH_BA),
+			.FM_SIZE(NF * TH),
+			.D(2),
+			.DIMS('{TH, NF}),
+			.COEFS('{1, TH})
+		) inst_reorder_out (
 			.clk(ap_clk), .rst(rst),
-			.ivld(m_axis_int_tvalid), .irdy(m_axis_int_tready), .idat(m_axis_int_tdata),
-			.ovld(m_axis_output_tvalid), .ordy(m_axis_output_tready), .odat(m_axis_output_tdata)
+			.idat(m_axis_int_tdata),
+			.ivld(m_axis_int_tvalid), .irdy(m_axis_int_tready),
+			.odat(m_axis_output_tdata), .ovld(m_axis_output_tvalid),
+			.olst(), .odone(), .ordy(m_axis_output_tready)
 		);
 	end else begin
 		assign m_axis_output_tvalid = m_axis_int_tvalid;
