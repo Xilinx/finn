@@ -10,11 +10,11 @@
  *  Exercises mvu_tiled_axi with multiple parameter configurations in parallel.
  *
  *  Data flow under test:
- *    activations  -> replay_buff_tile (replays MH/PE times)
+ *    activations  -> input_gen (replays MH/PE times)
  *    weights      -> weights_buff_tile (collects NW=TH words, replays TH times)
  *    compute      -> cu_mvau_tiled (DSP58 INT8, 3 MACs/DSP)
- *    accumulate   -> acc_stage + add_tree (pipelined tree + circular FIFO)
- *    reorder      -> reorder_out (transpose tiled -> sequential NF order)
+ *    accumulate   -> acc_stage (pipelined add_multi tree + circular FIFO)
+ *    reorder      -> input_gen (transpose tiled -> sequential NF order)
  *
  *  Weight feed order:
  *    For each neuron fold (h), for each SIMD fold (w):
@@ -80,8 +80,7 @@ module mvu_tiled_axi_tb;
 		'{  6,  9,  2,  3,  6,  4,  4, 16, 1, 0 }
 	};
 
-	//-----------------------------------------------------------------------
-	// Global Control
+	//=== Global Control ====================================================
 	logic  clk = 0;
 	always #5ns clk = !clk;
 	logic  clk2x = 0;
@@ -100,8 +99,7 @@ module mvu_tiled_axi_tb;
 		if(&done)  $finish;
 	end
 
-	//-----------------------------------------------------------------------
-	// Parallel Test Instantiation
+	//=== Parallel Test Instantiation =======================================
 	for(genvar  t = 0; t < TEST_COUNT; t++) begin : genTests
 		localparam cfg_t  CFG = TESTS[t];
 		localparam int unsigned  MH   = CFG.mh;
@@ -166,16 +164,13 @@ module mvu_tiled_axi_tb;
 			.m_axis_output_tready(ordy)
 		);
 
-		//---------------------------------------------------------------
-		// Input Feed & Reference Generation
-		//---------------------------------------------------------------
+		//=== Input Feed & Reference Generation =============================
 		// TH input vectors are batched per round. The replay buffer
 		// stores TH*SF activation words (TH vectors, each SF folds)
 		// and the weight buffer replays each tile TH times internally.
 		//
-		// reorder_out output order: for each TH slot, all NF neuron
+		// Output reorder order: for each TH slot, all NF neuron
 		// folds in sequence.
-		//---------------------------------------------------------------
 		accu_t [PE-1:0]  Q[$];
 		initial begin
 			wdat = 'x;  wvld = 0;
@@ -293,9 +288,7 @@ module mvu_tiled_axi_tb;
 			done[t] = 1;
 		end
 
-		//---------------------------------------------------------------
-		// Output Checker
-		//---------------------------------------------------------------
+		//=== Output Checker ================================================
 		int unsigned  Checks = 0;
 		initial begin
 			ordy = 0;
