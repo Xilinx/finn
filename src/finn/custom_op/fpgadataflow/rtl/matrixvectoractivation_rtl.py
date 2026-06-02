@@ -54,6 +54,8 @@ class MVAU_rtl(MVAU, RTLBackend):
             "pumpedCompute": ("i", False, 0, {0, 1}),
             # Compressor module name (set by generate_hdl when compressor is used)
             "comp_module_name": ("s", False, ""),
+            # dotp_comp wrapper module name (set by generate_hdl when dotp compressor is used)
+            "dotp_module_name": ("s", False, ""),
             # add_multi compressor module names, semicolon-separated
             "add_multi_comp_names": ("s", False, ""),
             # add_multi compressor specs for synthesis aggregation
@@ -212,25 +214,29 @@ class MVAU_rtl(MVAU, RTLBackend):
         else:
             base_files = [
                 "mvu_pkg.sv",
-                "mvu_vvu_axi.sv",
                 "replay_buffer.sv",
                 "mvu.sv",
                 "mvu_vvu_8sx9_dsp58.sv",
             ]
         sourcefiles = [
             os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in base_files]
+        ] + [rtllib_dir + f for f in base_files]
 
         # Add compressor files if dotp_comp was generated
         comp_name = self.get_nodeattr("comp_module_name")
         if comp_name:
             comp_hdl_dir = os.path.join(os.environ["FINN_ROOT"], "src/finn/compressor/hdl/")
-            sourcefiles.append(os.path.join(code_gen_dir, "dotp_comp.sv"))
+            dotp_module_name = self.get_nodeattr("dotp_module_name")
+            sourcefiles.append(os.path.join(code_gen_dir, f"{dotp_module_name}.sv"))
             sourcefiles.append(os.path.join(comp_hdl_dir, "mul_comp_map.sv"))
             sourcefiles.append(os.path.join(code_gen_dir, comp_name + ".sv"))
+            # Use local mvu_vvu_axi.sv with substituted $DOTP_MODULE_NAME$
+            sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
             # dotp_comp path doesn't need add_multi.sv
         else:
-            # DSP path: add_multi.sv always exists in code_gen_dir
+            # DSP path: use local mvu_vvu_axi.sv (no placeholder substitution needed)
+            sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
+            # add_multi.sv always exists in code_gen_dir
             # (either patched with comps or copy of template)
             sourcefiles.append(os.path.join(code_gen_dir, "add_multi.sv"))
             add_multi_names_str = self.get_nodeattr("add_multi_comp_names")
@@ -386,6 +392,16 @@ class MVAU_rtl(MVAU, RTLBackend):
             code_gen_dict["$COMP_PIPELINE_DEPTH$"] = [str(result["comp_delay"])]
             code_gen_dict["$USE_COMPRESSOR$"] = [str(1)]
             self.set_nodeattr("comp_module_name", result["comp_name"])
+            self.set_nodeattr("dotp_module_name", result["dotp_module_name"])
+            # Copy mvu_vvu_axi.sv and substitute $DOTP_MODULE_NAME$
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
+                mvu_vvu_axi_content = f.read()
+            mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
+                "$DOTP_MODULE_NAME$", result["dotp_module_name"]
+            )
+            with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
+                f.write(mvu_vvu_axi_content)
         else:
             # DSP path: Generate add_multi.sv with compressors
             result = generate_add_multi_comps(
@@ -397,6 +413,16 @@ class MVAU_rtl(MVAU, RTLBackend):
                 # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
                 specs_str = ";".join(f"{n},{w},{d}" for n, w, d in result.get("comp_specs", []))
                 self.set_nodeattr("add_multi_comp_specs", specs_str)
+            # Copy mvu_vvu_axi.sv and substitute placeholder with dummy name
+            # (not used since USE_COMPRESSOR=0, but Vivado parses entire file)
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
+                mvu_vvu_axi_content = f.read()
+            mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
+                "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
+            )
+            with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
+                f.write(mvu_vvu_axi_content)
 
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]

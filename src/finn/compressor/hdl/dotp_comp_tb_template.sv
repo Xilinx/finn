@@ -39,7 +39,7 @@ module dotp_comp_{full_sig}_tb;
 	uwire  vld;
 	accu_t [PE-1:0]  p;
 
-	dotp_comp #(
+	{dotp_module} #(
 		.PE(PE), .SIMD(SIMD),
 		.WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.ACTIVATION_WIDTH(ACTIVATION_WIDTH),

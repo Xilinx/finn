@@ -149,17 +149,17 @@ class VVAU_rtl(VVAU, RTLBackend):
         node_name = self.onnx_node.name
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
-        sourcefiles = [
+        rtllib_files = [
             "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
             "replay_buffer.sv",
             "mvu.sv",
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
         sourcefiles = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in sourcefiles]
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+            os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # Local copy with substituted placeholder
+        ] + [rtllib_dir + _ for _ in rtllib_files]
 
         for f in sourcefiles:
             cmd.append("add_files -norecurse %s" % (f))
@@ -218,6 +218,17 @@ class VVAU_rtl(VVAU, RTLBackend):
             "w",
         ) as f:
             f.write(template_wrapper)
+
+        # Copy mvu_vvu_axi.sv and substitute placeholder with dummy name
+        # (not used since USE_COMPRESSOR=0, but Vivado parses entire file)
+        rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+        with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
+            mvu_vvu_axi_content = f.read()
+        mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
+            "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
+        )
+        with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
+            f.write(mvu_vvu_axi_content)
 
         if self.get_nodeattr("mem_mode") == "internal_decoupled":
             if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
@@ -297,17 +308,17 @@ class VVAU_rtl(VVAU, RTLBackend):
             code_gen_dir = ""
             rtllib_dir = ""
 
-        verilog_files = [
+        rtllib_files = [
             "mvu_pkg.sv",
-            "mvu_vvu_axi.sv",
             "replay_buffer.sv",
             "mvu.sv",
             "mvu_vvu_8sx9_dsp58.sv",
             "add_multi.sv",
         ]
         verilog_files = [
-            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")
-        ] + [rtllib_dir + _ for _ in verilog_files]
+            os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+            os.path.join(code_gen_dir, "mvu_vvu_axi.sv"),  # Local copy with substituted placeholder
+        ] + [rtllib_dir + _ for _ in rtllib_files]
 
         return verilog_files
 

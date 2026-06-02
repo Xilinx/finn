@@ -12,12 +12,12 @@
  * Drop-in replacement for DSP-based compute cores in the MVU.
  * Uses a generated compressor tree for the reduction.
  *
- *		This file is a TEMPLATE — $COMP_MODULE_NAME$ is substituted
- *		at code generation time with the config-specific compressor
- *		module name (e.g. comp_8xs2s2).
+ *		This file is a TEMPLATE with the following substitutions:
+ *		- $DOTP_MODULE_NAME$ → config-specific wrapper name (e.g. dotp_comp_8xs2s2_a16)
+ *		- $COMP_MODULE_NAME$ → compressor module name (e.g. comp_8xs2s2_a16)
  *****************************************************************************/
 
-module dotp_comp #(
+module $DOTP_MODULE_NAME$ #(
 	int unsigned  PE,
 	int unsigned  SIMD,
 	int unsigned  WEIGHT_WIDTH,
@@ -151,4 +151,4 @@ module dotp_comp #(
 		end
 	end
 
-endmodule : dotp_comp
+endmodule : $DOTP_MODULE_NAME$

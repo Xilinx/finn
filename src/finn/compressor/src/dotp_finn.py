@@ -171,14 +171,17 @@ def generate_dotp_comp(fpgapart, simd, ww, aw, accu_width, signed_act, output_di
     )
 
     # Expand dotp_comp template with the generated module name
+    # Use config-specific module name to avoid collisions in multi-MVAU builds
     src_dir = os.path.dirname(os.path.abspath(__file__))
     compressor_root = os.path.abspath(os.path.join(src_dir, ".."))
     dotp_comp_template = os.path.join(compressor_root, "hdl", "dotp_comp_template.sv")
-    dotp_comp_path = os.path.join(output_dir, "dotp_comp.sv")
+    dotp_module_name = f"dotp_{comp_name}"
+    dotp_comp_path = os.path.join(output_dir, f"{dotp_module_name}.sv")
     expand_template(
         dotp_comp_template,
         dotp_comp_path,
         {
+            "$DOTP_MODULE_NAME$": dotp_module_name,
             "$COMP_MODULE_NAME$": comp_name,
             "$EXPECTED_SIMD$": str(simd),
             "$EXPECTED_NA$": str(na),
@@ -191,6 +194,7 @@ def generate_dotp_comp(fpgapart, simd, ww, aw, accu_width, signed_act, output_di
 
     return {
         "comp_name": comp_name,
+        "dotp_module_name": dotp_module_name,
         "comp_delay": comp_delay,
         "files": [dotp_comp_path, comp_path],
     }
@@ -273,11 +277,13 @@ def main():
                 f"dotp template not found: {template_path}. "
                 f"Use --dotp-template or --skip-dotp-template."
             )
+        dotp_module_name = f"dotp_{comp_name}"
         dotp_path = os.path.join(args.output_dir, args.dotp_output_name)
         expand_template(
             template_path,
             dotp_path,
             {
+                "$DOTP_MODULE_NAME$": dotp_module_name,
                 "$COMP_MODULE_NAME$": comp_name,
                 "$EXPECTED_SIMD$": str(args.simd),
                 "$EXPECTED_NA$": str(na),
