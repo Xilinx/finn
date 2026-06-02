@@ -37,7 +37,8 @@ module local_weight_buffer #(
 	int unsigned  MH,
 	int unsigned  MW,
 	int unsigned  N_REPS,
-	int unsigned  DBG = 0
+	int unsigned  DBG = 0,
+	parameter  RAM_STYLE = "block"
 )(
 	input   logic  clk,
 	input   logic  rst,
@@ -57,8 +58,6 @@ module local_weight_buffer #(
 	localparam int unsigned  N_TLS         = SF * NF;
 	localparam int unsigned  PE_BITS       = (PE == 1)? 1 : $clog2(PE);
 	localparam int unsigned  WGT_ADDR_BITS = $clog2(NF * SF);
-	localparam int unsigned  RAM_BITS      = (SIMD*WEIGHT_WIDTH + 7)/8 * 8;
-	localparam int unsigned  WGT_EN_BITS   = RAM_BITS / 8;
 	localparam int unsigned  N_TLS_BITS    = $clog2(N_TLS);
 	localparam int unsigned  N_REPS_BITS   = $clog2(N_REPS);
 
@@ -80,7 +79,7 @@ module local_weight_buffer #(
 	logic [PE_BITS-1:0]  curr_pe_n;
 
 	//--- Signals -----------------------------------------------------------
-	logic [1:0][PE-1:0][WGT_EN_BITS-1:0]     a_we;
+	logic [1:0][PE-1:0]                      a_we;
 	logic [1:0][WGT_ADDR_BITS-1:0]           a_addr;
 	logic [1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]  a_data_in;
 
@@ -139,7 +138,7 @@ module local_weight_buffer #(
 			if(ivld) begin
 				for(int i = 0; i < PE; i++)
 					if(CurrPe == i)
-						a_we[StateWr == ST_WR_1][i] = '1;
+						a_we[StateWr == ST_WR_1][i] = 1;
 
 				curr_pe_n = (CurrPe == PE-1)? 0 : CurrPe + 1;
 				wr_pntr_n = (CurrPe == PE-1)? ((WrPntr == N_TLS-1)? 0 : WrPntr + 1) : WrPntr;
@@ -257,21 +256,17 @@ module local_weight_buffer #(
 	//=== Weight RAMs =======================================================
 	for(genvar i = 0; i < 2; i++) begin : genBank
 		for(genvar j = 0; j < PE; j++) begin : genPe
-			ram_p_c #(
-				.ADDR_BITS(WGT_ADDR_BITS),
-				.DATA_BITS(RAM_BITS),
-				.RAM_STYLE("block")
-			) inst_ram_tp_c (
-				.clk(clk),
-				.a_en(1),
-				.a_we(a_we[i][j]),
-				.a_addr(a_addr[i]),
-				.b_en(ordy),
-				.b_addr(b_addr[i]),
-				.a_data_in(a_data_in[i]),
-				.a_data_out(),
-				.b_data_out(odat_ram[i][j])
-			);
+			(* RAM_STYLE = RAM_STYLE *)
+			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  Ram[2**WGT_ADDR_BITS];
+			logic [SIMD-1:0][WEIGHT_WIDTH-1:0]  RdReg;
+
+			always_ff @(posedge clk) begin
+				if(a_we[i][j])  Ram[a_addr[i]] <= a_data_in[i];
+				if(ordy) begin
+					RdReg          <= Ram[b_addr[i]];
+					odat_ram[i][j] <= RdReg;
+				end
+			end
 		end : genPe
 	end : genBank
 
