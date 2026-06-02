@@ -270,12 +270,7 @@ module cu_mvau_tiled #(
 	end : genPE
 
 	//=== Accumulation ======================================================
-	acc_stage #(
-		.CHAINLEN(CHAINLEN),
-		.PE(PE),
-		.ACCU_WIDTH(ACCU_WIDTH),
-		.TH(TH)
-	) inst_acc_stage (
+	acc_stage #(.CHAINLEN(CHAINLEN), .PE(PE), .ACCU_WIDTH(ACCU_WIDTH), .TH(TH)) inst_acc_stage (
 		.clk(clk),
 		.rst(rst),
 		.en(en),
