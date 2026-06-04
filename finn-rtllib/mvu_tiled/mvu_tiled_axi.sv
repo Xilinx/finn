@@ -23,12 +23,12 @@
  * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
  * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Matrix Vector Unit with Tiling (MVU-Tiled) AXI-lite interface wrapper.
+ * @brief	Matrix Vector Unit with Tiling (MVU-Tiled) AXI-Stream wrapper.
  * @details
  *	 The following compute cores are supported:
  *   - [4,9]-bit MVU on DSP58 achieving 3 MACs/DSP,
@@ -44,29 +44,28 @@
  *****************************************************************************/
 
 module mvu_tiled_axi #(
-	int unsigned PE,
-	int unsigned SIMD,
+	int unsigned  PE,
+	int unsigned  SIMD,
 
-	int unsigned WEIGHT_WIDTH,
-	int unsigned ACTIVATION_WIDTH,
-	int unsigned ACCU_WIDTH,
+	int unsigned  WEIGHT_WIDTH,
+	int unsigned  ACTIVATION_WIDTH,
+	int unsigned  ACCU_WIDTH,
 
-	int unsigned MW,
-	int unsigned MH,
-	int unsigned TH,
+	int unsigned  MW,
+	int unsigned  MH,
+	int unsigned  TH,
 
-	int unsigned IN_TILED = 0,
-	int unsigned OUT_TILED = 0,
+	int unsigned  IN_TILED  = 0,
+	int unsigned  OUT_TILED = 0,
 
-	bit NARROW_WEIGHTS   = 0,	// Weights in (-W:W) rather than [-W:W) with W = 2**(WEIGHT_WIDTH-1)
-	bit SIGNED_ACTIVATIONS = 0,
-	bit PUMPED_COMPUTE = 0, // Not meaningful for SIMD < 2, which will error out.
-						// Best utilization for even values.
-	bit FORCE_BEHAVIORAL = 0,
-	bit M_REG_LUT = 1,
+	bit  NARROW_WEIGHTS    = 0,  // unused — reserved for future narrow-weight support
+	bit  SIGNED_ACTIVATIONS = 0,
+	bit  PUMPED_COMPUTE    = 0,  // Not meaningful for SIMD < 2, which will error out.
+	bit  FORCE_BEHAVIORAL  = 0,  // unused — reserved for future behavioral fallback
+	bit  M_REG_LUT         = 1,  // unused — reserved for future LUT-based M register
 
-	parameter COMPUTE_CORE = "mvu_vvu_8sx9_dsp58",
-	int unsigned N_DCPL_STAGES = 2,
+	parameter  COMPUTE_CORE = "mvu_vvu_8sx9_dsp58",
+	int unsigned  N_DCPL_STAGES = 2,
 
 	// Safely deducible parameters
 	localparam int unsigned  WSIMD = (PE * SIMD) / TH,
@@ -74,13 +73,13 @@ module mvu_tiled_axi #(
 	localparam int unsigned  WEIGHT_STREAM_WIDTH_BA = (WEIGHT_STREAM_WIDTH + 7)/8 * 8,
 	localparam int unsigned  INPUT_STREAM_WIDTH     = SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned  INPUT_STREAM_WIDTH_BA  = (INPUT_STREAM_WIDTH  + 7)/8 * 8,
-	localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE*ACCU_WIDTH,
+	localparam int unsigned  OUTPUT_STREAM_WIDTH    = PE * ACCU_WIDTH,
 	localparam int unsigned  OUTPUT_STREAM_WIDTH_BA = (OUTPUT_STREAM_WIDTH + 7)/8 * 8,
-	localparam bit  		 SIMD_UNEVEN = SIMD % 2
+	localparam bit           SIMD_UNEVEN = SIMD % 2
 )(
 	// Global Control
 	input	logic  ap_clk,
-	input	logic  ap_clk2x,	// synchronous, double-speed clock; only used for PUMPED_COMPUTE
+	input	logic  ap_clk2x,  // synchronous, double-speed clock; only used for PUMPED_COMPUTE
 	input	logic  ap_rst_n,
 
 	// Weight Stream
@@ -99,30 +98,29 @@ module mvu_tiled_axi #(
 	input	logic  m_axis_output_tready
 );
 
-//-------------------- Parameter sanity checks --------------------\\
+	//=== Parameter Validation ==============================================
 	initial begin
-		if (MW % SIMD != 0) begin
+		if(MW % SIMD != 0) begin
 			$error("%m: Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
 			$finish;
 		end
-		if (MH % PE != 0) begin
+		if(MH % PE != 0) begin
 			$error("%m: Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
-		if ((PE * SIMD) % TH != 0) begin
+		if((PE * SIMD) % TH != 0) begin
 			$error("%m: Tile (%0d) is not a multiple of TH (%0d).", (PE*SIMD), TH);
 			$finish;
 		end
-
-		if (PUMPED_COMPUTE && (SIMD == 1)) begin
+		if(PUMPED_COMPUTE && (SIMD == 1)) begin
 			$error("Clock pumping an input of SIMD=1 is not meaningful.");
 			$finish;
 		end
-		if (WEIGHT_WIDTH > 8) begin
+		if(WEIGHT_WIDTH > 8) begin
 			$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
 			$finish;
 		end
-		if (ACTIVATION_WIDTH > 8) begin
+		if(ACTIVATION_WIDTH > 8) begin
 			$error("Activation width of %0d-bits exceeds maximum of 8-bits", ACTIVATION_WIDTH);
 			$finish;
 		end
@@ -130,24 +128,36 @@ module mvu_tiled_axi #(
 
 	uwire  rst = !ap_rst_n;
 
-	//- Replay to Accommodate Neuron Fold -----------------------------------
+	//=== Activation Replay =================================================
 	typedef logic [SIMD-1:0][ACTIVATION_WIDTH-1:0]  mvu_flatin_t;
-	uwire mvu_flatin_t amvau;
-	uwire alast;
-	uwire avld;
-	uwire ardy;
+	uwire  mvu_flatin_t  amvau;
+	uwire  alast;
+	uwire  avld;
+	uwire  ardy;
 
-	replay_buff_tile #(.XC(MW/SIMD), .YC(TH), .W($bits(mvu_flatin_t)), .N_REPS(MH/PE), .IO_TILED(IN_TILED)) activation_replay (
+	localparam int unsigned  SF = MW / SIMD;
+	localparam int unsigned  NF = MH / PE;
+
+	uwire [2:0]  act_done;
+	input_gen #(
+		.DATA_WIDTH($bits(mvu_flatin_t)),
+		.FM_SIZE(SF * TH),
+		.D(3),
+		.DIMS('{NF, SF, TH}),
+		.COEFS('{0, 1, SF})
+	) activation_replay (
 		.clk(ap_clk), .rst(rst),
-		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvu_flatin_t'(s_axis_input_tdata)),
-		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast)
+		.idat(mvu_flatin_t'(s_axis_input_tdata)),
+		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready),
+		.odat(amvau), .ovld(avld), .olst(), .odone(act_done), .ordy(ardy)
 	);
+	assign	alast = act_done[1];
 
-	//- Unflatten weights ---------------------------------------------------
+	//=== Weight Buffering ==================================================
 	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]  mvu_w_t;
-	uwire  mvu_w_t wdat;
-	uwire wvld;
-	uwire wrdy;
+	uwire  mvu_w_t  wdat;
+	uwire  wvld;
+	uwire  wrdy;
 
 	weights_buff_tile #(
 		.WEIGHT_WIDTH(WEIGHT_WIDTH),
@@ -160,58 +170,52 @@ module mvu_tiled_axi #(
 		.ovld(wvld), .ordy(wrdy), .odat(wdat)
 	);
 
-	//- Flow Control Bracket around Compute Core ----------------------------
-	uwire en;
-	uwire istb = avld && wvld;
-	assign ardy = en && wvld;
-	assign wrdy = en && avld;
+	//=== Flow Control ======================================================
+	uwire  en;
+	uwire  istb = avld && wvld;
+	assign  ardy = en && wvld;
+	assign  wrdy = en && avld;
 
-	//- Conditionally Pumped DSP Compute ------------------------------------
+	//=== DSP Compute =======================================================
 	typedef logic [PE-1:0][ACCU_WIDTH-1:0]  dsp_p_t;
 	uwire  ovld;
-	uwire dsp_p_t  odat;
+	uwire  dsp_p_t  odat;
 	if(1) begin : blkDsp
-		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE ? SIMD+1 : SIMD;
-		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD/(PUMPED_COMPUTE+1);
+		localparam int unsigned  EFFECTIVE_SIMD = SIMD_UNEVEN && PUMPED_COMPUTE? SIMD+1 : SIMD;
+		localparam int unsigned  DSP_SIMD = EFFECTIVE_SIMD / (PUMPED_COMPUTE+1);
 		typedef logic [PE    -1:0][DSP_SIMD-1:0][WEIGHT_WIDTH    -1:0]  dsp_w_t;
 		typedef logic [DSP_SIMD-1:0][ACTIVATION_WIDTH-1:0]  dsp_a_t;
 
 		uwire  dsp_last;
-		uwire  dsp_zero;
-		uwire dsp_w_t  dsp_w;
-		uwire dsp_a_t  dsp_a;
+		uwire  dsp_w_t  dsp_w;
+		uwire  dsp_a_t  dsp_a;
 
 		uwire  dsp_vld;
-		uwire dsp_p_t  dsp_p;
+		uwire  dsp_p_t  dsp_p;
 
 		// TODO: No double-pumping in the initial implementation
-		assign	dsp_en  = en;
+		uwire  dsp_en = en;
 
 		assign	dsp_last = alast && istb;
-		assign	dsp_zero = !istb;
 		assign	dsp_w = wdat;
 		assign	dsp_a = amvau;
 
 		assign	ovld = dsp_vld;
 		assign	odat = dsp_p;
 
-        //
-        // Compute Unit
-        //
-
-        case(COMPUTE_CORE)
-        "mvu_vvu_8sx9_dsp58": begin : core
-            cu_mvau_tiled #(
-                .PE(PE), .SIMD(SIMD),
-                .TH(TH),
-                .WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-                .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS)
-            ) inst_cu_mvau_tiled (
-                .clk(ap_clk), .rst(rst), .en(dsp_en),
+		case(COMPUTE_CORE)
+		"mvu_vvu_8sx9_dsp58": begin : core
+			cu_mvau_tiled #(
+				.PE(PE), .SIMD(SIMD),
+				.TH(TH),
+				.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
+				.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS)
+			) inst_cu_mvau_tiled (
+				.clk(ap_clk), .rst(rst), .en(dsp_en),
 				.ivld(istb), .ilast(dsp_last), .w(dsp_w), .a(dsp_a),
 				.ovld(dsp_vld), .p(dsp_p)
-            );
-        end
+			);
+		end
 		default: initial begin
 			$error("Unrecognized COMPUTE_CORE '%s'", COMPUTE_CORE);
 			$finish;
@@ -220,25 +224,25 @@ module mvu_tiled_axi #(
 
 	end : blkDsp
 
-	//-------------------- Output register slice --------------------\\
-	// Make `en`computation independent from external inputs.
+	//=== Output Register Slice =============================================
+	// Make `en` computation independent from external inputs.
 	// Drive all outputs from registers.
 
-	logic m_axis_int_tvalid;
-	logic m_axis_int_tready;
-	logic [OUTPUT_STREAM_WIDTH_BA-1:0] m_axis_int_tdata;
+	logic  MIntVld;
+	uwire  m_int_rdy;
+	logic [OUTPUT_STREAM_WIDTH_BA-1:0]  MIntDat;
 
 	struct packed {
-		logic rdy;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  A = '{ rdy: 1, default: 'x };	// side-step register used when encountering backpressure
+		logic  rdy;
+		logic [PE-1:0][ACCU_WIDTH-1:0]  dat;
+	}  A = '{ rdy: 1, default: 'x };  // side-step register used when encountering backpressure
 	struct packed {
-		logic vld;
-		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
-	}  B = '{ vld: 0, default: 'x };	// ultimate output register
+		logic  vld;
+		logic [PE-1:0][ACCU_WIDTH-1:0]  dat;
+	}  B = '{ vld: 0, default: 'x };  // ultimate output register
 
 	assign	en = A.rdy;
-	uwire  b_load = !B.vld || m_axis_int_tready;
+	uwire  b_load = !B.vld || m_int_rdy;
 
 	always_ff @(posedge ap_clk) begin
 		if(rst) begin
@@ -257,23 +261,30 @@ module mvu_tiled_axi #(
 			end
 		end
 	end
-	assign	m_axis_int_tvalid = B.vld;
-	// Why would we need a sign extension here potentially creating a higher signal load into the next FIFO?
-	// These extra bits should never be used. Why not 'x them out?
-	assign	m_axis_int_tdata  = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat};
+	assign	MIntVld = B.vld;
+	assign	MIntDat = { {(OUTPUT_STREAM_WIDTH_BA-OUTPUT_STREAM_WIDTH){B.dat[PE-1][ACCU_WIDTH-1]}}, B.dat };
 
-	//-------------------- Output reordering --------------------\\
+	//=== Output Reordering =================================================
 
-	if(OUT_TILED == 0) begin
-		reorder_out #(.W(OUTPUT_STREAM_WIDTH_BA), .XC(MH/PE), .YC(TH)) inst_reorder_out (
+	if(OUT_TILED == 0) begin : genReorder
+		input_gen #(
+			.DATA_WIDTH(OUTPUT_STREAM_WIDTH_BA),
+			.FM_SIZE(NF * TH),
+			.D(2),
+			.DIMS('{TH, NF}),
+			.COEFS('{1, TH})
+		) inst_reorder_out (
 			.clk(ap_clk), .rst(rst),
-			.ivld(m_axis_int_tvalid), .irdy(m_axis_int_tready), .idat(m_axis_int_tdata),
-			.ovld(m_axis_output_tvalid), .ordy(m_axis_output_tready), .odat(m_axis_output_tdata)
+			.idat(MIntDat),
+			.ivld(MIntVld), .irdy(m_int_rdy),
+			.odat(m_axis_output_tdata), .ovld(m_axis_output_tvalid),
+			.olst(), .odone(), .ordy(m_axis_output_tready)
 		);
-	end else begin
-		assign m_axis_output_tvalid = m_axis_int_tvalid;
-		assign m_axis_int_tready = m_axis_output_tready;
-		assign m_axis_output_tdata = m_axis_int_tdata;
-	end
+	end : genReorder
+	else begin : genPassthru
+		assign  m_axis_output_tvalid = MIntVld;
+		assign  m_int_rdy = m_axis_output_tready;
+		assign  m_axis_output_tdata = MIntDat;
+	end : genPassthru
 
 endmodule : mvu_tiled_axi
