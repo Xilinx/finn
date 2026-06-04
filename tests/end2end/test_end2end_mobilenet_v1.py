@@ -468,7 +468,7 @@ def test_end2end_mobilenet_stitched_ip():
         CreateStitchedIP(
             fpga_part,
             target_clk_ns,
-            vitis=False,
+            run_synth=False,
             signature=None,
         )
     )

@@ -85,13 +85,19 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", run_synth=False, run_pnr=False, signature=[]
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
         self.is_mlo = False
-        self.vitis = vitis
+        self.run_synth = run_synth
+        self.run_pnr = run_pnr
+        # run_pnr requires synthesis
+        if self.run_pnr and not self.run_synth:
+            self.run_synth = True
         self.signature = signature
         self.has_aximm = False
         self.aximm_weight_files = {}
@@ -469,7 +475,7 @@ class CreateStitchedIP(Transformation):
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
         tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
         # synthesize to DCP and export stub, DCP and constraints
-        if self.vitis:
+        if self.run_synth:
             tcl.append(
                 "set_property SYNTH_CHECKPOINT_MODE Hierarchical [ get_files %s ]" % bd_filename
             )
@@ -491,6 +497,32 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
             )
+        # optionally run place & route and extract OOC metrics
+        if self.run_pnr:
+            tcl.append("")
+            tcl.append("# --- Place and Route for OOC Metrics ---")
+            tcl.append("create_clock -period %f [get_ports ap_clk]" % self.clk_ns)
+            tcl.append("opt_design")
+            tcl.append("place_design")
+            tcl.append("route_design")
+            tcl.append("")
+            tcl.append("# Write reports to files for Python-side parsing")
+            util_rpt_file = "%s/ooc_utilization.rpt" % vivado_stitch_proj_dir
+            timing_rpt_file = "%s/ooc_timing.rpt" % vivado_stitch_proj_dir
+            power_rpt_file = "%s/ooc_power.rpt" % vivado_stitch_proj_dir
+            tcl.append('report_utilization -file "%s"' % util_rpt_file)
+            tcl.append('report_timing_summary -file "%s"' % timing_rpt_file)
+            tcl.append('report_power -file "%s"' % power_rpt_file)
+            tcl.append("")
+            tcl.append("# Write metadata (clock period, Vivado version) to a simple file")
+            meta_file = "%s/ooc_metadata.txt" % vivado_stitch_proj_dir
+            tcl.append('set fp [open "%s" w]' % meta_file)
+            tcl.append('puts $fp "clk_period_ns=%f"' % self.clk_ns)
+            tcl.append('puts $fp "vivado_version=[version -short]"')
+            tcl.append("close $fp")
+            tcl.append("")
+            tcl.append("# Save routed checkpoint")
+            tcl.append("write_checkpoint %s/%s_routed.dcp" % (vivado_stitch_proj_dir, block_name))
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
@@ -525,7 +557,7 @@ class CreateStitchedIP(Transformation):
             "-of [ipx::get_bus_interfaces -of [ipx::current_core ]]]"
         )
         # if targeting Vitis, add some properties to the IP
-        if self.vitis:
+        if self.run_synth:
             # replace source code with dcp
             tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
             tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)

@@ -324,7 +324,7 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<LhsPacked, LhsType, LhsWidth, {npy_type}>(",
+                f"npy2apintstream<LhsPacked, LhsType, {npy_type}>(",
                 f'"{code_gen_dir}/input_0.npy", in0_V, false',
                 ");",
             ]
@@ -338,7 +338,7 @@ class ElementwiseBinaryOperation_hls(
             self.code_gen_dict["$READNPYDATA$"] += [
                 # Generate function call reading from file into the input stream
                 #   Note: Inputs can be represented as numpy floats or halfs
-                f"npy2apintstream<RhsPacked, RhsType, RhsWidth, {npy_type}>(",
+                f"npy2apintstream<RhsPacked, RhsType, {npy_type}>(",
                 f'"{code_gen_dir}/input_1.npy", in1_V, false',
                 ");",
             ]
@@ -587,7 +587,7 @@ class ElementwiseBinaryOperation_hls(
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             # Generate function call reading from stream into the output file
             #   Note: Outputs can be numpy floats or halfs
-            f"apintstream2npy<OutPacked, OutType, OutWidth, {npy_type}>(",
+            f"apintstream2npy<OutPacked, OutType, {npy_type}>(",
             f'out0_V, {shape}, "{code_gen_dir}/output_0.npy", false',
             ");",
         ]

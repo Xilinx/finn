@@ -68,7 +68,6 @@ if command -v apt-get &> /dev/null; then
         git \
         wget \
         unzip \
-        zsh \
         python3 \
         python3-pip \
         python3-venv
