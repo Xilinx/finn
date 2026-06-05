@@ -106,6 +106,9 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.remove_stream_only_shape_ops import (
+    RemoveStreamOnlyShapeOps,
+)
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -622,6 +625,12 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     )
 
     return model
+
+
+def step_remove_stream_only_shape_ops(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Remove safe stream-only ONNX shape ops before partitioning."""
+
+    return model.transform(RemoveStreamOnlyShapeOps())
 
 
 def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -1383,6 +1392,7 @@ build_dataflow_step_lookup = {
     "step_tidy_up": step_tidy_up,
     "step_streamline": step_streamline,
     "step_convert_to_hw": step_convert_to_hw,
+    "step_remove_stream_only_shape_ops": step_remove_stream_only_shape_ops,
     "step_specialize_layers": step_specialize_layers,
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
