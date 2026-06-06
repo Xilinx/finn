@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="720" viewBox="0 0 980 720" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#444"/>
+    </marker>
+  </defs>
+
+  <text x="490" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">
+    Trojan Insertion during PrepareIP (MVAU_hls code generation)
+  </text>
+
+  <!-- Entry -->
+  <rect x="30" y="44" width="920" height="52" rx="6" fill="#eef4fb" stroke="#5b8db8"/>
+  <text x="44" y="64" font-size="11" font-weight="bold" fill="#1f4e79">PrepareIP transformation</text>
+  <text x="44" y="82" font-size="10" fill="#444">For each HLS node: create code_gen_dir_ipgen, call MVAU_hls.code_generation_ipgen(model, fpga_part, clk)</text>
+
+  <line x1="490" y1="96" x2="490" y2="118" stroke="#444" marker-end="url(#arr)"/>
+
+  <!-- Gate -->
+  <polygon points="490,118 560,148 490,178 420,148" fill="#fff" stroke="#666"/>
+  <text x="490" y="144" text-anchor="middle" font-size="9.5" font-weight="bold">output_layer</text>
+  <text x="490" y="156" text-anchor="middle" font-size="9.5" font-weight="bold">optimization == 1?</text>
+
+  <text x="580" y="142" font-size="9.5" fill="#666">No: standard MVAU top.cpp</text>
+  <line x1="560" y1="148" x2="620" y2="148" stroke="#888"/>
+
+  <line x1="490" y1="178" x2="490" y2="200" stroke="#c0392b" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="502" y="192" font-size="9" fill="#922b21">Yes (trojaned final MVAU)</text>
+
+  <!-- Main pipeline -->
+  <rect x="30" y="200" width="920" height="88" rx="6" fill="#f8f8f8" stroke="#888"/>
+  <text x="44" y="220" font-size="10" font-weight="bold" fill="#333">code_generation_ipgen() pipeline (HLSBackend)</text>
+
+  <rect x="44" y="232" width="100" height="44" rx="4" fill="#fff" stroke="#888"/>
+  <text x="94" y="250" text-anchor="middle" font-size="9">generate</text>
+  <text x="94" y="262" text-anchor="middle" font-size="9">params</text>
+
+  <rect x="156" y="232" width="100" height="44" rx="4" fill="#fff" stroke="#888"/>
+  <text x="206" y="250" text-anchor="middle" font-size="9">global</text>
+  <text x="206" y="262" text-anchor="middle" font-size="9">includes</text>
+
+  <rect x="268" y="228" width="118" height="52" rx="4" fill="#fdecea" stroke="#c0392b" stroke-width="1.6"/>
+  <text x="327" y="248" text-anchor="middle" font-size="9" font-weight="bold" fill="#922b21">defines(ipgen)</text>
+  <text x="327" y="262" text-anchor="middle" font-size="8" fill="#555">+ _trojan_emit_defines</text>
+  <text x="327" y="274" text-anchor="middle" font-size="7.5" fill="#555">TROJAN_* #defines</text>
+
+  <rect x="398" y="232" width="88" height="44" rx="4" fill="#fff" stroke="#888"/>
+  <text x="442" y="258" text-anchor="middle" font-size="9">pragmas</text>
+
+  <rect x="498" y="228" width="118" height="52" rx="4" fill="#fdecea" stroke="#c0392b" stroke-width="1.6"/>
+  <text x="557" y="248" text-anchor="middle" font-size="9" font-weight="bold" fill="#922b21">docompute()</text>
+  <text x="557" y="262" text-anchor="middle" font-size="8" fill="#555">MVAU call + trojan loop</text>
+
+  <rect x="628" y="232" width="130" height="44" rx="4" fill="#fff" stroke="#888"/>
+  <text x="693" y="250" text-anchor="middle" font-size="9">Fill ipgen_template</text>
+  <text x="693" y="262" text-anchor="middle" font-size="8" fill="#555">write top_*.cpp</text>
+
+  <rect x="770" y="232" width="130" height="44" rx="4" fill="#fff" stroke="#888"/>
+  <text x="835" y="250" text-anchor="middle" font-size="9">Fill ipgentcl_template</text>
+  <text x="835" y="262" text-anchor="middle" font-size="8" fill="#555">write hls_syn_*.tcl</text>
+
+  <g stroke="#444" marker-end="url(#arr)">
+    <line x1="144" y1="254" x2="156" y2="254"/>
+    <line x1="256" y1="254" x2="268" y2="254"/>
+    <line x1="386" y1="254" x2="398" y2="254"/>
+    <line x1="486" y1="254" x2="498" y2="254"/>
+    <line x1="616" y1="254" x2="628" y2="254"/>
+    <line x1="758" y1="254" x2="770" y2="254"/>
+  </g>
+
+  <line x1="557" y1="280" x2="557" y2="308" stroke="#c0392b" marker-end="url(#arr)"/>
+
+  <!-- docompute detail -->
+  <rect x="30" y="308" width="920" height="200" rx="8" fill="#fff" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="44" y="328" font-size="11" font-weight="bold" fill="#922b21">docompute() - trojan insertion detail</text>
+  <text x="44" y="344" font-size="9" fill="#666">ONNX node attrs (from ApplyConfig) are read and emitted as compile-time constants in generated C++</text>
+
+  <!-- Step A -->
+  <rect x="44" y="358" width="200" height="56" rx="4" fill="#f5f5f5" stroke="#888"/>
+  <text x="144" y="376" text-anchor="middle" font-size="9.5" font-weight="bold">1. Internal FIFO</text>
+  <text x="144" y="392" text-anchor="middle" font-size="8.5" fill="#555">hls::stream mvau_out_internal_V</text>
+  <text x="144" y="404" text-anchor="middle" font-size="8" fill="#555">depth = numReps x ceil(MH/PE)</text>
+
+  <line x1="244" y1="386" x2="268" y2="386" stroke="#444" marker-end="url(#arr)"/>
+
+  <!-- Step B -->
+  <rect x="268" y="358" width="200" height="56" rx="4" fill="#fff" stroke="#888"/>
+  <text x="368" y="376" text-anchor="middle" font-size="9.5" font-weight="bold">2. Standard MVAU call</text>
+  <text x="368" y="392" text-anchor="middle" font-size="8.5" fill="#555">Matrix_Vector_Activate_*</text>
+  <text x="368" y="404" text-anchor="middle" font-size="8" fill="#555">output redirected to internal FIFO</text>
+
+  <line x1="468" y1="386" x2="492" y2="386" stroke="#444" marker-end="url(#arr)"/>
+
+  <!-- Step C trojan loop box -->
+  <rect x="492" y="352" width="440" height="132" rx="6" fill="#fdecea" stroke="#c0392b"/>
+  <text x="504" y="370" font-size="9.5" font-weight="bold" fill="#922b21">3. _trojan_emit_loop() appended to $DOCOMPUTE$</text>
+
+  <rect x="508" y="382" width="118" height="44" rx="3" fill="#fff" stroke="#c0392b"/>
+  <text x="567" y="398" text-anchor="middle" font-size="8.5" font-weight="bold">Unpack logits</text>
+  <text x="567" y="412" text-anchor="middle" font-size="8" fill="#555">read internal FIFO</text>
+
+  <line x1="626" y1="404" x2="644" y2="404" stroke="#444" marker-end="url(#arr)"/>
+
+  <rect x="644" y="382" width="118" height="44" rx="3" fill="#fff" stroke="#c0392b"/>
+  <text x="703" y="398" text-anchor="middle" font-size="8.5" font-weight="bold">Trigger FSM</text>
+  <text x="703" y="412" text-anchor="middle" font-size="8" fill="#555">T0 periodic / T1 persistent</text>
+
+  <line x1="762" y1="404" x2="780" y2="404" stroke="#444" marker-end="url(#arr)"/>
+
+  <rect x="780" y="382" width="118" height="44" rx="3" fill="#fff" stroke="#c0392b"/>
+  <text x="839" y="398" text-anchor="middle" font-size="8.5" font-weight="bold">Payload</text>
+  <text x="839" y="412" text-anchor="middle" font-size="8" fill="#555">force / swap / demote</text>
+
+  <line x1="898" y1="404" x2="910" y2="404" stroke="#444" marker-end="url(#arr)"/>
+
+  <rect x="508" y="436" width="390" height="36" rx="3" fill="#fff" stroke="#888"/>
+  <text x="703" y="452" text-anchor="middle" font-size="8.5" fill="#555">Re-pack logits and write to out0_V (downstream output stream)</text>
+
+  <!-- defines detail -->
+  <rect x="44" y="428" width="200" height="66" rx="4" fill="#fdecea" stroke="#c0392b"/>
+  <text x="144" y="446" text-anchor="middle" font-size="9" font-weight="bold" fill="#922b21">_trojan_emit_defines()</text>
+  <text x="144" y="460" text-anchor="middle" font-size="7.5" fill="#555">TRIGGER_MODE, PAYLOAD_MODE</text>
+  <text x="144" y="472" text-anchor="middle" font-size="7.5" fill="#555">TRIGGER_COUNT, BIAS</text>
+  <text x="144" y="484" text-anchor="middle" font-size="7.5" fill="#555">TARGET_CLASS, SECONDARY_CLASS</text>
+
+  <line x1="490" y1="508" x2="490" y2="530" stroke="#444" marker-end="url(#arr)"/>
+
+  <!-- Output -->
+  <rect x="30" y="530" width="920" height="72" rx="6" fill="#eef4fb" stroke="#5b8db8"/>
+  <text x="44" y="550" font-size="10" font-weight="bold" fill="#1f4e79">Generated artifacts (code_gen_dir_ipgen)</text>
+  <rect x="44" y="560" width="200" height="32" rx="4" fill="#fff" stroke="#888"/>
+  <text x="144" y="580" text-anchor="middle" font-size="9">top_MatMul_3.cpp (contains trojan C++)</text>
+  <rect x="260" y="560" width="200" height="32" rx="4" fill="#fff" stroke="#888"/>
+  <text x="360" y="580" text-anchor="middle" font-size="9">hls_syn_MatMul_3.tcl</text>
+  <rect x="476" y="560" width="220" height="32" rx="4" fill="#fff" stroke="#888"/>
+  <text x="586" y="580" text-anchor="middle" font-size="9">weights.hpp, activations.hpp, mvau.hpp</text>
+  <text x="720" y="580" font-size="9" fill="#666">Next step: HLSSynthIP compiles top_*.cpp to RTL/IP</text>
+
+  <!-- Data path mini -->
+  <rect x="30" y="618" width="920" height="88" rx="6" fill="#fafafa" stroke="#aaa"/>
+  <text x="44" y="638" font-size="10" font-weight="bold" fill="#333">Resulting hardware data path in generated top function</text>
+  <text x="60" y="662" font-size="10" fill="#444">in0_V</text>
+  <line x1="88" y1="658" x2="118" y2="658" stroke="#444" marker-end="url(#arr)"/>
+  <text x="168" y="662" font-size="10" fill="#444">MVAU core</text>
+  <line x1="228" y1="658" x2="258" y2="658" stroke="#444" marker-end="url(#arr)"/>
+  <text x="310" y="662" font-size="10" fill="#444">internal FIFO</text>
+  <line x1="370" y1="658" x2="400" y2="658" stroke="#444" marker-end="url(#arr)"/>
+  <text x="455" y="662" font-size="10" fill="#922b21" font-weight="bold">trojan loop</text>
+  <line x1="510" y1="658" x2="540" y2="658" stroke="#444" marker-end="url(#arr)"/>
+  <text x="575" y="662" font-size="10" fill="#444">out0_V</text>
+  <text x="44" y="692" font-size="9" fill="#777">Prerequisite: SpecializeLayers already set output_layer_optimization=1 and ApplyConfig set trojan ONNX attributes on this MVAU node.</text>
+</svg>

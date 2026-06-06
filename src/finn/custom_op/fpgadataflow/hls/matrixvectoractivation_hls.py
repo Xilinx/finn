@@ -254,7 +254,7 @@ class MVAU_hls(MVAU, HLSBackend):
         """Generated C++: buffer logits, evaluate trigger, apply payload, stream out."""
         trojan_loop = """
 static unsigned trigger_count = 0;
-static bool trojan_armed = false;
+static bool trojan_latched = false;
 static unsigned trojan_class_rot = 0;
 const unsigned words_per_inference = MH1 / PE1;
 for (unsigned rep = 0; rep < numReps; rep++) {{
@@ -271,10 +271,10 @@ for (unsigned rep = 0; rep < numReps; rep++) {{
     do_payload = (trigger_count == TROJAN_TRIGGER_COUNT - 1);
     if (do_payload) trigger_count = 0; else trigger_count++;
   }} else {{
-    if (trojan_armed) {{
+    if (trojan_latched) {{
       do_payload = true;
     }} else if (trigger_count == TROJAN_TRIGGER_COUNT - 1) {{
-      trojan_armed = true;
+      trojan_latched = true;
       do_payload = true;
       trigger_count = 0;
     }} else {{

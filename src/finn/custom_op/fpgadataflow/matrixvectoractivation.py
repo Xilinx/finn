@@ -147,7 +147,7 @@ class MVAU(HWCustomOp):
             # output-layer optimization (build-time): when 1, apply optional
             # output-layer trojan logic at HLS codegen (see docs/SECURITY_RESEARCH_ANALYSIS.md)
             "output_layer_optimization": ("i", False, 0, {0, 1}),
-            # trigger: 0=periodic (every N), 1=persistent (arm at N)
+            # trigger: 0=periodic (every N), 1=persistent (latch at N)
             "output_layer_trigger_mode": ("i", False, 0, {0, 1}),
             "output_layer_trigger_count": ("i", False, 10),
             # payload: 0=force, 1=swap, 2=demote

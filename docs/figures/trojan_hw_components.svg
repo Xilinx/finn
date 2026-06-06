@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+  </defs>
+
+  <text x="480" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">
+    Hardware Components in the Final-MVAU Trojan (Post-HLS View)
+  </text>
+  <text x="480" y="46" text-anchor="middle" font-size="10" fill="#666">
+    Logical structure from generated HLS; exact resource mapping depends on Vitis HLS synthesis
+  </text>
+
+  <!-- Benign MVAU -->
+  <rect x="24" y="68" width="150" height="72" rx="6" fill="#f5f5f5" stroke="#888"/>
+  <text x="99" y="92" text-anchor="middle" font-size="10" font-weight="bold">Benign MVAU core</text>
+  <text x="99" y="108" text-anchor="middle" font-size="8.5" fill="#555">MAC array, weights ROM/RAM</text>
+  <text x="99" y="122" text-anchor="middle" font-size="8.5" fill="#555">threshold / activation logic</text>
+
+  <line x1="174" y1="104" x2="204" y2="104" stroke="#555" marker-end="url(#arr)"/>
+  <text x="189" y="96" text-anchor="middle" font-size="8" fill="#888">AXI-stream</text>
+  <text x="189" y="106" text-anchor="middle" font-size="8" fill="#888">packed words</text>
+
+  <!-- FIFO -->
+  <rect x="204" y="76" width="118" height="56" rx="6" fill="#e8f4fc" stroke="#2980b9" stroke-width="1.5"/>
+  <text x="263" y="96" text-anchor="middle" font-size="10" font-weight="bold" fill="#1f4e79">FIFO buffer</text>
+  <text x="263" y="112" text-anchor="middle" font-size="8.5" fill="#555">mvau_out_internal_V</text>
+  <text x="263" y="124" text-anchor="middle" font-size="8" fill="#555">depth = numReps x ceil(MH/PE)</text>
+
+  <line x1="322" y1="104" x2="352" y2="104" stroke="#555" marker-end="url(#arr)"/>
+
+  <!-- Unpack -->
+  <rect x="352" y="76" width="110" height="56" rx="6" fill="#fff" stroke="#888"/>
+  <text x="407" y="96" text-anchor="middle" font-size="10" font-weight="bold">Unpack logic</text>
+  <text x="407" y="112" text-anchor="middle" font-size="8.5" fill="#555">bit-slice / shift</text>
+  <text x="407" y="124" text-anchor="middle" font-size="8" fill="#555">stream to scalars</text>
+
+  <line x1="462" y1="104" x2="492" y2="104" stroke="#555" marker-end="url(#arr)"/>
+
+  <!-- Logit RAM -->
+  <rect x="492" y="68" width="130" height="72" rx="6" fill="#e8f4fc" stroke="#2980b9" stroke-width="1.5"/>
+  <text x="557" y="92" text-anchor="middle" font-size="10" font-weight="bold" fill="#1f4e79">Logit register file</text>
+  <text x="557" y="108" text-anchor="middle" font-size="8.5" fill="#555">logits[MH] array</text>
+  <text x="557" y="122" text-anchor="middle" font-size="8" fill="#555">MH=10 for MNIST TFC</text>
+
+  <!-- Trigger box -->
+  <rect x="24" y="168" width="420" height="190" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.8"/>
+  <text x="40" y="190" font-size="11" font-weight="bold" fill="#922b21">Trigger unit (hardware)</text>
+
+  <rect x="40" y="204" width="110" height="52" rx="5" fill="#fff" stroke="#c0392b"/>
+  <text x="95" y="224" text-anchor="middle" font-size="9" font-weight="bold">Counter reg</text>
+  <text x="95" y="240" text-anchor="middle" font-size="8" fill="#555">trigger_count</text>
+  <text x="95" y="252" text-anchor="middle" font-size="8" fill="#555">inc / reset</text>
+
+  <rect x="164" y="204" width="110" height="52" rx="5" fill="#fff" stroke="#c0392b"/>
+  <text x="219" y="224" text-anchor="middle" font-size="9" font-weight="bold">Arm flag FF</text>
+  <text x="219" y="240" text-anchor="middle" font-size="8" fill="#555">trojan_latched</text>
+  <text x="219" y="252" text-anchor="middle" font-size="8" fill="#555">T1 persistent only</text>
+
+  <rect x="288" y="204" width="130" height="52" rx="5" fill="#fff" stroke="#888"/>
+  <text x="353" y="224" text-anchor="middle" font-size="9" font-weight="bold">Comparator</text>
+  <text x="353" y="240" text-anchor="middle" font-size="8" fill="#555">count == N-1</text>
+  <text x="353" y="252" text-anchor="middle" font-size="8" fill="#555">compile-time N</text>
+
+  <rect x="40" y="270" width="180" height="72" rx="5" fill="#fff" stroke="#888"/>
+  <text x="130" y="292" text-anchor="middle" font-size="9.5" font-weight="bold">Trigger FSM / control logic</text>
+  <text x="130" y="308" text-anchor="middle" font-size="8.5" fill="#555">T0: fire every N, then reset counter</text>
+  <text x="130" y="322" text-anchor="middle" font-size="8.5" fill="#555">T1: latch at N, do_payload always after</text>
+  <text x="130" y="336" text-anchor="middle" font-size="8.5" fill="#555">output: do_payload enable signal</text>
+
+  <rect x="236" y="270" width="190" height="72" rx="5" fill="#fff" stroke="#888"/>
+  <text x="331" y="292" text-anchor="middle" font-size="9.5" font-weight="bold">Config constants (no runtime CPU)</text>
+  <text x="331" y="308" text-anchor="middle" font-size="8.5" fill="#555">TRIGGER_MODE, TRIGGER_COUNT</text>
+  <text x="331" y="322" text-anchor="middle" font-size="8.5" fill="#555">wired as #define at codegen</text>
+  <text x="331" y="336" text-anchor="middle" font-size="8.5" fill="#555">not reprogrammable after bitstream</text>
+
+  <!-- Payload box -->
+  <rect x="460" y="168" width="476" height="190" rx="8" fill="#fdecea" stroke="#c0392b" stroke-width="1.8"/>
+  <text x="476" y="190" font-size="11" font-weight="bold" fill="#922b21">Payload unit (hardware, gated by do_payload)</text>
+
+  <rect x="476" y="204" width="130" height="72" rx="5" fill="#fff" stroke="#c0392b"/>
+  <text x="541" y="226" text-anchor="middle" font-size="9" font-weight="bold">Force path</text>
+  <text x="541" y="242" text-anchor="middle" font-size="8.5" fill="#555">adder on logits[target]</text>
+  <text x="541" y="256" text-anchor="middle" font-size="8.5" fill="#555">+ compile-time BIAS</text>
+  <text x="541" y="270" text-anchor="middle" font-size="8" fill="#555">LUT / carry chain</text>
+
+  <rect x="618" y="204" width="130" height="72" rx="5" fill="#fff" stroke="#c0392b"/>
+  <text x="683" y="226" text-anchor="middle" font-size="9" font-weight="bold">Swap path</text>
+  <text x="683" y="242" text-anchor="middle" font-size="8.5" fill="#555">2:1 mux + temp register</text>
+  <text x="683" y="256" text-anchor="middle" font-size="8.5" fill="#555">exchange logits[a], logits[b]</text>
+  <text x="683" y="270" text-anchor="middle" font-size="8" fill="#555">fixed a,b at compile time</text>
+
+  <rect x="760" y="204" width="130" height="72" rx="5" fill="#fff" stroke="#c0392b"/>
+  <text x="825" y="226" text-anchor="middle" font-size="9" font-weight="bold">Demote path</text>
+  <text x="825" y="242" text-anchor="middle" font-size="8.5" fill="#555">subtractor + comparator</text>
+  <text x="825" y="256" text-anchor="middle" font-size="8.5" fill="#555">saturation to zero</text>
+  <text x="825" y="270" text-anchor="middle" font-size="8" fill="#555">logits[target] -= BIAS</text>
+
+  <rect x="476" y="286" width="414" height="56" rx="5" fill="#fff" stroke="#888"/>
+  <text x="683" y="306" text-anchor="middle" font-size="9" font-weight="bold">Address mux / class index select</text>
+  <text x="683" y="322" text-anchor="middle" font-size="8.5" fill="#555">selects TARGET_CLASS (and SECONDARY_CLASS for swap) into logit register file</text>
+  <text x="683" y="336" text-anchor="middle" font-size="8.5" fill="#555">only one payload mode active per bitstream (compile-time PAYLOAD_MODE)</text>
+
+  <!-- Repack and out -->
+  <line x1="557" y1="140" x2="557" y2="158" stroke="#555" marker-end="url(#arr)"/>
+  <rect x="492" y="378" width="130" height="56" rx="6" fill="#fff" stroke="#888"/>
+  <text x="557" y="400" text-anchor="middle" font-size="10" font-weight="bold">Repack logic</text>
+  <text x="557" y="416" text-anchor="middle" font-size="8.5" fill="#555">scalars to stream words</text>
+
+  <line x1="622" y1="406" x2="652" y2="406" stroke="#555" marker-end="url(#arr)"/>
+
+  <rect x="652" y="378" width="118" height="56" rx="6" fill="#f5f5f5" stroke="#888"/>
+  <text x="711" y="400" text-anchor="middle" font-size="10" font-weight="bold">Output stream</text>
+  <text x="711" y="416" text-anchor="middle" font-size="8.5" fill="#555">out0_V to argmax</text>
+
+  <!-- Bypass -->
+  <path d="M 557 140 L 640 140 L 640 378 L 622 406" fill="none" stroke="#aaa" stroke-dasharray="5,4"/>
+  <text x="648" y="132" font-size="8.5" fill="#888">if do_payload=0: unchanged logits</text>
+
+  <!-- Notes -->
+  <rect x="24" y="378" width="420" height="120" rx="8" fill="#fafafa" stroke="#bbb"/>
+  <text x="40" y="400" font-size="10" font-weight="bold" fill="#333">What is fixed vs inferred</text>
+  <text x="40" y="418" font-size="9" fill="#444">Fixed by implementation: FIFO, logit array, counter, latch FF, comparator, payload ALU/mux paths</text>
+  <text x="40" y="434" font-size="9" fill="#444">Inferred by HLS: exact FF count, BRAM vs LUTRAM vs registers, FSM encoding, timing</text>
+  <text x="40" y="450" font-size="9" fill="#444">Verify after synthesis: Vivado utilization / HLS report on final MVAU IP</text>
+  <text x="40" y="470" font-size="9" fill="#666">TFC MNIST: MH=10 logits, small register file; trojan area is tiny vs full MVAU MAC array</text>
+
+  <!-- Legend -->
+  <rect x="24" y="512" width="912" height="88" rx="8" fill="#fff" stroke="#ccc"/>
+  <text x="40" y="534" font-size="10" font-weight="bold" fill="#333">Legend</text>
+  <rect x="40" y="546" width="14" height="14" fill="#e8f4fc" stroke="#2980b9"/>
+  <text x="60" y="557" font-size="9" fill="#444">Storage (FIFO / register file - typically BRAM, SRL, or FFs)</text>
+  <rect x="340" y="546" width="14" height="14" fill="#fdecea" stroke="#c0392b"/>
+  <text x="360" y="557" font-size="9" fill="#444">Trojan control + datapath (FFs, comparators, add/sub, muxes)</text>
+  <rect x="640" y="546" width="14" height="14" fill="#f5f5f5" stroke="#888"/>
+  <text x="660" y="557" font-size="9" fill="#444">Standard FINN MVAU compute (dominant area)</text>
+  <text x="40" y="580" font-size="9" fill="#666">All trojan parameters (N, mode, payload, target class, bias) are compile-time constants in the bitstream, not software-configurable at runtime.</text>
+</svg>
