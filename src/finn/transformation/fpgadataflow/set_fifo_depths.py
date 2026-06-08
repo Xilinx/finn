@@ -447,7 +447,7 @@ class InsertAndSetFIFODepths(Transformation):
             os.makedirs(os.path.abspath(self.debug_log_dir), exist_ok=True)
             for node in model.get_nodes_by_op_type("StreamingFIFO_rtl"):
                 log_path = os.path.abspath(os.path.join(self.debug_log_dir, node.name + ".log"))
-                getCustomOp(node).set_nodeattr("debug_log_path", log_path)
+                getHWCustomOp(node).set_nodeattr("debug_log_path", log_path)
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
