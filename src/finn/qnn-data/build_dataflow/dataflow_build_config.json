@@ -9,6 +9,7 @@
   "shell_flow_type": "vivado_zynq",
   "verify_save_rtlsim_waveforms": true,
   "fifosim_save_waveform": true,
+  "debug_fifo": true,
   "verify_steps": [
     "initial_python",
     "streamlined_python",

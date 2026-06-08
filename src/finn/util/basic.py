@@ -26,11 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import errno
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
@@ -195,16 +198,38 @@ def make_build_dir(prefix=""):
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
     try:
-        tmpdir = tempfile.mkdtemp(prefix=prefix)
-        newdir = tmpdir.replace("/tmp", os.environ["FINN_BUILD_DIR"])
-        os.makedirs(newdir)
-        return newdir
+        build_dir = os.environ["FINN_BUILD_DIR"]
     except KeyError:
         raise Exception(
             """Environment variable FINN_BUILD_DIR must be set
-        correctly. Please ensure you have launched the Docker contaier correctly.
+        correctly. Please ensure you have launched the Docker container correctly.
         """
         )
+    os.makedirs(build_dir, exist_ok=True)
+    new_dir = tempfile.mkdtemp(prefix=prefix, dir=build_dir)
+    os.chmod(new_dir, 0o755)
+    return new_dir
+
+
+def robust_rmtree(path, retries=6, initial_delay=0.1, backoff=2.0):
+    """Remove a directory tree with retries for transient NFS cleanup races.
+    Retries ``ENOTEMPTY``/``EBUSY``. Other errors propagate immediately.
+    """
+    if not path or not os.path.exists(path):
+        return
+    delay = initial_delay
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            transient = exc.errno in (errno.ENOTEMPTY, errno.EBUSY)
+            if not transient or attempt == retries - 1:
+                raise
+            time.sleep(delay)
+            delay *= backoff
 
 
 class CppBuilder:

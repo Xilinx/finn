@@ -30,7 +30,6 @@
 import pytest
 
 import json
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from onnx import TensorProto, helper
@@ -45,7 +44,7 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import getHWCustomOp, make_build_dir
+from finn.util.basic import getHWCustomOp, make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -110,8 +109,8 @@ def test_fifosizing_linear(method, topology):
             node1_inst = getHWCustomOp(node1)
             assert node0_inst.get_nodeattr("depth") == node1_inst.get_nodeattr("depth")
 
-    shutil.rmtree(tmp_output_dir)
-    shutil.rmtree(tmp_output_dir_cmp)
+    robust_rmtree(tmp_output_dir)
+    robust_rmtree(tmp_output_dir_cmp)
 
 
 @pytest.mark.slow

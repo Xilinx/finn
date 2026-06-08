@@ -34,7 +34,8 @@
 
 module fifo_gauge #(
 	int unsigned  WIDTH,
-	int unsigned  COUNT_WIDTH = 32
+	int unsigned  COUNT_WIDTH = 32,
+	parameter  DATA_LOGFILE = ""  // Log consumed data verbosely to this file
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -51,25 +52,47 @@ module fifo_gauge #(
 	output	logic [COUNT_WIDTH-1:0]  maxcount
 );
 
+	//-----------------------------------------------------------------------
+	// Monitoring & Debug
+
+	// Transaction counters
+	longint unsigned  ITxnCnt = 0;
+	longint unsigned  OTxnCnt = 0;
+	// Optional hex data trace
+	int  LogFd = (DATA_LOGFILE != "")? $fopen(DATA_LOGFILE, "a") : 0;
+
 	// The internal Queue serving as data buffer and an output register
 	logic [WIDTH-1:0]  Q[$] = {};
-	logic [COUNT_WIDTH-1:0]  Count    = 0;
-	logic [COUNT_WIDTH-1:0]  MaxCount = 0;
+	longint unsigned  Count    = 0;
+	longint unsigned  MaxCount = 0;
 
 	logic  OVld = 0;
 	logic [WIDTH-1:0]  ODat = 'x;
 
+	final begin
+		$display("[%m] MaxFill: %0d; Transactions: in=%0d out=%0d", MaxCount, ITxnCnt, OTxnCnt);
+		if(LogFd)  $fclose(LogFd);
+	end
+
 	always_ff @(posedge clk) begin
 		if(rst) begin
-			Q        <= {};
+			Q         = {};
 			Count    <= 0;
 			MaxCount <= 0;
 			OVld <= 0;
 			ODat <= 'x;
+
+			ITxnCnt <= 0;
+			OTxnCnt <= 0;
 		end
 		else begin
-			// Always take input
-			if(ivld)  Q.push_back(idat);
+			// Always take input and track Transactions
+			if(ivld) begin
+				Q.push_back(idat);
+				if(LogFd)  $fwrite(LogFd, "%0x\n", idat);
+				ITxnCnt <= ITxnCnt + 1;
+			end
+			if(OVld && ordy)  OTxnCnt <= OTxnCnt + 1;
 
 			// Take Count
 			Count <= Q.size;
