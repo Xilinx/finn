@@ -29,7 +29,7 @@
 import numpy as np
 import os
 
-from finn.compressor import generate_add_multi_comps, generate_dotp_comp
+from compressor import generate_add_multi_comps, generate_dotp_comp
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.util.basic import get_dsp_block
@@ -225,10 +225,9 @@ class MVAU_rtl(MVAU, RTLBackend):
         # Add compressor files if dotp_comp was generated
         comp_name = self.get_nodeattr("comp_module_name")
         if comp_name:
-            comp_hdl_dir = os.path.join(os.environ["FINN_ROOT"], "src/finn/compressor/hdl/")
             dotp_module_name = self.get_nodeattr("dotp_module_name")
             sourcefiles.append(os.path.join(code_gen_dir, f"{dotp_module_name}.sv"))
-            sourcefiles.append(os.path.join(comp_hdl_dir, "mul_comp_map.sv"))
+            sourcefiles.append(os.path.join(code_gen_dir, "mul_comp_map.sv"))
             sourcefiles.append(os.path.join(code_gen_dir, comp_name + ".sv"))
             # Use local mvu_vvu_axi.sv with substituted $DOTP_MODULE_NAME$
             sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
@@ -403,7 +402,7 @@ class MVAU_rtl(MVAU, RTLBackend):
             with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
                 f.write(mvu_vvu_axi_content)
         else:
-            # DSP path: Generate add_multi.sv with compressors
+            # DSP path: Generate compressor cores
             result = generate_add_multi_comps(
                 fpgapart, version, simd, ww, aw, accu_width, narrow_weights, code_gen_dir
             )
@@ -413,9 +412,25 @@ class MVAU_rtl(MVAU, RTLBackend):
                 # Format: "N,W,D;N,W,D;..." e.g. "16,4,0;16,3,0;16,8,0"
                 specs_str = ";".join(f"{n},{w},{d}" for n, w, d in result.get("comp_specs", []))
                 self.set_nodeattr("add_multi_comp_specs", specs_str)
+
+            # Patch add_multi.sv with CATCH_COMP entries from compressor
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            with open(os.path.join(rtllib_dir, "add_multi.sv"), "r") as f:
+                add_multi_src = f.read()
+            marker = "\t// FINN_GENERATED_COMP_ENTRIES\n"
+            if marker not in add_multi_src:
+                raise RuntimeError(
+                    "Cannot find FINN_GENERATED_COMP_ENTRIES marker in add_multi.sv. "
+                    "Has the file been modified?"
+                )
+            add_multi_src = add_multi_src.replace(
+                marker, result.get("catch_comp_lines", "") + marker
+            )
+            with open(os.path.join(code_gen_dir, "add_multi.sv"), "w") as f:
+                f.write(add_multi_src)
+
             # Copy mvu_vvu_axi.sv and substitute placeholder with dummy name
             # (not used since USE_COMPRESSOR=0, but Vivado parses entire file)
-            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
             with open(os.path.join(rtllib_dir, "mvu_vvu_axi.sv"), "r") as f:
                 mvu_vvu_axi_content = f.read()
             mvu_vvu_axi_content = mvu_vvu_axi_content.replace(

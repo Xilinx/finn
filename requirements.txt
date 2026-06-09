@@ -1,4 +1,5 @@
 bitstring==4.2.3
+compressor @ git+https://gitenterprise.xilinx.com/tpreusse/compressor-python@sgerber.finn_integration
 clize==5.0.1
 dataclasses-json==0.5.7
 gspread==3.6.0
