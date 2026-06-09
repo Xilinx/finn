@@ -24,28 +24,21 @@ class SimEngine:
             if p.isInput():
                 p.clear().write_back()
 
-        # Match C++ driver structure: separate half_cycle calls with run(5) each
         def half_cycle(up):
-            """Single half-cycle matching C++ driver behavior."""
             clk.set(up).write_back()
             if clk2x is not None:
                 clk2x.set(1).write_back()
-                top.run(5)
+                top.run(25)
                 clk2x.set(0).write_back()
-                top.run(5)
+                top.run(25)
             else:
-                top.run(5)
+                top.run(50)
 
         def cycle(updates):
-            # Clock down - matches C++ cycle(0)
-            half_cycle(0)
-
-            # Clock up - matches C++ cycle(1)
             half_cycle(1)
-
-            # Write port updates after clock up (matching C++ structure)
             for port, update in updates.items():
                 port.set_hexstr(update).write_back()
+            half_cycle(0)
 
         self.top = top
         self.cycle = cycle
