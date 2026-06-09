@@ -1052,7 +1052,6 @@ class MVAU(HWCustomOp):
                     strm_tmpl_name = strm_tmpl[:-2]
                     sourcefiles = [
                         os.path.join(code_gen_dir, strm_tmpl),
-                        ram_rtllib_dir + "ram_p_c.sv",
                         reg_rtllib_dir + "skid.sv",
                         que_rtllib_dir + "Q_srl.v",
                         fwg_rtllib_dir + "fetch_weights.sv",
