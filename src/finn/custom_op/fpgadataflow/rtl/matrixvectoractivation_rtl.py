@@ -167,13 +167,12 @@ class MVAU_rtl(MVAU, RTLBackend):
             sourcefiles = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
-                "../ram/ram_p_c.sv",
+                "../mvu/mvu_pkg.sv",
+                "../mvu/add_multi.sv",
                 "mvu_tiled_axi.sv",
                 "cu_mvau_tiled.sv",
                 "acc_stage.sv",
-                "add_tree.sv",
-                "reorder_out.sv",
-                "replay_buff_tile.sv",
+                "input_gen.sv",
                 "weights_buff_tile.sv",
             ]
         else:
@@ -379,12 +378,11 @@ class MVAU_rtl(MVAU, RTLBackend):
             verilog_files = [
                 "../fifo/hdl/Q_srl.v",
                 "../skid/skid.sv",
-                "../ram/ram_p_c.sv",
+                "../mvu/mvu_pkg.sv",
+                "../mvu/add_multi.sv",
                 "acc_stage.sv",
-                "add_tree.sv",
-                "replay_buff_tile.sv",
+                "input_gen.sv",
                 "weights_buff_tile.sv",
-                "reorder_out.sv",
                 "cu_mvau_tiled.sv",
                 "mvu_tiled_axi.sv",
             ]

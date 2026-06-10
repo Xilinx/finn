@@ -150,15 +150,11 @@ fetch_weights #(
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
     .IWSIMD(IWSIMD), .OWSIMD(WSIMD),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
-    .N_LAYERS(N_LAYERS),
-`ifdef EN_MLO
-    .EN_MLO(1)
-`else
-    .EN_MLO(0)
-`endif
+    .N_LAYERS(N_LAYERS)
 ) inst (
     .aclk               (ap_clk),
     .aresetn            (ap_rst_n),
+    .m_done             (out_done),
 
     .m_axi_ddr_araddr   (axi_mm_araddr),
     .m_axi_ddr_arburst  (axi_mm_arburst),

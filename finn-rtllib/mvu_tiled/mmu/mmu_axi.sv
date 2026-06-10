@@ -130,11 +130,20 @@ module mmu_axi #(
 	logic act_s0_tlast;
 	logic act_s0_tvalid, act_s0_tready;
 
-	replay_buff_mmau #(.XC(SF), .YC(CLEN), .W(SIMD*ACTIVATION_WIDTH), .N_REPS(NF), .IO_TILED(IN_TILED)) activation_replay (
+	uwire [2:0]  act_done;
+	input_gen #(
+		.DATA_WIDTH(SIMD*ACTIVATION_WIDTH),
+		.FM_SIZE(SF * CLEN),
+		.D(3),
+		.DIMS('{NF, SF, CLEN}),
+		.COEFS(IN_TILED ? '{0, CLEN, 1} : '{0, 1, SF})
+	) activation_replay (
 		.clk(ap_clk), .rst(~ap_rst_n),
-		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(s_axis_input_tdata),
-		.ovld(act_s0_tvalid), .ordy(act_s0_tready), .odat(act_s0_tdata), .olast(act_s0_tlast)
+		.idat(s_axis_input_tdata),
+		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready),
+		.odat(act_s0_tdata), .ovld(act_s0_tvalid), .olst(), .odone(act_done), .ordy(act_s0_tready)
 	);
+	assign	act_s0_tlast = act_done[1];
 
     if (ASIMD > SIMD)
         assign act_s0_tdata_mod[ASIMD-1:SIMD] = '0;
@@ -238,10 +247,18 @@ end
 // Reorder
 // ---------------------------------------------------------------------
 	if(OUT_TILED == 0) begin
-		reorder_out #(.W(OUTPUT_STREAM_WIDTH_BA), .XC(NF), .YC(CLEN)) inst_reorder_out (
+		input_gen #(
+			.DATA_WIDTH(OUTPUT_STREAM_WIDTH_BA),
+			.FM_SIZE(NF * CLEN),
+			.D(2),
+			.DIMS('{CLEN, NF}),
+			.COEFS('{1, CLEN})
+		) inst_reorder_out (
 			.clk(ap_clk), .rst(~ap_rst_n),
-			.ivld(p_tvalid), .irdy(p_tready), .idat(p_tdata),
-			.ovld(m_axis_output_tvalid), .ordy(m_axis_output_tready), .odat(m_axis_output_tdata)
+			.idat(p_tdata),
+			.ivld(p_tvalid), .irdy(p_tready),
+			.odat(m_axis_output_tdata), .ovld(m_axis_output_tvalid),
+			.olst(), .odone(), .ordy(m_axis_output_tready)
 		);
 	end else begin
 		assign m_axis_output_tvalid = p_tvalid;
