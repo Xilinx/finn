@@ -44,6 +44,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     parameter   LEN_BITS = 32,
     parameter   IDX_BITS = 16,
 
+    // Base address offset (added to base_address)
+    parameter   [ADDR_BITS-1:0] ADDRESS_OFFSET = $ADDRESS_OFFSET$,
+
 	// Safely deducible parameters
 	parameter	WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8
 )(
@@ -103,7 +106,10 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // Stream
     output wire                                out0_V_tvalid,
     input  wire                                out0_V_tready,
-    output wire[WS_BITS_BA-1:0]                out0_V_tdata
+    output wire[WS_BITS_BA-1:0]                out0_V_tdata,
+
+    // Base Address
+    input wire[ADDR_BITS-1:0]                  base_address
 );
 
 
@@ -111,7 +117,7 @@ fetch_weights #(
     .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS),
     .WEIGHT_WIDTH(WEIGHT_WIDTH),
     .ADDR_BITS(ADDR_BITS), .DATA_BITS(DATA_BITS), .LEN_BITS(LEN_BITS), .IDX_BITS(IDX_BITS),
-    .N_LAYERS(N_LAYERS)
+    .N_LAYERS(N_LAYERS), .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst (
     .aclk               (ap_clk),
     .aresetn            (ap_rst_n),
@@ -158,7 +164,8 @@ fetch_weights #(
 
     .m_axis_tvalid      (out0_V_tvalid),
     .m_axis_tready      (out0_V_tready),
-    .m_axis_tdata       (out0_V_tdata)
+    .m_axis_tdata       (out0_V_tdata),
+    .base_address       (base_address)
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

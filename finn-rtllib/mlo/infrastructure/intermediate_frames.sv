@@ -45,7 +45,9 @@ module intermediate_frames #(
 
     int unsigned                    QDEPTH = 8,
     int unsigned                    N_DCPL_STGS = 1,
-    int unsigned                    DBG = 0
+    int unsigned                    DBG = 0,
+
+    logic[ADDR_BITS-1:0]            ADDRESS_OFFSET = 0
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -103,7 +105,10 @@ module intermediate_frames #(
 
     output logic [ILEN_BITS-1:0]        m_axis_tdata,
     output logic                        m_axis_tvalid,
-    input  logic                        m_axis_tready
+    input  logic                        m_axis_tready,
+
+    // Base Address
+    input  logic [ADDR_BITS-1:0]        base_address
 );
 
 // Offsets
@@ -197,7 +202,7 @@ always_comb begin: DP_WR
     m_idx_tdata = idx_in_tdata + 1;
 
     s0_dma_in_tvalid = 1'b0;
-    s0_dma_in_tdata = l_offsets[wr_ptr_C];
+    s0_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[wr_ptr_C];
     wr_sent = 1'b0;
 
     case (state_wr_C)
@@ -292,7 +297,7 @@ always_comb begin: DP_RD
 
     rd_start = 1'b0;
     s1_dma_in_tvalid = 1'b0;
-    s1_dma_in_tdata = l_offsets[rd_ptr_C];
+    s1_dma_in_tdata = base_address + ADDRESS_OFFSET + l_offsets[rd_ptr_C];
 
     case (state_rd_C)
         ST_RD_IDLE: begin

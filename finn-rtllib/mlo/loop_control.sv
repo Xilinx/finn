@@ -43,7 +43,9 @@ module loop_control #(
     int unsigned IDX_BITS,
     int unsigned ADDR_BITS,
     int unsigned DATA_BITS,
-    int unsigned LEN_BITS
+    int unsigned LEN_BITS,
+
+    logic [ADDR_BITS-1:0] ADDRESS_OFFSET = 0
 ) (
     input  logic                aclk,
     input  logic                aresetn,
@@ -112,7 +114,10 @@ module loop_control #(
 
     output [OLEN_BITS-1:0]      m_axis_se_tdata,
     output                      m_axis_se_tvalid,
-    input                       m_axis_se_tready
+    input                       m_axis_se_tready,
+
+    // Base Address
+    input  [ADDR_BITS-1:0]      base_address
 );
 
 logic idx_if_in_tvalid, idx_if_in_tready;
@@ -207,7 +212,8 @@ intermediate_frames #(
     .ADDR_BITS(ADDR_BITS),
     .DATA_BITS(DATA_BITS),
     .LEN_BITS(LEN_BITS),
-    .IDX_BITS(IDX_BITS)
+    .IDX_BITS(IDX_BITS),
+    .ADDRESS_OFFSET(ADDRESS_OFFSET)
 ) inst_intermediate_frames (
     .aclk(aclk),
     .aresetn(aresetn),
@@ -264,7 +270,9 @@ intermediate_frames #(
 
     .m_axis_tvalid(axis_if_out_tvalid),
     .m_axis_tready(axis_if_out_tready),
-    .m_axis_tdata (axis_if_out_tdata)
+    .m_axis_tdata (axis_if_out_tdata),
+
+    .base_address(base_address)
 );
 
 endmodule

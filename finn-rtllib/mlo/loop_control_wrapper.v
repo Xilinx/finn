@@ -41,7 +41,10 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter LEN_BITS       = 32,
     parameter IDX_BITS       = 16,
     parameter ILEN_BITS      = $ILEN_BITS$,
-    parameter OLEN_BITS      = $OLEN_BITS$
+    parameter OLEN_BITS      = $OLEN_BITS$,
+
+    // Base address offset (added to base_address)
+    parameter [ADDR_BITS-1:0] ADDRESS_OFFSET = $ADDRESS_OFFSET$
 ) (
     //- Global Control ------------------
     (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axi_hbm:m_axis_core_in:m_axis_core_in_fw_idx:s_axis_core_out:in0_V:out0_V:s_axis_core_out_fw_idx, ASSOCIATED_RESET = ap_rst_n" *)
@@ -117,7 +120,10 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  out0_V_tready,
 
     // Control signals
-    output wire [1:0]      done_if
+    output wire [1:0]      done_if,
+
+    // Base Address
+    input wire [ADDR_BITS-1:0] base_address
 );
 
     loop_control #(
@@ -128,7 +134,8 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
         .LEN_BITS(LEN_BITS),
         .IDX_BITS(IDX_BITS),
         .ILEN_BITS(ILEN_BITS),
-        .OLEN_BITS(OLEN_BITS)
+        .OLEN_BITS(OLEN_BITS),
+        .ADDRESS_OFFSET(ADDRESS_OFFSET)
     ) loop_control_inst (
        .aclk(ap_clk),
        .aresetn(ap_rst_n),
@@ -197,7 +204,9 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
 
        .m_axis_se_tdata(out0_V_tdata),
        .m_axis_se_tvalid(out0_V_tvalid),
-       .m_axis_se_tready(out0_V_tready)
+       .m_axis_se_tready(out0_V_tready),
+
+       .base_address(base_address)
     );
 
 endmodule

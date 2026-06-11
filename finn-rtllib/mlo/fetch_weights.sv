@@ -50,6 +50,8 @@ module fetch_weights #(
     int unsigned              N_DCPL_STGS = 1,
     int unsigned              DBG = 0,
 
+    logic[ADDR_BITS-1:0]      ADDRESS_OFFSET = 0,
+
     // Safely deducible parameters
     int unsigned              DS_BITS_BA = (SIMD*WEIGHT_WIDTH+7)/8 * 8,
 	int unsigned              WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
@@ -106,7 +108,10 @@ module fetch_weights #(
     // TODO: Should we reg this? Would be quite wide ...
     output logic                        m_axis_tvalid,
     input  logic                        m_axis_tready,
-    output logic[WS_BITS_BA-1:0]        m_axis_tdata
+    output logic[WS_BITS_BA-1:0]        m_axis_tdata,
+
+    // Base Address
+    input logic[ADDR_BITS-1:0]          base_address
 );
 
 localparam int unsigned WMAT_SIZE = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
@@ -133,7 +138,7 @@ Q_srl #(
     .o_d(q_idx_out_tdata), .o_v(q_idx_out_tvalid), .o_r(q_idx_out_tready)
 );
 
-assign q_dma_addr = l_offsets[q_idx_out_tdata];
+assign q_dma_addr = base_address + ADDRESS_OFFSET + l_offsets[q_idx_out_tdata];
 assign q_dma_len = WMAT_SIZE;
 
 // DMA
