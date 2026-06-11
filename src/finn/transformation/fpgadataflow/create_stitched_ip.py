@@ -40,7 +40,7 @@ from shutil import copytree
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
@@ -745,10 +745,11 @@ close $ofile
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_project.tcl\n")
+            f.write("{} -mode batch -source make_project.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

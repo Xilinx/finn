@@ -28,6 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+# Fail fast so a partial deps/ tree is caught early
+set -e
+
 export HOME=/tmp/home_dir
 export SHELL=/bin/bash
 export LANG="en_US.UTF-8"
@@ -55,18 +58,23 @@ recho () {
 
 # qonnx (using workaround for https://github.com/pypa/pip/issues/7953)
 # to be fixed in future Ubuntu versions (https://bugs.launchpad.net/ubuntu/+source/setuptools/+bug/1994016)
-mv ${FINN_ROOT}/deps/qonnx/pyproject.toml ${FINN_ROOT}/deps/qonnx/pyproject.tmp
-pip install --user -e ${FINN_ROOT}/deps/qonnx
-mv ${FINN_ROOT}/deps/qonnx/pyproject.tmp ${FINN_ROOT}/deps/qonnx/pyproject.toml
+# set -e propagates pip failures, so the trap covers only the qonnx-only swap.
+_qonnx_pyproj_toml="${FINN_ROOT}/deps/qonnx/pyproject.toml"
+_qonnx_pyproj_tmp="${FINN_ROOT}/deps/qonnx/pyproject.tmp"
+mv "$_qonnx_pyproj_toml" "$_qonnx_pyproj_tmp"
+trap 'mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml" 2>/dev/null || true' EXIT
+pip install --user -e "${FINN_ROOT}/deps/qonnx"
+mv "$_qonnx_pyproj_tmp" "$_qonnx_pyproj_toml"
+trap - EXIT
 
 # finn-experimental
-pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+pip install --user -e "${FINN_ROOT}/deps/finn-experimental"
 # brevitas
-pip install --user -e ${FINN_ROOT}/deps/brevitas
+pip install --user -e "${FINN_ROOT}/deps/brevitas"
 
 if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e ${FINN_ROOT}
+  pip install --user -e "${FINN_ROOT}"
 else
   recho "Unable to find FINN source code in ${FINN_ROOT}"
   recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
@@ -77,11 +85,12 @@ if [ -f "$VITIS_PATH/settings64.sh" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
   export XILINX_XRT=/opt/xilinx/xrt
-  source $VITIS_PATH/settings64.sh
+  # env scripts may return non-zero, so do not let that abort the container
+  source "$VITIS_PATH/settings64.sh" || true
   gecho "Found Vitis at $VITIS_PATH"
   if [ -f "$XILINX_XRT/setup.sh" ];then
     # source XRT
-    source $XILINX_XRT/setup.sh
+    source "$XILINX_XRT/setup.sh" || true
     gecho "Found XRT at $XILINX_XRT"
   else
     recho "XRT not found on $XILINX_XRT, did you skip the download or did the installation fail?"
@@ -94,7 +103,7 @@ else
   if [ -f "$VIVADO_PATH/settings64.sh" ];then
     # source Vivado env.vars
     export XILINX_VIVADO=$VIVADO_PATH
-    source $VIVADO_PATH/settings64.sh
+    source "$VIVADO_PATH/settings64.sh" || true
     gecho "Found Vivado at $VIVADO_PATH"
   else
     yecho "Unable to find $VIVADO_PATH/settings64.sh"
@@ -111,10 +120,10 @@ else
     gecho "Found existing finn_xsi at ${FINN_ROOT}/finn_xsi/xsi.so"
   else
     gecho "Building finn_xsi using finn.xsi.setup..."
-    python -m finn.xsi.setup --quiet
-    if [ $? -eq 0 ]; then
+    if python -m finn.xsi.setup --quiet; then
       gecho "finn_xsi built successfully"
     else
+      # finn_xsi is optional, so a failed build is non-fatal
       recho "Failed to build finn_xsi"
     fi
   fi
@@ -123,7 +132,7 @@ fi
 
 if [ -f "$HLS_PATH/settings64.sh" ];then
   # source Vitis HLS env.vars
-  source $HLS_PATH/settings64.sh
+  source "$HLS_PATH/settings64.sh" || true
   gecho "Found Vitis HLS at $HLS_PATH"
 else
   yecho "Unable to find $HLS_PATH/settings64.sh"
@@ -133,7 +142,7 @@ else
 fi
 
 if [ -d "$FINN_ROOT/.Xilinx" ]; then
-  mkdir "$HOME/.Xilinx"
+  mkdir -p "$HOME/.Xilinx"
   if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
     cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
     gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
@@ -142,7 +151,7 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
   fi
 
   if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
-    mkdir "$HOME/.Xilinx/Vivado/"
+    mkdir -p "$HOME/.Xilinx/Vivado/"
     cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
     gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
 

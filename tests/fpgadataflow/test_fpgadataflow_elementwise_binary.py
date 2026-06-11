@@ -380,7 +380,7 @@ def test_elementwise_binary_operation_stitched_ip(
         CreateStitchedIP(
             part,
             10,
-            vitis=False,
+            run_synth=False,
         )
     )
 

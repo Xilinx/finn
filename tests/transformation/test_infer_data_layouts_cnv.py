@@ -29,7 +29,6 @@
 
 import pytest
 
-import os
 import qonnx.core.data_layout as DataLayout
 import torch
 from brevitas.export import export_qonnx
@@ -51,74 +50,76 @@ import finn.transformation.streamline.absorb as absorb
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 
 
 @pytest.mark.transform
 @pytest.mark.xfail
 def test_infer_data_layouts_cnv():
-    cnv = get_test_model_trained("CNV", 1, 1)
-    export_qonnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
-    qonnx_cleanup(export_onnx_path_cnv, out_file=export_onnx_path_cnv)
-    model = ModelWrapper(export_onnx_path_cnv)
-    model = model.transform(ConvertQONNXtoFINN())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveUniqueParameterTensors())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(Streamline())
-    model = model.transform(InferDataLayouts())
+    build_dir = make_build_dir(prefix="test_infer_data_layouts_cnv_")
+    try:
+        export_onnx_path_cnv = f"{build_dir}/test_infer_data_layouts.onnx"
+        cnv = get_test_model_trained("CNV", 1, 1)
+        export_qonnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
+        qonnx_cleanup(export_onnx_path_cnv, out_file=export_onnx_path_cnv)
+        model = ModelWrapper(export_onnx_path_cnv)
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveUniqueParameterTensors())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(Streamline())
+        model = model.transform(InferDataLayouts())
 
-    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
-    assert model.get_tensor_layout("Conv_0_out0") == DataLayout.NCHW
-    assert model.get_tensor_layout("MaxPool_0_out0") == DataLayout.NCHW
-    assert model.get_tensor_layout("MultiThreshold_6_out0") == DataLayout.NCHW
-    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("global_out") == DataLayout.NC
+        assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+        assert model.get_tensor_layout("Conv_0_out0") == DataLayout.NCHW
+        assert model.get_tensor_layout("MaxPool_0_out0") == DataLayout.NCHW
+        assert model.get_tensor_layout("MultiThreshold_6_out0") == DataLayout.NCHW
+        assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+        assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NC
+        assert model.get_tensor_layout("global_out") == DataLayout.NC
 
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(MakeMaxPoolNHWC())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataLayouts())
+        model = model.transform(LowerConvsToMatMul())
+        model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataLayouts())
 
-    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
-    assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("Im2Col_0_out0") == DataLayout.NHWC
-    # note: im2col output isn't really NHWC or any other common layout
-    # since the concept of channels changes with lowering... but it is
-    # conceptually close to NHWC since the innermost dim gets multiplied
-    assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("Transpose_1_out0") == DataLayout.NCHW
-    assert model.get_tensor_layout("Transpose_2_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("MaxPoolNHWC_0_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("global_out") == DataLayout.NC
+        assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+        assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("Im2Col_0_out0") == DataLayout.NHWC
+        # note: im2col output isn't really NHWC or any other common layout
+        # since the concept of channels changes with lowering... but it is
+        # conceptually close to NHWC since the innermost dim gets multiplied
+        assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("Transpose_1_out0") == DataLayout.NCHW
+        assert model.get_tensor_layout("Transpose_2_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("MaxPoolNHWC_0_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+        assert model.get_tensor_layout("global_out") == DataLayout.NC
 
-    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    model = model.transform(Streamline())
-    model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(to_hw.InferConvInpGen())
-    model = model.transform(to_hw.InferPool())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-    model = model.transform(InferDataLayouts())
+        model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(ConvertBipolarMatMulToXnorPopcount())
+        model = model.transform(Streamline())
+        model = model.transform(to_hw.InferBinaryMatrixVectorActivation())
+        model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
+        model = model.transform(to_hw.InferConvInpGen())
+        model = model.transform(to_hw.InferPool())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataLayouts())
 
-    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
-    assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
-    # note: im2col output isn't really NHWC or any other common layout
-    # since the concept of channels changes with lowering... but it is
-    # conceptually close to NHWC since the innermost dim gets multiplied
-    assert model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("MVAU_3_out0") == DataLayout.NHWC
-    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("MVAU_6_out0") == DataLayout.NC
-    assert model.get_tensor_layout("global_out") == DataLayout.NC
-
-    os.remove(export_onnx_path_cnv)
+        assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+        assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
+        # note: im2col output isn't really NHWC or any other common layout
+        # since the concept of channels changes with lowering... but it is
+        # conceptually close to NHWC since the innermost dim gets multiplied
+        assert model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("MVAU_3_out0") == DataLayout.NHWC
+        assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+        assert model.get_tensor_layout("MVAU_6_out0") == DataLayout.NC
+        assert model.get_tensor_layout("global_out") == DataLayout.NC
+    finally:
+        robust_rmtree(build_dir)

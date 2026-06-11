@@ -250,7 +250,6 @@ class MVAU_hls(MVAU, HLSBackend):
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width(0)
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -259,11 +258,10 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
+            'npy2apintstream<%s, %s, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 npy_in,
             )
@@ -276,7 +274,6 @@ class MVAU_hls(MVAU, HLSBackend):
             or self.get_nodeattr("mlo_max_iter")
         ):
             wdt = self.get_input_datatype(1)
-            elem_bits = wdt.bitwidth()
             packed_bits = self.get_instream_width(1)
             if self.get_nodeattr("dynamic_input"):
                 packed_bits = packed_bits * self.get_nodeattr("SIMD")
@@ -286,11 +283,10 @@ class MVAU_hls(MVAU, HLSBackend):
             npy_in = "%s/input_1.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", in1_V, false, numReps);'
+                'npy2apintstream<%s, %s, %s>("%s", in1_V, false, numReps);'
                 % (
                     packed_hls_type,
                     elem_hls_type,
-                    elem_bits,
                     npy_type,
                     npy_in,
                 )
@@ -377,7 +373,6 @@ class MVAU_hls(MVAU, HLSBackend):
         if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
             dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -388,11 +383,10 @@ class MVAU_hls(MVAU, HLSBackend):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out0_V, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %s>(out0_V, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 shape_cpp_str,
                 npy_out,

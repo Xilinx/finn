@@ -221,7 +221,7 @@ def test_elementwise_rtl_stitched_ip(op_type, pe):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(VERSAL_PART, 10))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(VERSAL_PART, 10, vitis=False))
+    model = model.transform(CreateStitchedIP(VERSAL_PART, 10, run_synth=False))
 
     # Run stitched IP rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
