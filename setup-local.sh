@@ -100,14 +100,14 @@ echo ""
 # Step 1: Check prerequisites
 gecho "Step 1: Checking prerequisites..."
 
-# Check Python version (require 3.10+)
+# Check Python version (require 3.12+)
 PYTHON_VERSION=$(python3 --version 2>&1 | cut -d' ' -f2)
 PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d'.' -f1)
 PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d'.' -f2)
 
-if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 10 ]]; then
-    recho "Python 3.10 or higher required, found $PYTHON_VERSION"
-    recho "Set FINN_PYTHON to point to a Python 3.10+ interpreter"
+if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 12 ]]; then
+    recho "Python 3.12 or higher required, found $PYTHON_VERSION"
+    recho "Set FINN_PYTHON to point to a Python 3.12+ interpreter"
     exit 1
 fi
 gecho "  Python $PYTHON_VERSION - OK"
@@ -158,10 +158,10 @@ if [ -d "$VENV_DIR" ]; then
     yecho "Virtual environment already exists at $VENV_DIR"
     yecho "Reusing existing environment. Delete .venv to start fresh."
 else
-    # Use FINN_PYTHON if set, otherwise look for Python 3.10
+    # Use FINN_PYTHON if set, otherwise look for Python 3.12
     if [ -z "$FINN_PYTHON" ]; then
-        if [ -x "/usr/bin/python3.10" ]; then
-            FINN_PYTHON="/usr/bin/python3.10"
+        if [ -x "/usr/bin/python3.12" ]; then
+            FINN_PYTHON="/usr/bin/python3.12"
         else
             FINN_PYTHON="python3"
         fi
