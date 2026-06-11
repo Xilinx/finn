@@ -47,7 +47,12 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
+from finn.util.basic import (
+    make_build_dir,
+    pynq_native_port_width,
+    pynq_part_map,
+    resolve_xilinx_tool,
+)
 
 from . import templates
 
@@ -249,10 +254,11 @@ class MakeZYNQProject(Transformation):
         # create a TCL recipe for the project
         synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(synth_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode batch -source %s\n" % ipcfg)
+            f.write("%s -mode batch -source %s\n" % (vivado_cmd, ipcfg))
             f.write("cd {}\n".format(working_dir))
 
         # call the synthesis script

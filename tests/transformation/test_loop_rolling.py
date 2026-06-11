@@ -3,11 +3,11 @@ import pytest
 import brevitas.onnx as bo
 import numpy as np
 import onnx
-import os
 import qonnx.util.basic as util
 import torch
 from brevitas.nn import QuantLinear
 from brevitas.quant import Int8ActPerTensorFloat, Int8WeightPerTensorFloat
+from pathlib import Path
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import (
@@ -35,6 +35,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarAddPastMatMul,
     MoveScalarMulPastMatMul,
 )
+from finn.util.basic import make_build_dir, robust_rmtree
 
 
 class SimpleSubModule(torch.nn.Module):
@@ -77,7 +78,7 @@ class SimpleModule(torch.nn.Module):
 
 
 # export the model to ONNX format using dynamo
-def export_model_to_qonnx(input_size=10, hidden_size=20, num_layers=4, output_size=None):
+def export_model_to_qonnx(out_dir, input_size=10, hidden_size=20, num_layers=4, output_size=None):
     model = SimpleModule(
         input_size=input_size,
         hidden_size=hidden_size,
@@ -89,8 +90,8 @@ def export_model_to_qonnx(input_size=10, hidden_size=20, num_layers=4, output_si
     model(x)  # Initialise scale factors
     model.eval()
 
-    # Export the model to ONNX format
-    onnx_path = os.environ["FINN_BUILD_DIR"] + f"/simple_module_{num_layers}layers.onnx"
+    # per-test out_dir so concurrent workers never share this export path
+    onnx_path = str(out_dir / f"simple_module_{num_layers}layers.onnx")
     with torch.no_grad():
         bo.export_qonnx(
             model,
@@ -122,10 +123,18 @@ def check_tensor_shape(model_wrapper, name, expected_shape):
 # num_layers
 @pytest.mark.parametrize("num_layers", [6, 12, 24])
 @pytest.mark.transform
-def test_finn_loop(input_size, num_layers):
+def test_finn_loop(input_size, num_layers, monkeypatch):
+    out_dir = Path(make_build_dir(prefix="test_finn_loop_"))
+    # LoopExtraction saves and reloads a fixed-name loop-body-template.onnx in
+    # the cwd, so run each case in its own build dir (kept on failure for
+    # debugging) to stop concurrent workers racing on that file
+    monkeypatch.chdir(out_dir)
+    # fixed seed so the deep quantised configs stay within tolerance run to run
+    torch.manual_seed(0)
+    np.random.seed(0)
     hidden_size = input_size
 
-    onnx_path, model = export_model_to_qonnx(input_size, hidden_size, num_layers)
+    onnx_path, model = export_model_to_qonnx(out_dir, input_size, hidden_size, num_layers)
 
     qonnx_cleanup(onnx_path, out_file=onnx_path)
     model_wrapper = ModelWrapper(onnx_path)
@@ -229,12 +238,15 @@ def test_finn_loop(input_size, num_layers):
         produced, expected, rtol=rtol, atol=atol
     ), "Results do not match within tolerance!"
 
-    # when run successfully, delete temp onnx files
-    os.remove(onnx_path)
+    # on success drop the per-test scratch dir, kept on failure for debugging
+    robust_rmtree(out_dir)
 
 
 @pytest.mark.transform
-def test_inconsistent_initializer_shape():
+def test_inconsistent_initializer_shape(monkeypatch):
+    out_dir = Path(make_build_dir(prefix="test_inconsistent_initializer_"))
+    # isolate LoopExtraction's fixed-name cwd file per test, see test_finn_loop
+    monkeypatch.chdir(out_dir)
     # test that if the initializer shape is inconsistent with the value info
     # shape, the transformation fails
     input_size = 20
@@ -242,7 +254,9 @@ def test_inconsistent_initializer_shape():
     num_layers = 6
     output_size = None
 
-    onnx_path, model = export_model_to_qonnx(input_size, hidden_size, num_layers, output_size)
+    onnx_path, model = export_model_to_qonnx(
+        out_dir, input_size, hidden_size, num_layers, output_size
+    )
 
     qonnx_cleanup(onnx_path, out_file=onnx_path)
     model_wrapper = ModelWrapper(onnx_path)
@@ -263,3 +277,6 @@ def test_inconsistent_initializer_shape():
         ),
     ):
         model_wrapper = model_wrapper.transform(LoopRolling(loop_extraction.loop_body_template))
+
+    # on success (the expected raise fired) drop the scratch dir, kept otherwise
+    robust_rmtree(out_dir)

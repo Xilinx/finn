@@ -162,7 +162,7 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 
 # Ensure git-based deps are checked out at correct commit
 if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
-  ./fetch-repos.sh
+  ./fetch-repos.sh || exit 1
 fi
 
 # If xrt path given, copy .deb file to this repo

@@ -29,7 +29,6 @@
 import pytest
 
 import numpy as np
-import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -69,9 +68,8 @@ from finn.transformation.streamline.reorder import (
     MoveAddPastMul,
     MoveScalarLinearPastInvariants,
 )
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import soft_verify_topk
-
-export_onnx_path = "test_output_synthetic.onnx"
 
 # construct a synthetic graph to test:
 # topk insertion, topk conversion to hw, add conversion to hw
@@ -144,6 +142,15 @@ def make_model(ch, ifmdim):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
+    build_dir = make_build_dir(prefix="test_convert_to_hw_layers_synthetic_")
+    try:
+        _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_convert_to_hw_layers_synthetic(ch, ifmdim, idt, build_dir):
+    export_onnx_path = f"{build_dir}/test_output_synthetic.onnx"
     model = make_model(ch, ifmdim)
     model.save(export_onnx_path)
     model = ModelWrapper(export_onnx_path, fix_float64=True)
@@ -250,5 +257,3 @@ def test_convert_to_hw_layers_synthetic(ch, ifmdim, idt):
     produced_topk_hls = output_dict[outp_name]
     topk_input = output_dict[model.graph.node[-1].input[0]]
     assert soft_verify_topk(topk_input, produced_topk_hls, 5)
-
-    os.remove(export_onnx_path)

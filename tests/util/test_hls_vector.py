@@ -29,12 +29,11 @@ import pytest
 
 import numpy as np
 import os
-import shutil
 import subprocess
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, robust_rmtree
 
 
 @pytest.mark.util
@@ -101,17 +100,11 @@ g++ -o test_npy2vectorstream test.cpp $FINN_ROOT/src/finn/qnn-data/cpp/cnpy.cpp 
     )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
-    compile = subprocess.Popen(["sh", "compile.sh"], stdout=subprocess.PIPE, cwd=test_dir)
-    (stdout, stderr) = compile.communicate()
+    subprocess.check_call(["sh", "compile.sh"], cwd=test_dir)
     # make copy before saving the array
     ndarray = ndarray.copy()
     np.save(npy_in, ndarray)
-    execute = subprocess.Popen("./test_npy2vectorstream", stdout=subprocess.PIPE, cwd=test_dir)
-    (stdout, stderr) = execute.communicate()
+    subprocess.check_call(["./test_npy2vectorstream"], cwd=test_dir)
     produced = np.load(npy_out)
-    success = (produced == ndarray).all()
-    # only delete generated code if test has passed
-    # useful for debug otherwise
-    if success:
-        shutil.rmtree(test_dir)
-    assert success
+    assert (produced == ndarray).all()
+    robust_rmtree(test_dir)
