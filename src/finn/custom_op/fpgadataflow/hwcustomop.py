@@ -348,12 +348,14 @@ class HWCustomOp(CustomOp):
         else:
             pass
 
-    def generate_hdl_fetch_weights(self, fpgapart):
+    def generate_hdl_fetch_weights(self):
         """Helper function to generate verilog code for fetch_weights component.
         Currently utilized by MVAU."""
         ops = ["MVAU_hls", "MVAU_rtl"]
         if self.onnx_node.op_type in ops or self.onnx_node.op_type.startswith("Elementwise"):
-            template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/fetch_weights_wrapper.v"
+            template_path = (
+                os.environ["FINN_ROOT"] + "/finn-rtllib/fetch_weights/fetch_weights_wrapper.v"
+            )
             mname = self.onnx_node.name
             wdt = self.get_input_datatype(1)
             if self.onnx_node.op_type in ops:
@@ -361,7 +363,9 @@ class HWCustomOp(CustomOp):
                 mh = self.get_nodeattr("MH")
                 pe = self.get_nodeattr("PE")
                 simd = self.get_nodeattr("SIMD")
-                n_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                theight = self.get_nodeattr("TH")
+                n_reps = np.prod(self.get_nodeattr("numInputVectors")) // theight
+                en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             else:
                 # Eltwise layers only have one parallelism parameter
                 mw = 1
@@ -370,10 +374,24 @@ class HWCustomOp(CustomOp):
                 simd = 1
                 # TODO use broadcast rhs shape here
                 n_reps = np.prod(self.get_nodeattr("rhs_shape")[:-1])
-            layer_offs = mw * mh
+                theight = 1
+                en_mlo = "EN_MLO" if self.get_nodeattr("mlo_max_iter") else "NO_MLO"
             # upper bound on how many layers can be supported, set to 64 for now
             n_max_layers = 64
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+            # Compute IWSIMD and WSIMD for the fetch_weights wrapper
+            if self.onnx_node.op_type in ops:
+                if theight > 1:
+                    iwsimd = (pe * simd) // theight
+                    wsimd = (pe * simd) // theight
+                else:
+                    iwsimd = simd
+                    wsimd = (pe * simd) // theight
+            else:
+                iwsimd = simd
+                wsimd = (pe * simd) // theight
+
             code_gen_dict = {
                 "$MODULE_NAME_AXI_WRAPPER$": [mname + "_fetch_weights_wrapper"],
                 "$MW$": [str(mw)],
@@ -382,8 +400,12 @@ class HWCustomOp(CustomOp):
                 "$SIMD$": [str(simd)],
                 "$N_REPS$": [str(n_reps)],
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
-                "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_LAYERS$": [str(n_max_layers)],
+                "$TH$": [str(theight)],
+                "$IWSIMD$": [str(iwsimd)],
+                "$WSIMD$": [str(wsimd)],
+                "$EN_MLO$": [en_mlo],
+                "$DWC_MODULE_NAME$": [mname + "_dwc"],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
