@@ -17,6 +17,7 @@ Users can:
 
 import os
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.analysis.fpgadataflow.validate_dataflow_conversion import (
     validate_dataflow_conversion,
@@ -31,6 +32,8 @@ from finn.builder.build_dataflow_steps import (
     step_generate_estimate_reports,
     step_hw_codegen,
     step_hw_ipgen,
+    step_loop_body_hw_ipgen,
+    step_loop_body_set_fifo_depths,
     step_loop_rolling,
     step_make_driver,
     step_measure_rtlsim_performance,
@@ -44,24 +47,50 @@ from finn.builder.build_dataflow_steps import (
     step_tidy_up,
     step_transpose_decomposition,
 )
+from finn.util.mlo_sim import is_mlo
+
+
+def _save_intermediate_model(model: ModelWrapper, step_name: str, cfg: DataflowBuildConfig):
+    """Helper to save intermediate model checkpoint."""
+    intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+    if not os.path.exists(intermediate_model_dir):
+        os.makedirs(intermediate_model_dir)
+    model.save(f"{intermediate_model_dir}/{step_name}.onnx")
 
 
 def _execute_step(step_fn, model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Execute a step and save intermediate model if configured.
+    """Execute a step with injection support and save intermediate model if configured.
 
-    This helper allows phases to save intermediate models after each internal step,
-    making fine-grained checkpoints available for inspection even when using phases.
+    This helper allows phases to:
+    - Inject custom steps before/after any internal step using cfg.inject_steps_before/after
+    - Save intermediate models after each internal step for inspection
+
+    Step injection works at both phase and internal step level. For example:
+    - inject_steps_after={"step_hw_codegen": [my_func]} will run my_func after
+      step_hw_codegen, even when running phase_build_hardware.
     """
+    step_name = step_fn.__name__
+
+    # Inject steps BEFORE this step
+    if step_name in cfg.inject_steps_before:
+        for injected_step in cfg.inject_steps_before[step_name]:
+            model = injected_step(model, cfg)
+            if cfg.save_intermediate_models:
+                _save_intermediate_model(model, injected_step.__name__, cfg)
+
+    # Execute main step
     model = step_fn(model, cfg)
 
-    # Save intermediate model if requested
+    # Save main step checkpoint
     if cfg.save_intermediate_models:
-        step_name = step_fn.__name__
-        chkpt_name = f"{step_name}.onnx"
-        intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-        if not os.path.exists(intermediate_model_dir):
-            os.makedirs(intermediate_model_dir)
-        model.save(f"{intermediate_model_dir}/{chkpt_name}")
+        _save_intermediate_model(model, step_name, cfg)
+
+    # Inject steps AFTER this step
+    if step_name in cfg.inject_steps_after:
+        for injected_step in cfg.inject_steps_after[step_name]:
+            model = injected_step(model, cfg)
+            if cfg.save_intermediate_models:
+                _save_intermediate_model(model, injected_step.__name__, cfg)
 
     return model
 
@@ -151,20 +180,25 @@ def phase_convert_to_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Phase: Configure parallelism, apply folding, optimize bit widths, generate reports.
+    """Phase: Configure parallelism, apply folding, optimize bit widths,
+    FIFO sizing, generate reports.
 
     This phase configures the hardware parallelism and resource usage. It applies
     folding configurations, minimizes bit widths (after folding), decomposes
-    transpose/shuffle operations, and generates analytical performance/resource reports.
+    transpose/shuffle operations, sizes FIFOs,
+    and generates analytical performance/resource reports.
 
     Internal steps (each step checks its own config parameters):
     - step_target_fps_parallelization: Auto-parallelization (if target_fps set)
     - step_apply_folding_config: Apply folding configuration (if config provided)
     - step_minimize_bit_width: Minimize weight/accumulator bit widths (if enabled)
     - step_transpose_decomposition: Decompose Shuffle nodes
+    - step_set_fifo_depths: FIFO sizing (skipped for MLO, handled in phase_build_hardware)
     - step_generate_estimate_reports: Generate analytical estimates (if requested)
 
-    Note: This is the extension point for future analytical FIFO sizing.
+    For MLO models, FIFO sizing is deferred to phase_build_hardware because the
+    characterize strategy requires FINNLoop nodes to have stitched IP, which
+    depends on loop body FIFO sizing and IP generation happening first.
 
     Args:
         model: Input ModelWrapper
@@ -177,26 +211,62 @@ def phase_optimize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = _execute_step(step_apply_folding_config, model, cfg)
     model = _execute_step(step_minimize_bit_width, model, cfg)
     model = _execute_step(step_transpose_decomposition, model, cfg)
+    # Skip FIFO sizing for MLO - handled in phase_build_hardware after loop body IPs are ready
+    if not is_mlo(model):
+        model = _execute_step(step_set_fifo_depths, model, cfg)
     model = _execute_step(step_generate_estimate_reports, model, cfg)
     return model
 
 
+def _apply_to_loop_bodies(model: ModelWrapper, cfg: DataflowBuildConfig, step_fn):
+    """Apply a step function to all FINNLoop bodies recursively (depth-first).
+
+    Args:
+        model: ModelWrapper containing FINNLoop nodes
+        cfg: Build configuration
+        step_fn: Step function to apply to each loop body
+
+    Returns:
+        ModelWrapper with step applied to all loop bodies
+    """
+    for node in model.get_nodes_by_op_type("FINNLoop"):
+        node_inst = getCustomOp(node)
+        loop_model = node_inst.get_nodeattr("body")
+
+        # Recursively process nested FINNLoop nodes first (depth-first)
+        if loop_model.get_nodes_by_op_type("FINNLoop"):
+            loop_model = _apply_to_loop_bodies(loop_model, cfg, step_fn)
+
+        # Apply step to this loop body
+        print(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
+        loop_model = step_fn(loop_model, cfg)
+
+        node_inst.set_nodeattr("body", loop_model.graph)
+
+    return model
+
+
 def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Phase: Generate hardware code, synthesize IP blocks, size FIFOs.
+    """Phase: Generate hardware code, synthesize IP blocks.
 
     This phase generates hardware code for each layer (HLS C++ for HLS layers,
-    RTL/SystemVerilog for RTL layers), synthesizes IP blocks via Vitis HLS, and
-    sizes FIFOs. FIFO sizing is automatically skipped if FIFOs already exist in
-    the model (e.g., from analytical sizing).
+    RTL/SystemVerilog for RTL layers) and synthesizes IP blocks via Vitis HLS.
+
+    For models with FINNLoop nodes, loop bodies are processed in a specific order:
+    1. FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
+    2. step_hw_codegen for main model (applies to subgraphs, so loop body FIFOs get codegen)
+    3. Create stitched IP for loop bodies (subgraph IP needed by FINNLoop wrapper)
+    4. step_set_fifo_depths for main model (MLO only - needs loop body stitched IPs)
+    5. step_hw_ipgen for main model (FINNLoop ipgen uses the subgraph IPs)
+
+    For non-MLO models, step_set_fifo_depths already ran in phase_optimize_hardware.
 
     Internal steps:
+    - step_loop_body_set_fifo_depths: FIFO sizing for loop bodies (MLO only)
     - step_hw_codegen: Generate HLS C++ or RTL code via PrepareIP
+    - step_loop_body_hw_ipgen: Create stitched IP for loop bodies (MLO only)
+    - step_set_fifo_depths: FIFO sizing for main model (MLO only)
     - step_hw_ipgen: Synthesize IP blocks via HLSSynthIP
-    - step_set_fifo_depths: Auto or manual FIFO sizing (auto-skipped if FIFOs exist)
-
-    Note: When analytical FIFO sizing is available (future), it would create
-    StreamingFIFO nodes in phase_optimize_hardware, causing this phase to
-    auto-skip hardware-based FIFO characterization.
 
     Args:
         model: Input ModelWrapper
@@ -205,17 +275,24 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Returns:
         ModelWrapper with generated and synthesized IP blocks
     """
-    model = _execute_step(step_hw_codegen, model, cfg)
-    model = _execute_step(step_hw_ipgen, model, cfg)
+    # Step 1: FIFO sizing for loop bodies (creates FIFO nodes in subgraphs)
+    # Must happen before step_hw_codegen so the new FIFO nodes get code generated
+    model = _apply_to_loop_bodies(model, cfg, step_loop_body_set_fifo_depths)
 
-    # FIFO sizing - auto-detect if already done (e.g., analytically)
-    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
-    if len(fifo_nodes) == 0 and cfg.auto_fifo_depths:
-        # No FIFOs yet, run characterization/rtlsim
+    # Step 2: HW codegen for main model (applies to subgraphs via apply_to_subgraphs=True)
+    model = _execute_step(step_hw_codegen, model, cfg)
+
+    # Step 3: Create stitched IP for loop bodies
+    # Must happen before step_set_fifo_depths (MLO) so FINNLoop can be simulated
+    model = _apply_to_loop_bodies(model, cfg, step_loop_body_hw_ipgen)
+
+    # Step 4: FIFO sizing for main model (MLO only)
+    # Must happen after loop body stitched IPs so FINNLoop can be characterized
+    if is_mlo(model):
         model = _execute_step(step_set_fifo_depths, model, cfg)
-    elif len(fifo_nodes) > 0:
-        # FIFOs already sized (analytical or manual), skip hardware characterization
-        print("FIFOs already present in model, skipping step_set_fifo_depths")
+
+    # Step 5: HW ipgen for main model
+    model = _execute_step(step_hw_ipgen, model, cfg)
 
     return model
 

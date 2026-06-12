@@ -98,8 +98,11 @@ def test_end2end_build_dataflow_directory():
         assert os.path.isfile(stitched_waveform_dir + f"/verify_rtlsim_{i}.wdb")
 
         # Check that node-by-node rtlsim waveforms were created for each node
+        # Skip FIFO nodes as they use pass-through execution (no RTL simulation)
         node_waveform_dir = verify_out_dir + "/node_by_node_rtlsim_waveforms"
         for node in model.graph.node:
+            if node.op_type.startswith("StreamingFIFO"):
+                continue
             assert os.path.isfile(
                 node_waveform_dir + f"/{node.name}_rtlsim_{i}.wdb"
             ), f"Missing waveform for node {node.name} in batch {i}"

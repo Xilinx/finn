@@ -284,58 +284,6 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     return verify_model
 
 
-def prepare_loop_ops_fifo_sizing(node, cfg):
-    node_inst = getCustomOp(node)
-    loop_model = node_inst.get_nodeattr("body")
-    loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
-    # go first into subgraph to check if there are other loop ops
-    loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
-    for loop_node in loop_nodes:
-        prepare_loop_ops_fifo_sizing(loop_node, cfg)
-    loop_model = loop_model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-    )
-    loop_model = loop_model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
-    loop_model = loop_model.transform(ReplaceVerilogRelPaths())
-    if cfg.fifosim_save_waveform:
-        report_dir = cfg.output_dir + "/report"
-        os.makedirs(report_dir, exist_ok=True)
-        loop_model.set_metadata_prop(
-            "rtlsim_trace", os.path.abspath(report_dir) + f"/{node.name}_fifosim_trace.wdb"
-        )
-    loop_model = loop_model.transform(
-        InsertAndSetFIFODepths(
-            cfg._resolve_fpga_part(),
-            cfg._resolve_hls_clk_period(),
-            swg_exception=cfg.default_swg_exception,
-            vivado_ram_style=cfg.large_fifo_mem_style,
-            fifosim_input_throttle=cfg.fifosim_input_throttle,
-        )
-    )
-    loop_model = loop_model.transform(SplitLargeFIFOs())
-    loop_model = loop_model.transform(RemoveShallowFIFOs())
-    loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
-    loop_model = loop_model.transform(GiveReadableTensorNames())
-    node_inst.set_nodeattr("body", loop_model.graph)
-
-
-def prepare_loop_ops_ipgen(node, cfg):
-    node_inst = getCustomOp(node)
-    loop_model = node_inst.get_nodeattr("body")
-    # go first into subgraph to check if there are other loop ops
-    loop_nodes = loop_model.get_nodes_by_op_type("FINNLoop")
-    for loop_node in loop_nodes:
-        prepare_loop_ops_ipgen(loop_node, cfg)
-    loop_model = loop_model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
-    loop_model = loop_model.transform(
-        CreateStitchedIP(
-            cfg._resolve_fpga_part(),
-            cfg.synth_clk_period_ns,
-        )
-    )
-    node_inst.set_nodeattr("body", loop_model.graph)
-
-
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     This step will only execute if QONNX nodes are found.
@@ -845,11 +793,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Generate Vitis HLS code to prepare HLSBackend nodes for IP generation.
     And fills RTL templates for RTLBackend nodes."""
-
     model = model.transform(GiveUniqueNodeNames())
-    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-    for node in loop_nodes:
-        prepare_loop_ops_fifo_sizing(node, cfg)
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()),
         apply_to_subgraphs=True,
@@ -861,10 +805,6 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run Vitis HLS synthesis on generated code for HLSBackend nodes,
     in order to generate IP blocks. For RTL nodes this step does not do anything."""
-
-    loop_nodes = model.get_nodes_by_op_type("FINNLoop")
-    for node in loop_nodes:
-        prepare_loop_ops_ipgen(node, cfg)
     model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
     model = model.transform(ReplaceVerilogRelPaths())
     report_dir = cfg.output_dir + "/report"
@@ -1370,6 +1310,79 @@ def step_loop_rolling(model, cfg):
     return model
 
 
+def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Set FIFO depths for loop body model.
+
+    This step is designed to be called on a loop body model (extracted from FINNLoop).
+    It performs PrepareIP, HLSSynthIP, and InsertAndSetFIFODepths with parameters
+    appropriate for loop bodies.
+
+    Args:
+        model: Loop body ModelWrapper
+        cfg: Build configuration
+
+    Returns:
+        Loop body ModelWrapper with FIFOs sized
+    """
+    # Prepare and synthesize IP for FIFO characterization
+    model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
+    model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
+    model = model.transform(ReplaceVerilogRelPaths())
+
+    # Set waveform trace if configured
+    if cfg.fifosim_save_waveform:
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        model.set_metadata_prop(
+            "rtlsim_trace", os.path.abspath(report_dir) + "/loop_body_fifosim_trace.wdb"
+        )
+
+    # Insert and size FIFOs
+    model = model.transform(
+        InsertAndSetFIFODepths(
+            cfg._resolve_fpga_part(),
+            cfg._resolve_hls_clk_period(),
+            swg_exception=cfg.default_swg_exception,
+            vivado_ram_style=cfg.large_fifo_mem_style,
+            fifosim_input_throttle=cfg.fifosim_input_throttle,
+        )
+    )
+    model = model.transform(SplitLargeFIFOs())
+    model = model.transform(RemoveShallowFIFOs())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+
+    return model
+
+
+def step_loop_body_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run HLS synthesis and create stitched IP for loop body model.
+
+    This step is designed to be called on a loop body model (extracted from FINNLoop).
+    It performs HLSSynthIP and CreateStitchedIP with parameters appropriate for
+    loop bodies (no verification, no output directory operations).
+
+    Args:
+        model: Loop body ModelWrapper
+        cfg: Build configuration
+
+    Returns:
+        Loop body ModelWrapper with synthesized IP and stitched IP created
+    """
+    # HLS synthesis for this loop body
+    model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
+
+    # Create stitched IP for this loop body
+    model = model.transform(
+        CreateStitchedIP(
+            cfg._resolve_fpga_part(),
+            cfg.synth_clk_period_ns,
+        )
+    )
+
+    return model
+
+
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
     "step_qonnx_to_finn": step_qonnx_to_finn,
@@ -1392,4 +1405,6 @@ build_dataflow_step_lookup = {
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,
     "step_loop_rolling": step_loop_rolling,
+    "step_loop_body_set_fifo_depths": step_loop_body_set_fifo_depths,
+    "step_loop_body_hw_ipgen": step_loop_body_hw_ipgen,
 }
