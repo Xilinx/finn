@@ -68,7 +68,7 @@ def create_softmax_model(io_shape, idt, build_dir):
 def test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim):
     build_dir = make_build_dir(prefix="test_fpgadataflow_hwsoftmax_")
     try:
-        _test_fpgadataflow_hwsoftmax(simd, idt, exec_mode, ifm_dim, build_dir)
+        _test_fpgadataflow_hwsoftmax(simd, idt, impl_style, sim_style, ifm_dim, build_dir)
     finally:
         robust_rmtree(build_dir)
 
