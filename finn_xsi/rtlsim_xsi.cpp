@@ -257,21 +257,21 @@ int main(int const  argc, char const *const  argv[]) {
 			}
 		}
 
-		// Trigger $finish via sim_finish port so that final blocks execute
-		{
-			Port *const  sim_finish = top.getPort("sim_finish");
-			if(sim_finish) {
-				to_write.emplace_back(sim_finish->set(1));
-				cycle(to_write);
-			}
-		}
-
 	} // done simulation
 
 	// Dump Simulation Statistics to stdout and results.txt
 	std::cout << '\n' << synopsis << std::endl;
 
-	{ // Log error info to file
+	// Trigger $finish so that final blocks execute
+	{
+		Port *const  sim_finish = top.getPort("sim_finish");
+		if(sim_finish) {
+			sim_finish->set(1).write_back();
+			top.run(1);
+		}
+	}
+
+	{ // Log error info to file (includes final block output)
 		std::ofstream  error_file("fifosim.err", std::ios::out | std::ios::trunc);
 		error_file << top.get_error_info();
 	}

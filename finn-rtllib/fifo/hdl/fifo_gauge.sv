@@ -70,7 +70,7 @@ module fifo_gauge #(
 	logic [WIDTH-1:0]  ODat = 'x;
 
 	final begin
-		$fwrite(STDERR_FD, "[%m] MaxFill: %0d; Transactions: in=%0d out=%0d", MaxCount, ITxnCnt, OTxnCnt);
+		$fwrite(STDERR_FD, "[%m @%0t] MaxFill: %0d; Transactions: in=%0d out=%0d", $time, MaxCount, ITxnCnt, OTxnCnt);
 	end
 
 	always_ff @(posedge clk) begin
@@ -88,7 +88,7 @@ module fifo_gauge #(
 			// Always take input and track Transactions
 			if(ivld) begin
 				Q.push_back(idat);
-				if(DEBUG_LOG)  $fwrite(STDERR_FD, "[FIFOLOG %m] %0x\n", idat);
+				if(DEBUG_LOG)  $fwrite(STDERR_FD, "[FIFOLOG %m @%0t] %0x\n", $time, idat);
 				ITxnCnt <= ITxnCnt + 1;
 			end
 			if(OVld && ordy)  OTxnCnt <= OTxnCnt + 1;
