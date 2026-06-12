@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+import argparse
+from pathlib import Path
+import sys
+import numpy as np
+import torch
+
+# Import bindings -------------------------------------------------------------
+try:
+    import brainwave
+except Exception as e:
+    print(f"[ERROR] Failed to import 'brainwave' module: {e}", file=sys.stderr)
+    sys.exit(2)
+
+# Dtype helpers ---------------------------------------------------------------
+_TAG2NP    = {"INT8": np.int8, "UINT8": np.uint8, "INT16": np.int16, "FP32": np.float32, "FLOAT32": np.float32}
+_TAG2TORCH = {"INT8": torch.int8, "UINT8": torch.uint8, "INT16": torch.int16, "FP32": torch.float32, "FLOAT32": torch.float32}
+def _np_from_tag(tag: str):     return _TAG2NP[tag.upper()]
+def _torch_from_tag(tag: str):  return _TAG2TORCH[tag.upper()]
+def _load_npy(path: Path) -> np.ndarray:
+    a = np.load(path, allow_pickle=False)
+    return a if a.flags['C_CONTIGUOUS'] else np.ascontiguousarray(a)
+def _coerce_np_to_tag(a: np.ndarray, tag: str) -> np.ndarray:
+    want = _np_from_tag(tag)
+    if a.dtype == want: return a
+    return a.view(want) if a.dtype.itemsize == np.dtype(want).itemsize else a.astype(want, copy=False)
+
+# Loaders (input / expected / weights) ---------------------------------------
+def load_input(ref_dir: Path) -> torch.Tensor:
+    tag = brainwave.FPGAOp.in_dtype()
+    a = _coerce_np_to_tag(_load_npy(ref_dir / "input.npy"), tag)
+    t = torch.from_numpy(a); want = _torch_from_tag(tag)
+    return t if t.dtype is want else t.to(want)
+
+def load_expected(ref_dir: Path) -> torch.Tensor:
+    tag = brainwave.FPGAOp.out_dtype()
+    a = _coerce_np_to_tag(_load_npy(ref_dir / "expected_output.npy"), tag)
+    t = torch.from_numpy(a); want = _torch_from_tag(tag)
+    return t if t.dtype is want else t.to(want)
+
+def _first_existing(paths):  # iterable[Path] -> Path|None
+    for p in paths:
+        if p.exists(): return p
+    return None
+
+def load_weights(ref_dir: Path):
+    n = brainwave.FPGAOp.core_id_count()
+    if n <= 0: return None
+    ids    = brainwave.FPGAOp.core_ids()
+    dtypes = brainwave.FPGAOp.core_dtypes()
+    if len(ids) != n or len(dtypes) != n:
+        raise RuntimeError("Inconsistent core metadata from binding")
+    out = []
+    for cid, tag in zip(ids, dtypes):
+        p = _first_existing([
+            ref_dir / f"memblock_MVAU_rtl_id_{cid}.npy",
+            ref_dir / f"mvau_{cid}.npy",
+        ])
+        if p is None:
+            raise FileNotFoundError(f"Missing weight file for core {cid} in {ref_dir}")
+        a = _coerce_np_to_tag(_load_npy(p), tag)
+        t = torch.from_numpy(a); want = _torch_from_tag(tag)
+        out.append(t if t.dtype is want else t.to(want))
+    return out
+
+# Compare / align -------------------------------------------------------------
+def align_for_compare(out_t: torch.Tensor, expected_t: torch.Tensor):
+    if tuple(expected_t.shape) == tuple(out_t.shape): return out_t, expected_t
+    if expected_t.numel() != out_t.numel():
+        print(f"[MISMATCH] total elements differ: out={out_t.numel()} vs exp={expected_t.numel()}")
+        return out_t, expected_t
+    if expected_t.dim() >= 1 and out_t.dim() >= 1 and expected_t.shape[0] == out_t.shape[0]:
+        return out_t, expected_t.view(out_t.shape[0], -1)
+    return out_t, expected_t.view_as(out_t)
+
+def compare_tensors(a: torch.Tensor, b: torch.Tensor, rtol: float, atol: float) -> bool:
+    if a.shape != b.shape:
+        print(f"[MISMATCH] Shape mismatch: {tuple(a.shape)} vs {tuple(b.shape)}")
+        return False
+    ok = torch.allclose(a, b, rtol=rtol, atol=atol)
+    diff = (a - b).abs()
+    print(f"[COMPARE] max|Δ|={diff.max().item():.6g} mean|Δ|={diff.mean().item():.6g}")
+    print(f"[COMPARE] {a.numel() - torch.isclose(a,b,rtol=rtol,atol=atol).sum().item()} elements not close")
+    return ok
+
+# Single diff text file -------------------------------------------------------
+def _scalar_hex_np(x: np.generic) -> str:
+    dt = x.dtype
+    if np.issubdtype(dt, np.integer):
+        width = dt.itemsize * 2
+        return f"0x{int(x) & ((1<<(8*dt.itemsize))-1):0{width}x}"
+    if dt == np.float32:  return f"0x{np.uint32(x.view(np.uint32)):08x}"
+    if dt == np.float16:  return f"0x{np.uint16(x.view(np.uint16)):04x}"
+    return str(x)
+
+def save_single_diff_txt(path: Path, out_t: torch.Tensor, exp_t: torch.Tensor, rtol: float, atol: float):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    a = out_t.detach().cpu().contiguous().numpy().ravel()
+    b = exp_t.detach().cpu().contiguous().numpy().ravel()
+    if a.size != b.size:
+        with path.open("w") as f:
+            f.write(f"# Size mismatch, cannot diff: out={a.size} exp={b.size}\n")
+        return
+
+    ok = np.isclose(a, b, rtol=rtol, atol=atol, equal_nan=True)
+    absd = np.abs(a - b)
+    reld = absd / np.maximum(np.abs(b), 1e-12)
+
+    # Calculate spacing widths for nice alignment
+    n = a.size
+    mism = int((~ok).sum())
+    width_idx = len(str(n - 1))
+    width_val = 12  # width for numeric values
+    width_diff = 10
+    fmt = (
+        f"{{i:{width_idx}d}}  "
+        f"{{exp:{width_val}.6g}}  "
+        f"{{got:{width_val}.6g}}  "
+        f"{{absd:{width_diff}.3g}}  "
+        f"{{reld:{width_diff}.3g}}  "
+        f"{{hex_exp:<12}}  {{hex_got:<12}}  {{ok_flag}}\n"
+    )
+
+    with path.open("w") as f:
+        f.write(f"# out shape={tuple(out_t.shape)} dtype={out_t.dtype} | expected shape={tuple(exp_t.shape)} dtype={exp_t.dtype}\n")
+        f.write(f"# total={n} mismatches={mism} rtol={rtol} atol={atol}\n")
+        header = (
+            f"{'idx':>{width_idx}}  "
+            f"{'expected':>{width_val}}  "
+            f"{'got':>{width_val}}  "
+            f"{'abs_diff':>{width_diff}}  "
+            f"{'rel_diff':>{width_diff}}  "
+            f"{'hex_exp':<12}  {'hex_got':<12}  ok\n"
+        )
+        f.write(header)
+        f.write("-" * len(header) + "\n")
+
+        for i in range(n):
+            f.write(fmt.format(
+                i=i,
+                exp=b[i],
+                got=a[i],
+                absd=absd[i],
+                reld=reld[i],
+                hex_exp=_scalar_hex_np(np.asarray(b[i])),
+                hex_got=_scalar_hex_np(np.asarray(a[i])),
+                ok_flag="Y" if ok[i] else "N"
+            ))
+
+# Main ------------------------------------------------------------------------
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ref-dir", type=Path, default="${CMAKE_BINARY_DIR}/sw/export/reference")
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--rtol", type=float, default=1e-3)
+    parser.add_argument("--atol", type=float, default=1e-5)
+    parser.add_argument("--diff-file", type=Path, default="${CMAKE_BINARY_DIR}/sw/python/output/out_diff.txt")
+    args = parser.parse_args()
+
+    # Load tensors per header-declared dtypes
+    ref = args.ref_dir
+    user_t     = load_input(ref)
+    expected_t = load_expected(ref)
+    weights_t  = load_weights(ref)
+
+    # Init + run
+    op = brainwave.FPGAOp(weights_t)
+    if not op.is_initialized():
+        print("[ERROR] FPGAOp not initialized.", file=sys.stderr); sys.exit(2)
+
+    out_t = op.forward(args.batch_size, user_t)
+    if not isinstance(out_t, torch.Tensor):
+        print(f"[ERROR] forward() did not return a torch.Tensor (got {type(out_t)}).", file=sys.stderr)
+        sys.exit(2)
+
+    # Align shapes & compare in expected dtype
+    out_cast = out_t.to(expected_t.dtype).contiguous()
+    out_a, exp_a = align_for_compare(out_cast.cpu(), expected_t.cpu())
+
+    # Write single diff file
+    save_single_diff_txt(args.diff_file, out_a, exp_a, args.rtol, args.atol)
+    print(f"[DUMP] diff written to: {args.diff_file}")
+
+    # Pass/fail
+    if compare_tensors(out_a, exp_a, args.rtol, args.atol):
+        print("[RESULT] Output matches expected within tolerances\n"); sys.exit(0)
+    else:
+        print("[RESULT] Output does NOT match expected within tolerances\n", file=sys.stderr); sys.exit(1)
+
+if __name__ == "__main__":
+    main()

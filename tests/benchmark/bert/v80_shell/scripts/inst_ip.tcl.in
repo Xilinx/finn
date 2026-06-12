@@ -1,0 +1,202 @@
+# Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
+#
+# This file is subject to the Xilinx Design License Agreement located
+# in the LICENSE.md file in the root directory of this repository.
+#
+# This file contains confidential and proprietary information of Xilinx, Inc.
+# and is protected under U.S. and international copyright and other
+# intellectual property laws.
+#
+# DISCLAIMER
+# This disclaimer is not a license and does not grant any rights to the materials
+# distributed herewith. Except as otherwise provided in a valid license issued to
+# you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
+# MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
+# DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
+# INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
+# FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
+# in contract or tort, including negligence, or under any other theory of
+# liability) for any loss or damage of any kind or nature related to, arising
+# under or in connection with these materials, including for any direct, or any
+# indirect, special, incidental, or consequential loss or damage (including loss
+# of data, profits, goodwill, or any type of loss or damage suffered as a result
+# of any action brought by a third party) even if such damage or loss was
+# reasonably foreseeable or Xilinx had been advised of the possibility of the
+# same.
+#
+# CRITICAL APPLICATIONS
+# Xilinx products are not designed or intended to be fail-safe, or for use in
+# any application requiring failsafe performance, such as life-support or safety
+# devices or systems, Class III medical devices, nuclear facilities, applications
+# related to the deployment of airbags, or any other applications that could lead
+# to death, personal injury, or severe property or environmental damage
+# (individually and collectively, "Critical Applications"). Customer assumes the
+# sole risk and liability of any use of Xilinx products in Critical Applications,
+# subject only to applicable laws and regulations governing limitations on product
+# liability.
+#
+# THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+# CS
+
+#
+# Datamovers
+#
+
+create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 -module_name cdma_datamover
+set_property -dict [list \
+  CONFIG.c_include_mm2s_dre {true} \
+  CONFIG.c_include_s2mm_dre {true} \
+  CONFIG.c_addr_width {64} \
+  CONFIG.c_m_axi_mm2s_data_width {256} \
+  CONFIG.c_m_axis_mm2s_tdata_width {256} \
+  CONFIG.c_mm2s_burst_size {64} \
+  CONFIG.c_m_axi_s2mm_data_width {256} \
+  CONFIG.c_s2mm_burst_size {64} \
+  CONFIG.c_s_axis_s2mm_tdata_width {256} \
+] [get_ips cdma_datamover]
+
+create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 -module_name cdma_datamover_rd
+set_property -dict [list \
+  CONFIG.c_addr_width {64} \
+  CONFIG.c_enable_s2mm {0} \
+  CONFIG.c_include_mm2s_dre {true} \
+  CONFIG.c_m_axi_mm2s_data_width {256} \
+  CONFIG.c_m_axis_mm2s_tdata_width {256} \
+  CONFIG.c_mm2s_burst_size {64} \
+] [get_ips cdma_datamover_rd]
+
+create_ip -name axi_datamover -vendor xilinx.com -library ip -version 5.1 -module_name cdma_datamover_wr
+set_property -dict [list \
+  CONFIG.c_addr_width {64} \
+  CONFIG.c_enable_mm2s {0} \
+  CONFIG.c_include_s2mm_dre {true} \
+  CONFIG.c_m_axi_s2mm_data_width {256} \
+  CONFIG.c_s2mm_burst_size {64} \
+  CONFIG.c_s_axis_s2mm_tdata_width {256} \
+] [get_ips cdma_datamover_wr]
+
+# AXI regs
+create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 -module_name axis_qdma_register_slice_512
+set_property -dict [list CONFIG.TDATA_NUM_BYTES {64} CONFIG.REG_CONFIG {8} CONFIG.TUSER_WIDTH {12} CONFIG.HAS_TKEEP {1} CONFIG.HAS_TLAST {1}] [get_ips axis_qdma_register_slice_512]
+
+create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 -module_name axi_hbm_register_slice_256
+set_property -dict [list CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {256} CONFIG.HAS_QOS {0} CONFIG.HAS_REGION {0} CONFIG.REG_AW {1} CONFIG.REG_AR {1} CONFIG.REG_B {1} CONFIG.ID_WIDTH {2} CONFIG.MAX_BURST_LENGTH {14} CONFIG.NUM_READ_OUTSTANDING {32} CONFIG.NUM_WRITE_OUTSTANDING {32}] [get_ips axi_hbm_register_slice_256]
+
+create_ip -name axi_register_slice -vendor xilinx.com -library ip -version 2.1 -module_name axil_csr_register_slice_64
+set_property -dict [list CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {64} CONFIG.HAS_PROT {0} CONFIG.DATA_WIDTH {64} CONFIG.REG_AW {1} CONFIG.REG_AR {1} CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {1} ] [get_ips axil_csr_register_slice_64]
+
+set_property -dict [list \
+  CONFIG.REG_AR {15} \
+  CONFIG.REG_AW {15} \
+  CONFIG.REG_B {15} \
+  CONFIG.REG_R {15} \
+  CONFIG.REG_W {15} \
+  CONFIG.USE_AUTOPIPELINING {1} \
+] [get_ips axil_csr_register_slice_64]
+set_property -dict [list \
+  CONFIG.REG_AR {15} \
+  CONFIG.REG_AW {15} \
+  CONFIG.REG_B {15} \
+  CONFIG.REG_R {15} \
+  CONFIG.REG_W {15} \
+  CONFIG.USE_AUTOPIPELINING {1} \
+] [get_ips axi_hbm_register_slice_256]
+
+# FIFOs and regs
+create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_pckt_fifo
+set_property -dict [list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.TDATA_NUM_BYTES {64} \
+  CONFIG.TUSER_WIDTH {12} \
+] [get_ips axis_pckt_fifo]
+
+create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_fifo_hbm_ctrl_cc
+set_property -dict [list \
+  CONFIG.FIFO_DEPTH {32} \
+  CONFIG.IS_ACLK_ASYNC {1} \
+  CONFIG.TDATA_NUM_BYTES {12} \
+] [get_ips axis_fifo_hbm_ctrl_cc]
+
+create_ip -name axis_data_fifo -vendor xilinx.com -library ip -version 2.0 -module_name axis_fifo_hbm_data_cc
+set_property -dict [list \
+  CONFIG.FIFO_DEPTH {128} \
+  CONFIG.IS_ACLK_ASYNC {1} \
+  CONFIG.TDATA_NUM_BYTES {32} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.HAS_TKEEP {1} \
+] [get_ips axis_fifo_hbm_data_cc]
+
+create_ip -name axis_clock_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_cc_done
+set_property -dict [list \
+  CONFIG.SYNCHRONIZATION_STAGES {3} \
+  CONFIG.TDATA_NUM_BYTES {0} \
+] [get_ips axis_cc_done]
+
+create_ip -name axis_register_slice -vendor xilinx.com -library ip -version 1.1 -module_name axisp_dma_reg
+set_property -dict [list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.TDATA_NUM_BYTES {32} \
+] [get_ips axisp_dma_reg]
+
+# DWCs
+set dwc_ilen_bytes [expr {(${ILEN_BITS} + 7) / 8}]
+set dwc_olen_bytes [expr {(${OLEN_BITS} + 7) / 8}]
+
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_hdwc_rd
+set cmd "set_property -dict \[list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {$dwc_ilen_bytes} \
+  CONFIG.S_TDATA_NUM_BYTES {32} \
+] \[get_ips axis_hdwc_rd]"
+eval $cmd
+
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_hdwc_wr
+set cmd "set_property -dict \[list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {32} \
+  CONFIG.S_TDATA_NUM_BYTES {$dwc_olen_bytes} \
+] \[get_ips axis_hdwc_wr]"
+eval $cmd
+
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_sdwc_rd
+set cmd "set_property -dict \[list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {$dwc_ilen_bytes} \
+  CONFIG.S_TDATA_NUM_BYTES {64} \
+] \[get_ips axis_sdwc_rd]"
+eval $cmd
+
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_sdwc_wr
+set cmd "set_property -dict \[list \
+  CONFIG.HAS_TKEEP {1} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {64} \
+  CONFIG.S_TDATA_NUM_BYTES {$dwc_olen_bytes} \
+] \[get_ips axis_sdwc_wr]"
+eval $cmd
+
+# Reset
+create_ip -name proc_sys_reset -vendor xilinx.com -library ip -version 5.0 -module_name proc_sys_reset_lcl
+set_property -dict [list \
+  CONFIG.C_AUX_RESET_HIGH {0} \
+  CONFIG.C_EXT_RESET_HIGH {0} \
+  CONFIG.C_NUM_PERP_ARESETN {1} \
+] [get_ips proc_sys_reset_lcl]
+
+# Debug
+create_ip -name axis_vio -vendor xilinx.com -library ip -version 1.0 -module_name vio_dbg
+set_property -dict [list \
+  CONFIG.C_EN_PROBE_IN_ACTIVITY {1} \
+  CONFIG.C_NUM_PROBE_IN {10} \
+  CONFIG.C_PROBE_IN2_WIDTH {32} \
+  CONFIG.C_PROBE_IN5_WIDTH {32} \
+  CONFIG.C_PROBE_IN6_WIDTH {32} \
+  CONFIG.C_PROBE_IN7_WIDTH {32} \
+  CONFIG.C_PROBE_IN8_WIDTH {32} \
+  CONFIG.C_PROBE_IN9_WIDTH {32} \
+] [get_ips vio_dbg]

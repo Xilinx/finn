@@ -1,0 +1,130 @@
+
+# Copyright (c) 2022 Advanced Micro Devices, Inc. All rights reserved.
+
+# Handle line endings automatically for files detected as text and leave all files detected as binary untouched
+# Auto detect text files and perform LF normalization
+* text=auto
+
+### git
+.gitattributes      text export-ignore
+.gitignore          text export-ignore
+.gitmodules         text export-ignore
+.gitkeep            text export-ignore
+
+### Console Scripts
+*.bat               text eol=crlf
+*.cmd               text eol=crlf
+*.ps1               text eol=crlf
+*.csh               text eol=lf
+*.sh                text eol=lf diff=bash
+*.bash              text eol=lf diff=bash
+*.bats              text eol=lf diff=bash
+*.tcl               text
+*.awk               text eol=lf
+*.m4                text eol=lf
+*.py                text        diff=python
+*.conf              text
+*.pl                text        diff=perl
+*.pm                text        diff=perl
+
+### C C++ files
+*.cmake             text
+*.makefile          text
+*.mk                text
+CmakeLists.txt      text
+Makefile            text
+
+*.c                 text        diff=cpp
+*.cc                text        diff=cpp
+*.cpp               text        diff=cpp
+*.cxx               text        diff=cpp
+*.h                 text        diff=cpp
+*.hh                text        diff=cpp
+*.hpp               text        diff=cpp
+
+*.a                 binary
+*.dat               text
+*.la                binary
+*.lib               binary
+*.o                 binary
+*.obj               binary
+*.out               binary
+*.so                binary
+
+#### HDL
+*.v                 text
+*.f                 text
+*.vh                text
+*.sv                text
+*.svh               text
+*.opt               text
+
+### Vivado files
+*.xdc               text
+*.xcf               text
+*.sdc               text
+*.xpr               text
+*.xci               text
+*.do                text
+*.mem               -binary
+
+### Documents
+README              text
+*.md                text diff=markdown
+*.markdown          text diff=markdown
+*.txt               text
+*.csv               text eol=crlf
+*.rst               text
+*.list              text
+*.json              text
+
+# Text files where line endings should be preserved
+*.patch             -text
+
+### Graphics
+*.png               text
+*.jpg               text
+*.jpeg              binary diff=exif
+*.gif               binary diff=exif
+*.svg               text
+
+### Office Documents
+### meta
+
+### These files are binary and should be left untouched
+### (binary is a macro for -text -diff)
+
+*.pdf  -binary
+*.ps   -binary
+*.xml  -binary
+
+# Documents
+*.pdi   -binary
+
+*.pdf   -binary
+*.PDF   -binary
+*.doc   -binary
+*.dot   -binary
+*.DOT   -binary
+*.DOC   -binary
+*.docx  -binary
+*.xsl   -binary
+*.xslx  -binary
+*.gz    -binary
+*.tgz   -binary
+*.bz2   -binary
+*.tar   -binary
+*.zip   -binary
+*.rar   -binary
+*.7z    -binary
+
+
+################################################################################
+# RELEASE FILES
+################################################################################
+
+# Here we can define what files or directories are excluded from the
+# release zip archive
+
+# excluded directories
+/.github                    export-ignore

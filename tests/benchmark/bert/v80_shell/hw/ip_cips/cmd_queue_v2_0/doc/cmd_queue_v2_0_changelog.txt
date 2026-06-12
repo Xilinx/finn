@@ -1,0 +1,28 @@
+2023.1:
+ * Version 2.0
+ * No changes
+
+2022.2.2:
+ * Version 2.0
+ * No changes
+
+2022.2.1:
+ * Version 2.0
+ * No changes
+
+2022.2:
+ * Version 2.0
+ * Port Change: Updated clock/reset port naming to indicate common clock/reset association with S00/S01
+
+2022.1.2:
+ * Version 1.0
+ * No changes
+
+2022.1.1:
+ * Version 1.0
+ * No changes
+
+2022.1:
+ * Version 1.0
+ * Initial Release
+

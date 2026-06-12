@@ -1,0 +1,313 @@
+import os
+import sys
+
+def generate_axi_top(path):
+    """
+    Generates a Verilog wrapper with specified number of HBM AXI ports.
+    """
+    
+    num_hbm_ports = ${N_HBM_PORTS}
+    en_strm = ${EN_STRM}
+    
+    axi_hbm_instance_template = """
+        .HBM{i}_AXI_0_awaddr(axi_hbm[{i}].awaddr),
+        .HBM{i}_AXI_0_awburst(axi_hbm[{i}].awburst),
+        .HBM{i}_AXI_0_awid(axi_hbm[{i}].awid),
+        .HBM{i}_AXI_0_awlen(axi_hbm[{i}].awlen),
+        .HBM{i}_AXI_0_awlock(axi_hbm[{i}].awlock),
+        .HBM{i}_AXI_0_awcache(axi_hbm[{i}].awcache),
+        .HBM{i}_AXI_0_awsize(axi_hbm[{i}].awsize),
+        .HBM{i}_AXI_0_awprot(axi_hbm[{i}].awprot),
+        .HBM{i}_AXI_0_awvalid(axi_hbm[{i}].awvalid),
+        .HBM{i}_AXI_0_awready(axi_hbm[{i}].awready),
+        .HBM{i}_AXI_0_araddr(axi_hbm[{i}].araddr),
+        .HBM{i}_AXI_0_arburst(axi_hbm[{i}].arburst),
+        .HBM{i}_AXI_0_arid(axi_hbm[{i}].arid),
+        .HBM{i}_AXI_0_arlen(axi_hbm[{i}].arlen),
+        .HBM{i}_AXI_0_arlock(axi_hbm[{i}].arlock),
+        .HBM{i}_AXI_0_arcache(axi_hbm[{i}].arcache),
+        .HBM{i}_AXI_0_arsize(axi_hbm[{i}].arsize),
+        .HBM{i}_AXI_0_arprot(axi_hbm[{i}].arprot),
+        .HBM{i}_AXI_0_arvalid(axi_hbm[{i}].arvalid),
+        .HBM{i}_AXI_0_arready(axi_hbm[{i}].arready),
+        .HBM{i}_AXI_0_wdata(axi_hbm[{i}].wdata),
+        .HBM{i}_AXI_0_wstrb(axi_hbm[{i}].wstrb),
+        .HBM{i}_AXI_0_wlast(axi_hbm[{i}].wlast),
+        .HBM{i}_AXI_0_wvalid(axi_hbm[{i}].wvalid),
+        .HBM{i}_AXI_0_wready(axi_hbm[{i}].wready),
+        .HBM{i}_AXI_0_bresp(axi_hbm[{i}].bresp),
+        .HBM{i}_AXI_0_bid(axi_hbm[{i}].bid),
+        .HBM{i}_AXI_0_bvalid(axi_hbm[{i}].bvalid),
+        .HBM{i}_AXI_0_bready(axi_hbm[{i}].bready),
+        .HBM{i}_AXI_0_rdata(axi_hbm[{i}].rdata),
+        .HBM{i}_AXI_0_rresp(axi_hbm[{i}].rresp),
+        .HBM{i}_AXI_0_rid(axi_hbm[{i}].rid),
+        .HBM{i}_AXI_0_rlast(axi_hbm[{i}].rlast),
+        .HBM{i}_AXI_0_rvalid(axi_hbm[{i}].rvalid),
+        .HBM{i}_AXI_0_rready(axi_hbm[{i}].rready),
+    """
+    
+    # Generate HBM ports
+    axi_hbm_instances = ""
+    
+    for i in range(num_hbm_ports):
+        axi_hbm_instances += axi_hbm_instance_template.format(i=i)
+        if i != num_hbm_ports - 1:
+            axi_hbm_instances += "\n"
+
+    # Generate HBM interface
+    axi_hbm_intf = ""
+
+    if num_hbm_ports > 0:
+        axi_hbm_intf = "AXI4.slave              axi_hbm [N_HBM_PORTS],\n"
+
+    # Generate stream ports
+    axi_strm_ports = ""
+
+    if en_strm:
+        axi_strm_ports = """
+            AXI4S_USER.master            m_axis_h2c, 
+            AXI4S_USER.slave             s_axis_c2h,
+        """
+    
+    #
+    # Top-level Verilog template
+    #
+
+    top_level = f"""
+    import iwTypes::*;
+
+    `include "axi_macros.svh"
+    
+    module design_static_bd_wrapper #(
+        parameter               N_HBM_PORTS = {num_hbm_ports}
+    ) (
+        input  logic            gt_pcie_refclk_clk_n,
+        input  logic            gt_pcie_refclk_clk_p,
+        input  logic            [7:0] gt_pciea1_grx_n,
+        input  logic            [7:0] gt_pciea1_grx_p,
+        output logic            [7:0] gt_pciea1_gtx_n,
+        output logic            [7:0] gt_pciea1_gtx_p,
+        inout  logic            smbus_0_scl_io,
+        inout  logic            smbus_0_sda_io,
+
+        output logic [0:0]      CH0_DDR4_0_0_act_n,
+        output logic [16:0]     CH0_DDR4_0_0_adr,
+        output logic [1:0]      CH0_DDR4_0_0_ba,
+        output logic [0:0]      CH0_DDR4_0_0_bg,
+        output logic [0:0]      CH0_DDR4_0_0_ck_c,
+        output logic [0:0]      CH0_DDR4_0_0_ck_t,
+        output logic [0:0]      CH0_DDR4_0_0_cke,
+        output logic [0:0]      CH0_DDR4_0_0_cs_n,
+        inout  logic [8:0]      CH0_DDR4_0_0_dm_n,
+        inout  logic [71:0]     CH0_DDR4_0_0_dq,
+        inout  logic [8:0]      CH0_DDR4_0_0_dqs_c,
+        inout  logic [8:0]      CH0_DDR4_0_0_dqs_t,
+        output logic [0:0]      CH0_DDR4_0_0_odt,
+        output logic [0:0]      CH0_DDR4_0_0_reset_n,
+        output logic [0:0]      CH0_DDR4_0_1_act_n,
+        output logic [17:0]     CH0_DDR4_0_1_adr,
+        input  logic [0:0]      CH0_DDR4_0_1_alert_n,
+        output logic [1:0]      CH0_DDR4_0_1_ba,
+        output logic [1:0]      CH0_DDR4_0_1_bg,
+        output logic [0:0]      CH0_DDR4_0_1_ck_c,
+        output logic [0:0]      CH0_DDR4_0_1_ck_t,
+        output logic [0:0]      CH0_DDR4_0_1_cke,
+        output logic [0:0]      CH0_DDR4_0_1_cs_n,
+        inout  logic [71:0]     CH0_DDR4_0_1_dq,
+        inout  logic [17:0]     CH0_DDR4_0_1_dqs_c,
+        inout  logic [17:0]     CH0_DDR4_0_1_dqs_t,
+        output logic [0:0]      CH0_DDR4_0_1_odt,
+        output logic [0:0]      CH0_DDR4_0_1_par,
+        output logic [0:0]      CH0_DDR4_0_1_reset_n,
+
+        input  logic [0:0]      hbm_ref_clk_0_clk_n,
+        input  logic [0:0]      hbm_ref_clk_0_clk_p,
+        input  logic [0:0]      hbm_ref_clk_1_clk_n,
+        input  logic [0:0]      hbm_ref_clk_1_clk_p,
+
+        input  logic [0:0]      sys_clk0_0_clk_n,
+        input  logic [0:0]      sys_clk0_0_clk_p,
+        input  logic [0:0]      sys_clk0_1_clk_n,
+        input  logic [0:0]      sys_clk0_1_clk_p,
+           
+        {axi_strm_ports}
+
+        AXI4L.master            axi_ctrl,
+        {axi_hbm_intf}
+
+        output logic            aclk,
+        output logic            aclk_dp,
+        output logic            aresetn,
+        output logic            dclk,
+        output logic            dresetn,
+        output logic            uclk_0,
+        output logic            uresetn_0,
+        output logic            uclk_1,
+        output logic            uresetn_1,
+        output logic            uclk_2,
+        output logic            uresetn_2
+    );
+
+    logic smbus_0_scl_i;
+    logic smbus_0_scl_o;
+    logic smbus_0_scl_t;
+    logic smbus_0_sda_i;
+    logic smbus_0_sda_o;
+    logic smbus_0_sda_t;
+
+    IOBUF smbus_0_scl_iobuf
+        (.I(smbus_0_scl_o),
+            .IO(smbus_0_scl_io),
+            .O(smbus_0_scl_i),
+            .T(smbus_0_scl_t));
+    IOBUF smbus_0_sda_iobuf
+        (.I(smbus_0_sda_o),
+            .IO(smbus_0_sda_io),
+            .O(smbus_0_sda_i),
+            .T(smbus_0_sda_t));
+
+    // Stream management
+    AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_USER_BITS)) qdma_c2h ();
+    AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_USER_BITS)) qdma_h2c ();
+    AXI4S #(.AXI4S_DATA_BITS(QDMA_PCK_BITS)) cmpt_c2h ();
+
+    if(EN_STRM) begin
+        c2h_control inst_c2h_control (
+            .aclk(aclk),
+            .aresetn(aresetn),
+            .s_axis(s_axis_c2h),
+            .m_axis(qdma_c2h),
+            .m_cmpt(cmpt_c2h)
+        );
+
+        h2c_control inst_h2c_control (
+            .aclk(aclk),
+            .aresetn(aresetn),
+            .s_axis(qdma_h2c),
+            .m_axis(m_axis_h2c)
+        );
+    end
+    else begin
+        always_comb qdma_h2c.tie_off_s();
+        always_comb qdma_c2h.tie_off_m();
+        always_comb cmpt_c2h.tie_off_m();
+    end
+    
+    // Core instantiation
+    design_static inst_cips (
+        // AXIM
+        {axi_hbm_instances}
+
+        // AXIL
+        .M00_AXI_0_araddr                (axi_ctrl.araddr),
+        .M00_AXI_0_arvalid               (axi_ctrl.arvalid),
+        .M00_AXI_0_arready               (axi_ctrl.arready),
+        .M00_AXI_0_awaddr                (axi_ctrl.awaddr),
+        .M00_AXI_0_awvalid               (axi_ctrl.awvalid),
+        .M00_AXI_0_awready               (axi_ctrl.awready),
+        .M00_AXI_0_bready                (axi_ctrl.bready),
+        .M00_AXI_0_bresp                 (axi_ctrl.bresp),
+        .M00_AXI_0_bvalid                (axi_ctrl.bvalid),
+        .M00_AXI_0_rdata                 (axi_ctrl.rdata),
+        .M00_AXI_0_rready                (axi_ctrl.rready),
+        .M00_AXI_0_rresp                 (axi_ctrl.rresp),
+        .M00_AXI_0_rvalid                (axi_ctrl.rvalid),
+        .M00_AXI_0_wdata                 (axi_ctrl.wdata),
+        .M00_AXI_0_wready                (axi_ctrl.wready),
+        .M00_AXI_0_wstrb                 (axi_ctrl.wstrb),
+        .M00_AXI_0_wvalid                (axi_ctrl.wvalid),
+
+        // DRAM and HBM
+        .CH0_DDR4_0_0_act_n             (CH0_DDR4_0_0_act_n),
+        .CH0_DDR4_0_0_adr               (CH0_DDR4_0_0_adr),
+        .CH0_DDR4_0_0_ba                (CH0_DDR4_0_0_ba),
+        .CH0_DDR4_0_0_bg                (CH0_DDR4_0_0_bg),
+        .CH0_DDR4_0_0_ck_c              (CH0_DDR4_0_0_ck_c),
+        .CH0_DDR4_0_0_ck_t              (CH0_DDR4_0_0_ck_t),
+        .CH0_DDR4_0_0_cke               (CH0_DDR4_0_0_cke),
+        .CH0_DDR4_0_0_cs_n              (CH0_DDR4_0_0_cs_n),
+        .CH0_DDR4_0_0_dm_n              (CH0_DDR4_0_0_dm_n),
+        .CH0_DDR4_0_0_dq                (CH0_DDR4_0_0_dq),
+        .CH0_DDR4_0_0_dqs_c             (CH0_DDR4_0_0_dqs_c),
+        .CH0_DDR4_0_0_dqs_t             (CH0_DDR4_0_0_dqs_t),
+        .CH0_DDR4_0_0_odt               (CH0_DDR4_0_0_odt),
+        .CH0_DDR4_0_0_reset_n           (CH0_DDR4_0_0_reset_n),
+        .CH0_DDR4_0_1_act_n             (CH0_DDR4_0_1_act_n),
+        .CH0_DDR4_0_1_adr               (CH0_DDR4_0_1_adr),
+        .CH0_DDR4_0_1_alert_n           (CH0_DDR4_0_1_alert_n),
+        .CH0_DDR4_0_1_ba                (CH0_DDR4_0_1_ba),
+        .CH0_DDR4_0_1_bg                (CH0_DDR4_0_1_bg),
+        .CH0_DDR4_0_1_ck_c              (CH0_DDR4_0_1_ck_c),
+        .CH0_DDR4_0_1_ck_t              (CH0_DDR4_0_1_ck_t),
+        .CH0_DDR4_0_1_cke               (CH0_DDR4_0_1_cke),
+        .CH0_DDR4_0_1_cs_n              (CH0_DDR4_0_1_cs_n),
+        .CH0_DDR4_0_1_dq                (CH0_DDR4_0_1_dq),
+        .CH0_DDR4_0_1_dqs_c             (CH0_DDR4_0_1_dqs_c),
+        .CH0_DDR4_0_1_dqs_t             (CH0_DDR4_0_1_dqs_t),
+        .CH0_DDR4_0_1_odt               (CH0_DDR4_0_1_odt),
+        .CH0_DDR4_0_1_par               (CH0_DDR4_0_1_par),
+        .CH0_DDR4_0_1_reset_n           (CH0_DDR4_0_1_reset_n),
+        .hbm_ref_clk_0_clk_n            (hbm_ref_clk_0_clk_n),
+        .hbm_ref_clk_0_clk_p            (hbm_ref_clk_0_clk_p),
+        .hbm_ref_clk_1_clk_n            (hbm_ref_clk_1_clk_n),
+        .hbm_ref_clk_1_clk_p            (hbm_ref_clk_1_clk_p),
+        .sys_clk0_0_clk_n               (sys_clk0_0_clk_n),
+        .sys_clk0_0_clk_p               (sys_clk0_0_clk_p),
+        .sys_clk0_1_clk_n               (sys_clk0_1_clk_n),
+        .sys_clk0_1_clk_p               (sys_clk0_1_clk_p),
+
+        // PCIe
+        .gt_pcie_refclk_clk_n           (gt_pcie_refclk_clk_n),
+        .gt_pcie_refclk_clk_p           (gt_pcie_refclk_clk_p),
+        .gt_pciea1_grx_n                (gt_pciea1_grx_n),
+        .gt_pciea1_grx_p                (gt_pciea1_grx_p),
+        .gt_pciea1_gtx_n                (gt_pciea1_gtx_n),
+        .gt_pciea1_gtx_p                (gt_pciea1_gtx_p),
+        .smbus_0_scl_i                  (smbus_0_scl_i),
+        .smbus_0_scl_o                  (smbus_0_scl_o),
+        .smbus_0_scl_t                  (smbus_0_scl_t),
+        .smbus_0_sda_i                  (smbus_0_sda_i),
+        .smbus_0_sda_o                  (smbus_0_sda_o),
+        .smbus_0_sda_t                  (smbus_0_sda_t),   
+
+        // Stream
+        .m_axis_h2c_tdata               (qdma_h2c.tdata),
+        .m_axis_h2c_tuser               (qdma_h2c.tuser),
+        .m_axis_h2c_tvalid              (qdma_h2c.tvalid),
+        .m_axis_h2c_tready              (qdma_h2c.tready),
+        .m_axis_h2c_tlast               (qdma_h2c.tlast),
+
+        .s_axis_c2h_tdata               (qdma_c2h.tdata),
+        .s_axis_c2h_tuser               (qdma_c2h.tuser),
+        .s_axis_c2h_tvalid              (qdma_c2h.tvalid),
+        .s_axis_c2h_tready              (qdma_c2h.tready),
+        .s_axis_c2h_tlast               (qdma_c2h.tlast),
+
+        .s_cmpt_c2h_tdata               (cmpt_c2h.tdata),
+        .s_cmpt_c2h_tvalid              (cmpt_c2h.tvalid),
+        .s_cmpt_c2h_tready              (cmpt_c2h.tready),
+
+        // CLK
+        .aclk                           (aclk),
+        .aclk_dp                        (aclk_dp),
+        .aresetn                        (aresetn),
+        .dclk                           (dclk),
+        .dresetn                        (dresetn),
+        .uclk_0                         (uclk_0),
+        .uresetn_0                      (uresetn_0),
+        .uclk_1                         (uclk_1),
+        .uresetn_1                      (uresetn_1),
+        .uclk_2                         (uclk_2),
+        .uresetn_2                      (uresetn_2)
+    );
+
+    endmodule
+    """
+    
+    # Write the generated top-level module to a file
+    wr_path = path + "/design_static_bd_wrapper.sv"
+    with open(wr_path, "w") as f:
+        f.write(top_level)
+
+generate_axi_top(sys.argv[1])

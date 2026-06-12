@@ -1,0 +1,384 @@
+import os
+import sys
+import json
+import textwrap
+
+def generate_axi_top(path):
+    """
+    Generates a Verilog top-level module.
+    """
+
+    num_hbm_ports = ${N_HBM_PORTS}
+    en_strm = ${EN_STRM}
+    en_mlo = ${MLO}
+    core_ids = [${CORE_IDS_CSV}]
+
+    role_inst = ""
+    
+    #
+    # Generate Role
+    #
+
+    # Stream ports
+    strm_port = ""
+    if en_strm:
+        strm_port +=  f"""
+            AXI4S_USER.slave s_axis_h2c,
+            AXI4S_USER.master m_axis_c2h,
+        """
+
+    # Memory ports
+    hbm_port = ""
+    hbm_decl = ""
+    if num_hbm_ports > 0:
+        hbm_port += f"""
+            AXI4.master m_axi_hbm [N_HBM_PORTS],
+        """
+        hbm_decl = hbm_decl + f"""
+            AXI4 #(.AXI4_DATA_BITS(HBM_DATA_BITS), .AXI4_ADDR_BITS(HBM_ADDR_BITS)) axi_hbm [N_HBM_PORTS] ();
+        """
+
+    # Fetch units
+    fetch_units = """
+        AXI4S #(.AXI4S_DATA_BITS(HBM_ADDR_BITS+HBM_LEN_BITS)) rd_ctrl ();
+        logic rd_done;
+        AXI4S #(.AXI4S_DATA_BITS(HBM_ADDR_BITS+HBM_LEN_BITS)) wr_ctrl ();
+        logic wr_done;
+
+        AXI4S #(.AXI4S_DATA_BITS(ILEN_BITS)) axis_dma_rd ();
+        AXI4S #(.AXI4S_DATA_BITS(OLEN_BITS)) axis_dma_wr ();
+    """
+
+    if en_strm:
+        fetch_units += f"""
+            AXI4S_USER axis_host_rd ();
+            AXI4S_USER axis_host_wr ();
+            
+            `AXISU_AXIS_ASSIGN(s_axis_h2c, axis_host_rd)
+            `AXIS_AXISU_ASSIGN(axis_host_wr, m_axis_c2h)
+
+            axis_sdwc_rd inst_dwc_rd (
+                .aclk(aclk), .aresetn(aresetn),
+                .s_axis_tvalid(axis_host_rd.tvalid), .s_axis_tready(axis_host_rd.tready), .s_axis_tdata(axis_host_rd.tdata), .s_axis_tkeep(axis_host_rd.tkeep), .s_axis_tlast(axis_host_rd.tlast),
+                .m_axis_tvalid(axis_dma_rd.tvalid), .m_axis_tready(axis_dma_rd.tready), .m_axis_tdata(axis_dma_rd.tdata), .m_axis_tkeep(), .m_axis_tlast()
+            );
+
+            axis_sdwc_wr inst_dwc_wr (
+                .aclk(aclk), .aresetn(aresetn),
+                .s_axis_tvalid(axis_dma_wr.tvalid), .s_axis_tready(axis_dma_wr.tready), .s_axis_tdata(axis_dma_wr.tdata), .s_axis_tkeep('1), .s_axis_tlast(1'b0),
+                .m_axis_tvalid(axis_host_wr.tvalid), .m_axis_tready(axis_host_wr.tready), .m_axis_tdata(axis_host_wr.tdata), .m_axis_tkeep(axis_host_wr.tkeep), .m_axis_tlast(axis_host_wr.tlast)
+            );
+        """
+
+    else:
+        fetch_units += f"""
+            fetch_unit #(
+                .ILEN_BITS(ILEN_BITS)
+            ) inst_fetch (
+                .aclk(aclk),
+                .aresetn(aresetn),
+                .dclk(dclk),
+                .dresetn(dresetn),
+                .m_axi_hbm(axi_hbm[0]),
+                .rd_ctrl(rd_ctrl),
+                .rd_done(rd_done),
+                .m_axis(axis_dma_rd)
+            );
+
+            store_unit #(
+                .OLEN_BITS(OLEN_BITS)
+            ) inst_store (
+                .aclk(aclk),
+                .aresetn(aresetn),
+                .dclk(dclk),
+                .dresetn(dresetn),
+                .m_axi_hbm(axi_hbm[1]),
+                .wr_ctrl(wr_ctrl),
+                .wr_done(wr_done),
+                .s_axis(axis_dma_wr)
+            );
+        """
+
+    # Core ports
+    base = 0 if en_strm else 2
+    idx = base
+    include_core_intf = (en_mlo == 1) and (num_hbm_ports > base)
+
+    core_intf_port = ""
+    if include_core_intf:
+        core_intf_port += f"""
+        .m_axi_hbm_awid(axi_hbm[{idx}].awid),
+        .m_axi_hbm_awaddr(axi_hbm[{idx}].awaddr),
+        .m_axi_hbm_awlen(axi_hbm[{idx}].awlen),
+        .m_axi_hbm_awsize(axi_hbm[{idx}].awsize),
+        .m_axi_hbm_awburst(axi_hbm[{idx}].awburst),
+        .m_axi_hbm_awlock(axi_hbm[{idx}].awlock),
+        .m_axi_hbm_awcache(axi_hbm[{idx}].awcache),
+        .m_axi_hbm_awprot(axi_hbm[{idx}].awprot),
+        .m_axi_hbm_awvalid(axi_hbm[{idx}].awvalid),
+        .m_axi_hbm_awready(axi_hbm[{idx}].awready),
+        .m_axi_hbm_arid(axi_hbm[{idx}].arid),
+        .m_axi_hbm_araddr(axi_hbm[{idx}].araddr),
+        .m_axi_hbm_arlen(axi_hbm[{idx}].arlen),
+        .m_axi_hbm_arsize(axi_hbm[{idx}].arsize),
+        .m_axi_hbm_arburst(axi_hbm[{idx}].arburst),
+        .m_axi_hbm_arlock(axi_hbm[{idx}].arlock),
+        .m_axi_hbm_arcache(axi_hbm[{idx}].arcache),
+        .m_axi_hbm_arprot(axi_hbm[{idx}].arprot),
+        .m_axi_hbm_arvalid(axi_hbm[{idx}].arvalid),
+        .m_axi_hbm_arready(axi_hbm[{idx}].arready),
+        .m_axi_hbm_wdata(axi_hbm[{idx}].wdata),
+        .m_axi_hbm_wstrb(axi_hbm[{idx}].wstrb),
+        .m_axi_hbm_wlast(axi_hbm[{idx}].wlast),
+        .m_axi_hbm_wvalid(axi_hbm[{idx}].wvalid),
+        .m_axi_hbm_wready(axi_hbm[{idx}].wready),
+        .m_axi_hbm_bid(axi_hbm[{idx}].bid),
+        .m_axi_hbm_bresp(axi_hbm[{idx}].bresp),
+        .m_axi_hbm_bvalid(axi_hbm[{idx}].bvalid),
+        .m_axi_hbm_bready(axi_hbm[{idx}].bready),
+        .m_axi_hbm_rid(axi_hbm[{idx}].rid),
+        .m_axi_hbm_rdata(axi_hbm[{idx}].rdata),
+        .m_axi_hbm_rresp(axi_hbm[{idx}].rresp),
+        .m_axi_hbm_rlast(axi_hbm[{idx}].rlast),
+        .m_axi_hbm_rvalid(axi_hbm[{idx}].rvalid),
+        .m_axi_hbm_rready(axi_hbm[{idx}].rready),
+        """
+        idx +=1
+
+    core_hbm_ports = ""
+    for cid in core_ids:
+        core_hbm_ports += f"""
+        .m_axi_MVAU_id_{cid}_awid(axi_hbm[{idx}].awid),
+        .m_axi_MVAU_id_{cid}_awaddr(axi_hbm[{idx}].awaddr),
+        .m_axi_MVAU_id_{cid}_awlen(axi_hbm[{idx}].awlen),
+        .m_axi_MVAU_id_{cid}_awsize(axi_hbm[{idx}].awsize),
+        .m_axi_MVAU_id_{cid}_awburst(axi_hbm[{idx}].awburst),
+        .m_axi_MVAU_id_{cid}_awlock(axi_hbm[{idx}].awlock),
+        .m_axi_MVAU_id_{cid}_awcache(axi_hbm[{idx}].awcache),
+        .m_axi_MVAU_id_{cid}_awprot(axi_hbm[{idx}].awprot),
+        .m_axi_MVAU_id_{cid}_awvalid(axi_hbm[{idx}].awvalid),
+        .m_axi_MVAU_id_{cid}_awready(axi_hbm[{idx}].awready),
+        .m_axi_MVAU_id_{cid}_arid(axi_hbm[{idx}].arid),
+        .m_axi_MVAU_id_{cid}_araddr(axi_hbm[{idx}].araddr),
+        .m_axi_MVAU_id_{cid}_arlen(axi_hbm[{idx}].arlen),
+        .m_axi_MVAU_id_{cid}_arsize(axi_hbm[{idx}].arsize),
+        .m_axi_MVAU_id_{cid}_arburst(axi_hbm[{idx}].arburst),
+        .m_axi_MVAU_id_{cid}_arlock(axi_hbm[{idx}].arlock),
+        .m_axi_MVAU_id_{cid}_arcache(axi_hbm[{idx}].arcache),
+        .m_axi_MVAU_id_{cid}_arprot(axi_hbm[{idx}].arprot),
+        .m_axi_MVAU_id_{cid}_arvalid(axi_hbm[{idx}].arvalid),
+        .m_axi_MVAU_id_{cid}_arready(axi_hbm[{idx}].arready),
+        .m_axi_MVAU_id_{cid}_wdata(axi_hbm[{idx}].wdata),
+        .m_axi_MVAU_id_{cid}_wstrb(axi_hbm[{idx}].wstrb),
+        .m_axi_MVAU_id_{cid}_wlast(axi_hbm[{idx}].wlast),
+        .m_axi_MVAU_id_{cid}_wvalid(axi_hbm[{idx}].wvalid),
+        .m_axi_MVAU_id_{cid}_wready(axi_hbm[{idx}].wready),
+        .m_axi_MVAU_id_{cid}_bid(axi_hbm[{idx}].bid),
+        .m_axi_MVAU_id_{cid}_bresp(axi_hbm[{idx}].bresp),
+        .m_axi_MVAU_id_{cid}_bvalid(axi_hbm[{idx}].bvalid),
+        .m_axi_MVAU_id_{cid}_bready(axi_hbm[{idx}].bready),
+        .m_axi_MVAU_id_{cid}_rid(axi_hbm[{idx}].rid),
+        .m_axi_MVAU_id_{cid}_rdata(axi_hbm[{idx}].rdata),
+        .m_axi_MVAU_id_{cid}_rresp(axi_hbm[{idx}].rresp),
+        .m_axi_MVAU_id_{cid}_rlast(axi_hbm[{idx}].rlast),
+        .m_axi_MVAU_id_{cid}_rvalid(axi_hbm[{idx}].rvalid),
+        .m_axi_MVAU_id_{cid}_rready(axi_hbm[{idx}].rready),    
+        """
+        idx += 1
+
+    core_done_port = ""
+    if en_mlo:
+        core_done_port += f".done_if(),\n"
+
+    # Offset insertion
+    hbm_offsets = ""
+    if num_hbm_ports > 0:
+        hbm_offsets += f"""
+            hbm_offsets inst_hbm_offsets (
+                .aclk(aclk), .aresetn(aresetn),
+                .s_axi_hbm(axi_hbm),
+                .m_axi_hbm(m_axi_hbm)
+            );
+        """
+
+    #
+    # Top-level Verilog template
+    #
+
+    top_level = textwrap.dedent(f"""
+    // Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
+    //
+    // This file is subject to the Xilinx Design License Agreement located
+    // in the LICENSE.md file in the root directory of this repository.
+    //
+    // This file contains confidential and proprietary information of Xilinx, Inc.
+    // and is protected under U.S. and international copyright and other
+    // intellectual property laws.
+    //
+    // DISCLAIMER
+    // This disclaimer is not a license and does not grant any rights to the materials
+    // distributed herewith. Except as otherwise provided in a valid license issued to
+    // you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
+    // MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
+    // DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
+    // INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
+    // FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
+    // in contract or tort, including negligence, or under any other theory of
+    // liability) for any loss or damage of any kind or nature related to, arising
+    // under or in connection with these materials, including for any direct, or any
+    // indirect, special, incidental, or consequential loss or damage (including loss
+    // of data, profits, goodwill, or any type of loss or damage suffered as a result
+    // of any action brought by a third party) even if such damage or loss was
+    // reasonably foreseeable or Xilinx had been advised of the possibility of the
+    // same.
+    //
+    // CRITICAL APPLICATIONS
+    // Xilinx products are not designed or intended to be fail-safe, or for use in
+    // any application requiring failsafe performance, such as life-support or safety
+    // devices or systems, Class III medical devices, nuclear facilities, applications
+    // related to the deployment of airbags, or any other applications that could lead
+    // to death, personal injury, or severe property or environmental damage
+    // (individually and collectively, "Critical Applications"). Customer assumes the
+    // sole risk and liability of any use of Xilinx products in Critical Applications,
+    // subject only to applicable laws and regulations governing limitations on product
+    // liability.
+    //
+    // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+
+    import iwTypes::*;
+
+    `include "axi_macros.svh"
+
+    module role (
+        AXI4L.slave s_axi_ctrl,
+        
+        {strm_port}
+        {hbm_port}
+        
+        input  logic aclk,
+        input  logic aclk_dp,
+        input  logic aresetn,
+        input  logic dclk,
+        input  logic dresetn,
+
+        input  logic uclk_0,
+        input  logic uresetn_0,
+        input  logic uclk_1,
+        input  logic uresetn_1,
+        input  logic uclk_2,
+        input  logic uresetn_2
+    );
+
+    localparam integer N_DCPL_STGS = 2;
+
+    // ================-----------------------------------------------------------------
+    // FETCH / STORE
+    // ================-----------------------------------------------------------------
+    {hbm_decl}
+    {fetch_units}
+
+    // ================-----------------------------------------------------------------
+    // CSR
+    // ================-----------------------------------------------------------------
+
+    // Slave
+    csr inst_csr (
+        .aclk(aclk),
+        .aresetn(aresetn),
+
+        .axi_ctrl(s_axi_ctrl),
+
+        .rd_ctrl(rd_ctrl),
+        .wr_ctrl(wr_ctrl),
+
+        .rd_done(rd_done),
+        .wr_done(wr_done)
+    );
+
+    // ================-----------------------------------------------------------------
+    // CORE
+    // ================-----------------------------------------------------------------
+
+    ${CORE_INST_NAME} inst_CORE (
+        .s_axis_0_tvalid(axis_dma_rd.tvalid), 
+        .s_axis_0_tready(axis_dma_rd.tready), 
+        .s_axis_0_tdata(axis_dma_rd.tdata),
+        {core_intf_port}
+        {core_hbm_ports}
+        {core_done_port}
+        .m_axis_0_tvalid(axis_dma_wr.tvalid), 
+        .m_axis_0_tready(axis_dma_wr.tready), 
+        .m_axis_0_tdata(axis_dma_wr.tdata),
+
+        .ap_clk(aclk), 
+        .ap_rst_n(aresetn)
+    );
+
+    // ================-----------------------------------------------------------------
+    // OFFSETS
+    // ================-----------------------------------------------------------------
+    {hbm_offsets}
+
+    // ================-----------------------------------------------------------------
+    // DEBUG
+    // ================-----------------------------------------------------------------
+
+    logic [31:0] cnt_core_in_beats, cnt_core_out_beats;
+    logic [31:0] cnt_start_rd, cnt_start_wr;
+    logic [31:0] cnt_done_rd, cnt_done_wr;
+    logic clear_status;
+
+    vio_dbg inst_vio_dbg (
+        .clk(aclk),
+        .probe_in0(axis_dma_rd.tvalid),
+        .probe_in1(axis_dma_rd.tready),
+        .probe_in2(cnt_core_in_beats), // 32
+        .probe_in3(axis_dma_wr.tvalid),
+        .probe_in4(axis_dma_wr.tready),
+        .probe_in5(cnt_core_out_beats), // 32
+        .probe_in6(cnt_start_rd), // 32
+        .probe_in7(cnt_start_wr), // 32
+        .probe_in8(cnt_done_rd), // 32
+        .probe_in9(cnt_done_wr), // 32
+        .probe_out0(clear_status)
+    );
+
+    always_ff @(posedge aclk) begin
+        if(~aresetn) begin
+            cnt_core_in_beats <= 0;
+            cnt_core_out_beats <= 0;
+            cnt_start_rd <= 0;
+            cnt_start_wr <= 0;
+            cnt_done_rd <= 0;
+            cnt_done_wr <= 0;
+        end
+        else begin
+            if(clear_status) begin
+                cnt_core_in_beats <= 0;
+                cnt_core_out_beats <= 0;
+                cnt_start_rd <= 0;
+                cnt_start_wr <= 0;
+                cnt_done_rd <= 0;
+                cnt_done_wr <= 0;
+            end else begin
+                cnt_core_in_beats <= axis_dma_rd.tvalid && axis_dma_rd.tready ? cnt_core_in_beats + 1 : cnt_core_in_beats;
+                cnt_core_out_beats <= axis_dma_wr.tvalid && axis_dma_wr.tready ? cnt_core_out_beats + 1 : cnt_core_out_beats;
+                cnt_start_rd <= rd_ctrl.tvalid && rd_ctrl.tready ? cnt_start_rd + 1 : cnt_start_rd;
+                cnt_start_wr <= wr_ctrl.tvalid && wr_ctrl.tready ? cnt_start_wr + 1 : cnt_start_wr;
+                cnt_done_rd <= rd_done ? cnt_done_rd + 1 : cnt_done_rd;
+                cnt_done_wr <= wr_done ? cnt_done_wr + 1 : cnt_done_wr;
+            end
+        end
+    end
+
+    endmodule
+    """)
+    
+    top_level = textwrap.indent(top_level, "")
+
+    # Write the generated top-level module to a file
+    wr_path = path + "/role.sv"
+    with open(wr_path, "w") as f:
+        f.write(top_level)
+
+generate_axi_top(sys.argv[1])

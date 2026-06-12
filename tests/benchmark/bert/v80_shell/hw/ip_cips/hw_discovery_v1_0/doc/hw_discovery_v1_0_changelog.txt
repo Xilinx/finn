@@ -1,0 +1,9 @@
+2023.2:
+ * Version 1.0 (Rev. 1)
+ * Bug Fix: Upgraded warning to error when required endpoint metadata not found
+ * Bug Fix: Ports pcie*_cfg_ext function_number width increased to 16 to match cips
+
+2023.1:
+ * Version 1.0
+ * New Feature: Initial Release
+

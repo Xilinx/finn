@@ -1,0 +1,28 @@
+#
+#/*
+# * This file is part of the QDMA userspace application
+# * to enable the user to execute the QDMA functionality
+# *
+# * Copyright (c) 2018-2022, Xilinx, Inc. All rights reserved.
+# * Copyright (c) 2022-2024, Advanced Micro Devices, Inc. All rights reserved.
+# *
+# * This source code is licensed under BSD-style license (found in the
+# * LICENSE file in the root directory of this source tree)
+# */
+
+name=mm_ex
+pci_bus=e2
+pci_device=00
+function=1 #fun_id
+is_vf=0
+mode=mm #mode
+dir=bi #dir
+q_range=0:0 #no spaces
+tmr_idx=6
+cntr_idx=6
+cmptsz=0
+trig_mode=every
+pfetch_en=0
+rngidx=0
+pkt_sz=1024
+io_type=io_sync

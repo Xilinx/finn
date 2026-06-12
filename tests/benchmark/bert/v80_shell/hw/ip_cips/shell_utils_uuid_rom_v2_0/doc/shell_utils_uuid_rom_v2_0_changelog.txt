@@ -1,0 +1,84 @@
+2023.1:
+ * Version 2.0
+ * No changes
+
+2022.2.2:
+ * Version 2.0
+ * No changes
+
+2022.2.1:
+ * Version 2.0
+ * No changes
+
+2022.2:
+ * Version 2.0
+ * No changes
+
+2022.1.2:
+ * Version 2.0
+ * No changes
+
+2022.1.1:
+ * Version 2.0
+ * No changes
+
+2022.1:
+ * Version 2.0
+ * No changes
+
+2021.2.2:
+ * Version 2.0
+ * No changes
+
+2021.2.1:
+ * Version 2.0
+ * No changes
+
+2021.2:
+ * Version 2.0
+ * No changes
+
+2021.1.1:
+ * Version 2.0
+ * No changes
+
+2021.1:
+ * Version 2.0
+ * No changes
+
+2020.3:
+ * Version 2.0
+ * No changes
+
+2020.2.2:
+ * Version 2.0
+ * No changes
+
+2020.2.1:
+ * Version 2.0
+ * No changes
+
+2020.2:
+ * Version 2.0
+ * No changes
+
+2020.1.1:
+ * Version 2.0
+ * No changes
+
+2020.1:
+ * Version 2.0
+ * S_AXI interface supports READ_ONLY, updates to work with 2020.1 tools
+
+2019.2.2:
+ * Version 1.0
+ * No changes
+
+2019.2.1:
+ * Version 1.0
+ * No changes
+
+2019.2:
+ * Version 1.0
+ * Initial Release
+

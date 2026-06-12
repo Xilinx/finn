@@ -1,0 +1,197 @@
+# (c) Copyright 2023, Advanced Micro Devices, Inc.
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a 
+# copy of this software and associated documentation files (the "Software"), 
+# to deal in the Software without restriction, including without limitation 
+# the rights to use, copy, modify, merge, publish, distribute, sublicense, 
+# and/or sell copies of the Software, and to permit persons to whom the 
+# Software is furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in 
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+# DEALINGS IN THE SOFTWARE.
+############################################################
+set CompName [get_property PARAM_VALUE.Component_Name]
+set TBName ${CompName}_testtb
+set DesignName ${CompName}_testbd
+set WrapperName ${DesignName}_wrapper
+set FILEPATH "simulation/${TBName}.sv"
+set fid [add_ipfile ${FILEPATH}]
+set num_pfs [get_property PARAM_VALUE.C_NUM_PFS]
+puts_ipfile $fid "`timescale 1ps / 1ps"
+puts_ipfile $fid ""
+puts_ipfile $fid "module $TBName;"
+puts_ipfile $fid "  localparam CLK_PERIOD = 10000; //ps"
+puts_ipfile $fid "  localparam RESET_PULSE = 20; // cycles"
+puts_ipfile $fid "  localparam TIMEOUT = 100000; // cycles"
+puts_ipfile $fid "  reg aclk;"
+puts_ipfile $fid "  reg aresetn;"
+puts_ipfile $fid "  reg done = 0;"
+puts_ipfile $fid ""
+puts_ipfile $fid "  initial begin"
+puts_ipfile $fid "    aclk = 1'b1;"
+puts_ipfile $fid "    forever #(CLK_PERIOD / 2) begin"
+puts_ipfile $fid "      aclk = ~aclk;"
+puts_ipfile $fid "    end"
+puts_ipfile $fid "  end"
+puts_ipfile $fid ""
+puts_ipfile $fid "  initial begin"
+puts_ipfile $fid "    \$display(\"%t: %m: Starting testbench\", \$time);"
+puts_ipfile $fid "    aresetn = 1'b0;"
+puts_ipfile $fid "    #(CLK_PERIOD * RESET_PULSE) aresetn = 1'b1;"
+puts_ipfile $fid "    #(CLK_PERIOD * RESET_PULSE) mst_start_stimulus();"
+puts_ipfile $fid "  end"
+puts_ipfile $fid ""
+puts_ipfile $fid "  $WrapperName exdes_top"
+puts_ipfile $fid "  ("
+puts_ipfile $fid "  .aclk_0(aclk),"
+puts_ipfile $fid "  .aresetn_0(aresetn)"
+puts_ipfile $fid "  );"
+puts_ipfile $fid ""
+puts_ipfile $fid "  always @(posedge aclk) begin"
+puts_ipfile $fid "    if (done) begin"
+puts_ipfile $fid "      #(CLK_PERIOD * 10) \$display(\"%t: %m: SIMULATION PASSED\", \$time);"
+puts_ipfile $fid "      \$display(\"%t: %m: Test Completed Successfully\", \$time);"
+puts_ipfile $fid "      \$stop;"
+puts_ipfile $fid "    end"
+puts_ipfile $fid "  end"
+puts_ipfile $fid ""
+puts_ipfile $fid "  initial begin"
+puts_ipfile $fid "    #(CLK_PERIOD * TIMEOUT) \$display(\"%t: %m: ERROR - Test timed out.\", \$time);"
+puts_ipfile $fid "    \$stop;"
+puts_ipfile $fid "  end"
+puts_ipfile $fid ""
+
+set expect [dict create]
+set inject [get_property PARAM_VALUE.C_INJECT_ENDPOINTS]
+for {set pf 0} {$pf < $num_pfs} {incr pf} {
+  if {[llength $inject] > 1} {
+    set index 0
+    set ep_filter [get_property PARAM_VALUE.C_PF${pf}_ENDPOINT_NAMES]
+    set bar_info [dict get $inject pcie_mapping_for /$CompName/s_axi_ctrl_pf${pf}]
+    set first_bar [lindex $bar_info 0]
+    set bar [dict get $first_bar bar]
+    set endpoints [dict get $inject endpoints_for_pcie_bar $pf $bar]
+    foreach {endpoint} $endpoints {
+	    set endpoint_name [dict get $endpoint xrt_endpoint_name]
+	    if {[dict exists $ep_filter $endpoint_name]} {
+        dict set expect ${pf} ${index} name $endpoint_name
+        dict set expect ${pf} ${index} offset [dict get $endpoint offset]
+        dict set expect ${pf} ${index} bar $bar
+        set vlnv_list [split [dict get $endpoint reg_abs] ":"]
+        set vlnv_version_list [split [lindex $vlnv_list 3] "."]
+        dict set expect ${pf} ${index} major [lindex $vlnv_version_list 0]
+        dict set expect ${pf} ${index} minor [lindex $vlnv_version_list 1]
+        dict set expect ${pf} ${index} etype [format %0d [dict get $ep_filter $endpoint_name type]]
+        dict set expect ${pf} ${index} reserve [format %0d [dict get $ep_filter $endpoint_name reserve]]
+        dict set expect ${pf} ${index} vtype 1
+        incr index
+      }
+    }
+    lappend pf_slots $index
+  } else {
+    set num_slots [get_property PARAM_VALUE.C_PF${pf}_NUM_SLOTS_BAR_LAYOUT_TABLE]
+    lappend pf_slots $num_slots
+    for {set index 0} {$index < $num_slots} {incr index} {
+      dict set expect ${pf} ${index} offset [get_property PARAM_VALUE.C_PF${pf}_ENTRY_ADDR_${index}]
+      dict set expect ${pf} ${index} bar [get_property PARAM_VALUE.C_PF${pf}_ENTRY_BAR_${index}]
+      dict set expect ${pf} ${index} major [get_property PARAM_VALUE.C_PF${pf}_ENTRY_MAJOR_VERSION_${index}]
+      dict set expect ${pf} ${index} minor [get_property PARAM_VALUE.C_PF${pf}_ENTRY_MINOR_VERSION_${index}]
+      dict set expect ${pf} ${index} etype [format %0d [get_property PARAM_VALUE.C_PF${pf}_ENTRY_TYPE_${index}]]
+      dict set expect ${pf} ${index} reserve [format %0d [get_property PARAM_VALUE.C_PF${pf}_ENTRY_RSVD0_${index}]]
+      dict set expect ${pf} ${index} vtype [format %0d [get_property PARAM_VALUE.C_PF${pf}_ENTRY_VERSION_TYPE_${index}]]
+    }
+  }
+}
+  
+puts_ipfile $fid "reg \[31:0\] rdata;"
+puts_ipfile $fid "reg \[47:0\] entry_addr;"
+puts_ipfile $fid "reg \[2:0\] bar;"
+puts_ipfile $fid "reg \[7:0\] major;"
+puts_ipfile $fid "reg \[7:0\] minor;"
+puts_ipfile $fid "reg \[7:0\] etype;"
+puts_ipfile $fid "reg \[3:0\] reserve;"
+puts_ipfile $fid "reg \[7:0\] vtype;"
+puts_ipfile $fid "import axi_vip_pkg::*;"
+for {set pf 0} {$pf < $num_pfs} {incr pf} {
+  puts_ipfile $fid "import ${DesignName}_vip_${pf}_0_pkg::*;"
+  puts_ipfile $fid "${DesignName}_vip_${pf}_0_mst_t mst_agent_${pf};"
+}
+puts_ipfile $fid "axi_transaction rd_trans;"
+puts_ipfile $fid ""
+puts_ipfile $fid "task mst_start_stimulus();"
+for {set pf 0} {$pf < $num_pfs} {incr pf} {
+  puts_ipfile $fid "  mst_agent_${pf} = new(\"master vip agent\",exdes_top.${DesignName}_i.vip_${pf}.inst.IF);"
+  puts_ipfile $fid "  mst_agent_${pf}.start_master();"
+  puts_ipfile $fid ""
+  for {set index 0} {$index < [lindex $pf_slots $pf]} {incr index} {
+    set addr0 [expr 16 * $index + 16]
+    set addr1 [expr $addr0 + 4]
+    set addr2 [expr $addr0 + 8]
+    set bar [dict get $expect ${pf} ${index} bar]
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} offset]] "" offset
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} major]] "" major
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} minor]] "" minor
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} etype]] "" etype
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} reserve]] "" reserve
+    regsub "0x" [format %x [dict get $expect ${pf} ${index} vtype]] "" vtype
+    puts_ipfile $fid "  rd_trans = mst_agent_${pf}.rd_driver.create_transaction(\"read_ctrl_${pf}_${index}_0\");"
+    puts_ipfile $fid "  RD_TRANSACTION_FAIL_${pf}_${index}a:assert(rd_trans.randomize());"
+    puts_ipfile $fid "  rd_trans.set_driver_return_item_policy(XIL_AXI_PAYLOAD_RETURN);"
+    puts_ipfile $fid "  rd_trans.set_read_cmd(${addr0},XIL_AXI_BURST_TYPE_INCR,0,0,xil_axi_size_t'(2));"
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.send(rd_trans);   "
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.wait_rsp(rd_trans);"
+    puts_ipfile $fid "  rdata = rd_trans.get_data_beat(0);"
+    puts_ipfile $fid "  etype = rdata\[7:0\];"
+    puts_ipfile $fid "  bar = rdata\[15:13\];"
+    puts_ipfile $fid "  entry_addr = rdata\[31:16\];"
+    puts_ipfile $fid ""
+    puts_ipfile $fid "  rd_trans = mst_agent_${pf}.rd_driver.create_transaction(\"read_ctrl_${pf}_${index}_1\");"
+    puts_ipfile $fid "  RD_TRANSACTION_FAIL_${pf}_${index}b:assert(rd_trans.randomize());"
+    puts_ipfile $fid "  rd_trans.set_driver_return_item_policy(XIL_AXI_PAYLOAD_RETURN);"
+    puts_ipfile $fid "  rd_trans.set_read_cmd(${addr1},XIL_AXI_BURST_TYPE_INCR,0,0,xil_axi_size_t'(2));"
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.send(rd_trans);   "
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.wait_rsp(rd_trans);"
+    puts_ipfile $fid "  rdata = rd_trans.get_data_beat(0);"
+    puts_ipfile $fid "  entry_addr\[47:16\] = rdata;"
+    puts_ipfile $fid ""
+    puts_ipfile $fid "  rd_trans = mst_agent_${pf}.rd_driver.create_transaction(\"read_ctrl_${pf}_${index}_2\");"
+    puts_ipfile $fid "  RD_TRANSACTION_FAIL_${pf}_${index}c:assert(rd_trans.randomize());"
+    puts_ipfile $fid "  rd_trans.set_driver_return_item_policy(XIL_AXI_PAYLOAD_RETURN);"
+    puts_ipfile $fid "  rd_trans.set_read_cmd(${addr2},XIL_AXI_BURST_TYPE_INCR,0,0,xil_axi_size_t'(2));"
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.send(rd_trans);   "
+    puts_ipfile $fid "  mst_agent_${pf}.rd_driver.wait_rsp(rd_trans);"
+    puts_ipfile $fid "  rdata = rd_trans.get_data_beat(0);"
+    puts_ipfile $fid "  vtype = rdata\[7:0\];"
+    puts_ipfile $fid "  minor = rdata\[15:8\];"
+    puts_ipfile $fid "  major = rdata\[23:16\];"
+    puts_ipfile $fid "  reserve = rdata\[27:24\];"
+    puts_ipfile $fid ""
+    if {[dict exists $expect ${pf} ${index} name]} {
+      set name [dict get $expect ${pf} ${index} name]
+      puts_ipfile $fid "  \$info (\"PF${pf}, INDEX ${index}, ENDPOINT: ${name}\");"
+    } else {
+      puts_ipfile $fid "  \$info (\"PF${pf}, INDEX ${index}\");"
+    }
+    puts_ipfile $fid "  assert (entry_addr == 48'h${offset}) \$info (\"C_PF${pf}_ENTRY_ADDR_${index} = %0X.\", entry_addr); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_ADDR_${index} = %0X, expected ${offset}.\", entry_addr);"
+    puts_ipfile $fid "  assert (bar == 3'h${bar}) \$info (\"C_PF${pf}_ENTRY_BAR_${index} = %0X.\", bar); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_BAR_${index} = %0X, expected ${bar}.\", bar);"
+    puts_ipfile $fid "  assert (major == 8'h${major}) \$info (\"C_PF${pf}_ENTRY_MAJOR_VERSION_${index} = %0X.\", major); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_MAJOR_VERSION_${index} = %0X, expected ${major}.\", major);"
+    puts_ipfile $fid "  assert (minor == 8'h${minor}) \$info (\"C_PF${pf}_ENTRY_MINOR_VERSION_${index} = %0X.\", minor); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_MINOR_VERSION_${index} = %0X, expected ${minor}.\", minor);"
+    puts_ipfile $fid "  assert (etype == 8'h${etype}) \$info (\"C_PF${pf}_ENTRY_TYPE_${index} = %0X.\", etype); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_TYPE_${index} = %0X, expected ${etype}.\", etype);"
+    puts_ipfile $fid "  assert (reserve == 4'h${reserve}) \$info (\"C_PF${pf}_ENTRY_RSVD0_${index} = %0X.\", reserve); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_RSVD0_${index} = %0X, expected ${reserve}.\", reserve);"
+    puts_ipfile $fid "  assert (vtype == 8'h${vtype}) \$info (\"C_PF${pf}_ENTRY_VERSION_TYPE_${index} = %0X.\", vtype); else \$fatal (\"Mismatch C_PF${pf}_ENTRY_VERSION_TYPE_${index} = %0X, expected ${vtype}.\", vtype);"
+    puts_ipfile $fid ""
+  }
+}
+puts_ipfile $fid "done = 1;"
+puts_ipfile $fid "endtask"
+puts_ipfile $fid ""
+puts_ipfile $fid "endmodule"
+close_ipfile $fid

@@ -1,0 +1,80 @@
+
+# Copyright (c) 2022 Advanced Micro Devices, Inc. All rights reserved.
+
+# Temporary files
+*.orig
+*.tmp
+*~
+\#*#
+
+# ide project files
+.settings
+.cproject
+.project
+.idea/
+.vscode/
+.history/
+*.vsix
+
+# git files
+*.patch
+!.gitignore
+!.gitkeep
+
+# finn related files
+finn/
+output_*/
+__pycache__/
+thresholds*/
+refio/
+
+# custom related files
+build*/
+bstreams/
+bitstreams/
+iprepo/
+tmp/
+hd_visual/
+ip_dir/
+xsim.dir/
+tb_user/
+rust/
+.Xil/
+csim/
+.vscode/
+*.pb
+*.log
+*.tmp
+*.jou
+*.str
+*.config
+*.zip
+*.debug
+*.dwo
+*.mod
+*.mod.dwo
+*.cmd
+*.symvers
+*.ko
+*.mod.c
+*.mod.o
+*.o
+*.order
+rnd_table
+tabulation_table.sv
+driver_new
+*.bk
+*.bak
+*.csv
+*.out
+misc/
+*_stub.v
+*_stub.vhdl
+*_funcsim.v
+*_funcsim.vhdl
+*.upgrade_log
+*.d
+old/
+
+# Include a few .xml files
+!component.xml

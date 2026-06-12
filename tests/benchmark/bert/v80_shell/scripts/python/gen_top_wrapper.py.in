@@ -1,0 +1,298 @@
+import os
+import sys
+import json
+import textwrap
+
+def generate_axi_top(path):
+    """
+    Generates a Verilog top-level module.
+    """
+
+    num_hbm_ports = ${N_HBM_PORTS}
+    en_strm = ${EN_STRM}
+    mem_offs = 0x${HBM_OFFS}
+    mem_rng = 0x${HBM_RNG}
+
+    # Generate AXI port interface for HBM ports
+    axi_hbm_intf = ""
+    axi_hbm_inst = ""
+    axi_hbm_regs = ""
+    axi_hbm_role = ""
+    axi_hbm_dma = ""
+
+    if num_hbm_ports > 0:
+        axi_hbm_intf = """
+        AXI4 #(.AXI4_DATA_BITS(HBM_DATA_BITS), .AXI4_ADDR_BITS(HBM_ADDR_BITS)) axi_hbm [N_HBM_PORTS] ();
+        AXI4 #(.AXI4_DATA_BITS(HBM_DATA_BITS), .AXI4_ADDR_BITS(HBM_ADDR_BITS)) axi_hbm_r [N_HBM_PORTS] ();
+        """
+
+        axi_hbm_inst = """
+            // AXIMM
+            .axi_hbm(axi_hbm_r),
+        """
+
+        axi_hbm_regs = """
+        for(genvar i = 0; i < N_HBM_PORTS; i++) begin
+            axi_hbm_reg_array inst_hbm_regs (.aclk(aclk), .aresetn(aresetn), .s_axi(axi_hbm[i]), .m_axi(axi_hbm_r[i]));
+        end
+        """
+
+        axi_hbm_role = """
+            .m_axi_hbm(axi_hbm),
+        """
+
+    axi_strm_intf = ""
+    axi_strm_inst = ""
+    axi_strm_regs = ""
+    axi_strm_role = ""
+
+    if en_strm:
+        axi_strm_intf = """
+            AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_QID_BITS)) axis_h2c ();
+            AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_QID_BITS)) axis_h2c_r ();
+            AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_QID_BITS)) axis_c2h ();
+            AXI4S_USER #(.AXI4S_DATA_BITS(QDMA_DATA_BITS), .AXI4S_USER_BITS(QDMA_QID_BITS)) axis_c2h_r ();
+        """
+
+        axi_strm_inst = """
+            // AXIS
+            .m_axis_h2c(axis_h2c),
+            .s_axis_c2h(axis_c2h_r),
+        """
+
+        axi_strm_regs = """
+            axis_qdma_reg_array #(.DATA_BITS(QDMA_DATA_BITS), .USER_BITS(QDMA_QID_BITS)) inst_qdma_snk_regs (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_h2c), .m_axis(axis_h2c_r));
+            axis_qdma_reg_array #(.DATA_BITS(QDMA_DATA_BITS), .USER_BITS(QDMA_QID_BITS)) inst_qdma_src_regs (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_c2h), .m_axis(axis_c2h_r)); 
+        """
+
+        axi_strm_role = """
+            // AXIS HOST
+            .s_axis_h2c(axis_h2c_r),
+            .m_axis_c2h(axis_c2h),
+        """      
+    
+    #
+    # TOP LEVEL 
+    #
+
+    top_level = f"""
+    // Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
+    //
+    // This file is subject to the Xilinx Design License Agreement located
+    // in the LICENSE.md file in the root directory of this repository.
+    //
+    // This file contains confidential and proprietary information of Xilinx, Inc.
+    // and is protected under U.S. and international copyright and other
+    // intellectual property laws.
+    //
+    // DISCLAIMER
+    // This disclaimer is not a license and does not grant any rights to the materials
+    // distributed herewith. Except as otherwise provided in a valid license issued to
+    // you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
+    // MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
+    // DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
+    // INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
+    // FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
+    // in contract or tort, including negligence, or under any other theory of
+    // liability) for any loss or damage of any kind or nature related to, arising
+    // under or in connection with these materials, including for any direct, or any
+    // indirect, special, incidental, or consequential loss or damage (including loss
+    // of data, profits, goodwill, or any type of loss or damage suffered as a result
+    // of any action brought by a third party) even if such damage or loss was
+    // reasonably foreseeable or Xilinx had been advised of the possibility of the
+    // same.
+    //
+    // CRITICAL APPLICATIONS
+    // Xilinx products are not designed or intended to be fail-safe, or for use in
+    // any application requiring failsafe performance, such as life-support or safety
+    // devices or systems, Class III medical devices, nuclear facilities, applications
+    // related to the deployment of airbags, or any other applications that could lead
+    // to death, personal injury, or severe property or environmental damage
+    // (individually and collectively, "Critical Applications"). Customer assumes the
+    // sole risk and liability of any use of Xilinx products in Critical Applications,
+    // subject only to applicable laws and regulations governing limitations on product
+    // liability.
+    //
+    // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+
+    import iwTypes::*;
+
+    `include "axi_macros.svh"
+
+    module design_top (
+        input  logic gt_pcie_refclk_clk_n,
+        input  logic gt_pcie_refclk_clk_p,
+        input  logic [7:0] gt_pciea1_grx_n,
+        input  logic [7:0] gt_pciea1_grx_p,
+        output logic [7:0] gt_pciea1_gtx_n,
+        output logic [7:0] gt_pciea1_gtx_p,
+        inout  logic smbus_0_scl_io,
+        inout  logic smbus_0_sda_io,   
+        output logic [0:0]CH0_DDR4_0_0_act_n,
+        output logic [16:0]CH0_DDR4_0_0_adr,
+        output logic [1:0]CH0_DDR4_0_0_ba,
+        output logic [0:0]CH0_DDR4_0_0_bg,
+        output logic [0:0]CH0_DDR4_0_0_ck_c,
+        output logic [0:0]CH0_DDR4_0_0_ck_t,
+        output logic [0:0]CH0_DDR4_0_0_cke,
+        output logic [0:0]CH0_DDR4_0_0_cs_n,
+        inout  logic [8:0]CH0_DDR4_0_0_dm_n,
+        inout  logic [71:0]CH0_DDR4_0_0_dq,
+        inout  logic [8:0]CH0_DDR4_0_0_dqs_c,
+        inout  logic [8:0]CH0_DDR4_0_0_dqs_t,
+        output logic [0:0]CH0_DDR4_0_0_odt,
+        output logic [0:0]CH0_DDR4_0_0_reset_n,
+        output logic [0:0]CH0_DDR4_0_1_act_n,
+        output logic [17:0]CH0_DDR4_0_1_adr,
+        input  logic [0:0]CH0_DDR4_0_1_alert_n,
+        output logic [1:0]CH0_DDR4_0_1_ba,
+        output logic [1:0]CH0_DDR4_0_1_bg,
+        output logic [0:0]CH0_DDR4_0_1_ck_c,
+        output logic [0:0]CH0_DDR4_0_1_ck_t,
+        output logic [0:0]CH0_DDR4_0_1_cke,
+        output logic [0:0]CH0_DDR4_0_1_cs_n,
+        inout  logic [71:0]CH0_DDR4_0_1_dq,
+        inout  logic [17:0]CH0_DDR4_0_1_dqs_c,
+        inout  logic [17:0]CH0_DDR4_0_1_dqs_t,
+        output logic [0:0]CH0_DDR4_0_1_odt,
+        output logic [0:0]CH0_DDR4_0_1_par,
+        output logic [0:0]CH0_DDR4_0_1_reset_n,
+        input  logic [0:0]hbm_ref_clk_0_clk_n,
+        input  logic [0:0]hbm_ref_clk_0_clk_p,
+        input  logic [0:0]hbm_ref_clk_1_clk_n,
+        input  logic [0:0]hbm_ref_clk_1_clk_p,
+        input  logic [0:0]sys_clk0_0_clk_n,
+        input  logic [0:0]sys_clk0_0_clk_p,
+        input  logic [0:0]sys_clk0_1_clk_n,
+        input  logic [0:0]sys_clk0_1_clk_p
+    );
+
+        // ================-----------------------------------------------------------------
+        // Clock and reset
+        // ================-----------------------------------------------------------------
+
+        wire aclk;
+        wire aclk_dp;
+        wire [0:0] aresetn;
+        wire dclk;
+        wire [0:0] dresetn;
+        wire uclk_0;
+        wire [0:0] uresetn_0;
+        wire uclk_1;
+        wire [0:0] uresetn_1;
+        wire uclk_2;
+        wire [0:0] uresetn_2;
+ 
+        // ================-----------------------------------------------------------------
+        // CIPS 
+        // ================-----------------------------------------------------------------
+
+        AXI4L #(.AXI4L_DATA_BITS(CSR_DATA_BITS), .AXI4L_ADDR_BITS(CSR_ADDR_BITS)) axi_ctrl ();
+        AXI4L #(.AXI4L_DATA_BITS(CSR_DATA_BITS), .AXI4L_ADDR_BITS(CSR_ADDR_BITS)) axi_ctrl_r ();
+        {axi_hbm_intf}
+        {axi_strm_intf}
+        design_static_bd_wrapper inst_cips (
+            // I/O
+            .CH0_DDR4_0_0_act_n(CH0_DDR4_0_0_act_n),
+            .CH0_DDR4_0_0_adr(CH0_DDR4_0_0_adr),
+            .CH0_DDR4_0_0_ba(CH0_DDR4_0_0_ba),
+            .CH0_DDR4_0_0_bg(CH0_DDR4_0_0_bg),
+            .CH0_DDR4_0_0_ck_c(CH0_DDR4_0_0_ck_c),
+            .CH0_DDR4_0_0_ck_t(CH0_DDR4_0_0_ck_t),
+            .CH0_DDR4_0_0_cke(CH0_DDR4_0_0_cke),
+            .CH0_DDR4_0_0_cs_n(CH0_DDR4_0_0_cs_n),
+            .CH0_DDR4_0_0_dm_n(CH0_DDR4_0_0_dm_n),
+            .CH0_DDR4_0_0_dq(CH0_DDR4_0_0_dq),
+            .CH0_DDR4_0_0_dqs_c(CH0_DDR4_0_0_dqs_c),
+            .CH0_DDR4_0_0_dqs_t(CH0_DDR4_0_0_dqs_t),
+            .CH0_DDR4_0_0_odt(CH0_DDR4_0_0_odt),
+            .CH0_DDR4_0_0_reset_n(CH0_DDR4_0_0_reset_n),
+            .CH0_DDR4_0_1_act_n(CH0_DDR4_0_1_act_n),
+            .CH0_DDR4_0_1_adr(CH0_DDR4_0_1_adr),
+            .CH0_DDR4_0_1_alert_n(CH0_DDR4_0_1_alert_n),
+            .CH0_DDR4_0_1_ba(CH0_DDR4_0_1_ba),
+            .CH0_DDR4_0_1_bg(CH0_DDR4_0_1_bg),
+            .CH0_DDR4_0_1_ck_c(CH0_DDR4_0_1_ck_c),
+            .CH0_DDR4_0_1_ck_t(CH0_DDR4_0_1_ck_t),
+            .CH0_DDR4_0_1_cke(CH0_DDR4_0_1_cke),
+            .CH0_DDR4_0_1_cs_n(CH0_DDR4_0_1_cs_n),
+            .CH0_DDR4_0_1_dq(CH0_DDR4_0_1_dq),
+            .CH0_DDR4_0_1_dqs_c(CH0_DDR4_0_1_dqs_c),
+            .CH0_DDR4_0_1_dqs_t(CH0_DDR4_0_1_dqs_t),
+            .CH0_DDR4_0_1_odt(CH0_DDR4_0_1_odt),
+            .CH0_DDR4_0_1_par(CH0_DDR4_0_1_par),
+            .CH0_DDR4_0_1_reset_n(CH0_DDR4_0_1_reset_n),
+            .hbm_ref_clk_0_clk_n(hbm_ref_clk_0_clk_n),
+            .hbm_ref_clk_0_clk_p(hbm_ref_clk_0_clk_p),
+            .hbm_ref_clk_1_clk_n(hbm_ref_clk_1_clk_n),
+            .hbm_ref_clk_1_clk_p(hbm_ref_clk_1_clk_p),
+            .sys_clk0_0_clk_n(sys_clk0_0_clk_n),
+            .sys_clk0_0_clk_p(sys_clk0_0_clk_p),
+            .sys_clk0_1_clk_n(sys_clk0_1_clk_n),
+            .sys_clk0_1_clk_p(sys_clk0_1_clk_p),
+            .gt_pcie_refclk_clk_n(gt_pcie_refclk_clk_n),
+            .gt_pcie_refclk_clk_p(gt_pcie_refclk_clk_p),
+            .gt_pciea1_grx_n(gt_pciea1_grx_n),
+            .gt_pciea1_grx_p(gt_pciea1_grx_p),
+            .gt_pciea1_gtx_n(gt_pciea1_gtx_n),
+            .gt_pciea1_gtx_p(gt_pciea1_gtx_p),
+            .smbus_0_scl_io(smbus_0_scl_io),
+            .smbus_0_sda_io(smbus_0_sda_io),
+            
+            // AXIL
+            .axi_ctrl(axi_ctrl),
+            {axi_hbm_inst}
+            {axi_strm_inst}
+            // Clocks
+            .aclk(aclk),
+            .aclk_dp(aclk_dp),
+            .aresetn(aresetn),
+            .dclk(dclk),
+            .dresetn(dresetn),
+            .uclk_0(uclk_0),
+            .uresetn_0(uresetn_0),
+            .uclk_1(uclk_1),
+            .uresetn_1(uresetn_1),
+            .uclk_2(uclk_2),
+            .uresetn_2(uresetn_2)
+        );
+
+        // ================-----------------------------------------------------------------
+        // Decoupling
+        // ================-----------------------------------------------------------------
+
+        axil_csr_reg_array inst_csr_regs (.aclk(aclk), .aresetn(aresetn), .s_axi(axi_ctrl), .m_axi(axi_ctrl_r));
+        {axi_hbm_regs}
+        {axi_strm_regs}
+
+        // ================-----------------------------------------------------------------
+        // Role
+        // ================-----------------------------------------------------------------
+
+        role inst_role (
+            // AXIL
+            .s_axi_ctrl(axi_ctrl_r),
+            {axi_hbm_role}
+            {axi_strm_role}
+            .aclk(aclk),
+            .aclk_dp(aclk_dp),
+            .aresetn(aresetn),
+            .dclk(dclk),
+            .dresetn(dresetn),
+            .uclk_0(uclk_0),
+            .uresetn_0(uresetn_0),
+            .uclk_1(uclk_1),
+            .uresetn_1(uresetn_1),
+            .uclk_2(uclk_2),
+            .uresetn_2(uresetn_2)
+        );
+        
+    endmodule
+    """
+
+    # Write the generated top-level module to a file
+    wr_path = path + "/design_top.sv"
+    with open(wr_path, "w") as f:
+        f.write(top_level)
+
+generate_axi_top(sys.argv[1])
