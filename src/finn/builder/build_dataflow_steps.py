@@ -143,6 +143,15 @@ from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
 
+def _maybe_enable_verify_behavioral(cfg):
+    if cfg.debug_fifo and not cfg.verify_rtlsim_behavioral:
+        print(
+            "[debug_fifo] forcing verify_rtlsim_behavioral=True so that "
+            "the verify phase uses fifo_gauge and produces per-FIFO logs."
+        )
+        cfg.verify_rtlsim_behavioral = True
+
+
 def verify_step(
     model: ModelWrapper,
     cfg: DataflowBuildConfig,
@@ -310,6 +319,7 @@ def prepare_loop_ops_fifo_sizing(node, cfg):
             swg_exception=cfg.default_swg_exception,
             vivado_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
+            debug_log=cfg.debug_fifo,
         )
     )
     loop_model = loop_model.transform(SplitLargeFIFOs())
@@ -907,7 +917,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 for node in model.graph.node:
                     node_inst = getCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
-            model = model.transform(PrepareRTLSim())
+            model = model.transform(PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral))
             model = model.transform(SetExecMode("rtlsim"))
             verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
             # Clear rtlsim_trace attributes to prevent later simulations from
@@ -978,6 +988,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
+                    debug_log=cfg.debug_fifo,
                 )
             )
             model = model.transform(GiveUniqueNodeNames())
@@ -1123,6 +1134,8 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 os.makedirs(waveform_dir, exist_ok=True)
                 abspath = os.path.abspath(waveform_dir)
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+            if cfg.verify_rtlsim_behavioral:
+                verify_model.set_metadata_prop("rtlsim_behavioral", "1")
             if is_mlo(model):
                 verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
             else:
@@ -1157,7 +1170,10 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 50
-        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
+        # Use behav=False for performance measurement to use real RTL components
+        # instead of behavioral models (FINN_SIMULATION affects FIFOs, MVU, LayerNorm,
+        # and RTL elementwise ops)
+        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
         clk_ns = cfg.synth_clk_period_ns

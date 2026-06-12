@@ -24,30 +24,21 @@ class SimEngine:
             if p.isInput():
                 p.clear().write_back()
 
-        def cycle(updates):
-            # Rising Edge
-            clk.set(1).write_back()
+        def half_cycle(up):
+            clk.set(up).write_back()
             if clk2x is not None:
                 clk2x.set(1).write_back()
-            # Updates after Active Edge
-            top.run(1)
+                top.run(25)
+                clk2x.set(0).write_back()
+                top.run(25)
+            else:
+                top.run(50)
+
+        def cycle(updates):
+            half_cycle(1)
             for port, update in updates.items():
                 port.set_hexstr(update).write_back()
-
-            # Edges inactive on interface & finish Cycle
-            if clk2x is None:
-                top.run(4999)
-                clk.set(0).write_back()
-                top.run(5000)
-            else:
-                top.run(2499)
-                clk2x.set(0).write_back()
-                top.run(2500)
-                clk.set(0).write_back()
-                clk2x.set(1).write_back()
-                top.run(2500)
-                clk2x.set(0).write_back()
-                top.run(2500)
+            half_cycle(0)
 
         self.top = top
         self.cycle = cycle

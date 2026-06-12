@@ -157,6 +157,10 @@ def reset_rtlsim(
 
 
 def close_rtlsim(sim):
+    sim_finish = sim.top.getPort("sim_finish")
+    if sim_finish is not None:
+        sim_finish.set(1).write_back()
+        sim.cycle({})
     del sim
 
 

@@ -151,7 +151,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "PE": pe,
             "OP": op_name,
             "B_SCALE": 1.0,
-            "FORCE_BEHAVIORAL": 0,
             "A_FLOAT": 1 if lhs_float else 0,
             "B_FLOAT": 1 if rhs_float else 0,
             "A_WIDTH": a_width,
