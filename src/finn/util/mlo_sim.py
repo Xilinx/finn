@@ -87,11 +87,12 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             mvau_hbm_weights[idx]["value"] = dat_file_to_numpy_array(datfile)
             mvau_hbm_weights[idx]["extern_idx"] = extern_idx
             mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
+            mvau_hbm_weights[idx]["offset"] = getCustomOp(downstream).get_nodeattr("address_offset")
             extern_idx += 1
 
     def mlo_rtlsim_prehook(sim):
         sim.aximm_queue("m_axi_hbm")
         for name, intf in mvau_hbm_weights.items():
-            sim.aximm_ro_image(intf["extern_name"], 0, intf["value"].flatten())
+            sim.aximm_ro_image(intf["extern_name"], intf["offset"], intf["value"].flatten())
 
     return mlo_rtlsim_prehook
