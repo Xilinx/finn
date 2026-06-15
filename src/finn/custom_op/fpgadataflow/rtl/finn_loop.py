@@ -402,6 +402,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         ) as f:
             f.write(template_wrapper)
 
+        ac_template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/address_config_wrapper.v"
+        ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+        with open(ac_template_path, "r") as f:
+            ac_wrapper = f.read()
+        ac_wrapper = ac_wrapper.replace("$MODULE_NAME_AXI_WRAPPER$", ac_module_name)
+        with open(os.path.join(code_gen_dir, ac_module_name + ".v"), "w") as f:
+            f.write(ac_wrapper)
+
     def generate_params(self, model, path):
         iteration = self.get_nodeattr("iteration")
         loop_node = self.onnx_node
@@ -974,6 +982,36 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+
+        ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+        ac_inst_name = f"{self.onnx_node.name}/address_config"
+        cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
+        cmd.append("create_bd_cell -type module -reference %s %s" % (ac_module_name, ac_inst_name))
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, rst_name, ac_inst_name, rst_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+            % (self.onnx_node.name, clk_name, ac_inst_name, clk_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+            % (ac_inst_name, finn_ip_name)
+        )
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+            % (ac_inst_name, loop_shell_name)
+        )
+        cmd.append(
+            "create_bd_intf_pin -mode Slave "
+            "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/s_axilite" % self.onnx_node.name
+        )
+        cmd.append(
+            "connect_bd_intf_net [get_bd_intf_pins %s/s_axilite] "
+            "[get_bd_intf_pins %s/s_axilite]" % (self.onnx_node.name, ac_inst_name)
+        )
+
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1015,6 +1053,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+        cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1055,10 +1094,14 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
-        cmd.append(
-            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
-            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
-        )
+        # Also used for MLO in the context of Zynq
+        loop_aximm_names = ["m_axi_hbm"] + [sig[0] for sig in ext_signals]
+        for aximm_name in loop_aximm_names:
+            cmd.append(
+                "ipx::remove_segment -quiet %s:APERTURE_0 "
+                "[ipx::get_address_spaces %s -of_objects [ipx::current_core]]"
+                % (aximm_name, aximm_name)
+            )
         cmd.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         cmd.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
@@ -1124,7 +1167,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # AXI4 master interface for intermediate buffering between layers
         # TODO: rename because it might not be hbm?
         intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
-        intf_names["axilite"] = []
+        intf_names["axilite"] = ["s_axilite"]
 
         # using ap_none field to add control signals
         intf_names["ap_none"] = []

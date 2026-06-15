@@ -67,6 +67,13 @@ def collect_ip_dirs(model, ipstitch_path):
         if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
             if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
+        if node.op_type == "FINNLoop":
+            loop_body = node_inst.get_nodeattr("body")
+            loop_body_ipstitch_path = loop_body.get_metadata_prop("vivado_stitch_proj")
+            assert loop_body_ipstitch_path is not None, (
+                "No stitched IPI design found for the body of %s, " % node.name
+            )
+            ip_dirs += collect_ip_dirs(loop_body, loop_body_ipstitch_path)
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
         # add RTL streamer IP

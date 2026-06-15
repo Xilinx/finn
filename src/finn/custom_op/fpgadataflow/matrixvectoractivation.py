@@ -900,6 +900,7 @@ class MVAU(HWCustomOp):
         if self.get_nodeattr("mlo_max_iter"):
             intf_names["aximm"].append(("axi_mm", 64))
             intf_names["s_axis"].append(("in_idx0_V", 32))
+            intf_names["ap_none"].append("base_address")
         else:
             dynamic_input = self.get_nodeattr("dynamic_input")
             mem_mode = self.get_nodeattr("mem_mode")
@@ -964,6 +965,9 @@ class MVAU(HWCustomOp):
                     "create_bd_intf_pin -mode Master "
                     "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, "axi_mm")
                 )
+                intf_names = self.get_verilog_top_module_intf_names()
+                ba_name = intf_names["ap_none"][0]
+                cmd.append("create_bd_pin -dir I -from 63 -to 0 /%s/%s" % (node_name, ba_name))
 
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
@@ -1074,6 +1078,12 @@ class MVAU(HWCustomOp):
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                     "[get_bd_intf_pins %s/%s/%s]"
                     % (node_name, "axi_mm", node_name, strm_inst, "axi_mm")
+                )
+
+                cmd.append(
+                    "connect_bd_net [get_bd_pins %s/%s] "
+                    "[get_bd_pins %s/%s/%s]"
+                    % (node_name, "base_address", node_name, strm_inst, "base_address")
                 )
 
             if dyn_input:
