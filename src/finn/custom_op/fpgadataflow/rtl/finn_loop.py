@@ -373,6 +373,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$N_LAYERS$"] = [str(self.get_nodeattr("iteration"))]
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_instream_width(0))]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_outstream_width(0))]
+        # Intermediate frame address offset
+        code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
         input_elements = np.prod(self.get_normal_input_shape(0))
         input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
@@ -1158,3 +1160,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
     def get_rtl_file_list(self, abspath=False):
         pass
+
+    def intermediate_frame_bytes(self):
+        N_OUTSTANDING_DMAS = 128  # Currently hard-coded in intermediate_frames.sv
+        input_elements = int(np.prod(self.get_normal_input_shape(0)))
+        input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 7) // 8
+        return N_OUTSTANDING_DMAS * input_bytes

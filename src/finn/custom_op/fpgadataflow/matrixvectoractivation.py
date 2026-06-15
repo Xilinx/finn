@@ -1154,3 +1154,19 @@ class MVAU(HWCustomOp):
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
+
+    def wmat_size_bytes(self):
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        simd = self.get_nodeattr("SIMD")
+        weight_width = self.get_input_datatype(1).bitwidth()
+
+        # There are currently some constraints in the Fetch Weights component not allowing
+        # for unaligned reads
+        assert (
+            simd * weight_width
+        ) % 8 == 0, "Fetch Weights currently does not handle unaligned reads"
+        assert ((simd * mw * mh) // 8) % 8 == 0, "Fetch Weights reads 8 byte words"
+
+        bytes_chunk = roundup_to_integer_multiple(simd * weight_width, 8) // 8
+        return (mh * mw // simd) * bytes_chunk

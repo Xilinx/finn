@@ -94,6 +94,7 @@ class HWCustomOp(CustomOp):
             "io_chrc_pads_in": ("ints", False, []),
             "io_chrc_pads_out": ("ints", False, []),
             "mlo_max_iter": ("i", False, 0),
+            "address_offset": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -384,6 +385,7 @@ class HWCustomOp(CustomOp):
                 "$WEIGHT_WIDTH$": [str(wdt.bitwidth())],
                 "$LAYER_OFFS$": [str(layer_offs)],
                 "$N_LAYERS$": [str(n_max_layers)],
+                "$ADDRESS_OFFSET$": [str(self.get_nodeattr("address_offset"))],
             }
             # apply code generation to template
             with open(template_path, "r") as f:
