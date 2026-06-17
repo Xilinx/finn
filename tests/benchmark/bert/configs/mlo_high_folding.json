@@ -142,13 +142,13 @@
   "MVAU_rtl_0": {
     "PE": 64,
     "SIMD": 48,
-    "TH": 8,
+    "TH": 1,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_1": {
     "PE": 2,
     "SIMD": 8,
-    "TH": 2,
+    "TH": 1,
     "mem_mode": "external_mem"
   },
 
