@@ -52,7 +52,7 @@ output  $OUT_RANGE$ out0_V_TDATA
 );
 
 `ifdef FINN_SIMULATION
-	fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$), .DEBUG_LOG($DEBUG_LOG$)) fifo (
+	fifo_gauge #(.WIDTH($WIDTH$), .COUNT_WIDTH($COUNT_WIDTH$), .DATA_LOGFILE("$DATA_LOGFILE$")) fifo (
 		.clk(ap_clk), .rst(!ap_rst_n),
 		.idat(in0_V_TDATA), .ivld(in0_V_TVALID), .irdy(in0_V_TREADY),
 		.odat(out0_V_TDATA), .ovld(out0_V_TVALID), .ordy(out0_V_TREADY),

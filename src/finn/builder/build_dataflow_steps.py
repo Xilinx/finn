@@ -152,6 +152,31 @@ def _maybe_enable_verify_behavioral(cfg):
         cfg.verify_rtlsim_behavioral = True
 
 
+def _fifo_debug_live_dir(cfg):
+    return cfg.output_dir + "/debug/fifo_logs/_live"
+
+
+def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
+    if not cfg.debug_fifo:
+        return
+    live_dir = _fifo_debug_live_dir(cfg)
+    if not os.path.isdir(live_dir):
+        return
+    prefix = (loop_context + "_") if loop_context else None
+    subdir = loop_context or "main"
+    dest_dir = os.path.join(cfg.output_dir, "debug", "fifo_logs", phase_name, subdir)
+    os.makedirs(dest_dir, exist_ok=True)
+    for fn in os.listdir(live_dir):
+        if not fn.endswith(".log"):
+            continue
+        if prefix is not None and not fn.startswith(prefix):
+            continue
+        src = os.path.join(live_dir, fn)
+        dst = os.path.join(dest_dir, fn)
+        shutil.copy2(src, dst)
+        open(src, "w").close()
+
+
 def verify_step(
     model: ModelWrapper,
     cfg: DataflowBuildConfig,
@@ -319,9 +344,11 @@ def prepare_loop_ops_fifo_sizing(node, cfg):
             swg_exception=cfg.default_swg_exception,
             vivado_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
-            debug_log=cfg.debug_fifo,
+            debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
+            debug_log_prefix=node.name + "_",
         )
     )
+    snapshot_fifo_logs(cfg, "fifo_sizing", loop_context=node.name)
     loop_model = loop_model.transform(SplitLargeFIFOs())
     loop_model = loop_model.transform(RemoveShallowFIFOs())
     loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
@@ -988,9 +1015,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
-                    debug_log=cfg.debug_fifo,
+                    debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
                 )
             )
+            snapshot_fifo_logs(cfg, "fifo_sizing")
             model = model.transform(GiveUniqueNodeNames())
             loop_nodes = model.get_nodes_by_op_type("FINNLoop")
             for loop_node in loop_nodes:
@@ -1138,8 +1166,12 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 verify_model.set_metadata_prop("rtlsim_behavioral", "1")
             if is_mlo(model):
                 verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+                for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
+                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
             else:
                 verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
             os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 

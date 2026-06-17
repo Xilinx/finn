@@ -96,7 +96,7 @@ class StreamingFIFO_rtl(StreamingFIFO, RTLBackend):
         code_gen_dict["$OUT_RANGE$"] = "[{}:0]".format(in_width - 1)
         code_gen_dict["$WIDTH$"] = str(in_width)
         code_gen_dict["$DEPTH$"] = str(depth)
-        code_gen_dict["$DEBUG_LOG$"] = str(self.get_nodeattr("debug_log"))
+        code_gen_dict["$DATA_LOGFILE$"] = self.get_nodeattr("debug_log_path")
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
