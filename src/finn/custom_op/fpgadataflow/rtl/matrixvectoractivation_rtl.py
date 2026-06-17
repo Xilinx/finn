@@ -343,6 +343,20 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
 
+        # Check to make sure that tile size divides the number of input vectors evenly
+        # otherwise we hit issues with output being silently dropped resulting in an 
+        # eventual stall.
+        theight = self.get_nodeattr("TH")
+        if theight > 1:
+            num_inp_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
+            if num_inp_vec % theight != 0:
+                valid_th = [t for t in range(1, num_inp_vec + 1) if num_inp_vec % t == 0]
+                raise Exception(
+                    "%s: TH=%d does not divide numInputVectors=%d. The tiled MVU "
+                    "requires TH | numInputVectors; choose a divisor (valid: %s)."
+                    % (self.onnx_node.name, theight, num_inp_vec, valid_th)
+                )
+
         dsp_block = get_dsp_block(fpgapart)
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(1)]

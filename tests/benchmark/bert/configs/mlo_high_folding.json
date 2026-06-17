@@ -136,13 +136,13 @@
   "FINNLoop_0_MVAU_rtl_7": {
     "PE": 64,
     "SIMD": 48,
-    "TH": 12,
+    "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_0": {
     "PE": 64,
     "SIMD": 48,
-    "TH": 12,
+    "TH": 8,
     "mem_mode": "external_mem"
   },
   "MVAU_rtl_1": {
