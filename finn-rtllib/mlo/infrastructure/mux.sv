@@ -205,16 +205,7 @@ always_comb begin: DP_CTRL
 
     case (state_ctrl_C)
         ST_CTRL_IDLE: begin
-            if(idx_fs_tvalid) begin
-                idx_fs_tready = 1'b1;
-
-                val_idx_N = 1'b1;
-                val_seq_N = 1'b1;
-
-                idx_N = '0;
-                seq_N = 1'b0;
-            end
-            else if(s_idx_tvalid) begin
+            if(s_idx_tvalid) begin
                 s_idx_tready = 1'b1;
 
                 val_idx_N = 1'b1;
@@ -222,6 +213,15 @@ always_comb begin: DP_CTRL
 
                 idx_N = s_idx_tdata;
                 seq_N = 1'b1;
+            end
+            else if(idx_fs_tvalid) begin
+                idx_fs_tready = 1'b1;
+
+                val_idx_N = 1'b1;
+                val_seq_N = 1'b1;
+
+                idx_N = '0;
+                seq_N = 1'b0;
             end
         end
 
