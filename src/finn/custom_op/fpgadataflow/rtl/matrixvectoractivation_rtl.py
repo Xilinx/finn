@@ -343,9 +343,8 @@ class MVAU_rtl(MVAU, RTLBackend):
                 "Clock pumping an input of SIMD=1 is not meaningful. Please increase SIMD."
             )
 
-        # Check to make sure that tile size divides the number of input vectors evenly
-        # otherwise we hit issues with output being silently dropped resulting in an 
-        # eventual stall.
+        # Check to make sure that tile size divides the number of input vectors evenly;
+        # otherwise the final partial tile can cause output to be dropped and eventually stall.
         theight = self.get_nodeattr("TH")
         if theight > 1:
             num_inp_vec = int(np.prod(self.get_nodeattr("numInputVectors")))
