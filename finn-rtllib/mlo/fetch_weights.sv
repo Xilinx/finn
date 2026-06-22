@@ -55,7 +55,7 @@ module fetch_weights #(
     // Safely deducible parameters
     int unsigned              DS_BITS_BA = (SIMD*WEIGHT_WIDTH+7)/8 * 8,
 	int unsigned              WS_BITS_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-    logic[ADDR_BITS-1:0]      LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7 // 8-byte aligned
+    logic[ADDR_BITS-1:0]      LAYER_OFFS = (MH*MW/SIMD) * (DS_BITS_BA/8)
 ) (
     input  logic                        aclk,
     input  logic                        aresetn,
@@ -114,7 +114,7 @@ module fetch_weights #(
     input logic[ADDR_BITS-1:0]          base_address
 );
 
-localparam int unsigned WMAT_SIZE = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+localparam int unsigned WMAT_SIZE = (MH*MW/SIMD) * ((SIMD*WEIGHT_WIDTH+7)/8);
 
 // Offsets
 logic [N_LAYERS-1:0][ADDR_BITS-1:0] l_offsets;
