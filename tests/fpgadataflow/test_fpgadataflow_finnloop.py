@@ -103,6 +103,9 @@ def make_loop_modelwrapper(
 ):
     is_float = eltw_param_dtype == "FLOAT32"
 
+    # Output dtype of adding two `dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{dtype.bitwidth() + 1}"]
+
     # Determine elementwise output dtype
     # HLS elementwise outputs FLOAT32 if parameter is FLOAT32, otherwise INT32
     if is_float:
@@ -169,8 +172,8 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": dtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -202,8 +205,8 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": dtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -235,8 +238,8 @@ def make_loop_modelwrapper(
                 "MH": mh,
                 "SIMD": 2,
                 "PE": 2,
-                "inputDataType": "INT8",
-                "weightDataType": "INT8",
+                "inputDataType": dtype.name,
+                "weightDataType": dtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -269,7 +272,7 @@ def make_loop_modelwrapper(
                 "out_shape": [1, 3, 3, mh],
                 "lhs_dtype": dtype.name,
                 "rhs_dtype": dtype.name,
-                "out_dtype": "INT9",
+                "out_dtype": add_out_dtype.name,
                 "lhs_style": "input",
                 "rhs_style": "input",
                 "PE": 2,
@@ -284,7 +287,7 @@ def make_loop_modelwrapper(
                 "lhs_shape": [1, 3, 3, mh],
                 "rhs_shape": rhs_shape,
                 "out_shape": [1, 3, 3, mh],
-                "lhs_dtype": "INT9",
+                "lhs_dtype": add_out_dtype.name,
                 "rhs_dtype": eltw_param_dtype,
                 "out_dtype": elemwise_output_dtype.name,
             },
@@ -411,7 +414,13 @@ def make_loop_modelwrapper(
 
 
 def create_chained_loop_bodies(
-    mw, mh, num_copies, elemwise_optype="ElementwiseMul_hls", rhs_shape=[1], eltw_param_dtype="INT8"
+    mw,
+    mh,
+    num_copies,
+    elemwise_optype="ElementwiseMul_hls",
+    rhs_shape=[1],
+    eltw_param_dtype="INT8",
+    dtype=DataType["INT8"],
 ):
     loop_body_models = []
 
@@ -421,7 +430,7 @@ def create_chained_loop_bodies(
         loop_body_model = make_loop_modelwrapper(
             mw=mw,
             mh=mh,
-            dtype=DataType["INT8"],
+            dtype=dtype,
             elemwise_optype=elemwise_optype,
             rhs_shape=rhs_shape,
             eltw_param_dtype=eltw_param_dtype,
@@ -620,6 +629,136 @@ def test_finnloop_end2end_mlo(
         assert os.path.isfile(
             tmp_output_dir + "/stitched_ip/finn_design.dcp"
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
+
+
+# dimensions
+@pytest.mark.parametrize("dim", [16])
+# iteration count, number of models chained together
+@pytest.mark.parametrize("iteration", [3])
+# elementwise operation
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
+# elementwise shape
+@pytest.mark.parametrize("rhs_shape", [[1]])
+# data type bitwidth
+@pytest.mark.parametrize("bitwidth", [8, 7])
+# tail node
+@pytest.mark.parametrize("tail_node", [True])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bitwidth, tail_node):
+    # End-to-end MLO+DDR flow parametrized by data type bitwidth.
+    data_dtype = DataType[f"INT{bitwidth}"]
+    eltw_param_dtype = data_dtype.name
+    # output dtype of adding two `data_dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{data_dtype.bitwidth() + 1}"]
+
+    # Check vivado version
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) < (2024, 2):
+        pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, dtype=data_dtype
+    )
+    nodes_per_body = len(loop_body_models[0].graph.node)
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": data_dtype.name,
+                "rhs_dtype": data_dtype.name,
+                "out_dtype": add_out_dtype.name,
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(data_dtype, [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", data_dtype)
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference output
+    input_dtype = data_dtype
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    tmp_output_dir = make_build_dir("build_mlo")
+
+    batch_size = 16
+    np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
+    np.save(
+        tmp_output_dir + "/expected_output.npy",
+        np.broadcast_to(y_ref, (batch_size, 3, 3, dim)),
+    )
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # steps are skipped because test model created with HLS and RTL layers
+    steps = [
+        "step_create_dataflow_partition",
+        "step_loop_rolling",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+        "step_synthesize_bitfile",
+        "step_make_driver",
+        "step_deployment_package",
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        synth_clk_period_ns=10.0,
+        board="AUP-ZU3_8GB",
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        mlo_weight_mem="DDR",
+        fifosim_save_waveform=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_full_context=True,  # Enable per-iteration context saving
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.BITFILE,
+            build_cfg.DataflowOutputType.PYNQ_DRIVER,
+            build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        ],
+    )
+    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
 
 
 # Debug test for manual loop transformation steps below
