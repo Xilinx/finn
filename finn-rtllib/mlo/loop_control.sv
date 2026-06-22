@@ -35,6 +35,8 @@ module loop_control #(
     int unsigned FM_SIZE,
     // COMPILER SET, number of layers
     int unsigned N_LAYERS,
+    // COMPILER SET, element bit width
+    int unsigned ELEM_BITS,
     // COMPILER SET? Input and output core bus widths
     int unsigned ILEN_BITS,
     int unsigned OLEN_BITS,
@@ -137,6 +139,7 @@ logic [ILEN_BITS-1:0] axis_if_out_tdata;
 mux #(
     .IDX_BITS(IDX_BITS),
     .FM_SIZE(FM_SIZE),
+    .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS)
 ) inst_mux_in (
     .aclk(aclk),
@@ -173,6 +176,7 @@ demux #(
     .N_LAYERS(N_LAYERS),
     .IDX_BITS(IDX_BITS),
     .FM_SIZE(FM_SIZE),
+    .ELEM_BITS(ELEM_BITS),
     .OLEN_BITS(OLEN_BITS)
 ) inst_mux_out (
     .aclk(aclk),
@@ -207,6 +211,7 @@ demux #(
 
 intermediate_frames #(
     .FM_SIZE(FM_SIZE),
+    .ELEM_BITS(ELEM_BITS),
     .ILEN_BITS(ILEN_BITS),
     .OLEN_BITS(OLEN_BITS),
     .ADDR_BITS(ADDR_BITS),

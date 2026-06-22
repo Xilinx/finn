@@ -34,6 +34,7 @@ module mux #(
     int unsigned              IDX_BITS,
     int unsigned              FM_SIZE,
 
+    int unsigned              ELEM_BITS,
     int unsigned              ILEN_BITS,
 
     int unsigned              QDEPTH = 32,
@@ -68,7 +69,9 @@ module mux #(
     output logic [ILEN_BITS-1:0]        m_axis_tdata
 );
 
-localparam int unsigned FM_BEATS = FM_SIZE / (ILEN_BITS/8);
+localparam int unsigned EBYTES = (ELEM_BITS + 7)/8;
+localparam int unsigned IELEM  = ILEN_BITS / ELEM_BITS;
+localparam int unsigned FM_BEATS = FM_SIZE / (IELEM*EBYTES);
 localparam int unsigned FM_BEATS_BITS = (FM_BEATS == 1) ? 1 : $clog2(FM_BEATS);
 
 //

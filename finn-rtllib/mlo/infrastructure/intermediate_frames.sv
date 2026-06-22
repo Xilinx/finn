@@ -31,6 +31,7 @@
  *****************************************************************************/
 
 module intermediate_frames #(
+    int unsigned                    ELEM_BITS,
     int unsigned                    ILEN_BITS,
     int unsigned                    OLEN_BITS,
 
@@ -118,7 +119,13 @@ for(genvar i = 0; i < N_OUTSTANDING_DMAS; i++) begin
 end
 localparam integer N_OUTSTANDING_DMAS_BITS = $clog2(N_OUTSTANDING_DMAS);
 
-localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS/8);
+localparam integer EBYTES       = (ELEM_BITS + 7)/8;
+localparam integer OELEM        = OLEN_BITS / ELEM_BITS;
+localparam integer IELEM        = ILEN_BITS / ELEM_BITS;
+localparam integer OLEN_BITS_BA = OELEM * EBYTES * 8;
+localparam integer ILEN_BITS_BA = IELEM * EBYTES * 8;
+
+localparam integer FM_BEATS_IN = FM_SIZE/(OLEN_BITS_BA/8);
 localparam integer FM_BEATS_IN_BITS = (FM_BEATS_IN == 1) ? 1 : $clog2(FM_BEATS_IN);
 
 //
@@ -406,6 +413,25 @@ logic [OLEN_BITS-1:0] s_axis_int_tdata;
 logic m_axis_int_tvalid, m_axis_int_tready;
 logic [ILEN_BITS-1:0] m_axis_int_tdata;
 
+logic s_axis_ba_tvalid, s_axis_ba_tready;
+logic [OLEN_BITS_BA-1:0] s_axis_ba_tdata;
+logic m_axis_ba_tvalid, m_axis_ba_tready;
+logic [ILEN_BITS_BA-1:0] m_axis_ba_tdata;
+
+assign s_axis_ba_tvalid  = s_axis_int_tvalid;
+assign s_axis_int_tready = s_axis_ba_tready;
+for(genvar e = 0; e < OELEM; e++) begin : gen_wr_byte_align
+    assign s_axis_ba_tdata[e*EBYTES*8 +: EBYTES*8] =
+        { {(EBYTES*8-ELEM_BITS){1'b0}}, s_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] };
+end
+
+assign m_axis_int_tvalid = m_axis_ba_tvalid;
+assign m_axis_ba_tready  = m_axis_int_tready;
+for(genvar e = 0; e < IELEM; e++) begin : gen_rd_byte_align
+    assign m_axis_int_tdata[e*ELEM_BITS +: ELEM_BITS] =
+        m_axis_ba_tdata[e*EBYTES*8 +: ELEM_BITS];
+end
+
 logic [FM_BEATS_IN_BITS-1:0] cnt_dwc_C = '0;
 always_ff @(posedge aclk) begin
     if(~aresetn) cnt_dwc_C <= '0;
@@ -415,14 +441,14 @@ end
 logic last_dwc_in;
 assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
 
-axis_fifo_adapter #(.S_DATA_WIDTH(OLEN_BITS), .M_DATA_WIDTH(DATA_BITS)) inst_dwc_wr (
+axis_fifo_adapter #(.S_DATA_WIDTH(OLEN_BITS_BA), .M_DATA_WIDTH(DATA_BITS)) inst_dwc_wr (
     .clk(aclk),
     .rst(~aresetn),
 
     .pause_req('0), .s_axis_tid('0), .s_axis_tdest('0), .s_axis_tuser('0),
-    .s_axis_tvalid(s_axis_int_tvalid),
-    .s_axis_tready(s_axis_int_tready),
-    .s_axis_tdata (s_axis_int_tdata),
+    .s_axis_tvalid(s_axis_ba_tvalid),
+    .s_axis_tready(s_axis_ba_tready),
+    .s_axis_tdata (s_axis_ba_tdata),
     .s_axis_tkeep ('1),
     .s_axis_tlast (last_dwc_in),
 
@@ -434,7 +460,7 @@ axis_fifo_adapter #(.S_DATA_WIDTH(OLEN_BITS), .M_DATA_WIDTH(DATA_BITS)) inst_dwc
     .m_axis_tlast (axis_dma_wr_tlast)
 );
 
-axis_fifo_adapter #(.S_DATA_WIDTH(DATA_BITS), .M_DATA_WIDTH(ILEN_BITS)) inst_dwc_rd (
+axis_fifo_adapter #(.S_DATA_WIDTH(DATA_BITS), .M_DATA_WIDTH(ILEN_BITS_BA)) inst_dwc_rd (
     .clk(aclk),
     .rst(~aresetn),
 
@@ -446,9 +472,9 @@ axis_fifo_adapter #(.S_DATA_WIDTH(DATA_BITS), .M_DATA_WIDTH(ILEN_BITS)) inst_dwc
     .s_axis_tlast (axis_dma_rd_tlast),
 
     .pause_ack(), .m_axis_tid(), .m_axis_tdest(), .m_axis_tuser(),
-    .m_axis_tvalid(m_axis_int_tvalid),
-    .m_axis_tready(m_axis_int_tready),
-    .m_axis_tdata (m_axis_int_tdata),
+    .m_axis_tvalid(m_axis_ba_tvalid),
+    .m_axis_tready(m_axis_ba_tready),
+    .m_axis_tdata (m_axis_ba_tdata),
     .m_axis_tkeep (),
     .m_axis_tlast ()
 );

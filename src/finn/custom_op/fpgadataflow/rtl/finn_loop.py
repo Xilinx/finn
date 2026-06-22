@@ -371,15 +371,18 @@ class FINNLoop(HWCustomOp, RTLBackend):
         code_gen_dict["$LOOP_CONTROL_WRAPPER_NAME$"] = [f"{self.onnx_node.name}_loop_cont_wrapper"]
         code_gen_dict["$N_MAX_LAYERS$"] = (str(self.get_nodeattr("iteration")),)
         code_gen_dict["$N_LAYERS$"] = [str(self.get_nodeattr("iteration"))]
+        code_gen_dict["$ELEM_BITS$"] = [str(self.get_input_datatype(0).bitwidth())]
         code_gen_dict["$ILEN_BITS$"] = [str(self.get_instream_width(0))]
         code_gen_dict["$OLEN_BITS$"] = [str(self.get_outstream_width(0))]
         # Intermediate frame address offset
         code_gen_dict["$ADDRESS_OFFSET$"] = [str(self.get_nodeattr("address_offset"))]
 
-        input_elements = np.prod(self.get_normal_input_shape(0))
-        input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 8 - 1) // 8
-        output_elements = np.prod(self.get_normal_output_shape(0))
-        output_bytes = (output_elements * self.get_output_datatype(0).bitwidth() + 8 - 1) // 8
+        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
+        output_elem_bytes = (self.get_output_datatype(0).bitwidth() + 7) // 8
+        input_elements = int(np.prod(self.get_normal_input_shape(0)))
+        input_bytes = input_elements * input_elem_bytes
+        output_elements = int(np.prod(self.get_normal_output_shape(0)))
+        output_bytes = output_elements * output_elem_bytes
         code_gen_dict["$INPUT_BYTES$"] = [str(input_bytes)]
         code_gen_dict["$OUTPUT_BYTES$"] = [str(output_bytes)]
 
@@ -1214,6 +1217,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
     def intermediate_frame_bytes(self):
         N_OUTSTANDING_DMAS = 128  # Currently hard-coded in intermediate_frames.sv
+        input_elem_bytes = (self.get_input_datatype(0).bitwidth() + 7) // 8
         input_elements = int(np.prod(self.get_normal_input_shape(0)))
-        input_bytes = (input_elements * self.get_input_datatype(0).bitwidth() + 7) // 8
+        input_bytes = input_elements * input_elem_bytes
         return N_OUTSTANDING_DMAS * input_bytes

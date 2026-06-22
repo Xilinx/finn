@@ -40,6 +40,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     parameter DATA_BITS      = 256,
     parameter LEN_BITS       = 32,
     parameter IDX_BITS       = 16,
+    parameter ELEM_BITS      = $ELEM_BITS$,
     parameter ILEN_BITS      = $ILEN_BITS$,
     parameter OLEN_BITS      = $OLEN_BITS$,
 
@@ -135,6 +136,7 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
         .DATA_BITS(DATA_BITS),
         .LEN_BITS(LEN_BITS),
         .IDX_BITS(IDX_BITS),
+        .ELEM_BITS(ELEM_BITS),
         .ILEN_BITS(ILEN_BITS),
         .OLEN_BITS(OLEN_BITS),
         .ADDRESS_OFFSET(ADDRESS_OFFSET)
