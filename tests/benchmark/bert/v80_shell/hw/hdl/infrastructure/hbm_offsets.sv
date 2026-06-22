@@ -102,6 +102,6 @@ for (genvar gj = 0; gj < N_HBM_PORTS; gj++) begin
 	assign m_axi_hbm[gj].bready  = s_axi_hbm[gj].bready;
 	assign s_axi_hbm[gj].bvalid  = m_axi_hbm[gj].bvalid;
 end
-    
+
 
 endmodule

@@ -32,7 +32,7 @@ import iwTypes::*;
 module axil_csr_reg (
 	input logic 			    aclk,
 	input logic 			    aresetn,
-	
+
 	AXI4L.slave 		      s_axi,
 	AXI4L.master          m_axi
 );

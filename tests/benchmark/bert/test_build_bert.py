@@ -24,11 +24,10 @@ model (or the required ``LOOP_BODY_RANGE``) is not available.
 
 import pytest
 
+import custom_steps
 import os
 import tempfile
 from collections import namedtuple
-
-import custom_steps
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
@@ -84,7 +83,7 @@ def select_build_steps():
     return [
         # --- at_start (custom pre-processing) ---
         custom_steps.step_bert_cleanup,
-        custom_steps.step_remove_head,  # also runs ExtractNormScaleBias/FoldConstants/ConvertDivToMul
+        custom_steps.step_remove_head,
         custom_steps.step_generate_reference_io,
         # --- base BERT pipeline ---
         "step_qonnx_to_finn",  # stock; runs ConvertQONNXtoFINN

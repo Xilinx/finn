@@ -61,7 +61,7 @@ module ram_p_nc_d #(
 
   reg [DATA_BITS-1:0] a_data_reg = 0;
   reg [DATA_BITS-1:0] b_data_reg = 0;
-  
+
   always_ff @(posedge clk) begin
     if(a_en) begin
       if(a_we) begin

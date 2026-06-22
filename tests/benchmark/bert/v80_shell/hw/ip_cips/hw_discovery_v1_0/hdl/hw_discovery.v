@@ -1,21 +1,21 @@
 // (c) Copyright 2022, Advanced Micro Devices, Inc.
-// 
-// Permission is hereby granted, free of charge, to any person obtaining a 
-// copy of this software and associated documentation files (the "Software"), 
-// to deal in the Software without restriction, including without limitation 
-// the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-// and/or sell copies of the Software, and to permit persons to whom the 
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
 // Software is furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in 
+//
+// The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
-// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 //--------------------------------------------------------------------------
 
@@ -230,7 +230,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    parameter integer C_PF1_ENTRY_MINOR_VERSION_13          = 0,
    parameter [7:0]   C_PF1_ENTRY_VERSION_TYPE_13           = 8'h0,
    parameter [3:0]   C_PF1_ENTRY_RSVD0_13                  = 4'h0,
-   parameter integer C_PF1_S_AXI_ADDR_WIDTH                = 32,   
+   parameter integer C_PF1_S_AXI_ADDR_WIDTH                = 32,
    parameter integer C_PF2_NUM_SLOTS_BAR_LAYOUT_TABLE      = 1,
    parameter integer C_PF2_BAR_INDEX               		     = 0,
    parameter [27:0]  C_PF2_LOW_OFFSET              		     = 28'h0,
@@ -333,7 +333,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    parameter integer C_PF2_ENTRY_MINOR_VERSION_13          = 0,
    parameter [7:0]   C_PF2_ENTRY_VERSION_TYPE_13           = 8'h0,
    parameter [3:0]   C_PF2_ENTRY_RSVD0_13                  = 4'h0,
-   parameter integer C_PF2_S_AXI_ADDR_WIDTH                = 32,   
+   parameter integer C_PF2_S_AXI_ADDR_WIDTH                = 32,
    parameter integer C_PF3_NUM_SLOTS_BAR_LAYOUT_TABLE      = 1,
    parameter integer C_PF3_BAR_INDEX               		     = 0,
    parameter [27:0]  C_PF3_LOW_OFFSET              		     = 28'h0,
@@ -436,8 +436,8 @@ module hw_discovery_v1_0_0_hw_discovery #(
    parameter integer C_PF3_ENTRY_MINOR_VERSION_13          = 0,
    parameter [7:0]   C_PF3_ENTRY_VERSION_TYPE_13           = 8'h0,
    parameter [3:0]   C_PF3_ENTRY_RSVD0_13                  = 4'h0,
-   parameter integer C_PF3_S_AXI_ADDR_WIDTH                = 32,      
-   parameter         C_XDEVICEFAMILY                       = "no_family" 
+   parameter integer C_PF3_S_AXI_ADDR_WIDTH                = 32,
+   parameter         C_XDEVICEFAMILY                       = "no_family"
    )
   (
    // Clocks & Resets
@@ -445,7 +445,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    input wire                                    aresetn_pcie,
    input wire                                    aclk_ctrl,
    input wire                                    aresetn_ctrl,
-   
+
    // slave pcie4_cfg_ext Interface (aclk_pcie)
    input  wire [15:0]                            s_pcie4_cfg_ext_function_number,
    output wire [31:0]                            s_pcie4_cfg_ext_read_data,
@@ -455,7 +455,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    input  wire [3:0]                             s_pcie4_cfg_ext_write_byte_enable,
    input  wire [31:0]                            s_pcie4_cfg_ext_write_data,
    input  wire                                   s_pcie4_cfg_ext_write_received,
-   
+
    // slave pcie4_cfg_ext Interface (aclk_pcie)
    output wire [15:0]                            m_pcie4_cfg_ext_function_number,
    input  wire [31:0]                            m_pcie4_cfg_ext_read_data,
@@ -465,7 +465,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    output wire [3:0]                             m_pcie4_cfg_ext_write_byte_enable,
    output wire [31:0]                            m_pcie4_cfg_ext_write_data,
    output wire                                   m_pcie4_cfg_ext_write_received,
-   
+
    // AXI Interface (aclk_ctrl) for PF0
    input  wire [C_PF0_S_AXI_ADDR_WIDTH-1:0]      s_axi_ctrl_pf0_awaddr,
    input  wire                                   s_axi_ctrl_pf0_awvalid,
@@ -484,7 +484,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    output wire [1:0]                             s_axi_ctrl_pf0_rresp,
    output wire                                   s_axi_ctrl_pf0_rvalid,
    input  wire                                   s_axi_ctrl_pf0_rready,
-   
+
    // AXI Interface (aclk_ctrl) for PF1
    input  wire [C_PF1_S_AXI_ADDR_WIDTH-1:0]      s_axi_ctrl_pf1_awaddr,
    input  wire                                   s_axi_ctrl_pf1_awvalid,
@@ -503,7 +503,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    output wire [1:0]                             s_axi_ctrl_pf1_rresp,
    output wire                                   s_axi_ctrl_pf1_rvalid,
    input  wire                                   s_axi_ctrl_pf1_rready,
-   
+
    // AXI Interface (aclk_ctrl) for PF2
    input  wire [C_PF2_S_AXI_ADDR_WIDTH-1:0]      s_axi_ctrl_pf2_awaddr,
    input  wire                                   s_axi_ctrl_pf2_awvalid,
@@ -522,7 +522,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    output wire [1:0]                             s_axi_ctrl_pf2_rresp,
    output wire                                   s_axi_ctrl_pf2_rvalid,
    input  wire                                   s_axi_ctrl_pf2_rready,
-   
+
    // AXI Interface (aclk_ctrl) for PF3
    input  wire [C_PF3_S_AXI_ADDR_WIDTH-1:0]      s_axi_ctrl_pf3_awaddr,
    input  wire                                   s_axi_ctrl_pf3_awvalid,
@@ -542,7 +542,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
    output wire                                   s_axi_ctrl_pf3_rvalid,
    input  wire                                   s_axi_ctrl_pf3_rready
   );
-  
+
     hw_discovery_v1_0_0_hw_disc #(
 			.C_NUM_PFS                     		    (C_NUM_PFS                     		 ),
 			.C_CAP_BASE_ADDR               		    (C_CAP_BASE_ADDR               		 ),
@@ -961,8 +961,8 @@ module hw_discovery_v1_0_0_hw_discovery #(
 			.C_PF3_S_AXI_ADDR_WIDTH               (C_PF3_S_AXI_ADDR_WIDTH            ),
 			.C_XDEVICEFAMILY                      (C_XDEVICEFAMILY                   )
     ) hw_disc_inst (
-      .aclk_pcie     												(aclk_pcie                         ),   
-      .aresetn_pcie  												(aresetn_pcie                      ),          
+      .aclk_pcie     												(aclk_pcie                         ),
+      .aresetn_pcie  												(aresetn_pcie                      ),
       .aclk_ctrl     												(aclk_ctrl                         ),
       .aresetn_ctrl  												(aresetn_ctrl                      ),
       .s_pcie4_cfg_ext_function_number      (s_pcie4_cfg_ext_function_number   ),
@@ -979,7 +979,7 @@ module hw_discovery_v1_0_0_hw_discovery #(
       .m_pcie4_cfg_ext_read_received        (m_pcie4_cfg_ext_read_received     ),
       .m_pcie4_cfg_ext_register_number      (m_pcie4_cfg_ext_register_number   ),
       .m_pcie4_cfg_ext_write_byte_enable    (m_pcie4_cfg_ext_write_byte_enable ),
-      .m_pcie4_cfg_ext_write_data           (m_pcie4_cfg_ext_write_data        ),      
+      .m_pcie4_cfg_ext_write_data           (m_pcie4_cfg_ext_write_data        ),
       .m_pcie4_cfg_ext_write_received       (m_pcie4_cfg_ext_write_received    ),
       .s_axi_ctrl_pf0_awaddr                (s_axi_ctrl_pf0_awaddr             ),
       .s_axi_ctrl_pf0_awvalid               (s_axi_ctrl_pf0_awvalid            ),
@@ -1050,5 +1050,5 @@ module hw_discovery_v1_0_0_hw_discovery #(
       .s_axi_ctrl_pf3_rvalid                (s_axi_ctrl_pf3_rvalid             ),
       .s_axi_ctrl_pf3_rready                (s_axi_ctrl_pf3_rready             )
     );
-    
+
 endmodule

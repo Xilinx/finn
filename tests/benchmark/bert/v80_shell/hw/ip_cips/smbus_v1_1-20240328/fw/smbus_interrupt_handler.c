@@ -83,7 +83,7 @@ static uint8_t ucSMBusDetermineInstanceFromTargetAddress( SMBUS_PROFILE_TYPE* px
 * @brief    Function clears any set bits in the ISR and ERR_ISR registers
 *
 *******************************************************************************/
-static void prvvSMBusClearInterrupts( SMBUS_PROFILE_TYPE* pxSMBusProfile, uint32_t ulISR_RegisterValue, 
+static void prvvSMBusClearInterrupts( SMBUS_PROFILE_TYPE* pxSMBusProfile, uint32_t ulISR_RegisterValue,
                                     uint32_t ulERR_ISR_RegisterValue )
 {
     if( NULL != pxSMBusProfile )
@@ -123,7 +123,7 @@ void vSMBusInterruptHandler( void* pvCallBackRef )
             ( SMBUS_SMBDAT_LOW_TIMEOUT_DETECTED != ulSMBusHWReadPHYStatusSMBDATLowTimeout( pxSMBusProfile ) ) )
         {
             /* Re-enable all ERR_IRQ_IER interrupts */
-            vSMBusHWWriteERRIRQIER( pxSMBusProfile, 0x000FFFFF );   
+            vSMBusHWWriteERRIRQIER( pxSMBusProfile, 0x000FFFFF );
         }
 
         /* Disable the interrupt */
@@ -158,7 +158,7 @@ void vSMBusInterruptHandler( void* pvCallBackRef )
             }
         }
 
-        vLogAddEntry( pxSMBusProfile, SMBUS_LOG_LEVEL_INFO, 
+        vLogAddEntry( pxSMBusProfile, SMBUS_LOG_LEVEL_INFO,
                         SMBUS_INSTANCE_UNDETERMINED, SMBUS_LOG_EVENT_INTERRUPT_EVENT, ulISR_RegisterValue, ulERR_ISR_RegisterValue );
 
         if( 0 != ( ( ulInterruptVector ) & ( SMBUS_INTERRUPT_TGT_INTERRUPTS | SMBUS_INTERRUPT_ERROR_IRQ ) ) )

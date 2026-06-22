@@ -1,21 +1,21 @@
 -- (c) Copyright 2022, Advanced Micro Devices, Inc.
--- 
--- Permission is hereby granted, free of charge, to any person obtaining a 
--- copy of this software and associated documentation files (the "Software"), 
--- to deal in the Software without restriction, including without limitation 
--- the rights to use, copy, modify, merge, publish, distribute, sublicense, 
--- and/or sell copies of the Software, and to permit persons to whom the 
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a
+-- copy of this software and associated documentation files (the "Software"),
+-- to deal in the Software without restriction, including without limitation
+-- the rights to use, copy, modify, merge, publish, distribute, sublicense,
+-- and/or sell copies of the Software, and to permit persons to whom the
 -- Software is furnished to do so, subject to the following conditions:
--- 
--- The above copyright notice and this permission notice shall be included in 
+--
+-- The above copyright notice and this permission notice shall be included in
 -- all copies or substantial portions of the Software.
--- 
--- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
--- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
--- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
--- THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
--- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
--- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+-- THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+-- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 -- DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------
 
@@ -25,8 +25,8 @@ library ieee;
 
 library axi_lite_ipif_v3_0_4;
     use axi_lite_ipif_v3_0_4.ipif_pkg.all;
-    
-library hw_discovery_v1_0_0;    
+
+library hw_discovery_v1_0_0;
 
 entity hw_discovery_v1_0_0_bar_layout_table is
     generic (
@@ -305,7 +305,7 @@ architecture top of hw_discovery_v1_0_0_bar_layout_table is
                                                                       60  => (C_ENTRY_ADDR_15(15 downto 0) & std_logic_vector(to_unsigned(C_ENTRY_BAR_15, 3)) & ENTRY_REVISION & C_ENTRY_TYPE_15),
                                                                       61  => C_ENTRY_ADDR_15(47 downto 16),
                                                                       62  => x"0" & C_ENTRY_RSVD0_15 & std_logic_vector(to_unsigned(C_ENTRY_MAJOR_VERSION_15, 8)) & std_logic_vector(to_unsigned(C_ENTRY_MINOR_VERSION_15, 8)) & C_ENTRY_VERSION_TYPE_15,
-                                                                      63  => x"00000000");                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+                                                                      63  => x"00000000");
 
     -------------------------------------------------------------------------------
     -- Function Declarations

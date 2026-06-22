@@ -313,7 +313,7 @@ struct SMBUS_PROFILE_TYPE;
 *****************************************************************************/
 SMBus_Error_Type xInitSMBus( struct SMBUS_PROFILE_TYPE** ppxSMBusProfile,
                               SMBus_Freq_Class_Type xFrequencyClass,
-                              void * pvBaseAddress, 
+                              void * pvBaseAddress,
                               SMBUS_LOG_LEVEL_TYPE xLogLevel,
                               SMBUS_USER_SUPPLIED_ENVIRONMENT_READ_TICKS pFnReadTicks );
 
@@ -360,7 +360,7 @@ SMBus_Error_Type xDeinitSMBus( struct SMBUS_PROFILE_TYPE** ppxSMBusProfile );
 * @note     None.
 *
 *******************************************************************************/
-uint8_t ucCreateSMBusInstance( struct SMBUS_PROFILE_TYPE* pxSMBusProfile, 
+uint8_t ucCreateSMBusInstance( struct SMBUS_PROFILE_TYPE* pxSMBusProfile,
                                uint8_t ucSMBusAddress,
                                uint8_t ucUDID[SMBUS_UDID_LENGTH],
                                SMBus_ARP_Capability xARPCapability,
@@ -415,25 +415,25 @@ SMBus_Error_Type xDestroySMBusInstance( struct SMBUS_PROFILE_TYPE* pxSMBusProfil
 *
 *******************************************************************************/
 SMBus_Error_Type xSMBusControllerInitiateCommand( struct SMBUS_PROFILE_TYPE* pxSMBusProfile,
-                                                   uint8_t ucSMBusInstance, 
+                                                   uint8_t ucSMBusInstance,
                                                    uint8_t ucSMBusDestinationAddress,
-                                                   uint8_t ucCommand, 
+                                                   uint8_t ucCommand,
                                                    SMBus_Command_Protocol_Type xProtocol,
                                                    uint16_t usDataSize,
-                                                   uint8_t* pucData, 
+                                                   uint8_t* pucData,
                                                    uint8_t ucPecRequiredForTransaction,
                                                    uint32_t* pulTransactionID );
 
 
 /*******************************************************************************
 *
-* @brief    Retrieves SMBus log that is stored as a circular buffer in profile struct 
+* @brief    Retrieves SMBus log that is stored as a circular buffer in profile struct
 *           as ASCII char array
 *
 * @param    SMBUS_PROFILE_TYPE is the context to poll log on
 * @param    pcLogBuffer is the array to put log data must be more than TBD driver events string
 *           separated by '\n'
-* @param    pusLogSizeBytes is a pointer to the number of bytes that are in the log 
+* @param    pusLogSizeBytes is a pointer to the number of bytes that are in the log
 *           (NOTE NOT NULL TERMINATED. THIS SHOULD BE USED FOR MEMCPY ETC)
 *
 * @return   - SMBUS_ERROR if error

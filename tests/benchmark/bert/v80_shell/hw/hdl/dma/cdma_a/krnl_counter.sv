@@ -3,32 +3,32 @@
 // /*******************************************************************************
 // Copyright (c) 2018, Xilinx, Inc.
 // All rights reserved.
-// 
+//
 // Redistribution and use in source and binary forms, with or without modification,
 // are permitted provided that the following conditions are met:
-// 
+//
 // 1. Redistributions of source code must retain the above copyright notice,
 // this list of conditions and the following disclaimer.
-// 
-// 
+//
+//
 // 2. Redistributions in binary form must reproduce the above copyright notice,
 // this list of conditions and the following disclaimer in the documentation
 // and/or other materials provided with the distribution.
-// 
-// 
+//
+//
 // 3. Neither the name of the copyright holder nor the names of its contributors
 // may be used to endorse or promote products derived from this software
 // without specific prior written permission.
-// 
-// 
+//
+//
 // THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,THE IMPLIED 
+// ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,THE IMPLIED
 // WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
-// IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, 
-// INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
-// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
-// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+// IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+// INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 // NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
 // EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
@@ -43,7 +43,7 @@ module krnl_counter  #(
   parameter integer C_WIDTH  = 4,
   parameter [C_WIDTH-1:0] C_INIT = {C_WIDTH{1'b0}}
 )
-( 
+(
   input  wire               aclk,
   input  wire               clken,
   input  wire               aresetn,
@@ -65,20 +65,20 @@ module krnl_counter  #(
   assign count = count_r;
 
   always_ff @(posedge aclk) begin
-    if (~aresetn) begin 
+    if (~aresetn) begin
       count_r <= C_INIT;
     end
-    else if (clken) begin 
+    else if (clken) begin
       if (load) begin
-        count_r <= load_value; 
+        count_r <= load_value;
       end
       else if (incr & ~decr) begin
         count_r <= count_r + 1'b1;
       end
-      else if (~incr & decr) begin 
+      else if (~incr & decr) begin
         count_r <= count_r - 1'b1;
       end
-      else 
+      else
         count_r <= count_r;
     end
   end
@@ -86,11 +86,11 @@ module krnl_counter  #(
   assign is_zero = is_zero_r;
 
    always_ff @(posedge aclk) begin
-    if (~aresetn) begin 
+    if (~aresetn) begin
       is_zero_r <= (C_INIT == LP_ZERO);
     end
-    else if (clken) begin 
-      if (load) begin 
+    else if (clken) begin
+      if (load) begin
         is_zero_r <= (load_value == LP_ZERO);
       end
       else begin

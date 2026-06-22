@@ -53,7 +53,7 @@ void vSMBusAction( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint32_t ulAnyAction )
 void vSMBusHandleActionResetAllData( SMBUS_INSTANCE_TYPE* pxSMBusInstance )
 {
     if( NULL != pxSMBusInstance )
-    {   
+    {
         pxSMBusInstance->ucCommand                      = SMBUS_COMMAND_INVALID;
         pxSMBusInstance->xProtocol                      = SMBUS_PROTOCOL_NONE;
         pxSMBusInstance->usSendDataSize                 = 0;
@@ -69,7 +69,7 @@ void vSMBusHandleActionResetAllData( SMBUS_INSTANCE_TYPE* pxSMBusInstance )
 
         SMBUS_PROFILE_TYPE* pxSMBusProfile = pxSMBusInstance->pxSMBusProfile;
 
-        vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_DEBUG, 
+        vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_DEBUG,
                         pxSMBusInstance->ucThisInstanceNumber, SMBUS_LOG_EVENT_DEBUG,
                         ( uint32_t )pxSMBusInstance->ucThisInstanceNumber, __LINE__ );
 
@@ -146,13 +146,13 @@ void vSMBusHandleActionGetProtocol( SMBUS_INSTANCE_TYPE* pxSMBusInstance )
             pxSMBusInstance->ucCommand = ucCommand;
             pxSMBusInstance->pFnGetProtocol( ucCommand, &xTempProtocol );
             pxSMBusInstance->xProtocol = xTempProtocol;
-            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_INFO, 
+            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_INFO,
                             pxSMBusInstance->ucThisInstanceNumber, SMBUS_LOG_EVENT_PROTOCOL,
                             ( uint32_t )ucCommand, ( uint32_t )pxSMBusInstance->xProtocol );
         }
         else
         {
-            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_ERROR, 
+            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_ERROR,
                             pxSMBusInstance->ucThisInstanceNumber, SMBUS_LOG_EVENT_ERROR, 0, __LINE__ );
         }
     }
@@ -175,7 +175,7 @@ uint8_t ucSMBusHandleActionGetARPProtocol( SMBUS_INSTANCE_TYPE* pxSMBusInstance 
         if( SMBUS_RX_FIFO_IS_EMPTY != ulSMBusHWReadTgtRxFifoStatusEmpty( pxSMBusInstance->pxSMBusProfile ) )
         {
             ucARPCommand = ulSMBusHWReadTgtRxFifoPayload( pxSMBusInstance->pxSMBusProfile );
-            
+
             pxSMBusInstance->ucCommand = ucARPCommand;
 
             switch( ucARPCommand )
@@ -227,7 +227,7 @@ uint8_t ucSMBusHandleActionGetARPProtocol( SMBUS_INSTANCE_TYPE* pxSMBusInstance 
                 /* Reserved */
                 ucReturnCode = SMBUS_ACTION_ARP_PROTOCOL_UNDETERMINED;
                 break;
-            
+
             default:
                 /* Anything else is a directed ARP command */
                 if( SMBUS_ARP_UDID_DIRECTED_COMMAND == ( ucARPCommand & SMBUS_ARP_DIRECTED_COMMAND_MASK ) )
@@ -245,16 +245,16 @@ uint8_t ucSMBusHandleActionGetARPProtocol( SMBUS_INSTANCE_TYPE* pxSMBusInstance 
         }
         else
         {
-            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_ERROR, 
+            vLogAddEntry( pxSMBusInstance->pxSMBusProfile, SMBUS_LOG_LEVEL_ERROR,
                             pxSMBusInstance->ucThisInstanceNumber, SMBUS_LOG_EVENT_ERROR, 0, __LINE__ );
             ucReturnCode = SMBUS_ACTION_ARP_PROTOCOL_UNDETERMINED;
-        }       
+        }
     }
     else
     {
         ucReturnCode = SMBUS_ACTION_ARP_PROTOCOL_UNDETERMINED;
     }
-    
+
     return( ucReturnCode );
 }
 
@@ -352,7 +352,7 @@ void vSMBusHandleActionWriteDataToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInsta
 *           The callback function will include the command, transaction ID and the result
 *
 *****************************************************************************/
-void vSMBusHandleActionAnnounceResultToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance, 
+void vSMBusHandleActionAnnounceResultToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance,
                                                         uint8_t ucTransactionID, uint32_t ulStatus )
 {
     SMBUS_PROFILE_TYPE* pxSMBusProfile = NULL;
@@ -379,7 +379,7 @@ void vSMBusHandleActionAnnounceResultToApplication( SMBUS_INSTANCE_TYPE* pxSMBus
 *           The callback function will include the newly assigned address
 *
 *****************************************************************************/
-void vSMBusHandleActionNotifyAddressChangeToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance, 
+void vSMBusHandleActionNotifyAddressChangeToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance,
                                                                 uint8_t ucTransactionID )
 {
     if( ( NULL != pxSMBusInstance ) &&

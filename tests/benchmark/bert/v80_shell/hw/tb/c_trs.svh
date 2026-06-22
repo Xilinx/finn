@@ -50,7 +50,7 @@ class c_trs #(
   function void display(input string id, input string name);
     $display("U: %s %s, data: %x", id, name, tdata);
   endfunction
-  
+
 endclass
 
 `endif

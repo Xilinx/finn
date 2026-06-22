@@ -42,10 +42,10 @@ module fetch_start #(
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
     parameter int unsigned              CNT_BITS = 16,
-    
+
     parameter int unsigned              ILEN_BITS = 32,
     parameter logic[ADDR_BITS-1:0]      ADDR_SRC,
-    
+
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1
 ) (
@@ -53,7 +53,7 @@ module fetch_start #(
     input  wire                         aresetn,
 
     AXI4.master                         m_axi_hbm,
-    
+
     AXI4S.slave                         s_ctrl,
     AXI4S.master                        m_idx,
 
@@ -140,14 +140,14 @@ always_comb begin
                 len_N = q_ctrl_out.tdata[ADDR_BITS+CNT_BITS+:LEN_BITS];
                 cnt_frames_N = 0;
             end
-        end 
+        end
 
         ST_READ: begin
             q_dma.tvalid = 1'b1;
             if(q_dma.tready) begin
                 addr_N = addr_C + len_C;
                 cnt_frames_N = cnt_frames_C + 1;
-            end 
+            end
         end
 
     endcase
@@ -195,4 +195,4 @@ axis_dwc #(.S_DATA_BITS(DATA_BITS), .M_DATA_BITS(ILEN_BITS)) inst_dwc_rd (.aclk(
 // REG
 axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(ILEN_BITS)) inst_reg_rd (.aclk(aclk), .aresetn(aresetn), .s_axis(dma_rd_dwc), .m_axis(m_axis));
 
-endmodule 
+endmodule

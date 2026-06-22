@@ -1,12 +1,13 @@
-import xml.etree.ElementTree as ET
 import sys
+import xml.etree.ElementTree as ET
+
 
 def extract_value(xml_file, key):
     try:
         tree = ET.parse(xml_file)
         root = tree.getroot()
 
-        namespace = {'spirit': 'http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009'}
+        namespace = {"spirit": "http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009"}
         xpath_query = f".//spirit:value[@spirit:id='{key}']"
         element = root.find(xpath_query, namespace)
 
@@ -16,6 +17,7 @@ def extract_value(xml_file, key):
             print(f"Key '{key}' not found.")
     except Exception as e:
         print(f"Error: {e}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

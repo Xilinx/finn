@@ -83,7 +83,7 @@ logic [QDMA_PCK_BITS-1:0] cnt_pck_C = 1, cnt_pck_N;
 always_ff @( posedge aclk ) begin: REG
     if(~aresetn) begin
         state_C <= ST_IDLE;
-        
+
         t_size_C <= 'X;
         t_beats_C <= 'X;
         t_qid_C <= 'X;
@@ -110,7 +110,7 @@ always_comb begin: NSL
 
         ST_SEND:
             state_N = (axis_pckt.tvalid && axis_pckt.tready && (cnt_C == t_beats_C-1)) ? ST_IDLE : ST_SEND;
-    
+
     endcase
 end
 
@@ -123,7 +123,7 @@ always_comb begin: DP
 
     // Input
     q_desc.tready = 1'b0;
-    
+
     axis_pckt.tready = 1'b0;
 
     // Output
@@ -164,8 +164,8 @@ always_comb begin: DP
                     cnt_N <= cnt_C + 1;
                 end
             end
-        end 
- 
+        end
+
     endcase
 end
 
@@ -182,8 +182,8 @@ ila_c2h inst_ila_c2h (
     .probe2(m_axis.tdata), // 512
     .probe3(m_axis.tlast),
     .probe4(m_axis.tuser), // 34
-    .probe5(s_axis.tvalid), 
-    .probe6(s_axis.tready), 
+    .probe5(s_axis.tvalid),
+    .probe6(s_axis.tready),
     .probe7(q_desc.tvalid),
     .probe8(q_desc.tready),
     .probe9(q_desc.tdata[QDMA_QID_BITS-1:0]), // 12
@@ -200,4 +200,4 @@ ila_c2h inst_ila_c2h (
 );
 */
 
-endmodule 
+endmodule

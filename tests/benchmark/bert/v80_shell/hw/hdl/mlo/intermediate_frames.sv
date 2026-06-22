@@ -46,7 +46,7 @@ module intermediate_frames #(
     parameter logic[ADDR_BITS-1:0]      ADDR_INT,
     parameter logic[ADDR_BITS-1:0]      LAYER_OFFS_INT,
     parameter int unsigned              N_MAX_LAYERS,
-    
+
     parameter int unsigned              N_OUTSTANDING_DMAS = 32,
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1,
@@ -54,13 +54,13 @@ module intermediate_frames #(
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
-    
+
     output logic [1:0]                  m_done,
 
     AXI4.master                         m_axi_hbm,
 
     AXI4S.slave                         s_idx,
-    AXI4S.master                        m_idx,    
+    AXI4S.master                        m_idx,
 
     AXI4S.slave                         s_axis,
     AXI4S.master                        m_axis
@@ -91,7 +91,7 @@ assign q_s0_dma.tdata = s_idx.tdata;
 assign q_s0_buf.tdata = s_idx.tdata;
 
 // -------------------------------------------------------------------------
-// Store DMA 
+// Store DMA
 // -------------------------------------------------------------------------
 
 typedef enum logic[0:0] {ST_WR_IDLE, ST_WR_STORE} state_wr_t;
@@ -175,7 +175,7 @@ always_comb begin : DP_WR
                 len_wr_N = q_s0_dma_out.tdata[2*CNT_BITS+:LEN_BITS];
                 addr_wr_N = l_offsets[q_s0_dma_out.tdata[0+:CNT_BITS]];
             end
-        end 
+        end
 
         ST_WR_STORE: begin
             if(q_wr_dma.tready && cnt_outstanding_C > 0) begin
@@ -186,7 +186,7 @@ always_comb begin : DP_WR
                 addr_wr_N = addr_wr_C + len_wr_C;
             end
         end
-        
+
     endcase
 end
 
@@ -211,7 +211,7 @@ assign incr_lyr = q_s0_buf_out.tdata[0+:CNT_BITS] + 1;
 assign q_s1_buf.tdata = {q_s0_buf_out.tdata[CNT_BITS+:CNT_BITS+LEN_BITS], incr_lyr};
 
 // -------------------------------------------------------------------------
-// Fetch DMA 
+// Fetch DMA
 // -------------------------------------------------------------------------
 
 typedef enum logic[0:0] {ST_RD_IDLE, ST_RD_FETCH} state_rd_t;
@@ -262,7 +262,7 @@ always_comb begin : NSL_RD
 
         ST_RD_FETCH: begin
             state_rd_N = ((cnt_frames_rd_C == n_frames_rd_C-1) && (q_rd_dma.tready && q_wr_fr_done_out.tvalid)) ? ST_RD_IDLE : ST_RD_FETCH;
-        end    
+        end
 
     endcase
 end
@@ -289,7 +289,7 @@ always_comb begin : DP_RD
                 len_rd_N = q_s1_dma_out.tdata[2*CNT_BITS+:LEN_BITS];
                 addr_rd_N = l_offsets[q_s1_dma_out.tdata[0+:CNT_BITS]];
             end
-        end 
+        end
 
         ST_RD_FETCH: begin
             if(q_rd_dma.tready && q_wr_fr_done_out.tvalid) begin
@@ -301,7 +301,7 @@ always_comb begin : DP_RD
                 addr_rd_N = addr_rd_C + len_rd_C;
             end
         end
-        
+
     endcase
 end
 
@@ -315,8 +315,8 @@ always_ff @( posedge aclk ) begin : REG_SYNC
     end
     else begin
         cnt_outstanding_C <= (cnt_outstanding_decr & cnt_outstanding_incr) ? cnt_outstanding_C :
-                            (cnt_outstanding_decr ? cnt_outstanding_C - 1 : 
-                            (cnt_outstanding_incr ? cnt_outstanding_C + 1 : 
+                            (cnt_outstanding_decr ? cnt_outstanding_C - 1 :
+                            (cnt_outstanding_incr ? cnt_outstanding_C + 1 :
                             cnt_outstanding_C));
 
     end
@@ -354,7 +354,7 @@ cdma_top #(
     .wr_valid(q_wr_dma_out.tvalid),
     .wr_ready(q_wr_dma_out.tready),
     .wr_paddr(q_wr_dma_out.tdata[0+:ADDR_BITS]),
-    .wr_len(q_wr_dma_out.tdata[ADDR_BITS+:LEN_BITS]), 
+    .wr_len(q_wr_dma_out.tdata[ADDR_BITS+:LEN_BITS]),
     .wr_done(wr_done),
 
     .s_axis_ddr(dma_wr_f),
@@ -402,7 +402,7 @@ if(DBG == 1) begin
         .probe20(q_s1_dma_out.tready),
         .probe21(m_idx.tvalid),
         .probe22(m_idx.tready),
-        .probe23(state_rd_C), 
+        .probe23(state_rd_C),
         .probe24(cnt_frames_rd_C), // 16
         .probe25(n_frames_rd_C), // 16
         .probe26(len_rd_C), // 32
@@ -438,4 +438,4 @@ if(DBG == 1) begin
     );
 end
 
-endmodule 
+endmodule

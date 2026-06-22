@@ -39,12 +39,12 @@ module axis_reg_array_rtl #(
     AXI4S.master                        m_axis
 );
 
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 // Register slices
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 
 if(REG_TYPE == 0) begin
-    
+
     axis_skid_rtl #(
         .DATA_WIDTH(DATA_BITS),
         .FEED_STAGES(N_STAGES)
@@ -58,7 +58,7 @@ if(REG_TYPE == 0) begin
         .m_axis_tvalid(m_axis.tvalid),
         .m_axis_tready(m_axis.tready)
     );
-    
+
 end
 else begin
 
@@ -68,7 +68,7 @@ else begin
     `AXIS_ASSIGN(axis_s[N_STAGES], m_axis)
 
     for(genvar i = 0; i < N_STAGES; i++) begin
-        
+
         axis_reg_rtl #(
             .DATA_WIDTH(DATA_BITS),
             .LAST_ENABLE(0),

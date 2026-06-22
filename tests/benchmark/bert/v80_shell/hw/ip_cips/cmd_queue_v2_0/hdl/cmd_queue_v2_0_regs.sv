@@ -1,21 +1,21 @@
 // (c) Copyright 2022, Advanced Micro Devices, Inc.
-// 
-// Permission is hereby granted, free of charge, to any person obtaining a 
-// copy of this software and associated documentation files (the "Software"), 
-// to deal in the Software without restriction, including without limitation 
-// the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-// and/or sell copies of the Software, and to permit persons to whom the 
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
 // Software is furnished to do so, subject to the following conditions:
-// 
-// The above copyright notice and this permission notice shall be included in 
+//
+// The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
-// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+// THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 ////////////////////////////////////////////////////////////
 
@@ -116,7 +116,7 @@ always_ff @(posedge aclk) begin
     cq_irq_en_sr          <= {cq_irq_en_sr[IRQ_SR_WIDTH-2:0],1'b1};
 
     // SQ Interrupt Generation
-    
+
     // SQ Register Interrupt - Asserted when the Interrupt Register is written
 
     if ((sq_irq_reg_clr && sq_irq_type) || soft_rst) begin
@@ -124,9 +124,9 @@ always_ff @(posedge aclk) begin
       sq_irq_reg_isr  <= '0;
       sq_irq_en_sr    <= '0;
     end
-    
+
     if (sq_irq_type && sq_irq_reg) begin
-      // Assert the SQ register interrupt when the interrupt register is written 
+      // Assert the SQ register interrupt when the interrupt register is written
       sq_irq_reg_isr  <= '1;
     end else if (!sq_irq_type) begin
       // If the interrupt type is configured for the tail pointer, then clear any pending register
@@ -154,14 +154,14 @@ always_ff @(posedge aclk) begin
     if (sq_irq_en) begin
       // Assert the SQ interrupt output when enabled and either the register or tail pointer
       // interrupts are set. The MSB of the shift register ensures that the interrupt de-asserts
-      // in the event of a coincident interrupt set/clear that would prevent a new rising-edge 
+      // in the event of a coincident interrupt set/clear that would prevent a new rising-edge
       irq_sq  <= (sq_irq_reg_isr | sq_irq_tail_pntr_isr) & sq_irq_en_sr[IRQ_SR_WIDTH-1];
     end
 
     // ========================================================
 
     // CQ Interrupt Generation
-    
+
     // CQ Register Interrupt - Asserted when the Interrupt Register is written
 
     if ((cq_irq_reg_clr && cq_irq_type) || soft_rst) begin
@@ -169,9 +169,9 @@ always_ff @(posedge aclk) begin
       cq_irq_reg_isr  <= '0;
       cq_irq_en_sr    <= '0;
     end
-    
+
     if (cq_irq_type && cq_irq_reg) begin
-      // Assert the CQ register interrupt when the interrupt register is written 
+      // Assert the CQ register interrupt when the interrupt register is written
       cq_irq_reg_isr  <= '1;
     end else if (!cq_irq_type) begin
       // If the interrupt type is configured for the tail pointer, then clear any pending register
@@ -199,7 +199,7 @@ always_ff @(posedge aclk) begin
     if (cq_irq_en) begin
       // Assert the CQ interrupt output when enabled and either the register or tail pointer
       // interrupts are set. The MSB of the shift register ensures that the interrupt de-asserts
-      // in the event of a coincident interrupt set/clear that would prevent a new rising-edge 
+      // in the event of a coincident interrupt set/clear that would prevent a new rising-edge
       irq_cq  <= (cq_irq_reg_isr | cq_irq_tail_pntr_isr) & cq_irq_en_sr[IRQ_SR_WIDTH-1];
     end
   end
@@ -233,7 +233,7 @@ always_ff @(posedge aclk) begin
           9'b0000000??: // SQ Tail Pointer - 0x000
             begin
               sq_tail_pntr      <= sq_reg_if.reg_wr_data;
-              sq_irq_tail_pntr  <= '1;                   
+              sq_irq_tail_pntr  <= '1;
             end
           9'b0000001??: // SQ IRQ Control - 0x004
             sq_irq_reg        <= sq_reg_if.reg_wr_data[0];
@@ -307,7 +307,7 @@ always_ff @(posedge aclk) begin
         9'b1000010??: // CQ Queue Memory Address Low - 0x108
           sq_reg_if.reg_rd_data           <= cq_mem_addr_lo;
         9'b1000011??: // CQ Reset IRQ Control - 0x10C
-          begin  
+          begin
             sq_reg_if.reg_rd_data[1]      <= cq_irq_type;
             sq_reg_if.reg_rd_data[0]      <= cq_irq_en;
           end
@@ -352,8 +352,8 @@ always_ff @(posedge aclk) begin
         case (cq_reg_if.reg_wr_addr[8:0]) inside
           9'b0000000??: // CQ Tail Pointer - 0x000
             begin
-              cq_tail_pntr      <= cq_reg_if.reg_wr_data;   
-              cq_irq_tail_pntr  <= '1;                
+              cq_tail_pntr      <= cq_reg_if.reg_wr_data;
+              cq_irq_tail_pntr  <= '1;
             end
           9'b0000001??: // CQ IRQ Control - 0x004
             cq_irq_reg        <= cq_reg_if.reg_wr_data[0];
@@ -408,7 +408,7 @@ always_ff @(posedge aclk) begin
         9'b0000010??: // CQ Queue Memory Address Low - 0x008
           cq_reg_if.reg_rd_data           <= cq_mem_addr_lo;
         9'b0000011??: // CQ Reset IRQ Control - 0x00C
-          begin  
+          begin
             cq_reg_if.reg_rd_data[1]      <= cq_irq_type;
             cq_reg_if.reg_rd_data[0]      <= cq_irq_en;
           end

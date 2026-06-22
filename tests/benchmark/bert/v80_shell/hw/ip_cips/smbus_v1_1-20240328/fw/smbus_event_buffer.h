@@ -23,14 +23,14 @@ extern "C"
 
 /******************************************************************************
 *
-* @brief    Walks through all elements of the event buffer. It sets all the elements to unoccupied  
+* @brief    Walks through all elements of the event buffer. It sets all the elements to unoccupied
 *           and sets the event value to 0.
 *
 * @param    pxContext is a pointer to the event buffer structure.
 * @param    pxEventBuffer is the pointer to the event buffer element
 * @param    ulMaxElements is the number of elements in the event log.
 *
-* @return   None     
+* @return   None
 *
 * @note     None.
 *
@@ -48,7 +48,7 @@ void vEventBufferInitialize( SMBUS_EVENT_BUFFER_TYPE* pxContext, SMBUS_EVENT_BUF
 * @param    pulWrite_Position is a pointer to the location the event was written to
 *
 * @return   SMBUS_FALSE - if write fails
-*           SMBUS_TRUE  - if write succeeds       
+*           SMBUS_TRUE  - if write succeeds
 *
 * @note     None.
 *

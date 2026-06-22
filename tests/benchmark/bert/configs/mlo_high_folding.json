@@ -35,7 +35,7 @@
     "PE": 4
   },
   "ElementwiseAdd_rtl_1": {
-    "PE": 2 
+    "PE": 2
   },
 
 
@@ -199,9 +199,6 @@
 
 
   "FINNLoop_0_DuplicateStreams_hls_0": {
-    "PE": 8
-  },
-  "FINNLoop_0_DuplicateStreams_hls_1": {
     "PE": 8
   },
   "FINNLoop_0_DuplicateStreams_hls_1": {

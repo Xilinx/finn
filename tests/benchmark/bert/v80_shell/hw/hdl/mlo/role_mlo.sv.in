@@ -65,11 +65,11 @@ module role (
 
         .s_axis_h2c(s_axis_h2c),
         .m_axis_c2h(m_axis_c2h),
-        
+
         .aclk(aclk),
         .aclk_dp(aclk_dp),
         .aresetn(aresetn)
     );
 
-   
+
 endmodule

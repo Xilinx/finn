@@ -61,8 +61,8 @@ static void prvvFormatLine( SMBUS_PROFILE_TYPE* pxSMBusProfile, int entry, char*
 *****************************************************************************/
 static char* prvpcConvertEventTypeToText( SMBUS_LOG_EVENT_TYPE xEvent )
 {
-    char* pcReturnText = "         ";   
-    
+    char* pcReturnText = "         ";
+
     if( SMBUS_LOG_EVENT_INTERRUPT_EVENT == xEvent )
     {
         pcReturnText = "INTERRUPT";
@@ -99,7 +99,7 @@ static char* prvpcConvertEventTypeToText( SMBUS_LOG_EVENT_TYPE xEvent )
     {
         pcReturnText = "TRYWRITE ";
     }
-    
+
     return (pcReturnText);
 }
 
@@ -109,14 +109,14 @@ static char* prvpcConvertEventTypeToText( SMBUS_LOG_EVENT_TYPE xEvent )
 *           The format of the string depends on the type of event that was logged
 *
 *****************************************************************************/
-static void prvvFormatLine( SMBUS_PROFILE_TYPE* pxSMBusProfile, int entry, char* pcLogBuffer, 
+static void prvvFormatLine( SMBUS_PROFILE_TYPE* pxSMBusProfile, int entry, char* pcLogBuffer,
                                 int* pslLineSize )
 {
     char* pcState       = NULL;
     char* pcEvent       = NULL;
     char* pcProtocol    = NULL;
 
-    if( ( NULL != pxSMBusProfile ) && 
+    if( ( NULL != pxSMBusProfile ) &&
         ( NULL != pcLogBuffer )    &&
         ( NULL != pslLineSize ) )
     {
@@ -163,10 +163,10 @@ static void prvvFormatLine( SMBUS_PROFILE_TYPE* pxSMBusProfile, int entry, char*
             prvpcConvertEventTypeToText( pxSMBusProfile->xCircularBuffer[entry].xEvent ),
             ( unsigned int )pxSMBusProfile->xCircularBuffer[entry].ulInstance, pcState, pcEvent );
             break;
-                    
+
         default:
             *pslLineSize = 0;
-            break;          
+            break;
         }
     }
 }
@@ -183,7 +183,7 @@ void vLogDisplayLog( SMBUS_PROFILE_TYPE* pxSMBusProfile, char* pcLogBuffer, uint
     int slLineSize      = 0;
     uint32_t usLogSize  = 0;
 
-    if( ( NULL != pxSMBusProfile ) && 
+    if( ( NULL != pxSMBusProfile ) &&
         ( NULL != pcLogBuffer )    &&
         ( NULL != usLogSizeBytes ) )
     {
@@ -206,7 +206,7 @@ void vLogDisplayLog( SMBUS_PROFILE_TYPE* pxSMBusProfile, char* pcLogBuffer, uint
                 usLogSize += ( uint32_t )slLineSize;
             }
         }
-        
+
         *usLogSizeBytes = usLogSize;
     }
 }
@@ -220,7 +220,7 @@ void vLogInitialize( SMBUS_PROFILE_TYPE* pxSMBusProfile )
 {
     uint32_t i = 0;
 
-    if( NULL != pxSMBusProfile )    
+    if( NULL != pxSMBusProfile )
     {
         for( i = 0; i < ( SMBUS_MAX_CIRCULAR_LOG_ENTRIES ); i++ )
         {
@@ -229,7 +229,7 @@ void vLogInitialize( SMBUS_PROFILE_TYPE* pxSMBusProfile )
             pxSMBusProfile->xCircularBuffer[i].ulEntry2 = 0x00;
             pxSMBusProfile->xCircularBuffer[i].ulTicks = 0x00;
         }
-        
+
         pxSMBusProfile->xLogCircularBuffer.ulWrite = 0;
         pxSMBusProfile->xLogCircularBuffer.ulRead = 0;
     }
@@ -245,7 +245,7 @@ void vLogAddEntry( SMBUS_PROFILE_TYPE* pxSMBusProfile, SMBUS_LOG_LEVEL_TYPE xLog
 {
     uint32_t ulTicks  = 0;
 
-    if( NULL != pxSMBusProfile )  
+    if( NULL != pxSMBusProfile )
     {
         if( xLogLevel <= pxSMBusProfile->xLogLevel )
         {

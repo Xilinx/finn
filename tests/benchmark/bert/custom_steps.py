@@ -23,14 +23,12 @@ removed; the concrete QONNX/FINN transforms are imported directly.
 
 import json
 import logging
+import numpy as np
 import os
+import qonnx.custom_op.registry as registry
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Optional
-
-import numpy as np
-import qonnx.custom_op.registry as registry
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.fold_constants import FoldConstants
@@ -43,6 +41,7 @@ from qonnx.transformation.general import (
 )
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.remove import RemoveIdentityOps
+from typing import Any, Optional
 
 import finn.core.onnx_exec as oxe
 from finn.builder.build_dataflow_config import DataflowBuildConfig, DataflowOutputType
@@ -377,7 +376,7 @@ def _check_vivado_available() -> bool:
 def _get_torch_cmake_prefix() -> Optional[str]:
     """Get the CMake prefix path for PyTorch/LibTorch, or None if unavailable."""
     try:
-        from torch.utils import cmake_prefix_path
+        from torch.utils import cmake_prefix_path  # noqa
 
         cmake_path = cmake_prefix_path
         if cmake_path and Path(cmake_path).exists():
@@ -559,9 +558,7 @@ def step_v80_hw_build(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWra
     ``v80_clock_mhz`` (250), ``v80_compile_cores`` (4), ``v80_shell_dir``.
     """
     if not _check_vivado_available():
-        raise RuntimeError(
-            "Vivado not found. Ensure Vivado is in PATH or XILINX_VIVADO is set."
-        )
+        raise RuntimeError("Vivado not found. Ensure Vivado is in PATH or XILINX_VIVADO is set.")
 
     env = _setup_v80_build_environment(cfg)
     if env is None:

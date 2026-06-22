@@ -110,7 +110,7 @@ logic [N_INT_MS-1:0] ready_int_out = {{N_FW_CORES{ready_int_w}}, ready_int_if, r
 // ------------------------------------------------------------------
 localparam integer PROBE_ID = 1044942;
 
-// -- Register map ----------------------------------------------------------------------- 
+// -- Register map -----------------------------------------------------------------------
 localparam integer CTRL_REG = 0;
 localparam integer STAT_REG = 1;
 localparam integer SRC_OFFS_REG = 2;
@@ -129,7 +129,7 @@ assign slv_reg_wren = axi_wready && axi_ctrl.wvalid && axi_awready && axi_ctrl.a
 always_ff @(posedge aclk) begin
   if ( aresetn == 1'b0 ) begin
     slv_reg <= 0;
-    
+
     post <= 1'b0;
     ready_int <= 1'b0;
     ready_int_if <= 1'b0;
@@ -153,7 +153,7 @@ always_ff @(posedge aclk) begin
     cnt_done <= post ? 0 : (s_done ? cnt_done + 1 : cnt_done);
     cnt_up <= post ? 1'b1 : ((cnt_done == slv_reg[N_FRAMES_REG] - 1) && s_done) ? 1'b0 : cnt_up;
     slv_reg[PERF_LAT_REG] <= post ? 0 : (cnt_up ? slv_reg[PERF_LAT_REG] + 1 : slv_reg[PERF_LAT_REG]);
-    
+
     for(int i = 0; i < N_INT_MS; i++) begin
       cnt_int[i] <= post ? 0 : (cnt_up ? (done[i] ? 0 : cnt_int[i] + 1) : cnt_int[i]);
       valid_int[i] <= (cnt_up && done[i]);
@@ -203,13 +203,13 @@ always_ff @(posedge aclk) begin
               ready_int_if <= axi_ctrl.wdata[1];
               ready_int_w <= axi_ctrl.wdata[2];
           end
-      
+
         default: ;
       endcase
     end
 
   end
-end    
+end
 
 // Read process
 assign slv_reg_rden = axi_arready & axi_ctrl.arvalid & ~axi_rvalid;
@@ -220,8 +220,8 @@ always_ff @(posedge aclk) begin
   end
   else begin
     if(slv_reg_rden) begin
-      axi_rdata <= 0;  
-      
+      axi_rdata <= 0;
+
       case (axi_araddr[ADDR_LSB+:ADDR_MSB]) inside
         [CTRL_REG:CTRL_REG]:
           axi_rdata[0] <= f_ctrl_fs.tready & f_ctrl_se.tready;
@@ -243,11 +243,11 @@ always_ff @(posedge aclk) begin
             axi_rdata <= slv_reg[axi_araddr[ADDR_LSB+:ADDR_MSB]];
         [PROBE_REG:PROBE_REG]:
           axi_rdata <= PROBE_ID;
-        
+
         default: ;
       endcase
     end
-  end 
+  end
 end
 
 // Interval FIFOs
@@ -271,7 +271,7 @@ for(genvar i = 0; i < N_INT_MS; i++) begin
     .o_r(ready_int_out[i])
   );
   */
-  
+
   axis_data_fifo_slv inst_fifo_int (
     .s_axis_aclk(aclk),
     .s_axis_aresetn(aresetn && ~post),
@@ -328,8 +328,8 @@ assign f_ctrl_se.tdata = slv_reg[DST_OFFS_REG][ADDR_BITS-1:0];
 assign n_layers = slv_reg[N_LAYERS_REG][CNT_BITS-1:0];
 
 // --------------------------------------------------------------------------------------
-// AXI CTRL  
-// -------------------------------------------------------------------------------------- 
+// AXI CTRL
+// --------------------------------------------------------------------------------------
 // Don't edit
 
 // I/O
@@ -349,9 +349,9 @@ always_ff @(posedge aclk) begin
       axi_awready <= 1'b0;
       axi_awaddr <= 0;
       aw_en <= 1'b1;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_awready && axi_ctrl.awvalid && axi_ctrl.wvalid && aw_en)
         begin
           axi_awready <= 1'b1;
@@ -363,12 +363,12 @@ always_ff @(posedge aclk) begin
           aw_en <= 1'b1;
           axi_awready <= 1'b0;
         end
-      else           
+      else
         begin
           axi_awready <= 1'b0;
         end
-    end 
-end  
+    end
+end
 
 // arready and araddr
 always_ff @(posedge aclk) begin
@@ -376,9 +376,9 @@ always_ff @(posedge aclk) begin
     begin
       axi_arready <= 1'b0;
       axi_araddr  <= 0;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_arready && axi_ctrl.arvalid)
         begin
           axi_arready <= 1'b1;
@@ -388,8 +388,8 @@ always_ff @(posedge aclk) begin
         begin
           axi_arready <= 1'b0;
         end
-    end 
-end    
+    end
+end
 
 // bvalid and bresp
 always_ff @(posedge aclk) begin
@@ -397,20 +397,20 @@ always_ff @(posedge aclk) begin
     begin
       axi_bvalid  <= 0;
       axi_bresp   <= 2'b0;
-    end 
+    end
   else
-    begin    
+    begin
       if (axi_awready && axi_ctrl.awvalid && ~axi_bvalid && axi_wready && axi_ctrl.wvalid)
         begin
           axi_bvalid <= 1'b1;
           axi_bresp  <= 2'b0;
-        end                   
+        end
       else
         begin
-          if (axi_ctrl.bready && axi_bvalid) 
+          if (axi_ctrl.bready && axi_bvalid)
             begin
-              axi_bvalid <= 1'b0; 
-            end  
+              axi_bvalid <= 1'b0;
+            end
         end
     end
 end
@@ -420,9 +420,9 @@ always_ff @(posedge aclk) begin
   if ( aresetn == 1'b0 )
     begin
       axi_wready <= 1'b0;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_wready && axi_ctrl.wvalid && axi_ctrl.awvalid && aw_en )
         begin
           axi_wready <= 1'b1;
@@ -431,8 +431,8 @@ always_ff @(posedge aclk) begin
         begin
           axi_wready <= 1'b0;
         end
-    end 
-end  
+    end
+end
 
 // rvalid and rresp (1Del?)
 always_ff @(posedge aclk) begin
@@ -440,19 +440,19 @@ always_ff @(posedge aclk) begin
     begin
       axi_rvalid <= 0;
       axi_rresp  <= 0;
-    end 
+    end
   else
-    begin    
+    begin
       if (axi_arready && axi_ctrl.arvalid && ~axi_rvalid)
         begin
           axi_rvalid <= 1'b1;
           axi_rresp  <= 2'b0;
-        end   
+        end
       else if (axi_rvalid && axi_ctrl.rready)
         begin
           axi_rvalid <= 1'b0;
-        end                
+        end
     end
-end    
+end
 
 endmodule // gbm slave

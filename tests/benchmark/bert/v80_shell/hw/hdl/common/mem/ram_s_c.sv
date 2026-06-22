@@ -67,7 +67,7 @@ module ram_s_c #(
   end
 
   always_ff @(posedge clk) begin
-    if(enb)  dob_reg <= ram[addrb]; 
+    if(enb)  dob_reg <= ram[addrb];
   end
 
   always_ff @(posedge clk) begin

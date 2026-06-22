@@ -83,7 +83,7 @@ logic [QDMA_QID_BITS-1:0] qid_C = '0, qid_N;
 always_ff @( posedge aclk ) begin: REG
     if(~aresetn) begin
         state_C <= ST_CNT;
-        
+
         qid_C <= 'X;
         cnt_C <= 0;
     end
@@ -104,7 +104,7 @@ always_comb begin: NSL
 
         ST_SEND:
             state_N = (q_desc.tready) ? ST_CNT : ST_SEND;
-    
+
     endcase
 end
 
@@ -112,7 +112,7 @@ always_comb begin: DP
     qid_N = qid_C;
     cnt_N = cnt_C;
 
-    // 
+    //
     q_desc.tvalid = 1'b0;
     q_desc.tdata = {cnt_C, qid_C};
     q_axis_tready = 1'b0;
@@ -122,7 +122,7 @@ always_comb begin: DP
         ST_CNT: begin
             s_axis.tready = q_axis_tready;
             q_axis_tvalid = s_axis.tvalid;
-            
+
             if(s_axis.tvalid && s_axis.tready) begin
                 cnt_N = cnt_C + 1;
             end
@@ -131,8 +131,8 @@ always_comb begin: DP
         ST_SEND: begin
             q_desc.tvalid = 1'b1;
             cnt_N = q_desc.tready ? 0 : cnt_C;
-        end 
- 
+        end
+
     endcase
 end
 
@@ -142,4 +142,4 @@ end
 //
 
 
-endmodule 
+endmodule

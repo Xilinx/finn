@@ -47,7 +47,7 @@ module mux_in #(
     parameter int unsigned              BEAT_SHIFT = $clog2(ILEN_BITS/8),
 
     parameter int unsigned              N_FW_CORES,
-    
+
     parameter int unsigned              QDEPTH = 32,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0
@@ -90,7 +90,7 @@ AXI4S #(.AXI4S_DATA_BITS(CNT_BITS+LEN_BITS+1)) seq_out ();
 
 queue #(.QDEPTH(QDEPTH), .QWIDTH(CNT_BITS+LEN_BITS+1)) inst_queue_seq (.aclk(aclk), .aresetn(aresetn), .s_axis(seq), .m_axis(seq_out));
 
-always_comb begin 
+always_comb begin
     s_idx_fs.tready = 1'b0;
     s_idx_if.tready = 1'b0;
 
@@ -113,7 +113,7 @@ always_comb begin
                 m_idx_fw_data[i] = s_idx_fs.tdata[0+:2*CNT_BITS];
             m_idx_out.tdata = s_idx_fs.tdata;
             seq.tdata = {1'b0, s_idx_fs.tdata[CNT_BITS+:CNT_BITS+LEN_BITS]};
-        end 
+        end
         else if(s_idx_if.tvalid) begin
             s_idx_if.tready = 1'b1;
             m_idx_fw_valid = '1;
@@ -215,7 +215,7 @@ always_comb begin : DP
                 n_frames_N = seq_out.tdata[0+:CNT_BITS];
                 len_N = seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;
             end
-        end 
+        end
 
         ST_MUX_FS: begin
             m_axis_int.tvalid = s_axis_fs.tvalid;
@@ -289,4 +289,4 @@ if(DBG == 1) begin
 end
 
 
-endmodule 
+endmodule

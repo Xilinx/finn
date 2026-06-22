@@ -10,7 +10,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 find_path(VIVADO_PATH
-  NAMES vivado 
+  NAMES vivado
   PATHS ${VIVADO_ROOT_DIR} ENV XILINX_VIVADO
   PATH_SUFFIXES bin
 )

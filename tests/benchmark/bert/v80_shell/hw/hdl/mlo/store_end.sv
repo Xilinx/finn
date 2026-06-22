@@ -45,7 +45,7 @@ module store_end #(
 
     parameter int unsigned              OLEN_BITS = 32,
     parameter logic[ADDR_BITS-1:0]      ADDR_DST,
-    
+
     parameter int unsigned              QDEPTH = 16,
     parameter int unsigned              N_DCPL_STGS = 1
 ) (
@@ -53,7 +53,7 @@ module store_end #(
     input  wire                         aresetn,
 
     AXI4.master                         m_axi_hbm,
-    
+
     AXI4S.slave                         s_ctrl,
     AXI4S.slave                         s_idx,
     output logic                        m_done,
@@ -90,7 +90,7 @@ always_ff @( posedge aclk ) begin
         len_C <= 'X;
         n_frames_C <= 'X;
         cnt_frames_C <= 0;
-        
+
         m_done <= 1'b0;
     end
     else begin
@@ -100,7 +100,7 @@ always_ff @( posedge aclk ) begin
         len_C <= len_N;
         n_frames_C <= n_frames_N;
         cnt_frames_C <= cnt_frames_N;
-        
+
         m_done <= wr_done;
     end
 end
@@ -144,14 +144,14 @@ always_comb begin
                 len_N = q_idx_out.tdata[2*CNT_BITS+:LEN_BITS];
                 cnt_frames_N = 0;
             end
-        end 
+        end
 
         ST_WRITE: begin
             q_dma.tvalid = 1'b1;
             if(q_dma.tready) begin
                 addr_N = addr_C + len_C;
                 cnt_frames_N = cnt_frames_C + 1;
-            end 
+            end
         end
 
     endcase
@@ -199,4 +199,4 @@ axis_dwc #(.S_DATA_BITS(OLEN_BITS), .M_DATA_BITS(DATA_BITS)) inst_dwc_wr (.aclk(
 // REG
 axis_reg_array_tmplt #(.N_STAGES(N_DCPL_STGS), .DATA_BITS(OLEN_BITS)) inst_reg_wr (.aclk(aclk), .aresetn(aresetn), .s_axis(s_axis), .m_axis(dma_wr_dwc));
 
-endmodule 
+endmodule

@@ -12,4 +12,3 @@
 #define GIT_STATUS                (0)
 
 #endif // _smbus_VERSION_H_
-

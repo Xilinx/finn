@@ -48,7 +48,7 @@ class c_mon #(
 
   // Name
   string name;
-  
+
   // Interface handle
   virtual AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis;
 
@@ -58,7 +58,7 @@ class c_mon #(
   // Number of transactions
   integer n_trs;
 
-  // 
+  //
   // C-tor
   //
   function new(string name, virtual AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis, mailbox mon2scb);
@@ -82,7 +82,7 @@ class c_mon #(
       axis.tready <= 1'b0;
       $display("Drv %s: AXIS reset_s() completed.", name);
   endtask
-  
+
   //
   // Run
   //
@@ -101,7 +101,7 @@ class c_mon #(
         n_trs++;
     end
   endtask
-  
+
 endclass
 
 `endif

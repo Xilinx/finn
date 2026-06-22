@@ -30,7 +30,7 @@ import iwTypes::*;
 /**
  * @brief   Aligned CDMA top level
  *
- * The aligned CDMA top level. Contains read and write DMA engines. 
+ * The aligned CDMA top level. Contains read and write DMA engines.
  * Outstanding queues at the input. Low resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size
@@ -76,7 +76,7 @@ logic rd_valid_int, rd_ready_int;
 logic rd_done_int;
 
 Q_srl #(
-    .depth(DCPL_DEPTH), 
+    .depth(DCPL_DEPTH),
     .width(ADDR_BITS+LEN_BITS)
 ) inst_q_rd (
     .clock(aclk),
@@ -105,7 +105,7 @@ logic wr_valid_int, wr_ready_int;
 logic wr_done_int;
 
 Q_srl #(
-    .depth(DCPL_DEPTH), 
+    .depth(DCPL_DEPTH),
     .width(ADDR_BITS+LEN_BITS)
 ) inst_q_wr (
     .clock(aclk),
@@ -127,7 +127,7 @@ always_ff @(posedge aclk) begin
         wr_done <= wr_done_int;
 end
 
-// 
+//
 // CDMA
 //
 

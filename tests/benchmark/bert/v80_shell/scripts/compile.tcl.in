@@ -70,7 +70,7 @@
 #
 # THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 if {[catch {
-    
+
 ########################################################################################################
 
 source "${CMAKE_BINARY_DIR}/hw/base.tcl"

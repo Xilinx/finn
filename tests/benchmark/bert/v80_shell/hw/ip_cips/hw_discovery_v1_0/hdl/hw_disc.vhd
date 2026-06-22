@@ -1,21 +1,21 @@
 -- (c) Copyright 2022, Advanced Micro Devices, Inc.
--- 
--- Permission is hereby granted, free of charge, to any person obtaining a 
--- copy of this software and associated documentation files (the "Software"), 
--- to deal in the Software without restriction, including without limitation 
--- the rights to use, copy, modify, merge, publish, distribute, sublicense, 
--- and/or sell copies of the Software, and to permit persons to whom the 
+--
+-- Permission is hereby granted, free of charge, to any person obtaining a
+-- copy of this software and associated documentation files (the "Software"),
+-- to deal in the Software without restriction, including without limitation
+-- the rights to use, copy, modify, merge, publish, distribute, sublicense,
+-- and/or sell copies of the Software, and to permit persons to whom the
 -- Software is furnished to do so, subject to the following conditions:
--- 
--- The above copyright notice and this permission notice shall be included in 
+--
+-- The above copyright notice and this permission notice shall be included in
 -- all copies or substantial portions of the Software.
--- 
--- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
--- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
--- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
--- THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
--- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
--- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+--
+-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+-- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+-- THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+-- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+-- FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 -- DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------
 
@@ -29,7 +29,7 @@ library axi_lite_ipif_v3_0_4;
 
 library xpm;
     use xpm.vcomponents.all;
-    
+
 library hw_discovery_v1_0_0;
 
 entity hw_discovery_v1_0_0_hw_disc is
@@ -155,7 +155,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         C_PF0_ENTRY_RSVD0_15              : std_logic_vector(3 downto 0)   := (others => '0');
         C_PF0_S_AXI_DATA_WIDTH            : integer range 32 to 32         := 32;
         C_PF0_S_AXI_ADDR_WIDTH            : integer range 1 to 64          := 32;
-        C_PF1_NUM_SLOTS_BAR_LAYOUT_TABLE  : integer range 1 to 16          := 1; 
+        C_PF1_NUM_SLOTS_BAR_LAYOUT_TABLE  : integer range 1 to 16          := 1;
         C_PF1_BAR_INDEX               		: integer range 0 to 6           := 0;
         C_PF1_LOW_OFFSET              		: std_logic_vector(27 downto 0)  := (others => '0');
         C_PF1_HIGH_OFFSET             		: std_logic_vector(31 downto 0)  := (others => '0');
@@ -509,7 +509,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         C_PF3_ENTRY_RSVD0_15              : std_logic_vector(3 downto 0)   := (others => '0');
         C_PF3_S_AXI_DATA_WIDTH            : integer range 32 to 32         := 32;
         C_PF3_S_AXI_ADDR_WIDTH            : integer range 1 to 64          := 32;
-        C_XDEVICEFAMILY               		: string                         := "no_family"        	
+        C_XDEVICEFAMILY               		: string                         := "no_family"
         );
     port (
         -----------------------------------------------------------------------
@@ -518,7 +518,7 @@ entity hw_discovery_v1_0_0_hw_disc is
 
         aclk_pcie                  								: in  std_logic;
         aresetn_pcie               								: in  std_logic;
-        
+
         aclk_ctrl                   							: in  std_logic;
         aresetn_ctrl             									: in  std_logic;
 
@@ -534,7 +534,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         s_pcie4_cfg_ext_write_byte_enable         : in  std_logic_vector(3 downto 0);
         s_pcie4_cfg_ext_write_data                : in  std_logic_vector(31 downto 0);
         s_pcie4_cfg_ext_write_received            : in  std_logic;
-        
+
         -----------------------------------------------------------------------
         -- master pcie4_cfg_ext Interface (aclk_pcie)
         -----------------------------------------------------------------------
@@ -547,7 +547,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         m_pcie4_cfg_ext_write_byte_enable         : out std_logic_vector(3 downto 0);
         m_pcie4_cfg_ext_write_data                : out std_logic_vector(31 downto 0);
         m_pcie4_cfg_ext_write_received            : out std_logic;
-        
+
         -----------------------------------------------------------------------
         -- AXI Interface (aclk_ctrl) for PF0
         -----------------------------------------------------------------------
@@ -569,7 +569,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         s_axi_ctrl_pf0_rresp               				: out std_logic_vector(1 downto 0);
         s_axi_ctrl_pf0_rvalid              				: out std_logic;
         s_axi_ctrl_pf0_rready              				: in  std_logic;
-        
+
         -----------------------------------------------------------------------
         -- AXI Interface (aclk_ctrl) for PF1
         -----------------------------------------------------------------------
@@ -591,7 +591,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         s_axi_ctrl_pf1_rresp               				: out std_logic_vector(1 downto 0);
         s_axi_ctrl_pf1_rvalid              				: out std_logic;
         s_axi_ctrl_pf1_rready              				: in  std_logic;
-        
+
         -----------------------------------------------------------------------
         -- AXI Interface (aclk_ctrl) for PF2
         -----------------------------------------------------------------------
@@ -613,7 +613,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         s_axi_ctrl_pf2_rresp               				: out std_logic_vector(1 downto 0);
         s_axi_ctrl_pf2_rvalid              				: out std_logic;
         s_axi_ctrl_pf2_rready              				: in  std_logic;
-        
+
         -----------------------------------------------------------------------
         -- AXI Interface (aclk_ctrl) for PF3
         -----------------------------------------------------------------------
@@ -635,7 +635,7 @@ entity hw_discovery_v1_0_0_hw_disc is
         s_axi_ctrl_pf3_rresp               				: out std_logic_vector(1 downto 0);
         s_axi_ctrl_pf3_rvalid              				: out std_logic;
         s_axi_ctrl_pf3_rready              				: in  std_logic
-        
+
     );
 
 end hw_discovery_v1_0_0_hw_disc;
@@ -653,7 +653,7 @@ architecture rtl of hw_discovery_v1_0_0_hw_disc is
     constant C_FAMILY : string := C_XDEVICEFAMILY;
 
 begin
-		
+
 	pcie_vsec_inst : entity hw_discovery_v1_0_0.hw_discovery_v1_0_0_pcie_vsec
 		generic map (
 			C_NUM_PFS                 					=> C_NUM_PFS,
@@ -693,9 +693,9 @@ begin
 			m_pcie4_cfg_ext_write_data         	=> m_pcie4_cfg_ext_write_data,
 			m_pcie4_cfg_ext_write_received     	=> m_pcie4_cfg_ext_write_received
 		);
-	
+
 	G_GENERATE: for i in 0 to C_NUM_PFS-1 generate
-	
+
 		G_GENERATE_PF0 : if (i = 0) generate
 
 	  	-- Instantiate BAR Layout table
@@ -813,7 +813,7 @@ begin
 	    		C_ENTRY_MAJOR_VERSION_15      => C_PF0_ENTRY_MAJOR_VERSION_15,
 	    		C_ENTRY_MINOR_VERSION_15      => C_PF0_ENTRY_MINOR_VERSION_15,
 	    		C_ENTRY_VERSION_TYPE_15       => C_PF0_ENTRY_VERSION_TYPE_15,
-	    		C_ENTRY_RSVD0_15              => C_PF0_ENTRY_RSVD0_15,     
+	    		C_ENTRY_RSVD0_15              => C_PF0_ENTRY_RSVD0_15,
 	    		C_S_AXI_DATA_WIDTH            => C_PF0_S_AXI_DATA_WIDTH,
 	    		C_S_AXI_ADDR_WIDTH            => C_PF0_S_AXI_ADDR_WIDTH,
 	    		C_XDEVICEFAMILY               => C_XDEVICEFAMILY
@@ -839,9 +839,9 @@ begin
 	    		s_axi_rvalid              		=> s_axi_ctrl_pf0_rvalid,
 	    		s_axi_rready              		=> s_axi_ctrl_pf0_rready
 	    	);
-	
+
 			end generate G_GENERATE_PF0;
-			
+
 		G_GENERATE_PF1 : if (i = 1) generate
 
 	  	-- Instantiate BAR Layout table
@@ -959,14 +959,14 @@ begin
 	    		C_ENTRY_MAJOR_VERSION_15      => C_PF1_ENTRY_MAJOR_VERSION_15,
 	    		C_ENTRY_MINOR_VERSION_15      => C_PF1_ENTRY_MINOR_VERSION_15,
 	    		C_ENTRY_VERSION_TYPE_15       => C_PF1_ENTRY_VERSION_TYPE_15,
-	    		C_ENTRY_RSVD0_15              => C_PF1_ENTRY_RSVD0_15,     
+	    		C_ENTRY_RSVD0_15              => C_PF1_ENTRY_RSVD0_15,
 	    		C_S_AXI_DATA_WIDTH            => C_PF1_S_AXI_DATA_WIDTH,
 	    		C_S_AXI_ADDR_WIDTH            => C_PF1_S_AXI_ADDR_WIDTH,
 	    		C_XDEVICEFAMILY               => C_XDEVICEFAMILY
 	    	)
 		    port map (
 			    s_axi_aclk            		    => aclk_ctrl,
-			    s_axi_aresetn         		    => aresetn_ctrl,		    	
+			    s_axi_aresetn         		    => aresetn_ctrl,
 		    	s_axi_awaddr              		=> s_axi_ctrl_pf1_awaddr,
 		    	s_axi_awvalid             		=> s_axi_ctrl_pf1_awvalid,
 		    	s_axi_awready             		=> s_axi_ctrl_pf1_awready,
@@ -985,9 +985,9 @@ begin
 		    	s_axi_rvalid              		=> s_axi_ctrl_pf1_rvalid,
 		    	s_axi_rready              		=> s_axi_ctrl_pf1_rready
 		    );
-	
+
 			end generate G_GENERATE_PF1;
-			
+
 		G_GENERATE_PF2: if (i = 2) generate
 
 	  	-- Instantiate BAR Layout table
@@ -1105,14 +1105,14 @@ begin
 	    	  C_ENTRY_MAJOR_VERSION_15      => C_PF2_ENTRY_MAJOR_VERSION_15,
 	    	  C_ENTRY_MINOR_VERSION_15      => C_PF2_ENTRY_MINOR_VERSION_15,
 	    	  C_ENTRY_VERSION_TYPE_15       => C_PF2_ENTRY_VERSION_TYPE_15,
-	    	  C_ENTRY_RSVD0_15              => C_PF2_ENTRY_RSVD0_15,     
+	    	  C_ENTRY_RSVD0_15              => C_PF2_ENTRY_RSVD0_15,
 	    	  C_S_AXI_DATA_WIDTH            => C_PF2_S_AXI_DATA_WIDTH,
 	    	  C_S_AXI_ADDR_WIDTH            => C_PF2_S_AXI_ADDR_WIDTH,
 	    	  C_XDEVICEFAMILY               => C_XDEVICEFAMILY
 	    	)
 		    port map (
 			    s_axi_aclk            		    => aclk_ctrl,
-			    s_axi_aresetn         		    => aresetn_ctrl,		    	
+			    s_axi_aresetn         		    => aresetn_ctrl,
 		    	s_axi_awaddr              		=> s_axi_ctrl_pf2_awaddr,
 		    	s_axi_awvalid             		=> s_axi_ctrl_pf2_awvalid,
 		    	s_axi_awready             		=> s_axi_ctrl_pf2_awready,
@@ -1131,9 +1131,9 @@ begin
 		    	s_axi_rvalid              		=> s_axi_ctrl_pf2_rvalid,
 		    	s_axi_rready              		=> s_axi_ctrl_pf2_rready
 		    );
-	
+
 			end generate G_GENERATE_PF2;
-			
+
 		G_GENERATE_PF3 : if (i = 3) generate
 
 	  	-- Instantiate BAR Layout table
@@ -1251,14 +1251,14 @@ begin
 	    		C_ENTRY_MAJOR_VERSION_15      => C_PF3_ENTRY_MAJOR_VERSION_15,
 	    		C_ENTRY_MINOR_VERSION_15      => C_PF3_ENTRY_MINOR_VERSION_15,
 	    		C_ENTRY_VERSION_TYPE_15       => C_PF3_ENTRY_VERSION_TYPE_15,
-	    		C_ENTRY_RSVD0_15              => C_PF3_ENTRY_RSVD0_15,     
+	    		C_ENTRY_RSVD0_15              => C_PF3_ENTRY_RSVD0_15,
 	    		C_S_AXI_DATA_WIDTH            => C_PF3_S_AXI_DATA_WIDTH,
 	    		C_S_AXI_ADDR_WIDTH            => C_PF3_S_AXI_ADDR_WIDTH,
 	    		C_XDEVICEFAMILY               => C_XDEVICEFAMILY
 	    		)
 		    port map (
 			    s_axi_aclk            		    => aclk_ctrl,
-			    s_axi_aresetn         		    => aresetn_ctrl,		    	
+			    s_axi_aresetn         		    => aresetn_ctrl,
 		    	s_axi_awaddr              		=> s_axi_ctrl_pf3_awaddr,
 		    	s_axi_awvalid             		=> s_axi_ctrl_pf3_awvalid,
 		    	s_axi_awready             		=> s_axi_ctrl_pf3_awready,
@@ -1277,9 +1277,9 @@ begin
 		    	s_axi_rvalid              		=> s_axi_ctrl_pf3_rvalid,
 		    	s_axi_rready              		=> s_axi_ctrl_pf3_rready
 		    );
-	
+
 			end generate G_GENERATE_PF3;
-			
+
 		end generate G_GENERATE;
 
 end architecture rtl;

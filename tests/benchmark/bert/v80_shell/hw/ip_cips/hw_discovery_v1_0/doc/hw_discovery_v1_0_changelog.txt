@@ -6,4 +6,3 @@
 2023.1:
  * Version 1.0
  * New Feature: Initial Release
-

@@ -57,7 +57,7 @@ void vSMBusAction( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint32_t ulAnyAction );
 
 /******************************************************************************
 *
-* @brief    Resets all variables used during an SMBus message transaction back 
+* @brief    Resets all variables used during an SMBus message transaction back
 *           to their default values
 *           Resets the IP's Descriptor and RX FIFOs
 *
@@ -99,7 +99,7 @@ void vSMBusHandleActionCreateEventSendNextByte( SMBUS_INSTANCE_TYPE* pxSMBusInst
 /******************************************************************************
 *
 * @brief    Reads the command byte from the Target RX FIFO, calls the callback function
-*           for the specified instance to get the SMBus protocol associated with the 
+*           for the specified instance to get the SMBus protocol associated with the
 *           command byte and stores that protocol in the instance structure
 *
 * @param    pxSMBusInstance is a pointer to the SMBus instance structure.
@@ -129,8 +129,8 @@ uint8_t ucSMBusHandleActionGetARPProtocol( SMBUS_INSTANCE_TYPE* pxSMBusInstance 
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to read data from the application software 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to read data from the application software
+*           for the specified instance is present.
 *           If present it is called for the current SMBus command.
 *           The callback function must return the data and size of data for the command.
 *
@@ -145,8 +145,8 @@ void vSMBusHandleActionGetDataFromApplication( SMBUS_INSTANCE_TYPE* pxSMBusInsta
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to write data to the application software 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to write data to the application software
+*           for the specified instance is present.
 *           If present it is called for the current SMBus command.
 *           The callback function write the command, data and size of data and transaction ID.
 *
@@ -162,8 +162,8 @@ void vSMBusHandleActionWriteDataToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInsta
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to announce the result of the SMBus transaction 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to announce the result of the SMBus transaction
+*           for the specified instance is present.
 *           If present the callback is called.
 *           The callback function will include the command, transaction ID and the result
 *
@@ -176,30 +176,30 @@ void vSMBusHandleActionWriteDataToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInsta
 * @note     None.
 *
 *****************************************************************************/
-void vSMBusHandleActionAnnounceResultToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint8_t ucTransactionID, 
+void vSMBusHandleActionAnnounceResultToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint8_t ucTransactionID,
                                                         uint32_t ulStatus );
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to announce that an ARP Assign Address 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to announce that an ARP Assign Address
+*           for the specified instance is present.
 *           If present the callback is called.
 *           The callback function will include the newly assigned address
 *
-* @param    pxSMBusInstance is a pointer to the SMBus instance structure.  
+* @param    pxSMBusInstance is a pointer to the SMBus instance structure.
 *
 * @return   None
 *
 * @note     None.
 *
 *****************************************************************************/
-void vSMBusHandleActionNotifyAddressChangeToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance, 
+void vSMBusHandleActionNotifyAddressChangeToApplication( SMBUS_INSTANCE_TYPE* pxSMBusInstance,
                                                                 uint8_t ucTransactionID );
 
 /******************************************************************************
 *
 * @brief    Checks if a callback function to announce an SMBuss Error
-*           for the specified instance is present.  
+*           for the specified instance is present.
 *           If present the callback is called.
 *           The callback function will include the error type
 *
@@ -216,7 +216,7 @@ void vSMBusHandleActionBusError( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint8_t u
 /******************************************************************************
 *
 * @brief    Checks if a callback function to announce an SMBuss Warning
-*           for the specified instance is present.  
+*           for the specified instance is present.
 *           If present the callback is called.
 *           The callback function will include the warning type
 *
@@ -232,8 +232,8 @@ void vSMBusHandleActionBusWarning( SMBUS_INSTANCE_TYPE* pxSMBusInstance, uint8_t
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to read data from the application software 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to read data from the application software
+*           for the specified instance is present.
 *           If present it is called for the current I2C transaction.
 *           The callback function must return the data and size of data for the command.
 *
@@ -248,8 +248,8 @@ void vSMBusHandleActionGetI2CDataFromApplication( SMBUS_INSTANCE_TYPE* pxSMBusIn
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to write data to the application software 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to write data to the application software
+*           for the specified instance is present.
 *           If present it is called for the current I2C transaction.
 *           The callback function write the command, data and size of data and transaction ID.
 *
@@ -264,8 +264,8 @@ void vSMBusHandleActionWriteI2CDataToApplication( SMBUS_INSTANCE_TYPE* pxSMBusIn
 
 /******************************************************************************
 *
-* @brief    Checks if a callback function to announce the result of the I2C transaction 
-*           for the specified instance is present.  
+* @brief    Checks if a callback function to announce the result of the I2C transaction
+*           for the specified instance is present.
 *           If present the callback is called.
 *           The callback function will include the command and the result
 *

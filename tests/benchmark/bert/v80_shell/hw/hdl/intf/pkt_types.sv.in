@@ -44,7 +44,7 @@ package iwTypes;
     parameter integer HBM_LEN_BITS = 32;
     parameter integer HBM_DATA_BITS = 256;
     parameter integer HBM_ID_BITS = 2;
-    
+
     parameter integer QDMA_DATA_BITS = 512;
     parameter integer QDMA_USER_BITS = 34;
     parameter integer QDMA_QID_BITS = 12;
@@ -87,5 +87,5 @@ package iwTypes;
     parameter AST_PERIOD = 10 * CLK_PERIOD;
     parameter TT = 2ns;
     parameter TA = 1ns;
-    
+
 endpackage

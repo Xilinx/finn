@@ -475,7 +475,7 @@ proc cr_bd_design_static { parentCell } {
         CONFIG.FREQ_HZ {200000000} \
         ] $hbm_ref_clk_1
 
-        # Uncomment qsfp and mcio ports as required by design 
+        # Uncomment qsfp and mcio ports as required by design
         #  set qsfp0_4x [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gt_rtl:1.0 qsfp0_4x ]
         #
         #  set qsfp1_4x [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:gt_rtl:1.0 qsfp1_4x ]
@@ -526,8 +526,8 @@ proc cr_bd_design_static { parentCell } {
 
         set smbus_0 [ create_bd_intf_port -mode Master -vlnv xilinx.com:interface:iic_rtl:1.0 smbus_0 ]
 
-        # HBM PL ports 
-        for {set i 0}  {$i < ${N_HBM_PORTS}} {incr i} {   
+        # HBM PL ports
+        for {set i 0}  {$i < ${N_HBM_PORTS}} {incr i} {
             set cmd "set HBM$i\_AXI_0 \[ create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 HBM$i\_AXI_0 ]
                     set_property -dict \[ list \
                     CONFIG.ADDR_WIDTH {64} \
@@ -1024,7 +1024,7 @@ proc cr_bd_design_static { parentCell } {
             SMON_VOLTAGE_AVERAGING_SAMPLES {8} \
         } \
         ] [get_bd_cells cips]
-        
+
         # Main NoC
         set uoffs 4
         set n_noc_ports [expr {$uoffs + ${N_HBM_NOC_PORTS}}]
@@ -1149,7 +1149,7 @@ proc cr_bd_design_static { parentCell } {
         CONFIG.CONST_VAL {0} \
         CONFIG.CONST_WIDTH {16} \
         ] [get_bd_cells xlconstant_0]
-        
+
         connect_bd_net [get_bd_pins cips/dma1_m_axis_h2c_qid] [get_bd_pins xlconcat_0/In0]
         connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins xlconcat_0/In1]
         connect_bd_net [get_bd_pins cips/dma1_m_axis_h2c_mty] [get_bd_pins xlconcat_0/In2]
@@ -1174,7 +1174,7 @@ proc cr_bd_design_static { parentCell } {
         ] [get_bd_cells axis_clock_converter_0]
         make_bd_intf_pins_external  [get_bd_intf_pins axis_clock_converter_0/M_AXIS]
         set_property name m_axis_h2c [get_bd_intf_ports M_AXIS_0]
-        
+
         connect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins axis_clock_converter_0/s_axis_tuser]
         connect_bd_net [get_bd_pins cips/dma1_m_axis_h2c_tlast] [get_bd_pins axis_clock_converter_0/s_axis_tlast]
         connect_bd_net [get_bd_pins cips/dma1_m_axis_h2c_tvalid] [get_bd_pins axis_clock_converter_0/s_axis_tvalid]
@@ -1237,7 +1237,7 @@ proc cr_bd_design_static { parentCell } {
         connect_bd_net [get_bd_pins axis_clock_converter_1/m_axis_tdata] [get_bd_pins cips/dma1_s_axis_c2h_tdata]
 
         # NoC HBM port params
-        for {set i 0}  {$i < ${N_HBM_PL_PORTS}} {incr i} {  
+        for {set i 0}  {$i < ${N_HBM_PL_PORTS}} {incr i} {
             set ch [expr {$i / 4}]
             set cp [expr {$i % 4}]
 
@@ -1313,7 +1313,7 @@ proc cr_bd_design_static { parentCell } {
         create_bd_cell -type ip -vlnv xilinx.com:ip:axis_clock_converter:1.1 axis_clock_converter_2
         set_property -dict [list CONFIG.TDATA_NUM_BYTES.VALUE_SRC USER] [get_bd_cells axis_clock_converter_2]
         set_property CONFIG.TDATA_NUM_BYTES {2} [get_bd_cells axis_clock_converter_2]
-        
+
         connect_bd_intf_net [get_bd_intf_ports s_cmpt_c2h] [get_bd_intf_pins axis_clock_converter_2/S_AXIS]
         connect_bd_net [get_bd_pins axis_clock_converter_2/s_axis_aresetn] [get_bd_pins proc_sys_reset_0/peripheral_aresetn]
         connect_bd_net [get_bd_pins axis_clock_converter_2/m_axis_aresetn] [get_bd_pins proc_sys_reset_1/peripheral_aresetn]
@@ -1437,12 +1437,12 @@ proc cr_bd_design_static { parentCell } {
 
         connect_bd_intf_net -intf_net smartconnect_0_M00_AXI [get_bd_intf_ports M00_AXI_0] [get_bd_intf_pins smartconnect_0/M00_AXI]
 
-        for {set i 0}  {$i < ${N_HBM_PL_PORTS}} {incr i} {  
+        for {set i 0}  {$i < ${N_HBM_PL_PORTS}} {incr i} {
             set cmd "[format "connect_bd_intf_net -intf_net HBM%02d_AXI_0_1 \[get_bd_intf_ports HBM$i\_AXI_0] \[get_bd_intf_pins axi_noc_cips/HBM%02d_AXI]" $i $i]"
             eval $cmd
         }
 
-        for {set i ${N_HBM_PL_PORTS}}  {$i < ${N_HBM_PORTS}} {incr i} { 
+        for {set i ${N_HBM_PL_PORTS}}  {$i < ${N_HBM_PORTS}} {incr i} {
             set cslv [expr {$i - ${N_HBM_PL_PORTS} + $uoffs}]
             set cmd "[format "connect_bd_intf_net -intf_net S%02d_AXI_0_1 \[get_bd_intf_ports HBM$i\_AXI_0] \[get_bd_intf_pins axi_noc_cips/S%02d_AXI]" $i $cslv]"
             eval $cmd
@@ -1478,7 +1478,7 @@ proc cr_bd_design_static { parentCell } {
         connect_bd_intf_net [get_bd_intf_pins smartconnect_0/S00_AXI] [get_bd_intf_pins axi_noc_cips/M01_AXI]
         connect_bd_net [get_bd_pins axi_noc_cips/aclk5] [get_bd_pins clk_wizard_0/clk_out1]
         connect_bd_net [get_bd_ports aclk_dp] [get_bd_pins clk_wizard_0/clk_out2]
-        
+
         connect_bd_net [get_bd_pins axi_noc_cips/aclk6] [get_bd_pins clk_wizard_0/clk_out3]
         connect_bd_net [get_bd_pins proc_sys_reset_2/slowest_sync_clk] [get_bd_pins clk_wizard_0/clk_out3]
         connect_bd_net [get_bd_ports dresetn] [get_bd_pins proc_sys_reset_2/peripheral_aresetn]
@@ -1491,11 +1491,11 @@ proc cr_bd_design_static { parentCell } {
         connect_bd_net [get_bd_pins proc_sys_reset_4/slowest_sync_clk] [get_bd_pins clk_wizard_0/clk_out5]
         connect_bd_net [get_bd_ports uresetn_1] [get_bd_pins proc_sys_reset_4/peripheral_aresetn]
         connect_bd_net [get_bd_pins proc_sys_reset_4/ext_reset_in] [get_bd_pins cips/pl0_resetn]
-        
+
         connect_bd_net [get_bd_pins proc_sys_reset_5/slowest_sync_clk] [get_bd_pins clk_wizard_0/clk_out6]
         connect_bd_net [get_bd_ports uresetn_2] [get_bd_pins proc_sys_reset_5/peripheral_aresetn]
         connect_bd_net [get_bd_pins proc_sys_reset_5/ext_reset_in] [get_bd_pins cips/pl0_resetn]
-        
+
         # Create address segments
         assign_bd_address -offset 0x004000000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces cips/CPM_PCIE_NOC_0] [get_bd_addr_segs axi_noc_cips/S00_AXI/HBM0_PC0] -force
         assign_bd_address -offset 0x004040000000 -range 0x40000000 -target_address_space [get_bd_addr_spaces cips/CPM_PCIE_NOC_0] [get_bd_addr_segs axi_noc_cips/S00_AXI/HBM0_PC1] -force
@@ -1589,7 +1589,7 @@ proc cr_bd_design_static { parentCell } {
         assign_bd_address -target_address_space /cips/CPM_PCIE_NOC_0 [get_bd_addr_segs M00_AXI_0/Reg] -force
         assign_bd_address -target_address_space /cips/CPM_PCIE_NOC_1 [get_bd_addr_segs M00_AXI_0/Reg] -force
 
-        for {set i 0}  {$i < ${N_HBM_PORTS}} {incr i} {  
+        for {set i 0}  {$i < ${N_HBM_PORTS}} {incr i} {
             set cmd "[format "assign_bd_address -target_address_space /HBM$i\_AXI_0 \[get_bd_addr_segs axi_noc_cips/HBM%02d_AXI/HBM$i\_PC0] -force" $i]"
             eval $cmd
         }

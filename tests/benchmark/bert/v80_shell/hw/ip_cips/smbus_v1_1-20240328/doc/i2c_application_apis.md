@@ -94,7 +94,7 @@ uint8_t ucI2CCreateDevice( struct I2C_PROFILE_TYPE* pxI2cProfile,
                             I2C_USER_SUPPLIED_ENVIRONMENT_COMMAND_COMPLETE  pFnAnnounceResult,
                             I2C_USER_SUPPLIED_ENVIRONMENT_BUS_ERROR         pFnBusError,
                             I2C_USER_SUPPLIED_ENVIRONMENT_BUS_WARNING       pFnBusWarning );
-            
+
 
 /******************************************************************************/
 /*!
@@ -108,7 +108,7 @@ uint8_t ucI2CCreateDevice( struct I2C_PROFILE_TYPE* pxI2cProfile,
  *
  *  @note   None
  */
-/******************************************************************************/            
+/******************************************************************************/
 uint8_t ucI2CDestroyDevice( struct I2C_PROFILE_TYPE* pxI2cProfile,
                             uint8_t ucDeviceId );
 ```
@@ -128,7 +128,7 @@ uint8_t ucI2CDestroyDevice( struct I2C_PROFILE_TYPE* pxI2cProfile,
  *          I2C_ERROR   - an error occurred attempting to write
  *
  */
-/******************************************************************************/    
+/******************************************************************************/
 uint8_t ucI2CWriteData( struct I2C_PROFILE_TYPE* pxI2cProfile,
                         uint8_t  ucDeviceId,
                         uint8_t  ucAddr,
@@ -151,7 +151,7 @@ uint8_t ucI2CWriteData( struct I2C_PROFILE_TYPE* pxI2cProfile,
  *          I2C_ERROR   - an error occurred attempting to read
  *
  */
-/******************************************************************************/            
+/******************************************************************************/
 uint8_t ucI2CReadData( struct I2C_PROFILE_TYPE* pxI2cProfile,
                         uint8_t   ucDeviceId,
                         uint8_t   ucAddr,

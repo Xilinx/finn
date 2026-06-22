@@ -143,7 +143,7 @@ always_ff @(posedge aclk) begin
 
     cnt_sent_rd <= 0;
     cnt_sent_wr <= 0;
-    
+
     rd_valid <= 1'b0;
     wr_valid <= 1'b0;
   end
@@ -218,13 +218,13 @@ always_ff @(posedge aclk) begin
                 end
             end
 
-        
+
         default: ;
       endcase
     end
 
   end
-end    
+end
 
 // Read process
 assign slv_reg_rden = axi_arready & axi_ctrl.arvalid & ~axi_rvalid;
@@ -235,8 +235,8 @@ always_ff @(posedge aclk) begin
   end
   else begin
     if(slv_reg_rden) begin
-      axi_rdata <= 0;  
-      
+      axi_rdata <= 0;
+
       case (axi_araddr[ADDR_LSB+:ADDR_MSB]) inside
         [CTRL_REG:CTRL_REG]:
             axi_rdata[0] <= (cnt_done_wr[0] == slv_reg[N_RUNS_REG]);
@@ -246,7 +246,7 @@ always_ff @(posedge aclk) begin
             axi_rdata <= slv_reg[PERF_LAT_REG];
         [PERF_INT_REG:PERF_INT_REG]:
             axi_rdata <= slv_reg[PERF_INT_REG];
-        
+
         [CH_CNFG_RD_ADDR_OFFS:CH_CNFG_RD_ADDR_OFFS]:
             axi_rdata <= slv_reg[axi_araddr[ADDR_LSB+:ADDR_MSB]];
         [CH_CNFG_WR_ADDR_OFFS:CH_CNFG_WR_ADDR_OFFS]:
@@ -255,16 +255,16 @@ always_ff @(posedge aclk) begin
             axi_rdata <= slv_reg[axi_araddr[ADDR_LSB+:ADDR_MSB]];
         [CH_CNFG_WR_LEN_OFFS:CH_CNFG_WR_LEN_OFFS]:
             axi_rdata <= slv_reg[axi_araddr[ADDR_LSB+:ADDR_MSB]];
-        
+
         [CH_CNFG_RD_DONE_OFFS:CH_CNFG_RD_DONE_OFFS]:
             axi_rdata <= cnt_done_rd;
         [CH_CNFG_WR_DONE_OFFS:CH_CNFG_WR_DONE_OFFS]:
             axi_rdata <= cnt_done_wr;
-        
+
         default: ;
       endcase
     end
-  end 
+  end
 end
 
 // I/O
@@ -330,8 +330,8 @@ logic_array #(.N_STAGES(4), .DATA_BITS(1)) inst_rd_done_reg (.aclk(aclk), .arese
 logic_array #(.N_STAGES(4), .DATA_BITS(1)) inst_wr_done_reg (.aclk(aclk), .aresetn(aresetn), .s_tdata(wr_done), .m_tdata(wr_done_int));
 
 // --------------------------------------------------------------------------------------
-// AXI CTRL  
-// -------------------------------------------------------------------------------------- 
+// AXI CTRL
+// --------------------------------------------------------------------------------------
 // Don't edit
 
 // I/O
@@ -351,9 +351,9 @@ always_ff @(posedge aclk) begin
       axi_awready <= 1'b0;
       axi_awaddr <= 0;
       aw_en <= 1'b1;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_awready && axi_ctrl.awvalid && axi_ctrl.wvalid && aw_en)
         begin
           axi_awready <= 1'b1;
@@ -365,12 +365,12 @@ always_ff @(posedge aclk) begin
           aw_en <= 1'b1;
           axi_awready <= 1'b0;
         end
-      else           
+      else
         begin
           axi_awready <= 1'b0;
         end
-    end 
-end  
+    end
+end
 
 // arready and araddr
 always_ff @(posedge aclk) begin
@@ -378,9 +378,9 @@ always_ff @(posedge aclk) begin
     begin
       axi_arready <= 1'b0;
       axi_araddr  <= 0;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_arready && axi_ctrl.arvalid)
         begin
           axi_arready <= 1'b1;
@@ -390,8 +390,8 @@ always_ff @(posedge aclk) begin
         begin
           axi_arready <= 1'b0;
         end
-    end 
-end    
+    end
+end
 
 // bvalid and bresp
 always_ff @(posedge aclk) begin
@@ -399,20 +399,20 @@ always_ff @(posedge aclk) begin
     begin
       axi_bvalid  <= 0;
       axi_bresp   <= 2'b0;
-    end 
+    end
   else
-    begin    
+    begin
       if (axi_awready && axi_ctrl.awvalid && ~axi_bvalid && axi_wready && axi_ctrl.wvalid)
         begin
           axi_bvalid <= 1'b1;
           axi_bresp  <= 2'b0;
-        end                   
+        end
       else
         begin
-          if (axi_ctrl.bready && axi_bvalid) 
+          if (axi_ctrl.bready && axi_bvalid)
             begin
-              axi_bvalid <= 1'b0; 
-            end  
+              axi_bvalid <= 1'b0;
+            end
         end
     end
 end
@@ -422,9 +422,9 @@ always_ff @(posedge aclk) begin
   if ( aresetn == 1'b0 )
     begin
       axi_wready <= 1'b0;
-    end 
+    end
   else
-    begin    
+    begin
       if (~axi_wready && axi_ctrl.wvalid && axi_ctrl.awvalid && aw_en )
         begin
           axi_wready <= 1'b1;
@@ -433,8 +433,8 @@ always_ff @(posedge aclk) begin
         begin
           axi_wready <= 1'b0;
         end
-    end 
-end  
+    end
+end
 
 // rvalid and rresp (1Del?)
 always_ff @(posedge aclk) begin
@@ -442,19 +442,19 @@ always_ff @(posedge aclk) begin
     begin
       axi_rvalid <= 0;
       axi_rresp  <= 0;
-    end 
+    end
   else
-    begin    
+    begin
       if (axi_arready && axi_ctrl.arvalid && ~axi_rvalid)
         begin
           axi_rvalid <= 1'b1;
           axi_rresp  <= 2'b0;
-        end   
+        end
       else if (axi_rvalid && axi_ctrl.rready)
         begin
           axi_rvalid <= 1'b0;
-        end                
+        end
     end
-end    
+end
 
 endmodule // CSR

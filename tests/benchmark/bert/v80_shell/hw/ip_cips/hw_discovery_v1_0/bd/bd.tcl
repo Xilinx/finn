@@ -1,21 +1,21 @@
 # (c) Copyright 2022, Advanced Micro Devices, Inc.
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a 
-# copy of this software and associated documentation files (the "Software"), 
-# to deal in the Software without restriction, including without limitation 
-# the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-# and/or sell copies of the Software, and to permit persons to whom the 
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
 # Software is furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in 
+#
+# The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL 
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING 
-# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER 
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 ############################################################
 
@@ -57,14 +57,14 @@ proc pre_propagate {cellpath undefined_params} {
     C_PF3_ENTRY_MINOR_VERSION_0 C_PF3_ENTRY_MINOR_VERSION_1 C_PF3_ENTRY_MINOR_VERSION_2 C_PF3_ENTRY_MINOR_VERSION_3 C_PF3_ENTRY_MINOR_VERSION_4 C_PF3_ENTRY_MINOR_VERSION_5 C_PF3_ENTRY_MINOR_VERSION_6 C_PF3_ENTRY_MINOR_VERSION_7 C_PF3_ENTRY_MINOR_VERSION_8 C_PF3_ENTRY_MINOR_VERSION_9 C_PF3_ENTRY_MINOR_VERSION_10 C_PF3_ENTRY_MINOR_VERSION_11 C_PF3_ENTRY_MINOR_VERSION_12 C_PF3_ENTRY_MINOR_VERSION_13 \
     C_PF3_ENTRY_RSVD0_0 C_PF3_ENTRY_RSVD0_1 C_PF3_ENTRY_RSVD0_2 C_PF3_ENTRY_RSVD0_3 C_PF3_ENTRY_RSVD0_4 C_PF3_ENTRY_RSVD0_5 C_PF3_ENTRY_RSVD0_6 C_PF3_ENTRY_RSVD0_7 C_PF3_ENTRY_RSVD0_8 C_PF3_ENTRY_RSVD0_9 C_PF3_ENTRY_RSVD0_10 C_PF3_ENTRY_RSVD0_11 C_PF3_ENTRY_RSVD0_12 C_PF3_ENTRY_RSVD0_13]
   set cell [get_bd_cells $cellpath]
-	puts "\[VSEC-BAR\] Cell: ${cellpath}"  
+	puts "\[VSEC-BAR\] Cell: ${cellpath}"
   if {[get_property CONFIG.C_MANUAL $cell] == 0} {
     set dflt [dict create]
     foreach p $props {
       dict set dflt CONFIG.${p}.VALUE_SRC DEFAULT
     }
     set_property -dict $dflt $cell
-    
+
     if {[llength [get_property CONFIG.C_INJECT_ENDPOINTS $cell]] > 1} {
       set inject 1
       puts "\[VSEC-BAR\] ${cell} : Injecting PCIE Mapping Info from C_INJECT_ENDPOINTS"
@@ -79,11 +79,11 @@ proc pre_propagate {cellpath undefined_params} {
     puts "\[VSEC-BAR\] ${cell} is manually configured, and is skipping automatic configuration."
     return
   }
-  
+
   set prop_vals [dict create]
   set num_pfs [get_property CONFIG.C_NUM_PFS [get_bd_cells $cellpath]]
-	puts "\[VSEC-BAR\] ${cell} : Number of PFs = ${num_pfs}"  
-  
+	puts "\[VSEC-BAR\] ${cell} : Number of PFs = ${num_pfs}"
+
   if {$inject == 0} {
     if {[llength [vitis::get_pcie_mapping_info]] > 0} {
       puts "\[VSEC-BAR\] ${cell} : Getting PCIE Mapping Info"
@@ -91,7 +91,7 @@ proc pre_propagate {cellpath undefined_params} {
         set pf [dict get $pcie_info physical_function]
         set bar [dict get $pcie_info bar]
       	puts "\[VSEC-BAR\] ${cell} : Physical Function = ${pf}"
-      	puts "\[VSEC-BAR\] ${cell} : BAR = ${bar}"  	
+      	puts "\[VSEC-BAR\] ${cell} : BAR = ${bar}"
         foreach {endpoint} [vitis::get_endpoints_for_pcie_bar $pf $bar "ALL"] {
           puts "\[VSEC-BAR\] ${cell} : Endpoint = ${endpoint}"
           set bar_cell [bd::utils::get_parent [dict get $endpoint intf]]
@@ -115,7 +115,7 @@ proc pre_propagate {cellpath undefined_params} {
       set pf [dict get $pcie_info physical_function]
       set bar [dict get $pcie_info bar]
     	puts "\[VSEC-BAR\] ${cell} : Physical Function = ${pf}"
-    	puts "\[VSEC-BAR\] ${cell} : BAR = ${bar}"  	
+    	puts "\[VSEC-BAR\] ${cell} : BAR = ${bar}"
       set endpoints_for_pcie_bar [dict get [get_property CONFIG.C_INJECT_ENDPOINTS $cell] endpoints_for_pcie_bar $pf $bar]
       foreach {endpoint} ${endpoints_for_pcie_bar} {
         puts "\[VSEC-BAR\] ${cell} : Endpoint = ${endpoint}"
@@ -137,15 +137,15 @@ proc pre_propagate {cellpath undefined_params} {
   for {set i 0} {$i < $num_pfs} {incr i } {
     set bar_info [list]
     if {$inject == 0} {
-  		puts "\[VSEC-BAR\] ${cell} : Getting PCIe Mapping Info for ${cell}/s_axi_ctrl_pf${i}"  	
+  		puts "\[VSEC-BAR\] ${cell} : Getting PCIe Mapping Info for ${cell}/s_axi_ctrl_pf${i}"
   	  set bar_info [vitis::get_pcie_mapping_for [get_bd_intf_pins $cell/s_axi_ctrl_pf${i}]]
     } else {
-  		puts "\[VSEC-BAR\] ${cell} : Injecting PCIe Mapping Info for ${cell}/s_axi_ctrl_pf${i}"  	
+  		puts "\[VSEC-BAR\] ${cell} : Injecting PCIe Mapping Info for ${cell}/s_axi_ctrl_pf${i}"
   	  if {[dict exist [get_property CONFIG.C_INJECT_ENDPOINTS $cell] pcie_mapping_for [get_bd_intf_pins $cell/s_axi_ctrl_pf${i}]]} {
     	  set bar_info [dict get [get_property CONFIG.C_INJECT_ENDPOINTS $cell] pcie_mapping_for [get_bd_intf_pins $cell/s_axi_ctrl_pf${i}]]
     	}
   	}
-  	
+
 	  if {[llength $bar_info] == 0} {
 	    error "\[VSEC-BAR\] ${cell} Could not find a PCIe mapped BAR address"
 	    return
@@ -180,7 +180,7 @@ proc pre_propagate {cellpath undefined_params} {
 	      dict set prop_vals CONFIG.C_PF${pf}_ENTRY_TYPE_${index} [dict get $ep_info type]
 	      dict set prop_vals CONFIG.C_PF${pf}_ENTRY_RSVD0_${index} [dict get $ep_info reserve]
 	      dict set prop_vals CONFIG.C_PF${pf}_ENTRY_VERSION_TYPE_${index} 0x1
-	
+
 	      puts "\[VSEC-BAR\] Adding record to ${cell} for [dict get $pcie_peer xrt_endpoint_name] for endpoint [dict get $pcie_peer intf] at address [format 0x%012X [dict get $pcie_peer offset]]"
 	      incr index
 	      dict set prop_vals CONFIG.C_PF${pf}_NUM_SLOTS_BAR_LAYOUT_TABLE $index

@@ -24,7 +24,7 @@
   * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
   * EVEN IF ADVISED OF THE POSSIBILITY OF    SUCH DAMAGE.
   */
-  
+
 import iwTypes::*;
 
 `include "axi_macros.svh"
@@ -32,7 +32,7 @@ import iwTypes::*;
 module axi_hbm_reg (
 	input logic 			          aclk,
 	input logic 			          aresetn,
-	
+
 	AXI4.slave  		            s_axi,
 	AXI4.master			            m_axi
 );
@@ -111,5 +111,5 @@ module axi_hbm_reg (
       .m_axi_rvalid(m_axi.rvalid),
       .m_axi_rready(m_axi.rready)
   );
-  
+
 endmodule

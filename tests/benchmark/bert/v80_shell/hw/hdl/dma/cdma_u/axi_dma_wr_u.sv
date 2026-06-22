@@ -258,7 +258,7 @@ always_comb begin
             // idle state - load new descriptor to start operation
             flush_save = 1'b1;
             s_axis_write_desc_ready_next = 1'b1;
-            
+
             addr_next = s_axis_write_desc_addr;
             offset_next = s_axis_write_desc_addr & OFFSET_MASK;
             strb_offset_mask_next = {AXI_STRB_WIDTH{1'b1}} << (s_axis_write_desc_addr & OFFSET_MASK);
@@ -300,7 +300,7 @@ always_comb begin
 
             input_cycle_count_next = (tr_word_count_next - 1) >> $clog2(AXIS_KEEP_WIDTH_INT);
             input_last_cycle_next = input_cycle_count_next == 0;
-            
+
             output_cycle_count_next = (tr_word_count_next + (addr_reg & OFFSET_MASK) - 1) >> AXI_BURST_SIZE;
             output_last_cycle_next = output_cycle_count_next == 0;
 
@@ -463,7 +463,7 @@ always_ff @(posedge aclk) begin
 
         status_fifo_wr_ptr_reg <= 0;
         status_fifo_rd_ptr_reg <= 0;
-        
+
         tmp_loc_reg <= 0;
     end else begin
         state_reg <= state_next;
@@ -472,7 +472,7 @@ always_ff @(posedge aclk) begin
         s_axis_write_data_tready_reg <= s_axis_write_data_tready_next;
         m_axi_awvalid_reg <= m_axi_awvalid_next;
         m_axi_bready_reg <= m_axi_bready_next;
-        
+
         tmp_loc_reg <= tmp_loc_next;
 
         // datapath

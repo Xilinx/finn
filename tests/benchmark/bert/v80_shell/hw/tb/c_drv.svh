@@ -45,13 +45,13 @@
 class c_drv #(
     parameter integer DATA_BITS = 8
 );
-  
+
   // Name
   string name;
 
   // Interface handle
   virtual AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis;
-  
+
   // Mailbox handle
   mailbox gen2drv;
   mailbox drv2scb;
@@ -59,7 +59,7 @@ class c_drv #(
   // Number of transactions
   int n_trs;
 
-  // 
+  //
   // C-tor
   //
   function new(string name, virtual AXI4S #(.AXI4S_DATA_BITS(DATA_BITS)) axis, mailbox gen2drv, mailbox drv2scb);
@@ -78,14 +78,14 @@ class c_drv #(
   task cycle_wait;
       @(posedge axis.aclk);
   endtask
-  
+
   // Reset
   task reset_m;
       axis.tvalid <= 1'b0;
       axis.tdata <= 0;
       $display("Drv %s: AXIS reset_m() completed.", name);
   endtask
-  
+
   //
   // Run
   //
@@ -94,7 +94,7 @@ class c_drv #(
       c_trs #(.DATA_BITS(DATA_BITS)) trs;
       gen2drv.get(trs);
       drv2scb.put(trs);
-      axis.tdata  <= #TA trs.tdata;   
+      axis.tdata  <= #TA trs.tdata;
       axis.tvalid <= #TA 1'b1;
       cycle_start();
       while(axis.tready != 1'b1) begin cycle_wait(); cycle_start(); end
@@ -105,7 +105,7 @@ class c_drv #(
       n_trs++;
     end
   endtask
-  
+
 endclass
 
 `endif

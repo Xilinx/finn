@@ -395,7 +395,7 @@ function(create_sw)
     ARCHIVE_OUTPUT_DIRECTORY "${SW_ROOT}/lib"
     RUNTIME_OUTPUT_DIRECTORY "${SW_ROOT}/bin"
   )
-  
+
   target_include_directories(BrainWave PUBLIC "${BWAVE_PUBLIC_INC}" "${BWAVE_GEN_INC}")
   target_link_directories(BrainWave PUBLIC /usr/local/lib)
   target_link_libraries(BrainWave PUBLIC Threads::Threads)
@@ -433,7 +433,7 @@ function(create_py)
   endif()
 
   configure_file("${MAIN_PY_PATH}/main.py.in" "${CMAKE_BINARY_DIR}/sw/python/main.py")
-  
+
   # If user hasn't pointed Torch somewhere, try the common LibTorch location
   if(NOT DEFINED Torch_DIR AND EXISTS "/opt/libtorch/share/cmake/Torch")
     set(Torch_DIR "/opt/libtorch/share/cmake/Torch" CACHE PATH "Torch CMake package dir")

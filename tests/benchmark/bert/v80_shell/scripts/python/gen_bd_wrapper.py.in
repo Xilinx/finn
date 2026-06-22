@@ -5,10 +5,10 @@ def generate_axi_top(path):
     """
     Generates a Verilog wrapper with specified number of HBM AXI ports.
     """
-    
+
     num_hbm_ports = ${N_HBM_PORTS}
     en_strm = ${EN_STRM}
-    
+
     axi_hbm_instance_template = """
         .HBM{i}_AXI_0_awaddr(axi_hbm[{i}].awaddr),
         .HBM{i}_AXI_0_awburst(axi_hbm[{i}].awburst),
@@ -46,10 +46,10 @@ def generate_axi_top(path):
         .HBM{i}_AXI_0_rvalid(axi_hbm[{i}].rvalid),
         .HBM{i}_AXI_0_rready(axi_hbm[{i}].rready),
     """
-    
+
     # Generate HBM ports
     axi_hbm_instances = ""
-    
+
     for i in range(num_hbm_ports):
         axi_hbm_instances += axi_hbm_instance_template.format(i=i)
         if i != num_hbm_ports - 1:
@@ -66,10 +66,10 @@ def generate_axi_top(path):
 
     if en_strm:
         axi_strm_ports = """
-            AXI4S_USER.master            m_axis_h2c, 
+            AXI4S_USER.master            m_axis_h2c,
             AXI4S_USER.slave             s_axis_c2h,
         """
-    
+
     #
     # Top-level Verilog template
     #
@@ -78,7 +78,7 @@ def generate_axi_top(path):
     import iwTypes::*;
 
     `include "axi_macros.svh"
-    
+
     module design_static_bd_wrapper #(
         parameter               N_HBM_PORTS = {num_hbm_ports}
     ) (
@@ -130,7 +130,7 @@ def generate_axi_top(path):
         input  logic [0:0]      sys_clk0_0_clk_p,
         input  logic [0:0]      sys_clk0_1_clk_n,
         input  logic [0:0]      sys_clk0_1_clk_p,
-           
+
         {axi_strm_ports}
 
         AXI4L.master            axi_ctrl,
@@ -193,7 +193,7 @@ def generate_axi_top(path):
         always_comb qdma_c2h.tie_off_m();
         always_comb cmpt_c2h.tie_off_m();
     end
-    
+
     // Core instantiation
     design_static inst_cips (
         // AXIM
@@ -269,7 +269,7 @@ def generate_axi_top(path):
         .smbus_0_scl_t                  (smbus_0_scl_t),
         .smbus_0_sda_i                  (smbus_0_sda_i),
         .smbus_0_sda_o                  (smbus_0_sda_o),
-        .smbus_0_sda_t                  (smbus_0_sda_t),   
+        .smbus_0_sda_t                  (smbus_0_sda_t),
 
         // Stream
         .m_axis_h2c_tdata               (qdma_h2c.tdata),
@@ -304,7 +304,7 @@ def generate_axi_top(path):
 
     endmodule
     """
-    
+
     # Write the generated top-level module to a file
     wr_path = path + "/design_static_bd_wrapper.sv"
     with open(wr_path, "w") as f:

@@ -41,16 +41,16 @@ module axis_qdma_reg_array #(
     AXI4S_USER.master                   m_axis
 );
 
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 // Register slices
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 AXI4S_USER #(.AXI4S_DATA_BITS(DATA_BITS), .AXI4S_USER_BITS(USER_BITS)) axis_s [N_STAGES+1] ();
 
 `AXISU_ASSIGN(s_axis, axis_s[0])
 `AXISU_ASSIGN(axis_s[N_STAGES], m_axis)
 
 for(genvar i = 0; i < N_STAGES; i++) begin
-    axis_qdma_reg inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_s[i]), .m_axis(axis_s[i+1]));  
+    axis_qdma_reg inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_s[i]), .m_axis(axis_s[i+1]));
 end
 
 endmodule

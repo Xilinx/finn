@@ -702,7 +702,7 @@ int setup_qdma(const char *cfg_fname)
 	return ret;
 }
 
-void clean_qdma () 
+void clean_qdma ()
 {
 	qdma_env_cleanup();
 	csr_env_cleanup();
@@ -829,7 +829,7 @@ static ssize_t read_to_buffer(int fd, char *buffer, uint64_t size,
 	return count;
 }
 
-volatile uint64_t* map_csr() 
+volatile uint64_t* map_csr()
 {
 
     pci_fd = open(pci_resource, O_RDWR);
@@ -849,13 +849,13 @@ volatile uint64_t* map_csr()
     return bar;
 }
 
-int dma_xfer(char *qname, char *buffer, size_t size, uint64_t base, int8_t dir) 
+int dma_xfer(char *qname, char *buffer, size_t size, uint64_t base, int8_t dir)
 {
-    
+
     unsigned int flags;
     ssize_t count;
     int fd;
-    
+
     if(!qname || !buffer || size == 0) {
         printf("ERR:  invalid arguments.\n");
         return -EINVAL;
@@ -873,7 +873,7 @@ int dma_xfer(char *qname, char *buffer, size_t size, uint64_t base, int8_t dir)
         return fd;
     }
 
-	if(dir == H2C_TRANSFER) { 
+	if(dir == H2C_TRANSFER) {
 		count = write_from_buffer(fd, buffer, size, base);
 	} else { // read
 		count = read_to_buffer(fd, buffer, size, base);

@@ -71,7 +71,7 @@ module cdma_top #(
 );
 
 if(CDMA_TYPE == 0) begin
-    
+
     // Aligned
     if(CDMA_RD == 1) begin
         cdma_a_rd #(
@@ -112,7 +112,7 @@ if(CDMA_TYPE == 0) begin
     end
     else begin
         assign rd_done = 1'b0;
-        
+
         assign m_axi_ddr.arvalid = 1'b0;
         assign m_axi_ddr.araddr = '0;
         assign m_axi_ddr.arid = '0;
@@ -172,7 +172,7 @@ if(CDMA_TYPE == 0) begin
     end
     else begin
         assign wr_done = 1'b0;
-        
+
         assign m_axi_ddr.awvalid = 1'b0;
         assign m_axi_ddr.awaddr = '0;
         assign m_axi_ddr.awid = '0;
@@ -182,7 +182,7 @@ if(CDMA_TYPE == 0) begin
         assign m_axi_ddr.awburst = '0;
         assign m_axi_ddr.awlock = '0;
         assign m_axi_ddr.awcache = '0;
-        
+
         assign m_axi_ddr.wvalid = 1'b0;
         assign m_axi_ddr.wdata = '0;
         assign m_axi_ddr.wstrb = '0;
@@ -235,7 +235,7 @@ else if(CDMA_TYPE == 1) begin
     end
     else begin
         assign rd_done = 1'b0;
-        
+
         assign m_axi_ddr.arvalid = 1'b0;
         assign m_axi_ddr.araddr = '0;
         assign m_axi_ddr.arid = '0;
@@ -295,7 +295,7 @@ else if(CDMA_TYPE == 1) begin
     end
     else begin
         assign wr_done = 1'b0;
-        
+
         assign m_axi_ddr.awvalid = 1'b0;
         assign m_axi_ddr.awaddr = '0;
         assign m_axi_ddr.awid = '0;
@@ -305,7 +305,7 @@ else if(CDMA_TYPE == 1) begin
         assign m_axi_ddr.awburst = '0;
         assign m_axi_ddr.awlock = '0;
         assign m_axi_ddr.awcache = '0;
-        
+
         assign m_axi_ddr.wvalid = 1'b0;
         assign m_axi_ddr.wdata = '0;
         assign m_axi_ddr.wstrb = '0;
@@ -357,7 +357,7 @@ else begin
     end
     else begin
         assign rd_done = 1'b0;
-        
+
         assign m_axi_ddr.arvalid = 1'b0;
         assign m_axi_ddr.araddr = '0;
         assign m_axi_ddr.arid = '0;
@@ -417,7 +417,7 @@ else begin
     end
     else begin
         assign wr_done = 1'b0;
-        
+
         assign m_axi_ddr.awvalid = 1'b0;
         assign m_axi_ddr.awaddr = '0;
         assign m_axi_ddr.awid = '0;
@@ -427,7 +427,7 @@ else begin
         assign m_axi_ddr.awburst = '0;
         assign m_axi_ddr.awlock = '0;
         assign m_axi_ddr.awcache = '0;
-        
+
         assign m_axi_ddr.wvalid = 1'b0;
         assign m_axi_ddr.wdata = '0;
         assign m_axi_ddr.wstrb = '0;

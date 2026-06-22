@@ -61,7 +61,7 @@ module store_unit #(
 
     output logic                        wr_done,
     AXI4S.slave                         wr_ctrl,
-    
+
     AXI4S.slave                         s_axis
 );
 

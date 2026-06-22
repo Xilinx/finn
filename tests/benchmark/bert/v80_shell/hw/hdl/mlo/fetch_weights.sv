@@ -44,7 +44,7 @@ module fetch_weights #(
     parameter int unsigned              MW,
     parameter int unsigned              N_REPS,
     parameter int unsigned              ACTIVATION_WIDTH = 8,
-    
+
     parameter int unsigned              ADDR_BITS = 64,
     parameter int unsigned              DATA_BITS = 256,
     parameter int unsigned              LEN_BITS = 32,
@@ -53,14 +53,14 @@ module fetch_weights #(
     parameter logic[ADDR_BITS-1:0]      ADDR_WEIGHTS,
     parameter logic[ADDR_BITS-1:0]      LAYER_OFFS,
     parameter int unsigned              N_MAX_LAYERS,
-    
+
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0
 ) (
     input  wire                         aclk,
     input  wire                         aresetn,
-    
+
     output logic                        m_done,
 
     AXI4.master                         m_axi_hbm,
@@ -149,13 +149,13 @@ always_comb begin : DP
                 len_N = MH * MW;
                 addr_N = l_offsets[q_idx_out.tdata[0+:CNT_BITS]];
             end
-        end 
+        end
 
         ST_READ: begin
             q_dma.tvalid = 1'b1;
             if(q_dma.tready) begin
                 cnt_frames_N = cnt_frames_C + 1;
-            end 
+            end
         end
 
     endcase
@@ -202,7 +202,7 @@ AXI4S #(.AXI4S_DATA_BITS(PE*SIMD*ACTIVATION_WIDTH)) m_axis_int ();
 local_weight_buffer #(
     .PE(PE), .SIMD(SIMD), .MH(MH), .MW(MW), .N_REPS(N_REPS), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .DBG(DBG)
 ) inst_weight_buff (
-    .clk(aclk), .rst(~aresetn), 
+    .clk(aclk), .rst(~aresetn),
     .ivld(axis_dwc_lwb.tvalid), .irdy(axis_dwc_lwb.tready), .idat(axis_dwc_lwb.tdata),
     .ovld(m_axis_int.tvalid), .ordy(m_axis_int.tready), .odat(m_axis_int.tdata)
 );
@@ -210,4 +210,4 @@ local_weight_buffer #(
 // Reg slice
 axis_reg_array_rtl #(.N_STAGES(1), .DATA_BITS(PE*SIMD*ACTIVATION_WIDTH)) inst_reg_out (.aclk(aclk), .aresetn(aresetn), .s_axis(m_axis_int), .m_axis(m_axis));
 
-endmodule 
+endmodule

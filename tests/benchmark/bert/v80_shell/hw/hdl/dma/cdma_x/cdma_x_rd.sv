@@ -30,7 +30,7 @@ import iwTypes::*;
 /**
  * @brief   Unaligned CDMA top level
  *
- * The unaligned CDMA top level. Contains read and write DMA engines. 
+ * The unaligned CDMA top level. Contains read and write DMA engines.
  * Outstanding queues at the input. High resource overhead.
  *
  *  @param BURST_LEN    Maximum burst length size
@@ -110,7 +110,7 @@ always_ff @(posedge aclk) begin
 
         addr_C <= 'X;
         len_C <= 'X;
-    end 
+    end
     else begin
         state_C <= state_N;
 
@@ -128,7 +128,7 @@ always_comb begin
             state_N = rd_valid_int ? ST_SEND : ST_IDLE;
 
         ST_SEND:
-            state_N = ((len_C <= MAX_DMA_TRANSFER) && (dma_valid && dma_ready)) ? ST_IDLE : ST_SEND; 
+            state_N = ((len_C <= MAX_DMA_TRANSFER) && (dma_valid && dma_ready)) ? ST_IDLE : ST_SEND;
 
     endcase
 end
@@ -137,7 +137,7 @@ end
 always_comb begin
     addr_N = addr_C;
     len_N = len_C;
-    
+
     rd_ready_int = 1'b0;
     dma_valid = 1'b0;
 
@@ -159,7 +159,7 @@ always_comb begin
                 len_N = len_C - MAX_DMA_TRANSFER;
             end
         end
-        
+
     endcase
 
 end
@@ -203,7 +203,7 @@ cdma_datamover_rd inst_cdma_datamover (
     .m_axi_mm2s_aruser(), //: OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
     .m_axi_mm2s_arvalid(m_axi_ddr_arvalid), //: OUT STD_LOGIC;
     .m_axi_mm2s_arready(m_axi_ddr_arready), //: IN STD_LOGIC;
-    
+
     .m_axi_mm2s_rdata(m_axi_ddr_rdata), //: IN STD_LOGIC_VECTOR(511 DOWNTO 0);
     .m_axi_mm2s_rresp(m_axi_ddr_rresp), //: IN STD_LOGIC_VECTOR(1 DOWNTO 0);
     .m_axi_mm2s_rlast(m_axi_ddr_rlast), //: IN STD_LOGIC;

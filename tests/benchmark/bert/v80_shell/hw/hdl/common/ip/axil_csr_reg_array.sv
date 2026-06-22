@@ -41,16 +41,16 @@ module axil_csr_reg_array #(
     AXI4L.master                            m_axi
 );
 
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 // Register slices
-// ----------------------------------------------------------------------------------------------------------------------- 
+// -----------------------------------------------------------------------------------------------------------------------
 AXI4L #(.AXI4L_ADDR_BITS(ADDR_BITS), .AXI4L_DATA_BITS(DATA_BITS)) axi_s [N_STAGES+1] ();
 
 `AXIL_ASSIGN(s_axi, axi_s[0])
 `AXIL_ASSIGN(axi_s[N_STAGES], m_axi)
 
 for(genvar i = 0; i < N_STAGES; i++) begin
-    axil_csr_reg inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axi(axi_s[i]), .m_axi(axi_s[i+1]));  
+    axil_csr_reg inst_reg (.aclk(aclk), .aresetn(aresetn), .s_axi(axi_s[i]), .m_axi(axi_s[i+1]));
 end
 
 endmodule

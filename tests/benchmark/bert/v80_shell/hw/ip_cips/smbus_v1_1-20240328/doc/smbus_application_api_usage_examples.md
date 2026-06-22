@@ -19,7 +19,7 @@ The SMBus driver will create a copy of the profile it uses internally and pass a
 Application will be required to store the pointer for accessing further SMBus APIs.
 
 ```sh
-/* Application code will be passed a pointer to the SMBus profile from xInitSMBus() */  
+/* Application code will be passed a pointer to the SMBus profile from xInitSMBus() */
 struct  SMBUS_PROFILE_TYPE* pxSMBusProfile = NULL;
 ```
 
@@ -175,7 +175,7 @@ void  ReadDataCallback( uint8_t ucCommand, uint8_t* pucData, uint16_t* pusDataS
             pucData[0] = ReadByteData;
             break;
 
-        case 8:   
+        case 8:  
             /* Word Read */             
             *pusDataSize = 2;
             pucData[0] = ReadWordData[0];
@@ -183,17 +183,17 @@ void  ReadDataCallback( uint8_t ucCommand, uint8_t* pucData, uint16_t* pusDataS
             break;
 
 
-        case 9:   
+        case 9:  
             /* Process Call */          
             *pusDataSize = 2;
             pucData[0] = ProcessCallReadData[0];
             pucData[1] = ProcessCallReadData[1];;
             break;
 
-        case 11:      
+        case 11:    
             /* Block Read */
             /* +1 as we need to count the block size byte also */
-            *pusDataSize = BlockReadSize+1; 
+            *pusDataSize = BlockReadSize+1;
 
             pucData[0] = BlockReadSize;
             for( i = 1; i <= BlockReadSize; i++ )
@@ -202,10 +202,10 @@ void  ReadDataCallback( uint8_t ucCommand, uint8_t* pucData, uint16_t* pusDataS
             }
             break;
 
-        case 12:               
+        case 12:              
             /* Block Write Block Read Process Call */
             /* +1 as we need to count the block size byte also */
-            *pusDataSize = BlockWriteBlockReadSize+1; 
+            *pusDataSize = BlockWriteBlockReadSize+1;
 
             pucData[0] = BlockWriteBlockReadSize;
             for( i = 1; i <= BlockWriteBlockReadSize; i++ )
@@ -223,7 +223,7 @@ void  ReadDataCallback( uint8_t ucCommand, uint8_t* pucData, uint16_t* pusDataS
             pucData[3] = Read32Data[3];
             break;
 
-        case 17:                
+        case 17:              
             /* Read 64 */
             *pusDataSize = 8;
             pucData[0] = Read64Data[0];
@@ -249,7 +249,7 @@ This callback will be called when an SMBus Target has received data from an SMBu
 it will be called by an SMBus Controller when it has received data back from an SMBus Target as part of one of the read protocol messages.
 
 ```sh
-/* This callback function must be created. It will be called when an SMBus target has been sent data 
+/* This callback function must be created. It will be called when an SMBus target has been sent data
 as part of any write protocol */
 void  WriteDataCallback( uint8_t ucCommand, uint8_t* pucData, uint16_t usDataSize )
 {
@@ -324,10 +324,10 @@ void AnnounceWarningCallback(uint8_t ucCommand, uint8_t  ucWarning)
 
 ```sh
 /* Example application code to intialize the SMBus Driver, create a single SMBus instance and attach and enable interrupts to drive the SMBus driver */
- 
+
 uint8_t ucTargetUDID0[16]       = { 0x10, 0xFF, 0xFF, 0xFF, 0xF0, 0x0F, 0x0F, 0xF0, 0x07, 0x00, 0xFF, 0xFF, 0xEE, 0x10, 0x0F, 0x40 }; //ARP CAPABLE
- 
-int main( void )  
+
+int main( void )
 {
     SMBus_Error_Type                                    xReturnCode                 = SMBUS_ERROR;
     uint8_t                                             ucSMBusAddress              = 0;
@@ -341,22 +341,22 @@ int main( void )
     SMBUS_USER_SUPPLIED_ENVIRONMENT_BUS_ERROR           pFnBusError                 = NULL;
     SMBUS_USER_SUPPLIED_ENVIRONMENT_BUS_WARNING         pFnBusWarning               = NULL;
     uint8_t                                             ucSimpleDevice              = 0;
- 
-   /*   Initialize the SMBus Driver passing in: 
-        a pointer to it's memory profile, 
-        the frequency class to be used 100KHz, 400KHz or 1MHz, 
+
+   /*   Initialize the SMBus Driver passing in:
+        a pointer to it's memory profile,
+        the frequency class to be used 100KHz, 400KHz or 1MHz,
         the base address of the SMBus IP's register set, found in xparameters.h
         the level of log detail required and
         <OPTIONAL> a pointer to a get tick count function for logs */
-        
-    xReturnCode = xInitSMBus( &pxSMBusProfile, SMBUS_FREQ_1MHZ,( void* )XPAR_SMBUS_0_BASEADDR, SMBUS_LOG_LEVEL_DEBUG, 
+
+    xReturnCode = xInitSMBus( &pxSMBusProfile, SMBUS_FREQ_1MHZ,( void* )XPAR_SMBUS_0_BASEADDR, SMBUS_LOG_LEVEL_DEBUG,
                                     ( SMBUS_USER_SUPPLIED_ENVIRONMENT_READ_TICKS )&vGetTicksFromApplication );
-     
+
     if( SMBUS_SUCCESS == xReturnCode )
     {
-        /* Get ready to create an SMBus Instance 
+        /* Get ready to create an SMBus Instance
            Several parameters are required to be set before an instance can be created */
-         
+
         /*  ARP Cabability: The SMBus instance can be created with one of 4 ARP capabilities:
                                          SMBUS_ARP_CAPABLE,
                                          SMBUS_ARP_FIXED_AND_DISCOVERABLE,
@@ -364,20 +364,20 @@ int main( void )
                                          SMBUS_ARP_NON_ARP_CAPABLE
                                          The required capability must be set on creation of the instance */
         xARPCapability = SMBUS_ARP_CAPABLE;
-         
-        /* SMBus Address:   If the Instance is to be ARP capable then no address is required otherwise 
-                                           a fixed address must be set */     
+
+        /* SMBus Address:   If the Instance is to be ARP capable then no address is required otherwise
+                                           a fixed address must be set */
         ucSMBusAddress = 0x2A;
-         
-        /* SMBus UDID:  A 16 byte UDID is required for the SMBus Instance and must be set on creation 
-                        THe UDID will also determine if this SMBus instance can accept PEC */ 
+
+        /* SMBus UDID:  A 16 byte UDID is required for the SMBus Instance and must be set on creation
+                        THe UDID will also determine if this SMBus instance can accept PEC */
         for( i = 0; i < SMBUS_UDID_LENGTH; i++ )
         {
             ucUDID[i] = ucTargetUDID0[i];
         }
-         
-        /* SMBus Callback Functions:    Separate callback functions for each instance must be created in the application software and 
-                                        attached to the instance on creation 
+
+        /* SMBus Callback Functions:    Separate callback functions for each instance must be created in the application software and
+                                        attached to the instance on creation
                                         See above for examples of these callback functions */
         pFnGetProtocol           =( SMBUS_USER_SUPPLIED_ENVIRONMENT_GET_PROTOCOL_TYPE )&GivenCommandGetProtocolCallback;
         pFnGetData               =( SMBUS_USER_SUPPLIED_ENVIRONMENT_GET_DATA_TYPE )&ReadDataCallback;
@@ -386,19 +386,19 @@ int main( void )
         pFnArpAddressChange      =( SMBUS_USER_SUPPLIED_ENVIRONMENT_ARP_ADRRESS_CHANGE )&AnnounceARPAddressChangeCallback;
         pFnBusError              =( SMBUS_USER_SUPPLIED_ENVIRONMENT_BUS_ERROR )&AnnounceErrorCallback;
         pFnBusWarning            =( SMBUS_USER_SUPPLIED_ENVIRONMENT_BUS_WARNING )&AnnounceWarningCallback;
-         
-        /* SMBus Simple Device:     An instance can be created as a Simple Device. 
+
+        /* SMBus Simple Device:     An instance can be created as a Simple Device.
                                     If ucSimpleDevice = 1 the instance will ONLY accept SEND BYTE and RECEIVE BYTE protocols */
-        ucSimpleDevice = 0;                            
-                                     
+        ucSimpleDevice = 0;
+
         /* Now create the instance, the instance number 0 - 6 will be returned */
         uint8_t ucInstanceId            = ucCreateSMBusInstance( pxSMBusProfile, ucSMBusAddress, ucUDID, xARPCapability,
                                                                     pFnGetProtocol, pFnGetData, pFnWriteData, pFnAnnounceResult,
                                                                     pFnArpAddressChange, pFnBusError, pFnBusWarning, ucSimpleDevice );
- 
+
         /*  NOTE: The ucCreateSMBusInstance() function can be called to create up to 7 unique SMBus Instances
             each with a different ARP capabilities, SMBUs Address and UDID by repeating the steps in lines 25 - 63 above */
-     
+
         /* Disable and clear all SMBus interrupts */
         if(SMBUS_SUCCESS == xSMBusInterruptDisableAndClearInterrupts( pxSMBusProfile ))
         {
@@ -411,7 +411,7 @@ int main( void )
                 {
                     /* SMBus driver is now ready to accept SMBus messages */
                 }
-            }  
+            }
         }
     }
 }
@@ -425,14 +425,14 @@ An example of a Write64 is shown below
 ```sh
     uint8_t                     ucSMBusInstance                     = 0;
     uint8_t                     ucTargetAddress                     = 0;
-    uint8_t                     ucCommand                           = 0; 
+    uint8_t                     ucCommand                           = 0;
     SMBus_Command_Protocol_Type xProtocol                           = SMBUS_PROTOCOL_NONE;
     uint8_t                     ucPECRequired                       = SMBUS_FALSE;
     uint32_t                    ulTransactionID                     = 0;
     uint8_t                     ucControllerDataToSend[MAX_DATA]    = { 0 };
     uint16_t                    usControllerDataToSendSize          = 0;
     uint8_t                     ucBlockSize                         = 0;
-    uint8_t                     ucInitialValue                      = 0; 
+    uint8_t                     ucInitialValue                      = 0;
 
     /* Assign values to all the parameters */
     ucSMBusInstance             = 0;                                    /* This will be a value 0 - 6 which will have been returned by ucCreateSMBusInstance() function */
@@ -459,7 +459,7 @@ An example of a Write64 is shown below
         /* Write 64 Initiated */
         /* This function may return before the asynchronous transaction has completed */
     }
-```        
+```
 
 
 
@@ -468,7 +468,7 @@ An example of a Block Write - Block Read Process Call is shown below
 ```sh
     uint8_t                     ucSMBusInstance                     = 0;
     uint8_t                     ucTargetAddress                     = 0;
-    uint8_t                     ucCommand                           = 0; 
+    uint8_t                     ucCommand                           = 0;
     SMBus_Command_Protocol_Type xProtocol                           = SMBUS_PROTOCOL_NONE;
     uint8_t                     ucPECRequired                       = SMBUS_FALSE;
     uint32_t                    ulTransactionID                     = 0;
@@ -486,11 +486,11 @@ An example of a Block Write - Block Read Process Call is shown below
     ucPECRequired   = false;                                                    /* Is the SMBus Target expecting a PEC byte to be sent */
 
 
-    /* Write Data  -    For block transactions the block size needs to be added as the first byte of the data supplied to the function 
+    /* Write Data  -    For block transactions the block size needs to be added as the first byte of the data supplied to the function
                         So for a block size of 125, 126 bytes will be supplied to the function, the first byte being the value 125 and the
                         SendSize parameter will be 126 */
     ucBlockSize = 125;
-    ucControllerDataToSend[0] =  ucBlockSize;  
+    ucControllerDataToSend[0] =  ucBlockSize;
     ucControllerDataToSend[1] = 0;
     ucInitialValue = 0x1;
     for( i = 1; i <= ucBlockSize; i++ )
@@ -498,14 +498,14 @@ An example of a Block Write - Block Read Process Call is shown below
        ucControllerDataToSend[i] = ucInitialValue++;
     }
     ucControllerDataToSendSize =  ucBlockSize + 1;
-           
-     if( SMBUS_SUCCESS == xSMBusControllerInitiateCommand( pxSMBusProfile,  ucSMBusInstance, ucTargetAddress, ucCommand, xProtocol, 
+
+     if( SMBUS_SUCCESS == xSMBusControllerInitiateCommand( pxSMBusProfile,  ucSMBusInstance, ucTargetAddress, ucCommand, xProtocol,
                                                             ucControllerDataToSendSize, ucControllerDataToSend, ucPECRequired, &ulTransactionID ) )
     {
         /* Block Write - Block Read Process Call Initiated */
         /* This function may return before the asynchronous transaction has completed */
     }
-```                  
+```
 
 ## ARP Operation
 
@@ -538,15 +538,15 @@ void vPostTestPrintLog( void )
 {
     char        cLogBuffer[LOGSIZE]     = { 0 };
     uint32_t    ulLogSize               = 0;
-   /**********************************  LOG    **********************************/  
+   /**********************************  LOG    **********************************/
     xil_printf( "Log\n\r" );
-    cLogBuffer[0] = '\0';           
+    cLogBuffer[0] = '\0';
     ulLogSize = 0;
     xSMBusGetLog( pxSMBusProfile, cLogBuffer, &ulLogSize );
     xil_printf( "%s\n\r", cLogBuffer );
 
 }
-```      
+```
 
 
 
@@ -720,7 +720,7 @@ An example log for an SMBus Controller (Instance 0) sending a  Write64 command 
 0165 3793820 HW_WRITE  88 0x00000028 0x00001008
 0166 3793820 HW_WRITE  88 0x00000024 0x000001ef
 0167 3793820 HW_WRITE  88 0x00000020 0x00000001
-```    
+```
 
 ## Simple Target
 An SMBus instance may be created as a "Simple" target.
@@ -750,4 +750,3 @@ In order to determine which, the ucCreateSMBusInstance() function will check bit
 
  - If this is set it will treat the address as an invalid temporary address, will clear the AR flag and wait on a new address to be assigned by ARP Assign Address.
  - If the bit is clear,  it will treat the address as a dynamic and persistent address, will set the AR flag and allow add the address onto the bus.
- 

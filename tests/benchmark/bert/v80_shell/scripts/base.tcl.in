@@ -54,7 +54,7 @@ set dcp_dir         "${CMAKE_BINARY_DIR}/hw/checkpoints"
 set scripts_dir     "${BWAVE_DIR}/scripts"
 set hw_dir          "${BWAVE_DIR}/hw"
 set ip_dir          "$hw_dir/ip"
-set iprepo_dir      "$build_dir/iprepo" 
+set iprepo_dir      "$build_dir/iprepo"
 set proj_dir        "$build_dir/BrainWave_prj"
 
 ########################################################################################################

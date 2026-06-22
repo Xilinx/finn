@@ -298,7 +298,7 @@ always_comb begin
     input_cycle_count_next = input_cycle_count_reg;
     output_cycle_count_next = output_cycle_count_reg;
     bubble_cycle_next = bubble_cycle_reg;
-    
+
     output_last_cycle_next = output_last_cycle_reg;
     input_active_next = input_active_reg;
     output_active_next = output_active_reg;

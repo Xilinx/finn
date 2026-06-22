@@ -6,17 +6,17 @@ SMBus IP v1.1
 Overview
 ========
 
-The SMBus IP provides a mechanism through which a Versal ACAP based system may interact with 
-external devices that are compliant to the `System Management Bus (SMBus) v3.2 Specification`_. 
-SMBus is a two-wire open-drain interface based on the principles of operation defined by the `I2C 
-Bus Specification`_. It provides a standardized control path that enables devices to pass system 
+The SMBus IP provides a mechanism through which a Versal ACAP based system may interact with
+external devices that are compliant to the `System Management Bus (SMBus) v3.2 Specification`_.
+SMBus is a two-wire open-drain interface based on the principles of operation defined by the `I2C
+Bus Specification`_. It provides a standardized control path that enables devices to pass system
 and power management related messages.
 
-The SMBus IP is designed to be implemented within the PL region of a Versal ACAP and requires 
-connection to I/O Buffers located within an appropriate HDIO bank, these IOBs must be configured to 
-meet the electrical requirements outlined in the SMBus Specification. The IP implements an 
-AXI4-Lite Subordinate memory mapped control interface to enable a processor to interact with other 
-external SMBus devices, the IP supports operation as both a Controller and a multi-device Target to 
+The SMBus IP is designed to be implemented within the PL region of a Versal ACAP and requires
+connection to I/O Buffers located within an appropriate HDIO bank, these IOBs must be configured to
+meet the electrical requirements outlined in the SMBus Specification. The IP implements an
+AXI4-Lite Subordinate memory mapped control interface to enable a processor to interact with other
+external SMBus devices, the IP supports operation as both a Controller and a multi-device Target to
 enable multiple management protocols to be implemented simultaneously.
 
 .. _`System Management Bus (SMBus) v3.2 Specification`: http://smbus.org/specs/SMBus_3_2_20220112.pdf
@@ -44,8 +44,8 @@ Features
 Applications
 ============
 
-The diagram below outlines a typical use case for the SMBus IP as deployed within a Versal based 
-PCIe add-in accelerator card. The SMBus IP provides a mechanism for the card management software 
+The diagram below outlines a typical use case for the SMBus IP as deployed within a Versal based
+PCIe add-in accelerator card. The SMBus IP provides a mechanism for the card management software
 in conjunction with the SMBus IP Driver running on the RPU to communicate with the host server BMC.
 
 .. image:: images/smbus_application.svg
@@ -53,7 +53,7 @@ in conjunction with the SMBus IP Driver running on the RPU to communicate with t
 Standards
 =========
 
-The SMBus IP when implemented in conjunction with the SMBus IP Driver is compliant to the System 
+The SMBus IP when implemented in conjunction with the SMBus IP Driver is compliant to the System
 Management Bus Specification, version 3.2, January 2022 with the following exceptions:
 
 - The Quick Command bus protocol is not supported by the SMBus IP for Target device operation.
@@ -68,47 +68,47 @@ The block diagram below gives a high level overview of the logical structure of 
 AXI4-Lite Interface
 -------------------
 
-The SMBus IP implements a 32-bit AXI4-Lite Subordinate interface that provides an external 
-processor with memory mapped access to internal register space. The Descriptor/Receive FIFOs and 
+The SMBus IP implements a 32-bit AXI4-Lite Subordinate interface that provides an external
+processor with memory mapped access to internal register space. The Descriptor/Receive FIFOs and
 control/status registers that are present within the IP are all accessed via this interface.
 
 Controller Receive FIFO
 -----------------------
 
-The Controller Receive FIFO stores bytes that are received by the SMBus IP during Controller Read 
-operations until the processor is ready to read and process theses bytes. The FIFO is arranged as 
-8-bits x 64 and incorporates a processor programmable fill threshold interrupt that may be 
+The Controller Receive FIFO stores bytes that are received by the SMBus IP during Controller Read
+operations until the processor is ready to read and process theses bytes. The FIFO is arranged as
+8-bits x 64 and incorporates a processor programmable fill threshold interrupt that may be
 configured in order to regulate the rate at which the processor is notified about available data.
 
 Controller Descriptor FIFO
 --------------------------
 
-The Controller Descriptor FIFO is used to store the sequence descriptors that are written via the 
-processor interface until they can be executed by the Controller Sequence Control function. Each 
-sequence descriptor instructs the IP to execute a portion of an SMBus packet and may be combined 
+The Controller Descriptor FIFO is used to store the sequence descriptors that are written via the
+processor interface until they can be executed by the Controller Sequence Control function. Each
+sequence descriptor instructs the IP to execute a portion of an SMBus packet and may be combined
 to form any of the Bus Protocols defined in the SMBus Specification.
 
 Controller CSR and Interrupt Control
 ------------------------------------
 
-The Controller Control and Status Registers (CSR) implements the internal control/status registers 
-associated with the Controller Sequence Control function. Relevant semi-static control registers 
-are configured in this function, whereas dynamic control is performed using the sequence 
-descriptors. Interrupt configuration for the interrupt sources generated by the Controller 
+The Controller Control and Status Registers (CSR) implements the internal control/status registers
+associated with the Controller Sequence Control function. Relevant semi-static control registers
+are configured in this function, whereas dynamic control is performed using the sequence
+descriptors. Interrupt configuration for the interrupt sources generated by the Controller
 Sequence Control function are also managed within this function.
 
 Controller Sequence Control
 ---------------------------
 
-The Controller Sequence Control function operates as an SMBus Controller and works in tandem with 
-the SMBus PHY in order to generate the SMBus packet as directed in the received sequence 
-descriptors. The primary functions performed within the Controller Sequence Control function 
+The Controller Sequence Control function operates as an SMBus Controller and works in tandem with
+the SMBus PHY in order to generate the SMBus packet as directed in the received sequence
+descriptors. The primary functions performed within the Controller Sequence Control function
 includes:
 
 - Reading the Controller Descriptor FIFO and processing the sequence descriptor
 - Instructing the PHY on when to transmit START/REPEATED-START/STOP conditions on the SMBus
 - Providing the PHY with transmit bytes during the Controller Write sequences
-- Reading the assembled received bytes from the PHY during a Controller Read sequence and writing 
+- Reading the assembled received bytes from the PHY during a Controller Read sequence and writing
   into the Receive FIFO
 - Performing PEC byte generation and insertion during Controller Write sequences
 - Performing PEC byte integrity checking on received packets during Controller Read sequences
@@ -117,43 +117,43 @@ includes:
 Target Receive FIFO
 -------------------
 
-The Target Receive FIFO stores bytes that are received by the SMBus IP during Target Write 
-operations until the processor is ready to read and process theses bytes. The FIFO is arranged as 
-8-bits x 64 and incorporates a processor programmable fill threshold interrupt that may be 
+The Target Receive FIFO stores bytes that are received by the SMBus IP during Target Write
+operations until the processor is ready to read and process theses bytes. The FIFO is arranged as
+8-bits x 64 and incorporates a processor programmable fill threshold interrupt that may be
 configured in order to regulate the rate at which the processor is notified about available data.
 
 Target Descriptor FIFO
 ----------------------
 
-The Target Descriptor FIFO is used to store the sequence descriptors that are written via the 
-processor interface until they can be executed by the Target Sequence Control function. Each 
-sequence descriptor instructs the IP on how to respond during a Read or Write initiated by an 
+The Target Descriptor FIFO is used to store the sequence descriptors that are written via the
+processor interface until they can be executed by the Target Sequence Control function. Each
+sequence descriptor instructs the IP on how to respond during a Read or Write initiated by an
 external Controller.
 
 Target CSR and Interrupt Control
 --------------------------------
 
-The Target Control and Status Registers (CSR) implements the internal control/status registers 
-associated with the Target Sequence Control function. Relevant semi-static control registers are 
-configured in this function, whereas dynamic control is performed using the sequence descriptors. 
-Interrupt configuration for the interrupt sources generated by the Target Sequence Control 
+The Target Control and Status Registers (CSR) implements the internal control/status registers
+associated with the Target Sequence Control function. Relevant semi-static control registers are
+configured in this function, whereas dynamic control is performed using the sequence descriptors.
+Interrupt configuration for the interrupt sources generated by the Target Sequence Control
 function are also managed within this function.
 
 Target Sequence Control
 -----------------------
 
-The Target Sequence Control function operates as a multi-device SMBus Target that supports 
-operation as up to 8 different devices, each target device address is run time configurable by the 
-processor via the AXI4-Lite interface. The primary functions performed within the Target Sequence 
+The Target Sequence Control function operates as a multi-device SMBus Target that supports
+operation as up to 8 different devices, each target device address is run time configurable by the
+processor via the AXI4-Lite interface. The primary functions performed within the Target Sequence
 Control function includes:
 
-- Performing a comparison check on the address received by the PHY following a START condition, 
+- Performing a comparison check on the address received by the PHY following a START condition,
   against the configured target addresses of interest
 - Reading the Target Descriptor FIFO and processing the sequence descriptor
-- Instructing the PHY whether to ACK or NACK a receive byte during a Target Write sequence based 
+- Instructing the PHY whether to ACK or NACK a receive byte during a Target Write sequence based
   on the descriptor
 - Writing received bytes from the PHY into the Receive FIFO
-- Providing the PHY with transmit bytes during Target Read sequences based on the payload byte 
+- Providing the PHY with transmit bytes during Target Read sequences based on the payload byte
   contained in the sequence descriptor
 - Performing PEC byte integrity checking on received packets during Target Write sequences
 - Performing PEC byte generation and insertion during Target Read sequences
@@ -162,29 +162,29 @@ Control function includes:
 SMBus PHY
 ---------
 
-The SMBus PHY provides the physical layer interfacing to the SMBus when connected via Input/Output 
-Buffers in an appropriately configured HDIO bank. The primary functions performed within the SMBus 
+The SMBus PHY provides the physical layer interfacing to the SMBus when connected via Input/Output
+Buffers in an appropriately configured HDIO bank. The primary functions performed within the SMBus
 PHY includes:
 
-- SMBCLK/SMBDAT input retiming onto the s_axi_aclk domain and noise suppression for glitches <50ns 
+- SMBCLK/SMBDAT input retiming onto the s_axi_aclk domain and noise suppression for glitches <50ns
   period
 - SMBCLK/SMBDAT input low timeout and bus idle detection
 - SMBCLK/SMBDAT output/tri-state control
 - SMBCLK output low force
 - Tracking of SMBus state in conjunction with the Target Sequence Control function
-- Performing SMBCLK clock stretching as a Target when awaiting instruction from the Target Sequence 
+- Performing SMBCLK clock stretching as a Target when awaiting instruction from the Target Sequence
   Control function
 - Transmission of ACK/NACK as a Target-transmitter in accordance with the SMBus AC Specifications
-- Assembly of receive bytes during Target-receiver operation and forwarding to the Target Sequence 
+- Assembly of receive bytes during Target-receiver operation and forwarding to the Target Sequence
   Control function for processing
-- Transmission of read data bytes as a Target-transmitter in accordance with the SMBus AC 
+- Transmission of read data bytes as a Target-transmitter in accordance with the SMBus AC
   Specifications
 - Loss of arbitration detection during Target-transmitter operation
 - Clock generation and synchronization during Controller operation
 - START/REPEATED-START/STOP condition transmission as a Controller-transmitter
-- Transmission of write data bytes as a Controller-transmitter in accordance with the SMBus AC 
+- Transmission of write data bytes as a Controller-transmitter in accordance with the SMBus AC
   Specifications
-- Assembly of receive bytes during Controller-receiver operation and forwarding to the Controller 
+- Assembly of receive bytes during Controller-receiver operation and forwarding to the Controller
   Sequence Control function for processing
 - Loss of arbitration detection during Controller-transmitter operation
 - Controller Tlow:TEXT timeout detection and Tlow:CEXT measurement
@@ -193,55 +193,55 @@ PHY includes:
 Sequence Descriptors
 --------------------
 
-The SMBus IP is primarily controlled using a set of descriptors, these descriptor sets are 
-independent for both the Target and Controller f unctions, however the high level behavior is 
-similar. A descriptor consists of a 4-bit ID that instructs the IP on what action to take on the 
+The SMBus IP is primarily controlled using a set of descriptors, these descriptor sets are
+independent for both the Target and Controller f unctions, however the high level behavior is
+similar. A descriptor consists of a 4-bit ID that instructs the IP on what action to take on the
 SMBus, along with a payload byte that must be supplied when operating as a transmitter.
 
-Descriptors must be written in the order in which they are to be executed via the AXI4-Lite 
-processor interface to either the Target or Controller Descriptor FIFOs. When the SMBus IP is 
-active for either Target or Controller operation, then it will read and process each descriptor at 
-the appropriate time during either transmission or reception of a SMBus packet. While the IP waits 
-for descriptors, it will perform smbclk clock stretching in order to back-pressure the SMBus until 
+Descriptors must be written in the order in which they are to be executed via the AXI4-Lite
+processor interface to either the Target or Controller Descriptor FIFOs. When the SMBus IP is
+active for either Target or Controller operation, then it will read and process each descriptor at
+the appropriate time during either transmission or reception of a SMBus packet. While the IP waits
+for descriptors, it will perform smbclk clock stretching in order to back-pressure the SMBus until
 such time that software has determined the next steps and provided the next descriptor.
 
-For scenarios where data on the SMBus must be processed on a byte by byte basis (e.g. Target ARP), 
-then typically only a single descriptor would be supplied at any one time. The IP would execute the 
-descriptor, notify any required response via interrupt, write received data into the Receive FIFO 
-(if applicable) and then begin to clock stretch until software has processed the response and 
-supplied another descriptor. 
+For scenarios where data on the SMBus must be processed on a byte by byte basis (e.g. Target ARP),
+then typically only a single descriptor would be supplied at any one time. The IP would execute the
+descriptor, notify any required response via interrupt, write received data into the Receive FIFO
+(if applicable) and then begin to clock stretch until software has processed the response and
+supplied another descriptor.
 
-In other scenarios the sequence of events is known in advance by software, for this the set of 
-descriptors can be written to the Descriptor FIFOs and the IP will process each descriptor without 
-performing any clock stretching. This approach attempts to minimize the amount of software 
-involvement during packet transmission/reception and in turn reduces the amount of clock stretching 
-necessary and the associated risk of exceeding the various clock low extension timeouts outlined in 
+In other scenarios the sequence of events is known in advance by software, for this the set of
+descriptors can be written to the Descriptor FIFOs and the IP will process each descriptor without
+performing any clock stretching. This approach attempts to minimize the amount of software
+involvement during packet transmission/reception and in turn reduces the amount of clock stretching
+necessary and the associated risk of exceeding the various clock low extension timeouts outlined in
 the SMBus Specification e.g. tTIMEOUT, tLOW:TEXT, tLOW:CEXT.
 
 Resource Use
 ============
 
-The table below contains resource utilization data for several configurations of the SMBus IP core. 
-Each row within the table describes a test case. The columns are divided into test parameters and 
-results. The test parameters include the part information and the core-specific configuration 
-parameters. Any configuration parameters that are not listed have their default values; any 
+The table below contains resource utilization data for several configurations of the SMBus IP core.
+Each row within the table describes a test case. The columns are divided into test parameters and
+results. The test parameters include the part information and the core-specific configuration
+parameters. Any configuration parameters that are not listed have their default values; any
 parameters with a blank value are disabled or set automatically by the IP core.
 
-- Resource figures are taken from the utilization report issued at the end of implementation using 
+- Resource figures are taken from the utilization report issued at the end of implementation using
   the Out-of-Context flow in Vivado Design Suite.
-- The Out-of-Context IP constraints include HD.CLK_SRC properties as required to ensure correct 
-  hold timing closure: these properties are enabled using the Tcl command: 
+- The Out-of-Context IP constraints include HD.CLK_SRC properties as required to ensure correct
+  hold timing closure: these properties are enabled using the Tcl command:
   set_param ips.includeClockLocationConstraints true
 - The frequencies used for clock inputs are stated for each test case.
 - LUT figures do not include LUTs used as pack-thrus, but do include LUTs used as memory.
-- Default Vivado Design Suite 2023.2 settings were used. You may be able to improve on these 
-  figures using different settings. Because surrounding circuitry will affect placement and timing, 
+- Default Vivado Design Suite 2023.2 settings were used. You may be able to improve on these
+  figures using different settings. Because surrounding circuitry will affect placement and timing,
   no guarantee can be given that these figures will be repeatable in a larger design.
 
 .. csv-table:: SMBus IP Resource Usage
   :header: Vivado Release,Family,Device,Package,Speedgrade,Configuration Name,NUM_TARGET_DEVICES,SMBUS_DEV_CLASS,FREQ_HZ_AXI_ACLK,Fixed clocks,LUT,FF,DSP,RAMB36,RAMB18
   :widths: auto
-  
+
   2023.2,versal,xcv80,lsva4737,2MHP,"config_0",8,0,95000000,s_axi_aclk=95,1411,16468,0,0,0
   2023.2,versal,xcv80,lsva4737,2MHP,"config_1",1,0,95000000,s_axi_aclk=95,1360,1605,0,0,0
   2023.2,versal,xcv80,lsva4737,2MHP,"config_2",8,0,500000000,s_axi_aclk=500,1659,1643,0,0,0
@@ -384,7 +384,7 @@ Interface Descriptions
     - s_axi_aclk
     - Input
     - scalar
-    - 
+    -
     - true
     - Clock associated with the S_AXI interface
   * - s_axi_aresetn
@@ -447,7 +447,7 @@ Interface Descriptions
 Clocking
 ========
 
-The SMBus IP operates on the s_axi_aclk clock domain, the smbclk_i/smbdat_i asynchronous inputs are 
+The SMBus IP operates on the s_axi_aclk clock domain, the smbclk_i/smbdat_i asynchronous inputs are
 retimed onto this clock domain internal to the IP.
 
 The table below outlines the clock frequency ranges supported by the IP.
@@ -468,27 +468,27 @@ The table below outlines the clock frequency ranges supported by the IP.
 Resets
 ======
 
-The SMBus IP is reset on assertion of the s_axi_aresetn active low reset input, this input must be 
+The SMBus IP is reset on assertion of the s_axi_aresetn active low reset input, this input must be
 synchronous to the s_axi_aclk.
 
-When this reset is asserted, all internal registers are reset to their default values and the 
-Target/Controller logic is brought back to an idle state. Any active SMBus transactions in progress 
+When this reset is asserted, all internal registers are reset to their default values and the
+Target/Controller logic is brought back to an idle state. Any active SMBus transactions in progress
 by the IP are aborted.
 
 Interrupts
 ==========
 
-The SMBus IP operation is interrupt driven so that control information written via the processor 
-interface is sufficiently responsive in order to comply with the timeout limits specified in the 
-SMBus Specification.  
+The SMBus IP operation is interrupt driven so that control information written via the processor
+interface is sufficiently responsive in order to comply with the timeout limits specified in the
+SMBus Specification.
 
-Refer to IRQ_IER/IRQ_ISR registers detailed in the Register Space section for information on the 
+Refer to IRQ_IER/IRQ_ISR registers detailed in the Register Space section for information on the
 SMBus IP interrupt sources.
 
 Register Space
 ==============
 
-The table below outlines the layout and descriptions for the memory mapped register space within 
+The table below outlines the layout and descriptions for the memory mapped register space within
 the SMBus IP, these registers are accessible via the AXI4-Lite interface.
 
 Undocumented bits within registers are reserved and are Read-Only.
@@ -496,7 +496,7 @@ Undocumented bits within registers are reserved and are Read-Only.
 .. list-table:: S_AXI Register Space
   :header-rows: 1
   :widths: auto
-  
+
   * - Register Address Offset
     - Register Name
     - Field Name
@@ -2219,16 +2219,16 @@ Undocumented bits within registers are reserved and are Read-Only.
     - | Controller Debug State
       | Reports the current Controller FSM State to assist with debug.
 
-**Note 1:** The default value of this field is dependent upon the parameter configuration of the 
-SMBus IP. 
+**Note 1:** The default value of this field is dependent upon the parameter configuration of the
+SMBus IP.
 
 Customizing and Generating the IP
 =================================
 
-This section includes information about using AMD tools to customize and generate the SMBus IP 
+This section includes information about using AMD tools to customize and generate the SMBus IP
 using Vivado Design Suite.
 
-If you are customizing and generating the IP in the Vivado IP integrator, see the *Vivado Design 
+If you are customizing and generating the IP in the Vivado IP integrator, see the *Vivado Design
 Suite User Guide: Designing IP Subsystems using IP Integrator* (`UG994`_) for detailed information.
 
 .. _`UG994`: https://docs.xilinx.com/r/en-US/ug994-vivado-ip-subsystems/Getting-Started-with-Vivado-IP-Integrator
@@ -2236,8 +2236,8 @@ Suite User Guide: Designing IP Subsystems using IP Integrator* (`UG994`_) for de
 Importing the IP Repository
 ---------------------------
 
-The SMBus IP is delivered as a standalone IP repository that can be imported for use within Vivado 
-Design Suite. Refer to the *Vivado Design Suite User Guide: Designing with IP* (`UG896`_) for 
+The SMBus IP is delivered as a standalone IP repository that can be imported for use within Vivado
+Design Suite. Refer to the *Vivado Design Suite User Guide: Designing with IP* (`UG896`_) for
 detailed information on adding an external IP repository to a project.
 
 .. _`UG896`: https://docs.xilinx.com/r/en-US/ug896-vivado-ip/IP-Centric-Design-Flow
@@ -2245,33 +2245,33 @@ detailed information on adding an external IP repository to a project.
 Customizing the IP
 ------------------
 
-You can customize the IP for use in your design by specifying values for the various User 
+You can customize the IP for use in your design by specifying values for the various User
 Parameters associated with the IP.
 
 Parameters
 ----------
 
-The table below details the User Parameters that may be configured for the SMBus IP along with 
+The table below details the User Parameters that may be configured for the SMBus IP along with
 the associated model parameters and default settings.
 
 .. list-table:: SMBus Parameters
   :header-rows: 1
   :widths: auto
 
-  * - Display Name 
+  * - Display Name
     - User Parameter
     - Model Parameter
     - Model Parameter Format/Range
     - Default
     - Description
-  * - Default SMBus Device Class 
+  * - Default SMBus Device Class
     - SMBUS_DEV_CLASS
     - C_SMBUS_DEV_CLASS
     - integer = {0 = 100KHz, 1 = 400KHz, 2 = 1MHz}
     - 0
     - | The SMBus IP supports the three device classes specified in the SMBus v3.2 specification, namely the 100KHz Class, 400KHz Class and 1MHz Class. The Device Class user parameter controls the default internal AC timing parameters of the SMBus IP, so that the Controller and Target AC operation complies with the standard.
       | When the s_axi_aresetn input is asserted, the SMBus IP internal configuration will be reset to the default device class as selected via this parameter. The device class may be changed at runtime by utilizing features available within the SMBus IP Driver, please refer to the Driver documentation for details on changing the device class from this default.
-  * - Target Devices 
+  * - Target Devices
     - NUM_TARGET_DEVICES
     - C_NUM_TARGET_DEVICES
     - integer = {1..8}
@@ -2284,33 +2284,33 @@ the associated model parameters and default settings.
     - 100000000
     - | Configure the input clock frequency of the s_axi_aclk clock in hertz.
       | The SMBus IP operates on the s_axi_aclk clock domain. This clock is used for the S_AXI interface, all internal control logic and to generate the SMBCLK/SMBDAT outputs in addition to oversampling the SMBCLK/SMBDAT inputs. The frequency of this clock must be within the supported range and must be specified in order for the SMBus IP to correctly operate its PHY layer in accordance with the SMBus AC timing specifications.
-      | When used within an IP Integrator context, the clock frequency information is automatically configured within the SMBus IP based upon the frequency of the clock connected to the s_axi_aclk input. If this clock metadata is incorrect or if the IP is being configured outside of an IP Integrator context, then this user parameter must be set accordingly. 
+      | When used within an IP Integrator context, the clock frequency information is automatically configured within the SMBus IP based upon the frequency of the clock connected to the s_axi_aclk input. If this clock metadata is incorrect or if the IP is being configured outside of an IP Integrator context, then this user parameter must be set accordingly.
 
 Output Generation
 -----------------
 
-For detailed information on generating IP output products, please refer to the *Vivado Design Suite 
+For detailed information on generating IP output products, please refer to the *Vivado Design Suite
 User Guide: Designing with IP* (`UG896`_).
 
 Constraining the IP
 ===================
 
-The SMBUS interface on the IP includes the necessary I/O buffer controls and is intended to be 
-connected to the design top level ports. When the IP implemented within an IP Integrator block 
-design context, then the generated BD wrapper will automatically include the required IOB 
+The SMBUS interface on the IP includes the necessary I/O buffer controls and is intended to be
+connected to the design top level ports. When the IP implemented within an IP Integrator block
+design context, then the generated BD wrapper will automatically include the required IOB
 components and connectivity from the SMBus IP.
 
-The top level IOB connections must be constrained at the design top level depending upon the IO 
-bank type to which the SMBus IP is connected. The following constraint properties must be 
-considered, however the required settings will be dependent upon the connectivity of the IOBs in 
+The top level IOB connections must be constrained at the design top level depending upon the IO
+bank type to which the SMBus IP is connected. The following constraint properties must be
+considered, however the required settings will be dependent upon the connectivity of the IOBs in
 the end application:
 
 - PACKAGE_PIN
 - IOSTANDARD
 - DRIVE
 - SLEW
-  
-Refer to the *Vivado Design Suite User Guide: Using Constraints* (`UG903`_) for detailed 
+
+Refer to the *Vivado Design Suite User Guide: Using Constraints* (`UG903`_) for detailed
 information on defining physical constraints.
 
 .. _`UG903`: https://docs.xilinx.com/r/en-US/ug903-vivado-using-constraints/Introduction
@@ -2318,8 +2318,8 @@ information on defining physical constraints.
 Simulation
 ==========
 
-For comprehensive information about Vivado simulation components, as well as information about 
-using supported third-party tools, see the *Vivado Design Suite User Guide: Logic Simulation* 
+For comprehensive information about Vivado simulation components, as well as information about
+using supported third-party tools, see the *Vivado Design Suite User Guide: Logic Simulation*
 (`UG900`_).
 
 .. _`UG900`: https://docs.xilinx.com/r/en-US/ug900-vivado-logic-simulation/Overview
@@ -2327,17 +2327,17 @@ using supported third-party tools, see the *Vivado Design Suite User Guide: Logi
 Synthesis and Implementation
 ============================
 
-For details about synthesis and implementation, see the *Vivado Design Suite User Guide: Designing 
+For details about synthesis and implementation, see the *Vivado Design Suite User Guide: Designing
 with IP* (`UG896`_).
 
 Driver
 ======
 
-The SMBus IP must be used in conjunction with the SMBus IP Driver in order to implement a SMBus 
+The SMBus IP must be used in conjunction with the SMBus IP Driver in order to implement a SMBus
 v3.2 compliant solution.
 
 Example Design
 ==============
 
-The SMBus IP does not support generation of an IP example design. Refer to the Alveo V80 AVED 
+The SMBus IP does not support generation of an IP example design. Refer to the Alveo V80 AVED
 reference design for example usage.

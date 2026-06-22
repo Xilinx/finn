@@ -14,7 +14,7 @@ def generate_axi_top(path):
     core_ids = [${CORE_IDS_CSV}]
 
     role_inst = ""
-    
+
     #
     # Generate Role
     #
@@ -53,7 +53,7 @@ def generate_axi_top(path):
         fetch_units += f"""
             AXI4S_USER axis_host_rd ();
             AXI4S_USER axis_host_wr ();
-            
+
             `AXISU_AXIS_ASSIGN(s_axis_h2c, axis_host_rd)
             `AXIS_AXISU_ASSIGN(axis_host_wr, m_axis_c2h)
 
@@ -182,7 +182,7 @@ def generate_axi_top(path):
         .m_axi_MVAU_id_{cid}_rresp(axi_hbm[{idx}].rresp),
         .m_axi_MVAU_id_{cid}_rlast(axi_hbm[{idx}].rlast),
         .m_axi_MVAU_id_{cid}_rvalid(axi_hbm[{idx}].rvalid),
-        .m_axi_MVAU_id_{cid}_rready(axi_hbm[{idx}].rready),    
+        .m_axi_MVAU_id_{cid}_rready(axi_hbm[{idx}].rready),
         """
         idx += 1
 
@@ -251,10 +251,10 @@ def generate_axi_top(path):
 
     module role (
         AXI4L.slave s_axi_ctrl,
-        
+
         {strm_port}
         {hbm_port}
-        
+
         input  logic aclk,
         input  logic aclk_dp,
         input  logic aresetn,
@@ -300,17 +300,17 @@ def generate_axi_top(path):
     // ================-----------------------------------------------------------------
 
     ${CORE_INST_NAME} inst_CORE (
-        .s_axis_0_tvalid(axis_dma_rd.tvalid), 
-        .s_axis_0_tready(axis_dma_rd.tready), 
+        .s_axis_0_tvalid(axis_dma_rd.tvalid),
+        .s_axis_0_tready(axis_dma_rd.tready),
         .s_axis_0_tdata(axis_dma_rd.tdata),
         {core_intf_port}
         {core_hbm_ports}
         {core_done_port}
-        .m_axis_0_tvalid(axis_dma_wr.tvalid), 
-        .m_axis_0_tready(axis_dma_wr.tready), 
+        .m_axis_0_tvalid(axis_dma_wr.tvalid),
+        .m_axis_0_tready(axis_dma_wr.tready),
         .m_axis_0_tdata(axis_dma_wr.tdata),
 
-        .ap_clk(aclk), 
+        .ap_clk(aclk),
         .ap_rst_n(aresetn)
     );
 
@@ -373,7 +373,7 @@ def generate_axi_top(path):
 
     endmodule
     """)
-    
+
     top_level = textwrap.indent(top_level, "")
 
     # Write the generated top-level module to a file

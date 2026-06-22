@@ -62,17 +62,17 @@ def generate_axi_top(path):
 
         axi_strm_regs = """
             axis_qdma_reg_array #(.DATA_BITS(QDMA_DATA_BITS), .USER_BITS(QDMA_QID_BITS)) inst_qdma_snk_regs (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_h2c), .m_axis(axis_h2c_r));
-            axis_qdma_reg_array #(.DATA_BITS(QDMA_DATA_BITS), .USER_BITS(QDMA_QID_BITS)) inst_qdma_src_regs (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_c2h), .m_axis(axis_c2h_r)); 
+            axis_qdma_reg_array #(.DATA_BITS(QDMA_DATA_BITS), .USER_BITS(QDMA_QID_BITS)) inst_qdma_src_regs (.aclk(aclk), .aresetn(aresetn), .s_axis(axis_c2h), .m_axis(axis_c2h_r));
         """
 
         axi_strm_role = """
             // AXIS HOST
             .s_axis_h2c(axis_h2c_r),
             .m_axis_c2h(axis_c2h),
-        """      
-    
+        """
+
     #
-    # TOP LEVEL 
+    # TOP LEVEL
     #
 
     top_level = f"""
@@ -127,7 +127,7 @@ def generate_axi_top(path):
         output logic [7:0] gt_pciea1_gtx_n,
         output logic [7:0] gt_pciea1_gtx_p,
         inout  logic smbus_0_scl_io,
-        inout  logic smbus_0_sda_io,   
+        inout  logic smbus_0_sda_io,
         output logic [0:0]CH0_DDR4_0_0_act_n,
         output logic [16:0]CH0_DDR4_0_0_adr,
         output logic [1:0]CH0_DDR4_0_0_ba,
@@ -182,9 +182,9 @@ def generate_axi_top(path):
         wire [0:0] uresetn_1;
         wire uclk_2;
         wire [0:0] uresetn_2;
- 
+
         // ================-----------------------------------------------------------------
-        // CIPS 
+        // CIPS
         // ================-----------------------------------------------------------------
 
         AXI4L #(.AXI4L_DATA_BITS(CSR_DATA_BITS), .AXI4L_ADDR_BITS(CSR_ADDR_BITS)) axi_ctrl ();
@@ -238,7 +238,7 @@ def generate_axi_top(path):
             .gt_pciea1_gtx_p(gt_pciea1_gtx_p),
             .smbus_0_scl_io(smbus_0_scl_io),
             .smbus_0_sda_io(smbus_0_sda_io),
-            
+
             // AXIL
             .axi_ctrl(axi_ctrl),
             {axi_hbm_inst}
@@ -286,7 +286,7 @@ def generate_axi_top(path):
             .uclk_2(uclk_2),
             .uresetn_2(uresetn_2)
         );
-        
+
     endmodule
     """
 

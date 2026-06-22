@@ -42,7 +42,7 @@ import iwTypes::*;
 `include "axi_macros.svh"
 
 module axis_ldet_wr #(
-    parameter integer                                   LEN_BITS = HBM_LEN_BITS  
+    parameter integer                                   LEN_BITS = HBM_LEN_BITS
 ) (
     input  logic                                        aclk,
     input  logic                                        aresetn,
@@ -50,7 +50,7 @@ module axis_ldet_wr #(
     AXI4S.slave                                         s_meta,
 
     AXI4S.slave                                         s_axis,
-    AXI4S_PCKT.master                                   m_axis                
+    AXI4S_PCKT.master                                   m_axis
 );
 
 localparam integer BEATS_BITS = $clog2((ILEN_BITS+7)/8);
@@ -87,7 +87,7 @@ always_comb begin : NSL
     endcase
 end
 
-always_comb begin : DP 
+always_comb begin : DP
     cnt_N = cnt_C;
 
     s_meta.tready = 1'b0;
@@ -104,7 +104,7 @@ always_comb begin : DP
             if(s_meta.tvalid) begin
                 cnt_N = (s_meta.tdata - 1) >> BEATS_BITS;
             end
-        end 
+        end
 
         ST_WRITE: begin
             m_axis.tvalid = s_axis.tvalid;
@@ -116,9 +116,9 @@ always_comb begin : DP
 
             if(m_axis.tvalid && m_axis.tready) begin
                 cnt_N = cnt_C - 1;
-            end                                                                 
+            end
         end
-    
+
     endcase
 
 end

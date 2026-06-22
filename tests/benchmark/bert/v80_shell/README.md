@@ -1,7 +1,7 @@
 
 # Brainwave
 
-Brainsmith v80 shell. 
+Brainsmith v80 shell.
 
 It supports hardware generation (Vivado flow), a C++ runtime, and Python bindings through pybind11.
 

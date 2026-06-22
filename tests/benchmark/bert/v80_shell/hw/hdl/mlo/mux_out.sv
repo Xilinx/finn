@@ -45,7 +45,7 @@ module mux_out #(
 
     parameter int unsigned              OLEN_BITS = 32,
     parameter int unsigned              BEAT_SHIFT = $clog2(OLEN_BITS/8),
-    
+
     parameter int unsigned              QDEPTH = 8,
     parameter int unsigned              N_DCPL_STGS = 1,
     parameter int unsigned              DBG = 0
@@ -197,7 +197,7 @@ always_comb begin : DP
                 n_frames_N = seq_out.tdata[0+:CNT_BITS];
                 len_N = seq_out.tdata[CNT_BITS+:LEN_BITS] >> BEAT_SHIFT;
             end
-        end 
+        end
 
         ST_MUX_SE: begin
             s_axis_int.tready = m_axis_se.tready;
@@ -266,4 +266,4 @@ if(DBG == 1) begin
 end
 
 
-endmodule 
+endmodule

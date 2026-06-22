@@ -58,5 +58,5 @@ always_comb begin : DP
     for(int i = 0; i < DATA_BITS/8; i++)
         m_axis_0_tdata[i*8+:8]  = s_axis_0_tdata[i*8+:8] + 1;
 end
-    
+
 endmodule

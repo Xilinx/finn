@@ -43,7 +43,7 @@ class FPGAOp {
     std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
     std::chrono::time_point<std::chrono::high_resolution_clock> end_time;
 
-private: 
+private:
 
     // Util
     static std::string upper(std::string s) {
@@ -85,11 +85,11 @@ public:
 
     //
     // Ctor
-    FPGAOp(std::optional<std::vector<torch::Tensor>> weight_tensors) : 
+    FPGAOp(std::optional<std::vector<torch::Tensor>> weight_tensors) :
         is_initialized(false)
     {
         // Dtypes
-        constexpr std::size_t EL_BYTES_IN = 
+        constexpr std::size_t EL_BYTES_IN =
             (std::string_view(G_IN_DTYPE) == "FLOAT32") ? 4 :
             (std::string_view(G_IN_DTYPE) == "INT32")   ? 4 :
             (std::string_view(G_IN_DTYPE) == "INT16")   ? 2 :
@@ -98,7 +98,7 @@ public:
             (std::string_view(G_IN_DTYPE) == "UINT8")   ? 1 :
             throw std::runtime_error("Unsupported G_IN_DTYPE");
 
-        constexpr std::size_t EL_BYTES_OUT = 
+        constexpr std::size_t EL_BYTES_OUT =
             (std::string_view(G_OUT_DTYPE) == "FLOAT32") ? 4 :
             (std::string_view(G_OUT_DTYPE) == "INT32")   ? 4 :
             (std::string_view(G_OUT_DTYPE) == "INT16")   ? 2 :
@@ -128,7 +128,7 @@ public:
             }
 
             weight_bufs.reserve(CORE_ID_COUNT);
-            
+
             // Load bytes from tensors
             for (int i = 0; i < CORE_ID_COUNT; ++i) {
                 const auto& w = weights[i];
@@ -220,12 +220,12 @@ public:
         while((csr[(int)RegMap::CTRL_REG] & 0x1) != 0x1) { }
         std::cout << "[RUN] completed!" << std::endl;
 
-        
+
         // Sync results
         const auto out_dt   = to_torch_dtype(G_OUT_DTYPE);
         const int64_t elems_per_sample = G_OUT_LEN;
 
-        auto out = torch::empty({static_cast<int64_t>(batch_size), elems_per_sample}, 
+        auto out = torch::empty({static_cast<int64_t>(batch_size), elems_per_sample},
             torch::TensorOptions().dtype(out_dt).device(torch::kCPU));
         auto* out_ptr = reinterpret_cast<char*>(out.data_ptr());
 
@@ -241,13 +241,13 @@ public:
         double sclk = 4.0; // System clock
         std::cout << "[PERF] Total latency: " << csr[(int)RegMap::PERF_LAT_REG] << " cycles (" << ((csr[(int)RegMap::PERF_LAT_REG] * sclk) / 1e6) << " ms)" << std::endl;
         for(int i = 0; i < batch_size; i++) {
-            if(i!=batch_size-1) { 
+            if(i!=batch_size-1) {
                 std::cout << "   ├── Interval (fpga_batch) " << i << ": " << csr[(int)RegMap::PERF_INT_REG] << " cycles (" << ((csr[(int)RegMap::PERF_INT_REG] * sclk) / 1e6) << " ms)" << std::endl;
             } else {
                 lint = csr[(int)RegMap::PERF_INT_REG];
                 qps = (batch_size * 1e9) / (lint * sclk);
                 std::cout << "   └── Interval (fpga_batch) " << i << ": " << lint << " cycles (" << ((lint * sclk) / 1e6) << " ms)" << std::endl;
-            }		    
+            }
             csr[(int)RegMap::PERF_INT_REG] = 0x1; // pop
         }
 

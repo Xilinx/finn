@@ -32,7 +32,7 @@ import iwTypes::*;
 module axis_qdma_reg (
 	input logic 			aclk,
 	input logic 			aresetn,
-	
+
 	AXI4SU.slave			s_axis,
 	AXI4SU.master     m_axis
 );

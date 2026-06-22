@@ -566,7 +566,7 @@ void vSMBusGenerateEvent_E_CONTROLLER_DESC_FIFO_ALMOST_EMPTY_IRQ( SMBUS_INSTANCE
 
 /*******************************************************************************
 *
-* @brief    Converts an event enum value to a text string for logging 
+* @brief    Converts an event enum value to a text string for logging
 *
 * @param    ucEvent is any state machine event enum value
 *

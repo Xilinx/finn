@@ -21,8 +21,8 @@ extern "C"
 /******************************************************************************
 *
 * @brief    Is the finite state machine for the specified SMBus instance
-*           The function will look up the current state, bytes sent, bytes received etc 
-*           and given the event passed in it will transition to a new state 
+*           The function will look up the current state, bytes sent, bytes received etc
+*           and given the event passed in it will transition to a new state
 *
 * @param    pxSMBusInstance is a pointer to the SMBus instance structure.
 * @param    ucAnyEvent is an event triggered by the driver or by an interrupt

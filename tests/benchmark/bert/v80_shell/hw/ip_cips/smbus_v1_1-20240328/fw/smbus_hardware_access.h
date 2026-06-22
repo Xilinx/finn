@@ -2081,7 +2081,7 @@ uint8_t ucSMBusControllerWriteDescriptorQuickWrite( SMBUS_PROFILE_TYPE* pxSMBusP
 /*******************************************************************************
 *
 * @brief    Writes a Controller Write - BYTE Descriptor ID to the Controller Descriptor FIFO
-* along with a data byte 
+* along with a data byte
 *           To inform the IP to transmit the data byte
 *
 * @param    pxSMBusProfile is a pointer to the SMBus profile structure.
@@ -2099,7 +2099,7 @@ uint8_t ucSMBusControllerWriteDescriptorByte( SMBUS_PROFILE_TYPE* pxSMBusProfile
 /*******************************************************************************
 *
 * @brief    Writes a Controller Write - STOP Descriptor ID to the Controller Descriptor FIFO
-* along with a data byte 
+* along with a data byte
 *           To inform the IP to transmit the data byte followed by a STOP condition
 *
 * @param    pxSMBusProfile is a pointer to the SMBus profile structure.
@@ -2211,7 +2211,7 @@ uint8_t ucSMBusControllerReadDescriptorPEC( SMBUS_PROFILE_TYPE* pxSMBusProfile )
 
 /*******************************************************************************
 *
-* @brief    Converts an Descriptor enum value to a text string for logging 
+* @brief    Converts an Descriptor enum value to a text string for logging
 *
 * @param    SMBus_HW_Descriptor_Type is any Descriptor enum value
 *

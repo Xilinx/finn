@@ -96,7 +96,7 @@ always_ff @(posedge aclk) begin
 		if(rd && !isEmpty) begin
 			if(rd_pntr == (FIFO_SIZE-1))
 				rd_pntr <= 0;
-			else 
+			else
 				rd_pntr <= rd_pntr + 1;
 		end
 	end

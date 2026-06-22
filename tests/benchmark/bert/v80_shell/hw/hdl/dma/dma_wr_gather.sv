@@ -45,7 +45,7 @@ module dma_wr_gather #(
     parameter int unsigned ADDR_BITS = HBM_ADDR_BITS,
     parameter int unsigned LEN_BITS = HBM_LEN_BITS,
     parameter int unsigned DATA_BITS = HBM_DATA_BITS,
-    
+
     parameter int unsigned N_CH = 1,
     parameter logic[HBM_ADDR_BITS-1:0] BASE_ADDR,
 
@@ -128,7 +128,7 @@ end
 
 //
 // DMAs
-// 
+//
 
 AXI4S_PCKT #(.AXI4S_DATA_BITS(DATA_BITS)) axis_tmp [N_CH] ();
 AXI4S_PCKT #(.AXI4S_DATA_BITS(DATA_BITS)) axis_dma [N_CH] ();

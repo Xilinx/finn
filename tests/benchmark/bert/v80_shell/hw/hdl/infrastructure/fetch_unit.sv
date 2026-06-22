@@ -58,10 +58,10 @@ module fetch_unit #(
     input  wire                         dresetn,
 
     AXI4.master                         m_axi_hbm,
-    
+
     AXI4S.slave                         rd_ctrl,
     output logic                        rd_done,
-    
+
     AXI4S.master                        m_axis
 );
 

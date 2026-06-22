@@ -364,9 +364,3 @@ set_property -dict {PACKAGE_PIN CH7 IOSTANDARD LVCMOS12 SLEW SLOW DRIVE 8} [get_
 # set_property -dict { PACKAGE_PIN G45                                                  } [get_ports "mcio2_4x_gtx_p[1]"]     ;# Bank 218 " GTYP_TXP1_218
 # set_property -dict { PACKAGE_PIN J44                                                  } [get_ports "mcio2_4x_gtx_p[2]"]     ;# Bank 218 " GTYP_TXP2_218
 # set_property -dict { PACKAGE_PIN G43                                                  } [get_ports "mcio2_4x_gtx_p[3]"]     ;# Bank 218 " GTYP_TXP3_218
-
-
-
-
-
-
