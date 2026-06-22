@@ -107,73 +107,13 @@ def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: 
     return filename
 
 
-def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
-    """Best-effort build a dataflow accelerator using the given configuration.
+def _run_build_steps(model, cfg, build_dataflow_steps, log):
+    """Run the resolved build steps in order, logging to `log`.
 
-    :param model_filename: ONNX model filename to build
-    :param cfg: Build configuration
+    Returns 0 on success and -1 on the first failing step.
     """
-    # if start_step is specified, override the input model
-    if cfg.start_step is None:
-        print("Building dataflow accelerator from " + model_filename)
-        model = ModelWrapper(model_filename)
-    else:
-        intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
-        print(
-            "Building dataflow accelerator from intermediate checkpoint"
-            + intermediate_model_filename
-        )
-        model = ModelWrapper(intermediate_model_filename)
-    assert type(model) is ModelWrapper
-    finn_build_dir = os.environ["FINN_BUILD_DIR"]
-
-    print("Intermediate outputs will be generated in " + finn_build_dir)
-    print("Final outputs will be generated in " + cfg.output_dir)
-    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
-    # create the output dir if it doesn't exist
-    if not os.path.exists(cfg.output_dir):
-        os.makedirs(cfg.output_dir)
-
-    # Run configuration checks
-    config_report = run_all_config_checks(cfg)
-    print(format_report(config_report))
-    report_path = save_report(config_report, cfg.output_dir)
-    print(f"Configuration check report saved to: {report_path}")
-
-    if config_report.has_errors():
-        if cfg.mute_config_assertions is True:
-            print("WARNING: Configuration errors detected but muted by mute_config_assertions=True")
-            print("Build may fail or produce unexpected results.")
-        else:
-            raise AssertionError(
-                "Configuration check failed with errors. "
-                "Fix the issues above or set mute_config_assertions=True to proceed."
-            )
-
     step_num = 1
     time_per_step = dict()
-    build_dataflow_steps = resolve_build_steps(cfg)
-    # set up logger
-    # Note: basicConfig() is ignored if logging already configured (e.g., in Jupyter)
-    # So we explicitly add a file handler to ensure build_dataflow.log is created
-    log = logging.getLogger("build_dataflow")
-    log.setLevel(logging.DEBUG)
-    log.propagate = (
-        False  # Prevent propagation to root logger (avoids duplicate console output in Jupyter)
-    )
-
-    # Create file handler for build_dataflow.log
-    log_file_handler = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
-    log_file_handler.setLevel(logging.DEBUG)
-    log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
-
-    # Remove any existing handlers from this logger to avoid duplicates
-    for handler in log.handlers[:]:
-        log.removeHandler(handler)
-
-    # Add the file handler (only file output, no console output)
-    log.addHandler(log_file_handler)
-
     stdout_logger = StreamToLogger(log, logging.INFO)
     stderr_logger = StreamToLogger(log, logging.ERROR)
     stdout_orig = sys.stdout
@@ -222,6 +162,78 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
         json.dump(time_per_step, f, indent=2)
     print("Completed successfully")
     return 0
+
+
+def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+    """Best-effort build a dataflow accelerator using the given configuration.
+
+    :param model_filename: ONNX model filename to build
+    :param cfg: Build configuration
+    """
+    # if start_step is specified, override the input model
+    if cfg.start_step is None:
+        print("Building dataflow accelerator from " + model_filename)
+        model = ModelWrapper(model_filename)
+    else:
+        intermediate_model_filename = resolve_step_filename(cfg.start_step, cfg, -1)
+        print(
+            "Building dataflow accelerator from intermediate checkpoint"
+            + intermediate_model_filename
+        )
+        model = ModelWrapper(intermediate_model_filename)
+    assert type(model) is ModelWrapper
+    finn_build_dir = os.environ["FINN_BUILD_DIR"]
+
+    print("Intermediate outputs will be generated in " + finn_build_dir)
+    print("Final outputs will be generated in " + cfg.output_dir)
+    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
+    # create the output dir if it doesn't exist
+    if not os.path.exists(cfg.output_dir):
+        os.makedirs(cfg.output_dir)
+
+    # Run configuration checks
+    config_report = run_all_config_checks(cfg)
+    print(format_report(config_report))
+    report_path = save_report(config_report, cfg.output_dir)
+    print(f"Configuration check report saved to: {report_path}")
+
+    if config_report.has_errors():
+        if cfg.mute_config_assertions is True:
+            print("WARNING: Configuration errors detected but muted by mute_config_assertions=True")
+            print("Build may fail or produce unexpected results.")
+        else:
+            raise AssertionError(
+                "Configuration check failed with errors. "
+                "Fix the issues above or set mute_config_assertions=True to proceed."
+            )
+
+    build_dataflow_steps = resolve_build_steps(cfg)
+    # set up logger
+    # Note: basicConfig() is ignored if logging already configured (e.g., in Jupyter)
+    # So we explicitly add a file handler to ensure build_dataflow.log is created
+    log = logging.getLogger("build_dataflow")
+    log.setLevel(logging.DEBUG)
+    log.propagate = (
+        False  # Prevent propagation to root logger (avoids duplicate console output in Jupyter)
+    )
+
+    # Create file handler for build_dataflow.log
+    log_file_handler = logging.FileHandler(cfg.output_dir + "/build_dataflow.log", mode="a")
+    log_file_handler.setLevel(logging.DEBUG)
+    log_file_handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
+
+    # Remove any existing handlers from this logger to avoid duplicates
+    for handler in log.handlers[:]:
+        log.removeHandler(handler)
+
+    # Add the file handler (only file output, no console output)
+    log.addHandler(log_file_handler)
+
+    try:
+        return _run_build_steps(model, cfg, build_dataflow_steps, log)
+    finally:
+        log.removeHandler(log_file_handler)
+        log_file_handler.close()
 
 
 def build_dataflow_directory(path_to_cfg_dir: str):
