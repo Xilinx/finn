@@ -35,6 +35,7 @@ from qonnx.core.datatype import DataType
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
+    get_by_name,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
@@ -699,6 +700,16 @@ class MVAU(HWCustomOp):
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
                 np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat" and self.get_nodeattr("mlo_max_iter"):
+                simd_group_bits = roundup_to_integer_multiple(simd * export_wdt.bitwidth(), 8)
+                weight_tensor_simd_groups = weight_tensor_unflipped.reshape(1, -1, simd)
+                weight_tensor_simd_groups = pack_innermost_dim_as_hex_string(
+                    weight_tensor_simd_groups, export_wdt, simd_group_bits, prefix=""
+                )
+                weight_stream = weight_tensor_simd_groups.flatten().copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        f.write(val + "\n")
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_instream_width(1)
@@ -900,7 +911,8 @@ class MVAU(HWCustomOp):
         if self.get_nodeattr("mlo_max_iter"):
             intf_names["aximm"].append(("axi_mm", 64))
             intf_names["s_axis"].append(("in_idx0_V", 32))
-            intf_names["ap_none"].append("base_address")
+            if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                intf_names["ap_none"].append("base_address")
         else:
             dynamic_input = self.get_nodeattr("dynamic_input")
             mem_mode = self.get_nodeattr("mem_mode")
@@ -965,9 +977,9 @@ class MVAU(HWCustomOp):
                     "create_bd_intf_pin -mode Master "
                     "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, "axi_mm")
                 )
-                intf_names = self.get_verilog_top_module_intf_names()
-                ba_name = intf_names["ap_none"][0]
-                cmd.append("create_bd_pin -dir I -from 63 -to 0 /%s/%s" % (node_name, ba_name))
+                if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                    ba_name = self.get_verilog_top_module_intf_names()["ap_none"][0]
+                    cmd.append("create_bd_pin -dir I -from 63 -to 0 /%s/%s" % (node_name, ba_name))
 
             # Instantiate either the HLS or RTL IP depending on operator
             self.instantiate_ip(cmd)
@@ -1080,11 +1092,12 @@ class MVAU(HWCustomOp):
                     % (node_name, "axi_mm", node_name, strm_inst, "axi_mm")
                 )
 
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] "
-                    "[get_bd_pins %s/%s/%s]"
-                    % (node_name, "base_address", node_name, strm_inst, "base_address")
-                )
+                if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+                    cmd.append(
+                        "connect_bd_net [get_bd_pins %s/%s] "
+                        "[get_bd_pins %s/%s/%s]"
+                        % (node_name, "base_address", node_name, strm_inst, "base_address")
+                    )
 
             if dyn_input:
                 cmd.append(
@@ -1170,13 +1183,5 @@ class MVAU(HWCustomOp):
         mh = self.get_nodeattr("MH")
         simd = self.get_nodeattr("SIMD")
         weight_width = self.get_input_datatype(1).bitwidth()
-
-        # There are currently some constraints in the Fetch Weights component not allowing
-        # for unaligned reads
-        assert (
-            simd * weight_width
-        ) % 8 == 0, "Fetch Weights currently does not handle unaligned reads"
-        assert ((simd * mw * mh) // 8) % 8 == 0, "Fetch Weights reads 8 byte words"
-
         bytes_chunk = roundup_to_integer_multiple(simd * weight_width, 8) // 8
         return (mh * mw // simd) * bytes_chunk

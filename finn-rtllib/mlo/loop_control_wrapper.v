@@ -120,10 +120,12 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
     input                  out0_V_tready,
 
     // Control signals
-    output wire [1:0]      done_if,
-
+    output wire [1:0]      done_if
+`ifdef HAS_BASE_ADDRESS
+    ,
     // Base Address
     input wire [ADDR_BITS-1:0] base_address
+`endif
 );
 
     loop_control #(
@@ -206,7 +208,11 @@ module $LOOP_CONTROL_WRAPPER_NAME$ #(
        .m_axis_se_tvalid(out0_V_tvalid),
        .m_axis_se_tready(out0_V_tready),
 
+`ifdef HAS_BASE_ADDRESS
        .base_address(base_address)
+`else
+       .base_address({ADDR_BITS{1'b0}})
+`endif
     );
 
 endmodule

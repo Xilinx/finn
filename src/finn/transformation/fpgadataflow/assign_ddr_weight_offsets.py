@@ -3,7 +3,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import roundup_to_integer_multiple
 
 
-class AssignDDRWeightOffsets(Transformation):
+class AssignMemoryOffset(Transformation):
     def apply(self, model):
         self._offset = 0
         self._walk(model)

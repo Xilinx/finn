@@ -386,6 +386,9 @@ class DataflowBuildConfig:
     #: loop_body_hierarchy and loop_body_range
     mlo: Optional[bool] = False
 
+    # DDR or HBM
+    mlo_weight_mem: Optional[str] = "HBM"
+
     #: A List of strings that specify the PyTorch metadata hierarchy to
     #: be used for the loop body hierarchy. Each item in the list should
     #: be a string that represents a level in the hierarchy.

@@ -396,19 +396,22 @@ class FINNLoop(HWCustomOp, RTLBackend):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(value)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            template_wrapper = "`define HAS_BASE_ADDRESS\n" + template_wrapper
         with open(
             os.path.join(code_gen_dir, self.onnx_node.name + "_wrapper.v"),
             "w",
         ) as f:
             f.write(template_wrapper)
 
-        ac_template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/address_config_wrapper.v"
-        ac_module_name = self.onnx_node.name + "_address_config_wrapper"
-        with open(ac_template_path, "r") as f:
-            ac_wrapper = f.read()
-        ac_wrapper = ac_wrapper.replace("$MODULE_NAME_AXI_WRAPPER$", ac_module_name)
-        with open(os.path.join(code_gen_dir, ac_module_name + ".v"), "w") as f:
-            f.write(ac_wrapper)
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            ac_template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mlo/address_config_wrapper.v"
+            ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+            with open(ac_template_path, "r") as f:
+                ac_wrapper = f.read()
+            ac_wrapper = ac_wrapper.replace("$MODULE_NAME_AXI_WRAPPER$", ac_module_name)
+            with open(os.path.join(code_gen_dir, ac_module_name + ".v"), "w") as f:
+                f.write(ac_wrapper)
 
     def generate_params(self, model, path):
         iteration = self.get_nodeattr("iteration")
@@ -983,34 +986,37 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
 
-        ac_module_name = self.onnx_node.name + "_address_config_wrapper"
-        ac_inst_name = f"{self.onnx_node.name}/address_config"
-        cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
-        cmd.append("create_bd_cell -type module -reference %s %s" % (ac_module_name, ac_inst_name))
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, rst_name, ac_inst_name, rst_name)
-        )
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-            % (self.onnx_node.name, clk_name, ac_inst_name, clk_name)
-        )
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
-            % (ac_inst_name, finn_ip_name)
-        )
-        cmd.append(
-            "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
-            % (ac_inst_name, loop_shell_name)
-        )
-        cmd.append(
-            "create_bd_intf_pin -mode Slave "
-            "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/s_axilite" % self.onnx_node.name
-        )
-        cmd.append(
-            "connect_bd_intf_net [get_bd_intf_pins %s/s_axilite] "
-            "[get_bd_intf_pins %s/s_axilite]" % (self.onnx_node.name, ac_inst_name)
-        )
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            ac_module_name = self.onnx_node.name + "_address_config_wrapper"
+            ac_inst_name = f"{self.onnx_node.name}/address_config"
+            cmd.append("add_files -norecurse %s/%s.v" % (code_gen_dir, ac_module_name))
+            cmd.append(
+                "create_bd_cell -type module -reference %s %s" % (ac_module_name, ac_inst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, rst_name, ac_inst_name, rst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
+                % (self.onnx_node.name, clk_name, ac_inst_name, clk_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                % (ac_inst_name, finn_ip_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/base_address] [get_bd_pins %s/base_address]"
+                % (ac_inst_name, loop_shell_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/s_axilite" % self.onnx_node.name
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/s_axilite] "
+                "[get_bd_intf_pins %s/s_axilite]" % (self.onnx_node.name, ac_inst_name)
+            )
 
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
@@ -1053,7 +1059,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
-        cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
+        if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
+            cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1167,7 +1174,8 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # AXI4 master interface for intermediate buffering between layers
         # TODO: rename because it might not be hbm?
         intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
-        intf_names["axilite"] = ["s_axilite"]
+        offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
+        intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 
         # using ap_none field to add control signals
         intf_names["ap_none"] = []

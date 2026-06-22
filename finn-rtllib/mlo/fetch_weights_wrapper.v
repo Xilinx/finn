@@ -106,10 +106,12 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
     // Stream
     output wire                                out0_V_tvalid,
     input  wire                                out0_V_tready,
-    output wire[WS_BITS_BA-1:0]                out0_V_tdata,
-
+    output wire[WS_BITS_BA-1:0]                out0_V_tdata
+`ifdef HAS_BASE_ADDRESS
+    ,
     // Base Address
     input wire[ADDR_BITS-1:0]                  base_address
+`endif
 );
 
 
@@ -165,7 +167,11 @@ fetch_weights #(
     .m_axis_tvalid      (out0_V_tvalid),
     .m_axis_tready      (out0_V_tready),
     .m_axis_tdata       (out0_V_tdata),
+`ifdef HAS_BASE_ADDRESS
     .base_address       (base_address)
+`else
+    .base_address       ({ADDR_BITS{1'b0}})
+`endif
 );
 
 endmodule // $MODULE_NAME_AXI_WRAPPER$

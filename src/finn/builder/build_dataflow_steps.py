@@ -83,7 +83,7 @@ from finn.transformation.fpgadataflow.alveo_build import (
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.assign_ddr_weight_offsets import (
-    AssignDDRWeightOffsets,
+    AssignMemoryOffset,
 )
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -858,7 +858,8 @@ def step_hw_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     And fills RTL templates for RTLBackend nodes."""
 
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(AssignDDRWeightOffsets())
+    if cfg.mlo_weight_mem == "DDR":
+        model = model.transform(AssignMemoryOffset())
     loop_nodes = model.get_nodes_by_op_type("FINNLoop")
     for node in loop_nodes:
         prepare_loop_ops_fifo_sizing(node, cfg)
