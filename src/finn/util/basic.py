@@ -243,22 +243,36 @@ class CppBuilder:
         process_compile.communicate()
 
 
-def launch_process_helper(args, proc_env=None, cwd=None):
-    """Helper function to launch a process in a way that facilitates logging
-    stdout/stderr with Python loggers.
-    Returns (cmd_out, cmd_err)."""
+def launch_process_helper(args, proc_env=None, cwd=None, check=False):
+    """Launch a process and capture its output for logging with Python loggers.
+
+    Returns ``(cmd_out, cmd_err)`` as UTF-8 strings, with undecodable bytes in
+    tool output replaced rather than raised. Both streams are also written
+    through to ``sys.stdout``/``sys.stderr``.
+
+    When ``check`` is True and the process exits non-zero, raises
+    ``subprocess.CalledProcessError`` with ``output`` and ``stderr`` set to the
+    captured strings. The write-through happens before the raise, so the tool
+    log is still visible on failure. That is why the return code is checked by
+    hand rather than relying on ``subprocess.run(check=True)``.
+    """
     if proc_env is None:
         proc_env = os.environ.copy()
-    with subprocess.Popen(
-        args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=proc_env, cwd=cwd
-    ) as proc:
-        (cmd_out, cmd_err) = proc.communicate()
-    if cmd_out is not None:
-        cmd_out = cmd_out.decode("utf-8")
-        sys.stdout.write(cmd_out)
-    if cmd_err is not None:
-        cmd_err = cmd_err.decode("utf-8")
-        sys.stderr.write(cmd_err)
+    proc = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=proc_env,
+        cwd=cwd,
+        encoding="utf-8",
+        errors="replace",
+    )
+    cmd_out = proc.stdout
+    cmd_err = proc.stderr
+    sys.stdout.write(cmd_out)
+    sys.stderr.write(cmd_err)
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, args, cmd_out, cmd_err)
     return (cmd_out, cmd_err)
 
 
@@ -287,14 +301,15 @@ _XILINX_TOOL_DIR_ENV = "FINN_TOOL_DIR_OVERRIDE"
 
 
 def resolve_xilinx_tool(tool_name):
-    """Return the Xilinx-tool command to embed in generated bash scripts. Update
-    the following list if new tools use this resolver.
+    """Resolve the command used to invoke a Xilinx tool. Update the following
+    list if new tools use this resolver.
 
     Default names:
     - vivado
     - vitis_hls
     - vitis-run
     - v++
+    - xelab
 
     With FINN_TOOL_DIR_OVERRIDE set, the command resolves to
     <override>/<tool_name>, otherwise the bare tool_name is used.

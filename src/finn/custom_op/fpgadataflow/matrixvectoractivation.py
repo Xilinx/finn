@@ -1002,7 +1002,6 @@ class MVAU(HWCustomOp):
                     )
 
                     # dynamic loader
-                    ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
                     dyn_rtllib_dir = os.path.join(
                         os.environ["FINN_ROOT"], "finn-rtllib/dynload/hdl/"
                     )
@@ -1037,7 +1036,6 @@ class MVAU(HWCustomOp):
                         )
 
                     # instantiate a fetch weights component and connect it to the IP
-                    ram_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/ram/")
                     reg_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/skid/")
                     que_rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/fifo/hdl/")
                     fwg_rtllib_dir = os.path.join(
