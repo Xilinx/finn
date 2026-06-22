@@ -51,11 +51,12 @@ set dcp_dir         "${CMAKE_BINARY_DIR}/hw/checkpoints"
 set rprt_dir        "${CMAKE_BINARY_DIR}/hw/reports"
 set bit_dir         "${CMAKE_BINARY_DIR}/hw/bitstreams"
 set dcp_dir         "${CMAKE_BINARY_DIR}/hw/checkpoints"
-set scripts_dir     "${BWAVE_DIR}/scripts"
-set hw_dir          "${BWAVE_DIR}/hw"
+set scripts_dir     "${V80_SHELL_DIR}/scripts"
+set hw_dir          "${V80_SHELL_DIR}/hw"
+set finn_rtllib     "${FINN_RTLLIB_DIR}"
 set ip_dir          "$hw_dir/ip"
 set iprepo_dir      "$build_dir/iprepo"
-set proj_dir        "$build_dir/BrainWave_prj"
+set proj_dir        "$build_dir/v80_shell_prj"
 
 ########################################################################################################
 # Versioning

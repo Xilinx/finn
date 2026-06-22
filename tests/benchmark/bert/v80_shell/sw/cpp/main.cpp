@@ -30,7 +30,7 @@
 
 // -------------------------------------------------------
 
-#include "dmabwave.h"
+#include "dma_v80.h"
 #include "extract_sys.hpp"
 
 // Runtime

@@ -21,8 +21,8 @@ The Brainsmith ``@step`` / ``@transform`` decorators and the
 removed; the concrete QONNX/FINN transforms are imported directly.
 """
 
-import json
 import logging
+import math
 import numpy as np
 import os
 import qonnx.custom_op.registry as registry
@@ -30,7 +30,6 @@ import shutil
 import subprocess
 from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.base import Transformation
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     ConvertDivToMul,
@@ -58,6 +57,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarMulPastMatMul,
 )
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import launch_process_helper, resolve_xilinx_tool
 
 logger = logging.getLogger(__name__)
 
@@ -198,125 +198,107 @@ def step_bert_streamlining(model: ModelWrapper, cfg: DataflowBuildConfig) -> Mod
 # ===========================================================================
 
 
-class ExtractShellIntegrationMetadata(Transformation):
-    """Walk the ONNX graph and extract metadata for shell-integration handover.
+def _extract_shell_metadata(model: ModelWrapper) -> dict:
+    """Walk the ONNX graph and extract the V80 shell-integration metadata.
 
-    Inlined verbatim port of the Brainsmith
-    ``brainsmith/transforms/post_proc/extract_shell_integration_metadata.py``
-    transform (the optional ``dat_file_to_numpy_array`` weight dump is left
-    commented out, as in the original).
+    Returns the stream/core metadata used to drive the hardware build. Inlined
+    port of the Brainsmith ``extract_shell_integration_metadata`` transform,
+    returning a plain dict so the parameters can be read directly from the model
+    at build time (no on-disk JSON handover required).
     """
+    graph = model.graph
+    md: dict = {}
 
-    def __init__(self, metadata_file: str):
-        super().__init__()
-        self.metadata_file: str = metadata_file
-        self.md = {}
+    # Search for FINNLoop ops (Does not currently support nested FINNLoops)
+    finn_loops = {}
+    mlo = False
+    for node in model.graph.node:
+        if node.op_type == "FINNLoop":
+            finnloop_op = registry.getCustomOp(node)
+            finnloop_body = finnloop_op.get_nodeattr("body")
 
-    def apply(self, model):
-        graph = model.graph
+            mvau_hbm_weights = {}
+            extern_idx = 0
+            for idx, lb_inp in enumerate(finnloop_body.graph.input):
+                downstream = finnloop_body.find_consumer(lb_inp.name)
+                if downstream.op_type.startswith("MVAU"):
+                    mlo = True
+                    mvau_hbm_weights[idx] = {}
+                    mvau_hbm_weights[idx]["name"] = lb_inp.name
+                    mvau_hbm_weights[idx]["extern_idx"] = extern_idx
+                    mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
+                    mlo_mvau = registry.getCustomOp(downstream)
+                    mvau_hbm_weights[idx]["PE"] = mlo_mvau.get_nodeattr("PE")
+                    mvau_hbm_weights[idx]["SIMD"] = mlo_mvau.get_nodeattr("SIMD")
+                    mvau_hbm_weights[idx]["MH"] = mlo_mvau.get_nodeattr("MH")
+                    mvau_hbm_weights[idx]["MW"] = mlo_mvau.get_nodeattr("MW")
+                    mvau_hbm_weights[idx]["weightDataType"] = mlo_mvau.get_nodeattr(
+                        "weightDataType"
+                    )
+                    extern_idx += 1
+            finn_loops[node.name] = mvau_hbm_weights
+    md["mlo"] = mlo
+    md["finn_loops"] = finn_loops
 
-        # Search for FINNLoop ops (Does not currently support nested FINNLoops)
-        finn_loops = {}
-        mlo = False
-        for node in model.graph.node:
-            if node.op_type == "FINNLoop":
-                finnloop_op = registry.getCustomOp(node)
-                finnloop_body = finnloop_op.get_nodeattr("body")
+    # Extract instream widths
+    instreams = {}
+    for input_tensor in graph.input:
+        consumer = model.find_consumer(input_tensor.name)
+        inst = registry.getCustomOp(consumer)
+        instream = {}
+        instream["width"] = inst.get_instream_width()
+        instreams[input_tensor.name] = instream
+        instream["shape"] = inst.get_normal_input_shape()
+        instream["datatype"] = inst.get_input_datatype().name
+    md["insteams"] = instreams
 
-                mvau_hbm_weights = {}
-                extern_idx = 0
-                for idx, lb_inp in enumerate(finnloop_body.graph.input):
-                    downstream = finnloop_body.find_consumer(lb_inp.name)
-                    if downstream.op_type.startswith("MVAU"):
-                        mlo = True
-                        mvau_hbm_weights[idx] = {}
-                        mvau_hbm_weights[idx]["name"] = lb_inp.name
-                        # datfile retained for reference; weight dump disabled
-                        _ = (
-                            f"{finnloop_op.get_nodeattr('code_gen_dir_ipgen')}"
-                            f"/memblock_MVAU_rtl_id_{idx}.dat"
-                        )
-                        mvau_hbm_weights[idx]["extern_idx"] = extern_idx
-                        mvau_hbm_weights[idx]["extern_name"] = f"m_axi_MVAU_id_{idx}"
-                        mlo_mvau = registry.getCustomOp(downstream)
-                        mvau_hbm_weights[idx]["PE"] = mlo_mvau.get_nodeattr("PE")
-                        mvau_hbm_weights[idx]["SIMD"] = mlo_mvau.get_nodeattr("SIMD")
-                        mvau_hbm_weights[idx]["MH"] = mlo_mvau.get_nodeattr("MH")
-                        mvau_hbm_weights[idx]["MW"] = mlo_mvau.get_nodeattr("MW")
-                        mvau_hbm_weights[idx]["weightDataType"] = mlo_mvau.get_nodeattr(
-                            "weightDataType"
-                        )
-                        extern_idx += 1
-                finn_loops[node.name] = mvau_hbm_weights
-        self.md["mlo"] = mlo
-        self.md["finn_loops"] = finn_loops
+    # Extract outstream widths
+    outstreams = {}
+    for output_tensor in graph.output:
+        producer = model.find_producer(output_tensor.name)
+        inst = registry.getCustomOp(producer)
+        outstream = {}
+        outstream["width"] = inst.get_outstream_width()
+        outstreams[output_tensor.name] = outstream
+        outstream["shape"] = inst.get_normal_output_shape()
+        outstream["datatype"] = inst.get_output_datatype().name
+    md["outsteams"] = outstreams
 
-        # Extract instream widths
-        instreams = {}
-        for input_tensor in graph.input:
-            consumer = model.find_consumer(input_tensor.name)
-            inst = registry.getCustomOp(consumer)
-            instream = {}
-            instream["width"] = inst.get_instream_width()
-            instreams[input_tensor.name] = instream
-            instream["shape"] = inst.get_normal_input_shape()
-            instream["datatype"] = inst.get_input_datatype().name
-        self.md["insteams"] = instreams
+    static_matmuls = {}
+    for node in graph.node:
+        if node.op_type == "MVAU_rtl":
+            inst = registry.getCustomOp(node)
+            mm = {}
+            mm["MH"] = inst.get_nodeattr("MH")
+            mm["MW"] = inst.get_nodeattr("MW")
+            mm["SIMD"] = inst.get_nodeattr("SIMD")
+            mm["PE"] = inst.get_nodeattr("PE")
+            static_matmuls[node.name] = mm
+    md["static_matmuls"] = static_matmuls
 
-        # Extract outstream widths
-        outstreams = {}
-        for output_tensor in graph.output:
-            producer = model.find_producer(output_tensor.name)
-            inst = registry.getCustomOp(producer)
-            outstream = {}
-            outstream["width"] = inst.get_outstream_width()
-            outstreams[output_tensor.name] = outstream
-            outstream["shape"] = inst.get_normal_output_shape()
-            outstream["datatype"] = inst.get_output_datatype().name
-        self.md["outsteams"] = outstreams
-
-        static_matmuls = {}
-        for node in graph.node:
-            if node.op_type == "MVAU_rtl":
-                inst = registry.getCustomOp(node)
-                mm = {}
-                mm["MH"] = inst.get_nodeattr("MH")
-                mm["MW"] = inst.get_nodeattr("MW")
-                mm["SIMD"] = inst.get_nodeattr("SIMD")
-                mm["PE"] = inst.get_nodeattr("PE")
-                static_matmuls[node.name] = mm
-        self.md["static_matmuls"] = static_matmuls
-
-        with open(self.metadata_file, "w") as fp:
-            json.dump(self.md, fp, indent=4)
-
-        return (model, False)
+    return md
 
 
-def step_shell_metadata_handover(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
-    """Extract metadata for the V80 shell-integration process.
+def step_stage_reference_io(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
+    """Stage the reference I/O ``*.npy`` files into the stitched IP directory.
 
-    Ported from Brainsmith ``shell_metadata_handover``. Writes
-    ``stitched_ip/shell_handover.json`` and copies the reference I/O ``*.npy``
-    files into the stitched IP directory for handover.
+    The reference input/output (produced by ``step_generate_reference_io``) are
+    copied next to the stitched IP so the software build can pick them up
+    (``CORE_PATH``) and stage them into the deployment for on-hardware
+    verification.
     """
-    if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
-        stitched_ip_dir = os.path.join(cfg.output_dir, "stitched_ip")
-        if os.path.isdir(stitched_ip_dir):
-            model = model.transform(
-                ExtractShellIntegrationMetadata(
-                    os.path.join(stitched_ip_dir, "shell_handover.json")
-                )
-            )
-            # copy the reference IO *.npy files into the stitched_ip for handover
-            shutil.copy(cfg.verify_input_npy, stitched_ip_dir)
-            shutil.copy(cfg.verify_expected_output_npy, stitched_ip_dir)
-            return model
-        else:
-            raise RuntimeError(
-                "Error: could not find stitched IP directory so unable to create "
-                "metadata. Please ensure this is called after the create_stitched_ip step"
-            )
+    if DataflowOutputType.STITCHED_IP not in cfg.generate_outputs:
+        return model
+
+    stitched_ip_dir = os.path.join(cfg.output_dir, "stitched_ip")
+    if not os.path.isdir(stitched_ip_dir):
+        raise RuntimeError(
+            "Error: could not find stitched IP directory. Please ensure this is "
+            "called after the create_stitched_ip step."
+        )
+
+    shutil.copy(cfg.verify_input_npy, stitched_ip_dir)
+    shutil.copy(cfg.verify_expected_output_npy, stitched_ip_dir)
     return model
 
 
@@ -328,10 +310,8 @@ def step_shell_metadata_handover(model: ModelWrapper, cfg: DataflowBuildConfig) 
 def _find_v80_shell_dir(cfg: Any) -> Path:
     """Locate the V80 shell source directory (``v80_shell/``).
 
-    Resolution priority:
-    1. ``cfg.v80_shell_dir`` (explicit config)
-    2. ``BWAVE_DIR`` environment variable (legacy compatibility)
-    3. ``<this test folder>/v80_shell/`` (default, self-contained)
+    The shell lives statically inside the FINN repo next to this module, so it is
+    resolved relative to this file. ``cfg.v80_shell_dir`` may override it.
     """
     if getattr(cfg, "v80_shell_dir", None):
         path = Path(cfg.v80_shell_dir)
@@ -339,20 +319,11 @@ def _find_v80_shell_dir(cfg: Any) -> Path:
             return path
         raise RuntimeError(f"v80_shell_dir specified but not found: {path}")
 
-    if "BWAVE_DIR" in os.environ:
-        path = Path(os.environ["BWAVE_DIR"])
-        if path.exists():
-            return path
-        logger.warning(f"BWAVE_DIR set but path not found: {path}")
-
     default_path = Path(__file__).parent / "v80_shell"
     if default_path.exists():
         return default_path
 
-    raise RuntimeError(
-        "V80 shell directory (v80_shell/) not found. "
-        "Set v80_shell_dir in config or BWAVE_DIR environment variable."
-    )
+    raise RuntimeError(f"V80 shell directory not found at {default_path}")
 
 
 def _check_tool_available(tool: str) -> bool:
@@ -362,15 +333,6 @@ def _check_tool_available(tool: str) -> bool:
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
-
-
-def _check_vivado_available() -> bool:
-    """Check if Vivado is available in PATH or XILINX_VIVADO is set."""
-    if "XILINX_VIVADO" in os.environ:
-        vivado_path = Path(os.environ["XILINX_VIVADO"]) / "bin" / "vivado"
-        if vivado_path.exists():
-            return True
-    return _check_tool_available("vivado")
 
 
 def _get_torch_cmake_prefix() -> Optional[str]:
@@ -425,7 +387,7 @@ def _setup_v80_build_environment(cfg: Any):
     """Common setup for the V80 build steps.
 
     Returns a tuple of
-    ``(stitched_ip_dir, handover_file, v80_shell_dir, build_dir, deploy_dir, log_dir)``
+    ``(stitched_ip_dir, v80_shell_dir, build_dir, deploy_dir, log_dir)``
     or ``None`` if STITCHED_IP is not requested.
     """
     if DataflowOutputType.STITCHED_IP not in cfg.generate_outputs:
@@ -435,20 +397,8 @@ def _setup_v80_build_environment(cfg: Any):
     if not stitched_ip_dir.exists():
         raise RuntimeError(
             f"Stitched IP directory not found: {stitched_ip_dir}. "
-            "Ensure create_stitched_ip and shell_metadata_handover ran successfully."
+            "Ensure create_stitched_ip ran successfully."
         )
-
-    handover_file = stitched_ip_dir / "shell_handover.json"
-    if not handover_file.exists():
-        raise RuntimeError(
-            f"shell_handover.json not found in {stitched_ip_dir}. "
-            "Ensure shell_metadata_handover step completed."
-        )
-
-    if not _check_tool_available("cmake"):
-        raise RuntimeError("CMake not found. Install with: apt-get install cmake")
-    if not _check_tool_available("make"):
-        raise RuntimeError("Make not found. Install with: apt-get install build-essential")
 
     v80_shell_dir = _find_v80_shell_dir(cfg)
     logger.info(f"Using V80 shell source: {v80_shell_dir}")
@@ -456,7 +406,8 @@ def _setup_v80_build_environment(cfg: Any):
     build_dir = Path(cfg.output_dir) / "v80_build"
     build_dir.mkdir(parents=True, exist_ok=True)
 
-    # sw/export subdirectories (needed by hw_project even if BUILD_SW/BUILD_PY are OFF)
+    # sw/export subdirectories: the HW build writes the generated CSR header here
+    # (extract_sys.py -> sw/export/include) and the SW (pybind) CMake reuses them.
     sw_export_dir = build_dir / "sw" / "export"
     (sw_export_dir / "include").mkdir(parents=True, exist_ok=True)
     (sw_export_dir / "config").mkdir(parents=True, exist_ok=True)
@@ -468,7 +419,211 @@ def _setup_v80_build_environment(cfg: Any):
     log_dir = deploy_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    return stitched_ip_dir, handover_file, v80_shell_dir, build_dir, deploy_dir, log_dir
+    return stitched_ip_dir, v80_shell_dir, build_dir, deploy_dir, log_dir
+
+
+# ---------------------------------------------------------------------------
+# V80 hardware build (Vivado driven directly, no CMake)
+#
+# The helpers below port the hardware half of the former CMake module
+# (``cmake/FindV80Shell.cmake``: ``gen_internal`` / ``gen_parsed`` /
+# ``gen_scripts`` / ``gen_targets``) into plain Python that renders the TCL/SV
+# templates and calls Vivado directly, mirroring how the rest of FINN drives
+# Vivado (e.g. ``SlashLink`` / ``VitisLink`` in ``alveo_build.py``).
+# ---------------------------------------------------------------------------
+
+
+def _render_template(text: str, variables: dict) -> str:
+    """Substitute ``@KEY@`` / ``${KEY}`` for each known variable.
+
+    Faithful, minimal reimplementation of CMake ``configure_file`` for this
+    shell: only the *known* variable names are replaced, in both ``@KEY@`` and
+    ``${KEY}`` forms. Any other ``$name`` / ``${other}`` token is left intact so
+    that TCL runtime variables (``$proj_dir`` etc.) survive untouched.
+    """
+    for key, val in variables.items():
+        sval = str(val)
+        text = text.replace(f"@{key}@", sval)
+        text = text.replace("${" + key + "}", sval)
+    return text
+
+
+def _build_v80_hw_vars(cfg: Any, stitched_ip_dir: Path, metadata: dict, build_dir: Path) -> dict:
+    """Build the template variable map for the rendered HW scripts.
+
+    Combines the static shell configuration, the device/clock derivations
+    (device -> ``FPGA_PART``, clock period) and the values extracted from the
+    model (``metadata``: stream/core metadata and the HBM-port allocation).
+    """
+    aclk_f = int(getattr(cfg, "v80_clock_mhz", 250))
+    comp_cores = int(getattr(cfg, "v80_compile_cores", 4))
+
+    # ---- static configuration (FindV80Shell.cmake BUILD_HW cache vars) ----
+    v: dict = {
+        "CMAKE_PROJECT_NAME": "brainsmith",
+        "CMAKE_BINARY_DIR": str(build_dir),
+        # Platform
+        "FDEV_NAME": "v80",
+        # Color codes via `tput` need a real terminal; the build now runs as a
+        # captured subprocess (no tty), so disable terminal styling.
+        "EN_XTERM": 0,
+        # Core
+        "CORE_INST_NAME": "finn_design_0",
+        "CORE_IP_NAME": "finn_design",
+        "CORE_PATH": str(stitched_ip_dir),
+        "TB_PATH": 0,
+        # Optional scripts
+        "SCR_PATH": 0,
+        "BD_SCR_PATH": 0,
+        # Clocks
+        "ACLK_F": aclk_f,
+        "DCLK_F": 250,
+        "UCLK_0_F": 100,
+        "UCLK_1_F": 100,
+        "UCLK_2_F": 100,
+        # Streams
+        "EN_STRM": 0,
+        # Memory
+        "N_HBM_PL_PORTS_MAX": 16,
+        "BW_PL_HBM_RD": 8500,
+        "BW_PL_HBM_WR": 100,
+        # Offsets (hex strings without 0x)
+        "CSR_OFFS": "2000000",
+        "HBM_OFFS": "4000000000",
+        "HBM_RNG": "20000000",
+        # Slicing
+        "N_PS_PL_CTRL_REGS": 3,
+        "N_PS_PL_DATA_REGS": 3,
+        "N_HBM_PL_DATA_REGS": 3,
+        # Segmented configuration
+        "EN_SEG_RECONFIG": 0,
+        # Comp cores
+        "COMP_CORES": comp_cores,
+    }
+
+    # ---- gen_internal: device + clock derivations ----
+    v["FPGA_PART"] = "xcv80-lsva4737-2MHP-e-S"
+    v["ACLK_P"] = f"{1000.0 / aclk_f:g}"
+    v["ACLK_DP_F"] = aclk_f * 2
+
+    # ---- stream / core metadata (extracted directly from the model) ----
+    hcfg = metadata
+
+    gi = hcfg["insteams"]["global_in"]
+    go = hcfg["outsteams"]["global_out"]
+    si = gi.get("shape", [1])[1:]
+    so = go.get("shape", [1])[1:]
+    v["ILEN_BITS"] = gi["width"]
+    v["OLEN_BITS"] = go["width"]
+    v["ILEN"] = math.prod(si) if si else 1
+    v["OLEN"] = math.prod(so) if so else 1
+    v["GI_DTYPE"] = gi.get("datatype", "UNKNOWN")
+    v["GO_DTYPE"] = go.get("datatype", "UNKNOWN")
+
+    mlo = 1 if hcfg.get("mlo", False) else 0
+    v["MLO"] = mlo
+
+    ids, mh_mw, dtypes = [], [], []
+    for _, loop_body in hcfg.get("finn_loops", {}).items():
+        for sid in sorted(loop_body.keys(), key=lambda x: int(x)):
+            node = loop_body[sid]
+            ids.append(int(sid))
+            mh_mw.append(int(node.get("MH", 1)) * int(node.get("MW", 1)))
+            dtypes.append(node.get("weightDataType", "UNKNOWN"))
+    core_id_count = len(ids)
+    v["CORE_ID_COUNT"] = core_id_count
+    v["CORE_IDS_CSV"] = ", ".join(str(x) for x in ids)
+    v["CORE_MHMW_CSV"] = ", ".join(str(x) for x in mh_mw)
+    v["CORE_DTYPES_CSV"] = ", ".join(f'"{dt}"' for dt in dtypes)
+
+    # ---- HBM port allocation (ported from gen_parsed) ----
+    n_pl = 0 if v["EN_STRM"] else 2
+    if mlo:
+        n_pl += 1 + core_id_count
+    pl_req = n_pl
+    n_max = v["N_HBM_PL_PORTS_MAX"]
+    if n_max is None or n_max < 0:
+        n_pl, n_noc = pl_req, 0
+    elif pl_req > n_max:
+        n_pl, n_noc = n_max, pl_req - n_max
+    else:
+        n_pl, n_noc = pl_req, 0
+    n_noc = max(n_noc, 0)
+    v["N_HBM_PL_PORTS"] = n_pl
+    v["N_HBM_NOC_PORTS"] = n_noc
+    v["N_HBM_PORTS"] = n_pl + n_noc
+
+    return v
+
+
+def _render_hw_scripts(v80_shell_dir: Path, build_dir: Path, variables: dict) -> Path:
+    """Render the HW TCL/SV/py templates into the build dir (ports ``gen_scripts``).
+
+    Returns the hardware build root (``<build_dir>/hw``) where the rendered
+    scripts live and where Vivado is invoked.
+    """
+    hw_root = build_dir / "hw"
+    hdl_dir = hw_root / "hdl"
+    for sub in ("checkpoints", "reports", "bitstreams", "hdl", "iprepo"):
+        (hw_root / sub).mkdir(parents=True, exist_ok=True)
+
+    # Path variables consumed by the TCL templates. ``FINN_RTLLIB_DIR`` lets the
+    # shell pull the reviewed RTL building blocks (Q_srl, AXIS dwc) straight from
+    # ``finn-rtllib`` instead of vendoring copies under ``v80_shell/hw/hdl``.
+    v80_shell_dir = v80_shell_dir.resolve()
+    variables = dict(variables)
+    variables["V80_SHELL_DIR"] = str(v80_shell_dir)
+    variables["FINN_RTLLIB_DIR"] = str(v80_shell_dir.parents[3] / "finn-rtllib")
+
+    block_design = "host"  # BLOCK_DESIGN_CNFG
+    renders = [
+        (v80_shell_dir / "scripts" / "base.tcl.in", hw_root / "base.tcl"),
+        (v80_shell_dir / "scripts" / "create_project.tcl.in", hw_root / "create_project.tcl"),
+        (v80_shell_dir / "scripts" / "inst_ip.tcl.in", hw_root / "inst_ip.tcl"),
+        (v80_shell_dir / "scripts" / f"cr_bd_{block_design}.tcl.in", hw_root / "cr_bd.tcl"),
+        (v80_shell_dir / "scripts" / "synth.tcl.in", hw_root / "synth.tcl"),
+        (v80_shell_dir / "scripts" / "compile.tcl.in", hw_root / "compile.tcl"),
+        (v80_shell_dir / "hw" / "hdl" / "intf" / "pkt_types.sv.in", hdl_dir / "pkt_types.sv"),
+        (
+            v80_shell_dir / "scripts" / "python" / "gen_bd_wrapper.py.in",
+            hw_root / "gen_bd_wrapper.py",
+        ),
+        (
+            v80_shell_dir / "scripts" / "python" / "gen_top_wrapper.py.in",
+            hw_root / "gen_top_wrapper.py",
+        ),
+        (v80_shell_dir / "scripts" / "python" / "gen_role.py.in", hw_root / "gen_role.py"),
+        (v80_shell_dir / "scripts" / "python" / "extract_sys.py.in", hw_root / "extract_sys.py"),
+    ]
+    for src, dst in renders:
+        dst.write_text(_render_template(src.read_text(), variables))
+    logger.info(f"Rendered {len(renders)} HW scripts into {hw_root}")
+    return hw_root
+
+
+def _run_vivado(tcl_file: Path, hw_root: Path, log_file: Path, stage: str) -> None:
+    """Run a single Vivado batch stage from a rendered TCL script.
+
+    Mirrors the direct-Vivado pattern used elsewhere in FINN; the rendered TCL
+    scripts ``exit 1`` on failure, so a non-zero return code is surfaced as a
+    ``RuntimeError`` pointing at the per-stage log.
+    """
+    vivado = resolve_xilinx_tool("vivado")
+    cmd = [vivado, "-mode", "tcl", "-source", str(tcl_file), "-notrace"]
+    logger.info(f"[{stage}] {' '.join(cmd)} (cwd={hw_root})")
+    try:
+        out, err = launch_process_helper(cmd, cwd=str(hw_root), check=True)
+    except subprocess.CalledProcessError as e:
+        with open(log_file, "w") as f:
+            f.write(e.output or "")
+            f.write("\n--- stderr ---\n")
+            f.write(e.stderr or "")
+        raise RuntimeError(f"V80 hw {stage} failed (vivado). See {log_file}") from e
+    with open(log_file, "w") as f:
+        f.write(out or "")
+        if err:
+            f.write("\n--- stderr ---\n")
+            f.write(err)
 
 
 def _run_cmake_configure(
@@ -478,16 +633,17 @@ def _run_cmake_configure(
     build_dir: Path,
     log_dir: Path,
 ) -> None:
-    """Run CMake configure if not already done."""
-    clock_mhz = getattr(cfg, "v80_clock_mhz", 250)
-    compile_cores = getattr(cfg, "v80_compile_cores", 4)
+    """Configure the CMake software build (pybind11 module only).
 
+    The hardware is built by ``step_v80_hw_build`` directly via Vivado, so this
+    only configures the Python-bindings half of the shell CMake.
+    """
     makefile = build_dir / "Makefile"
     if makefile.exists():
         logger.info("CMake already configured, skipping configure step")
         return
 
-    logger.info("Configuring V80 deployment build...")
+    logger.info("Configuring V80 software (pybind11) build...")
     cmake_cmd = [
         "cmake",
         "-S",
@@ -495,12 +651,7 @@ def _run_cmake_configure(
         "-B",
         str(build_dir),
         f"-DCORE_PATH={stitched_ip_dir}",
-        f"-DBWAVE_DIR={v80_shell_dir}",
-        f"-DACLK_F={clock_mhz}",
-        f"-DCOMP_CORES={compile_cores}",
-        "-DBUILD_HW=ON",
-        "-DBUILD_PY=ON",  # enable so both hw and sw targets are available
-        "-DBUILD_SW=OFF",  # C++ runtime not needed for Python workflow
+        f"-DV80_SHELL_DIR={v80_shell_dir}",
     ]
 
     torch_cmake_prefix = _get_torch_cmake_prefix()
@@ -550,51 +701,40 @@ def _run_cmake_configure(
 def step_v80_hw_build(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
     """Build the V80 hardware (synthesis and implementation) from stitched IP.
 
-    Ported from Brainsmith ``v80_hw_build``. Configures CMake against the
-    stitched IP, runs ``hw_project`` -> ``hw_synth`` -> ``hw_compile``, then
-    collects bitstreams/reports into the ``deployment`` folder.
+    Extracts the shell-integration metadata directly from the model, renders the
+    shell's TCL/SV templates and runs Vivado directly (project -> synth ->
+    compile), then collects bitstreams and reports into the ``deployment``
+    folder. This replaces the former CMake-driven hardware flow with plain
+    Python, mirroring how the rest of FINN drives Vivado.
 
     Optional config attributes (read via getattr with defaults):
     ``v80_clock_mhz`` (250), ``v80_compile_cores`` (4), ``v80_shell_dir``.
     """
-    if not _check_vivado_available():
-        raise RuntimeError("Vivado not found. Ensure Vivado is in PATH or XILINX_VIVADO is set.")
-
     env = _setup_v80_build_environment(cfg)
     if env is None:
         logger.warning("Skipping v80_hw_build: STITCHED_IP not in generate_outputs")
         return model
 
-    stitched_ip_dir, handover_file, v80_shell_dir, build_dir, deploy_dir, log_dir = env
-    compile_cores = getattr(cfg, "v80_compile_cores", 4)
+    stitched_ip_dir, v80_shell_dir, build_dir, deploy_dir, log_dir = env
 
-    _run_cmake_configure(cfg, stitched_ip_dir, v80_shell_dir, build_dir, log_dir)
+    # Extract the shell metadata from the model, render the TCL/SV/py templates,
+    # then drive Vivado.
+    metadata = _extract_shell_metadata(model)
+    variables = _build_v80_hw_vars(cfg, stitched_ip_dir, metadata, build_dir)
+    hw_root = _render_hw_scripts(v80_shell_dir, build_dir, variables)
 
-    # hw_project (project creation is not parallelizable)
-    logger.info("Creating Vivado project (hw_project)...")
-    ret = _run_cmake_build(build_dir, "hw_project", cores=1, log_file=log_dir / "hw_project.log")
-    if ret != 0:
-        raise RuntimeError(f"hw_project failed. Check {log_dir}/hw_project.log")
+    logger.info("Creating Vivado project...")
+    _run_vivado(hw_root / "create_project.tcl", hw_root, log_dir / "hw_project.log", "project")
 
-    # hw_synth
-    logger.info("Running synthesis (hw_synth)...")
-    ret = _run_cmake_build(
-        build_dir, "hw_synth", cores=compile_cores, log_file=log_dir / "hw_synth.log"
-    )
-    if ret != 0:
-        raise RuntimeError(f"hw_synth failed. Check {log_dir}/hw_synth.log")
+    logger.info("Running synthesis...")
+    _run_vivado(hw_root / "synth.tcl", hw_root, log_dir / "hw_synth.log", "synth")
 
-    # hw_compile (single core for implementation to avoid PLM "Bad file descriptor")
-    logger.info("Running implementation (hw_compile)...")
-    ret = _run_cmake_build(build_dir, "hw_compile", cores=1, log_file=log_dir / "hw_compile.log")
-    if ret != 0:
-        raise RuntimeError(f"hw_compile failed. Check {log_dir}/hw_compile.log")
+    logger.info("Running implementation...")
+    _run_vivado(hw_root / "compile.tcl", hw_root, log_dir / "hw_compile.log", "compile")
 
     logger.info("Hardware build complete")
 
     # Collect hardware artifacts
-    hw_root = build_dir / "hw"
-
     bitstream_src = hw_root / "bitstreams"
     bitstream_dst = deploy_dir / "bitstreams"
     if bitstream_src.exists():
@@ -609,7 +749,6 @@ def step_v80_hw_build(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWra
         shutil.copytree(report_src, report_dst, dirs_exist_ok=True)
         logger.info(f"Copied reports to {report_dst}")
 
-    shutil.copy2(handover_file, deploy_dir / "shell_handover.json")
     logger.info(f"Hardware artifacts collected in {deploy_dir}")
 
     return model
@@ -622,12 +761,16 @@ def step_v80_sw_build(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWra
     stitched IP, builds ``sw_python``, then collects the python module / config /
     reference artifacts into the ``deployment`` folder.
     """
+    for tool in ("cmake", "make"):
+        if not _check_tool_available(tool):
+            raise RuntimeError(f"{tool} not found in PATH; required for the V80 software build.")
+
     env = _setup_v80_build_environment(cfg)
     if env is None:
         logger.warning("Skipping v80_sw_build: STITCHED_IP not in generate_outputs")
         return model
 
-    stitched_ip_dir, handover_file, v80_shell_dir, build_dir, deploy_dir, log_dir = env
+    stitched_ip_dir, v80_shell_dir, build_dir, deploy_dir, log_dir = env
     compile_cores = getattr(cfg, "v80_compile_cores", 4)
 
     _run_cmake_configure(cfg, stitched_ip_dir, v80_shell_dir, build_dir, log_dir)
@@ -663,10 +806,6 @@ def step_v80_sw_build(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWra
     if ref_src.exists():
         shutil.copytree(ref_src, ref_dst, dirs_exist_ok=True)
         logger.info(f"Copied reference files to {ref_dst}")
-
-    handover_dst = deploy_dir / "shell_handover.json"
-    if not handover_dst.exists():
-        shutil.copy2(handover_file, handover_dst)
 
     logger.info(f"Software artifacts collected in {deploy_dir}")
 

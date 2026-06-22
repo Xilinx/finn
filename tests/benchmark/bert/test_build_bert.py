@@ -103,7 +103,7 @@ def select_build_steps():
         "step_create_stitched_ip",
         "step_measure_rtlsim_performance",
         # --- at_end (custom V80 shell integration + build) ---
-        custom_steps.step_shell_metadata_handover,
+        custom_steps.step_stage_reference_io,
         custom_steps.step_v80_hw_build,
         custom_steps.step_v80_sw_build,
     ]

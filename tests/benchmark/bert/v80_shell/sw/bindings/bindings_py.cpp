@@ -16,7 +16,7 @@
 #include <cctype>
 
 extern "C" {
-    #include "dmabwave.h"
+    #include "dma_v80.h"
 }
 
 #include "extract_sys.hpp"
@@ -278,7 +278,7 @@ public:
 // Module definitions
 //
 
-PYBIND11_MODULE(brainwave, m) {
+PYBIND11_MODULE(v80_rt, m) {
     auto cls = py::class_<FPGAOp>(m, "FPGAOp")
         .def(py::init<std::optional<std::vector<torch::Tensor>>>(),
              py::arg("weight_tensors") = py::none())

@@ -9,7 +9,7 @@
  * LICENSE file in the root directory of this source tree)
  */
 
-#include "dmabwave.h"
+#include "dma_v80.h"
 
 struct queue_info *q_info;
 int q_count;

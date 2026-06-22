@@ -38,8 +38,8 @@
 // THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 // CS
 
-#ifndef DMABWAVE_H
-#define DMABWAVE_H
+#ifndef DMA_V80_H
+#define DMA_V80_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -170,4 +170,4 @@ void timespec_sub(struct timespec *t1, struct timespec *t2);
 }
 #endif
 
-#endif // DMABWAVE_H
+#endif // DMA_V80_H

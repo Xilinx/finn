@@ -7,9 +7,9 @@ import torch
 
 # Import bindings -------------------------------------------------------------
 try:
-    import brainwave
+    import v80_rt
 except Exception as e:
-    print(f"[ERROR] Failed to import 'brainwave' module: {e}", file=sys.stderr)
+    print(f"[ERROR] Failed to import 'v80_rt' module: {e}", file=sys.stderr)
     sys.exit(2)
 
 # Dtype helpers ---------------------------------------------------------------
@@ -27,13 +27,13 @@ def _coerce_np_to_tag(a: np.ndarray, tag: str) -> np.ndarray:
 
 # Loaders (input / expected / weights) ---------------------------------------
 def load_input(ref_dir: Path) -> torch.Tensor:
-    tag = brainwave.FPGAOp.in_dtype()
+    tag = v80_rt.FPGAOp.in_dtype()
     a = _coerce_np_to_tag(_load_npy(ref_dir / "input.npy"), tag)
     t = torch.from_numpy(a); want = _torch_from_tag(tag)
     return t if t.dtype is want else t.to(want)
 
 def load_expected(ref_dir: Path) -> torch.Tensor:
-    tag = brainwave.FPGAOp.out_dtype()
+    tag = v80_rt.FPGAOp.out_dtype()
     a = _coerce_np_to_tag(_load_npy(ref_dir / "expected_output.npy"), tag)
     t = torch.from_numpy(a); want = _torch_from_tag(tag)
     return t if t.dtype is want else t.to(want)
@@ -44,10 +44,10 @@ def _first_existing(paths):  # iterable[Path] -> Path|None
     return None
 
 def load_weights(ref_dir: Path):
-    n = brainwave.FPGAOp.core_id_count()
+    n = v80_rt.FPGAOp.core_id_count()
     if n <= 0: return None
-    ids    = brainwave.FPGAOp.core_ids()
-    dtypes = brainwave.FPGAOp.core_dtypes()
+    ids    = v80_rt.FPGAOp.core_ids()
+    dtypes = v80_rt.FPGAOp.core_dtypes()
     if len(ids) != n or len(dtypes) != n:
         raise RuntimeError("Inconsistent core metadata from binding")
     out = []
@@ -164,7 +164,7 @@ def main():
     weights_t  = load_weights(ref)
 
     # Init + run
-    op = brainwave.FPGAOp(weights_t)
+    op = v80_rt.FPGAOp(weights_t)
     if not op.is_initialized():
         print("[ERROR] FPGAOp not initialized.", file=sys.stderr); sys.exit(2)
 

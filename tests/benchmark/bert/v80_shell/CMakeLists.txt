@@ -38,25 +38,22 @@
 # THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
 # CS
 
-cmake_minimum_required(VERSION 3.5)
-project(brainsmith)
+cmake_minimum_required(VERSION 3.18)
+project(v80_shell)
 
-set(BWAVE_DIR ${CMAKE_SOURCE_DIR})
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${BWAVE_DIR}/cmake)
-message(STATUS "** Brainwave directory: ${BWAVE_DIR}")
+# This CMake builds ONLY the V80 software (the pybind11 runtime module `v80_rt`).
+# The FPGA hardware is built directly via Vivado from the FINN build step
+# (tests/benchmark/bert/custom_steps.py:step_v80_hw_build).
+set(V80_SHELL_DIR ${CMAKE_SOURCE_DIR})
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${V80_SHELL_DIR}/cmake)
+message(STATUS "** V80 shell directory: ${V80_SHELL_DIR}")
 
-# Select what to build
-set(BUILD_HW ON  CACHE BOOL  "Build FPGA hardware")
-set(BUILD_SW OFF CACHE BOOL  "Build C++ runtime + main")
-set(BUILD_PY ON  CACHE BOOL  "Build Python bindings")
-
-# Path to the core
+# Path to the stitched IP core (contains shell_handover.json + *.npy).
 set(CORE_PATH 0 CACHE PATH "Core path")
 
-# Path to the main
-set(MAIN_CPP_PATH "${BWAVE_DIR}/sw/cpp" CACHE PATH "Main cpp path")
-set(MAIN_PY_PATH  "${BWAVE_DIR}/sw/python" CACHE PATH "Main python path")
+# Path to the python sources (contains main.py.in).
+set(MAIN_PY_PATH "${V80_SHELL_DIR}/sw/python" CACHE PATH "Main python path")
 
 # Build
-find_package(BrainWave REQUIRED)
+find_package(V80Shell REQUIRED)
 create_all()

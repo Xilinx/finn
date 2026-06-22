@@ -81,7 +81,7 @@ source "${CMAKE_BINARY_DIR}/hw/base.tcl"
 set proj_dir        "$build_dir"
 
 puts $proj_dir
-open_project "$proj_dir/BrainWave_prj/$project.xpr"
+open_project "$proj_dir/v80_shell_prj/$project.xpr"
 
 puts "**** Project opened"
 puts "****"

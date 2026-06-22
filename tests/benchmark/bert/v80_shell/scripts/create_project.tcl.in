@@ -82,6 +82,12 @@ add_files "$hw_dir/hdl/common"
 add_files "$hw_dir/hdl/infrastructure"
 add_files "$hw_dir/hdl/dma"
 
+# Reviewed RTL building blocks reused from finn-rtllib (not vendored here).
+add_files "$finn_rtllib/fifo/hdl/Q_srl.v"
+add_files "$finn_rtllib/dwc/hdl/axis_adapter.v"
+add_files "$finn_rtllib/dwc/hdl/axis_fifo.v"
+add_files "$finn_rtllib/dwc/hdl/axis_fifo_adapter.sv"
+
 
 
 # Adding the static portion of the design
