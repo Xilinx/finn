@@ -30,7 +30,6 @@
 import pytest
 
 import json
-import shutil
 import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
@@ -39,7 +38,7 @@ from qonnx.custom_op.registry import getCustomOp
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.fpgadataflow.set_fifo_depths import get_fifo_split_configs
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_trained_network_and_ishape
 
 
@@ -103,7 +102,7 @@ def test_split_large_fifos(depth):
         assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
         assert fifo_depth > 1
 
-    shutil.rmtree(tmp_output_dir)
+    robust_rmtree(tmp_output_dir)
 
 
 def test_split_large_fifo_configs():

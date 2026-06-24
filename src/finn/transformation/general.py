@@ -17,7 +17,7 @@ import warnings
 
 # Protobuf onnx graph node type
 from onnx import AttributeProto, NodeProto, mapping  # noqa
-from qonnx.custom_op.registry import getCustomOp
+from qonnx.custom_op.registry import getCustomOp, is_custom_op
 from qonnx.transformation.base import Transformation
 
 
@@ -42,6 +42,7 @@ class ApplyConfig(Transformation):
         self.node_filter = node_filter
         self.used_configurations = ["Defaults"]
         self.missing_configurations = []
+        self.ignored_non_custom_configurations = []
 
     def configure_network(self, graph_proto, model_config, subgraph_hier):
         # Configure network - graph_proto can be a GraphProto or ModelWrapper
@@ -66,10 +67,7 @@ class ApplyConfig(Transformation):
                 self.missing_configurations += [node.name]
                 node_config = {}
 
-            if node_config:
-                self.used_configurations += [config_key]
-
-            try:
+            if is_custom_op(node.domain, node.op_type):
                 inst = getCustomOp(node)
 
                 if "Defaults" in model_config.keys():
@@ -92,9 +90,11 @@ class ApplyConfig(Transformation):
                 # set node attributes from specified configuration
                 for attr_name, value in node_config.items():
                     inst.set_nodeattr(attr_name, value)
-            except Exception:
-                # Node is not a custom op, but it might have subgraphs
-                pass
+
+                if node_config:
+                    self.used_configurations += [config_key]
+            elif node_config:
+                self.ignored_non_custom_configurations += [(config_key, node.op_type)]
 
             # Recursively handle nested subgraphs
             for attr in node.attribute:
@@ -125,9 +125,29 @@ class ApplyConfig(Transformation):
         if len(unique_missing) > 0:
             warnings.warn("\nNo HW configuration for nodes: " + ", ".join(unique_missing))
 
+        # Check for matched configs that couldn't be applied because they were
+        # specified for standard ONNX nodes instead of custom ops.
+        unique_non_custom = list(dict.fromkeys(self.ignored_non_custom_configurations))
+        if len(unique_non_custom) > 0:
+            formatted_non_custom = [
+                "{} ({})".format(config_key, op_type) for config_key, op_type in unique_non_custom
+            ]
+            warnings.warn(
+                "\nHW configurations for non-custom nodes were ignored: "
+                + ", ".join(formatted_non_custom)
+                + ". Configs can only be applied to custom ops."
+            )
+
         # Check for unused configs (top-level configs that weren't applied)
+        ignored_configurations = [
+            config_key for config_key, _ in self.ignored_non_custom_configurations
+        ]
         unused_configs = [
-            x for x in model_config if x not in self.used_configurations and x != "Defaults"
+            x
+            for x in model_config
+            if x not in self.used_configurations
+            and x not in ignored_configurations
+            and x != "Defaults"
         ]
         if len(unused_configs) > 0:
             warnings.warn("\nUnused HW configurations: " + ", ".join(unused_configs))
