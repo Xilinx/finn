@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.util.vivado import parse_ooc_synth_results
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
@@ -382,9 +382,11 @@ def test_where_rtl_codegen(tmp_path, finn_dtype, fold_width):
     wrapper = tmp_path / (topname + ".v")
     core_wrapper = tmp_path / (topname + "_core.sv")
     core = tmp_path / "where.sv"
+    input_gen = tmp_path / "input_gen.sv"
     assert wrapper.is_file()
     assert core_wrapper.is_file()
     assert core.is_file()
+    assert input_gen.is_file()
     wrapper_text = wrapper.read_text()
     core_wrapper_text = core_wrapper.read_text()
     assert "parameter COND_WIDTH = 2" in wrapper_text
@@ -399,6 +401,7 @@ def test_where_rtl_codegen(tmp_path, finn_dtype, fold_width):
     assert "out0_V_TVALID" in wrapper_text
 
     ipi_cmds = inst.code_generation_ipi()
+    assert any("input_gen.sv" in cmd for cmd in ipi_cmds)
     assert any("where.sv" in cmd for cmd in ipi_cmds)
     assert any(topname + "_core.sv" in cmd for cmd in ipi_cmds)
     assert any(topname + ".v" in cmd for cmd in ipi_cmds)
@@ -488,7 +491,9 @@ def test_where_resource_estimation():
 
     complete_resources = model.analysis(partial(res_estimation_complete, fpgapart=FPGA_PART))
     assert len(complete_resources) == 1
-    assert list(complete_resources.values())[0] == [expected]
+    complete_node_resources = list(complete_resources.values())[0]
+    assert len(complete_node_resources) == 3
+    assert all(x == expected for x in complete_node_resources)
 
 
 @pytest.mark.fpgadataflow
@@ -598,13 +603,13 @@ def test_where_stitched_ip_rtlsim_broadcast():
 @pytest.mark.slow
 def test_where_stitched_ip_synth_ooc():
     model = _prepare_where_stitched_ip_model(pe=2)
-    model = model.transform(SynthOutOfContext(FPGA_PART, CLK_NS))
-    ret = model.get_metadata_prop("res_total_ooc_synth")
+    model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, run_pnr=True))
+    ret = parse_ooc_synth_results(model.get_metadata_prop("vivado_stitch_proj"))
     assert ret is not None
-    ret = eval(ret)
 
     assert ret["LUT"] > 0
     assert ret["FF"] > 0
     assert ret["DSP"] == 0
-    assert ret["BRAM"] == 0
+    assert ret.get("BRAM_18K", 0) == 0
+    assert ret.get("BRAM_36K", 0) == 0
     assert ret["WNS"] >= 0

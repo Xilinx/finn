@@ -109,7 +109,8 @@ class Where_rtl(Where, RTLBackend):
             f.write(template)
         with open(os.path.join(code_gen_dir, topname + "_core.sv"), "w") as f:
             f.write(core_template)
-        shutil.copy(rtlsrc + "/where.sv", code_gen_dir)
+        for sv_file in ["input_gen.sv", "where.sv"]:
+            shutil.copy(rtlsrc + "/" + sv_file, code_gen_dir)
 
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
@@ -123,6 +124,7 @@ class Where_rtl(Where, RTLBackend):
             rtllib_dir = ""
 
         return [
+            rtllib_dir + "input_gen.sv",
             rtllib_dir + "where.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + "_core.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",

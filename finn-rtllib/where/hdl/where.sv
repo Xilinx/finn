@@ -1,216 +1,95 @@
 /****************************************************************************
- * Copyright (C) 2026, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
+ * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * @brief	ONNX Where with input_gen-based broadcast expansion.
  * @author	Oliver Cassidy <oliver.cassidy@amd.com>
- *
- * @brief	ONNX Where stream operator with multidirectional broadcasting.
- *
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  * @description
- *	This module implements the ONNX expression:
+ *	Implements the ONNX expression:
  *
  *		OUT = COND ? X : Y
  *
- *	after applying ONNX multidirectional broadcasting across COND, X and Y.
- *	Each input stream carries one complete tensor frame folded by its own
- *	innermost dimension. All three frames are first buffered, then output
- *	words are read in row-major folded order and selected lane by lane.
+ *	with ONNX multidirectional broadcasting.  Three folded input streams
+ *	(COND 1-bit, X and Y DATA_WIDTH-bit) produce one folded output stream.
+ *	Operand shapes are broadcast-expanded to the output shape following
+ *	NumPy rules: trailing dimensions align, size-1 dimensions repeat.
  *
- *		COND stream ---> C frame buffer ---\
- *		X stream ------> X frame buffer ----+--> registered read --> select --> OUT stream
- *		Y stream ------> Y frame buffer ---/
+ *	Three `input_gen` instances independently expand each operand stream
+ *	to output order via circular-buffer replay.  Each input_gen is
+ *	configured with a loop nest whose dimensions match the output shape
+ *	and whose coefficients encode the broadcast-mapped stride into the
+ *	operand's linear word space.  A broadcast dimension (operand size 1)
+ *	maps to coefficient 0 (replay); a non-broadcast dimension maps to
+ *	the operand's row-major stride.  The ternary selection is a
+ *	registered streaming mux.
  *
- *	The frame-buffered schedule is required for broadcast reuse across
- *	non-contiguous output positions. The read data and selected output are
- *	registered so the memory output does not feed the AXI/stream output
- *	combinatorially.
+ *	Fill/drain overlap is natural from independent input_gen buffers.
+ *	Latency is 4 cycles (constant); initiation interval approaches the
+ *	output word count (the ideal lower bound).
  ***************************************************************************/
 
 `default_nettype none
 
 module where #(
-	int unsigned  DATA_WIDTH = 32,
+	int unsigned  DATA_WIDTH,
 	int unsigned  PE = 1,
-	int unsigned  NDIMS = 2,
+	int unsigned  NDIMS,
 	int unsigned  COND_NDIMS = NDIMS,
 	int unsigned  X_NDIMS = NDIMS,
 	int unsigned  Y_NDIMS = NDIMS,
 
-	parameter int unsigned  OUT_SHAPE[NDIMS]       = '{ default: 1 },
-	parameter int unsigned  COND_SHAPE[COND_NDIMS] = '{ default: 1 },
-	parameter int unsigned  X_SHAPE[X_NDIMS]       = '{ default: 1 },
-	parameter int unsigned  Y_SHAPE[Y_NDIMS]       = '{ default: 1 },
+	int unsigned  OUT_SHAPE[NDIMS]       = '{ default: 1 },
+	int unsigned  COND_SHAPE[COND_NDIMS] = '{ default: 1 },
+	int unsigned  X_SHAPE[X_NDIMS]       = '{ default: 1 },
+	int unsigned  Y_SHAPE[Y_NDIMS]       = '{ default: 1 },
 	parameter  RAM_STYLE = "auto",
 
-	localparam int unsigned  OUTER_DIMS = (NDIMS > 1)? NDIMS-1 : 1,
 	localparam int unsigned  COND_PE = (COND_SHAPE[COND_NDIMS-1] == 1)? 1 : PE,
 	localparam int unsigned  X_PE = (X_SHAPE[X_NDIMS-1] == 1)? 1 : PE,
 	localparam int unsigned  Y_PE = (Y_SHAPE[Y_NDIMS-1] == 1)? 1 : PE
 )(
 	// Global Control
-	input	wire logic  clk,
-	input	wire logic  rst,
+	input	logic  clk,
+	input	logic  rst,
 
-	// Condition Stream - folded according to COND_SHAPE
-	input	wire logic [COND_PE-1:0]  cdat,
-	input	wire logic  cvld,
+	// Condition Stream
+	input	logic [COND_PE-1:0]  cdat,
+	input	logic  cvld,
 	output	logic  crdy,
 
-	// X Stream - folded according to X_SHAPE
-	input	wire logic [X_PE-1:0][DATA_WIDTH-1:0]  xdat,
-	input	wire logic  xvld,
+	// X Stream
+	input	logic [X_PE-1:0][DATA_WIDTH-1:0]  xdat,
+	input	logic  xvld,
 	output	logic  xrdy,
 
-	// Y Stream - folded according to Y_SHAPE
-	input	wire logic [Y_PE-1:0][DATA_WIDTH-1:0]  ydat,
-	input	wire logic  yvld,
+	// Y Stream
+	input	logic [Y_PE-1:0][DATA_WIDTH-1:0]  ydat,
+	input	logic  yvld,
 	output	logic  yrdy,
 
-	// Output Stream - folded according to OUT_SHAPE and PE
+	// Output Stream
 	output	logic [PE-1:0][DATA_WIDTH-1:0]  odat,
 	output	logic  ovld,
-	input	wire logic  ordy
+	input	logic  ordy
 );
 
-	typedef logic [31:0]  outer_idx_t[OUTER_DIMS];
-	typedef logic [COND_PE-1:0]  cond_word_t;
-	typedef logic [X_PE-1:0][DATA_WIDTH-1:0]  x_word_t;
-	typedef logic [Y_PE-1:0][DATA_WIDTH-1:0]  y_word_t;
-	typedef logic [PE-1:0][DATA_WIDTH-1:0]  out_word_t;
+	//=== Rank-Aligned Operand Shapes =======================================
+	//
+	// Left-pad each operand shape with 1s to output rank so that a single
+	// pair of functions can compute FM_SIZE and COEFS for any operand.
+	typedef int unsigned  ig_dims_t[NDIMS];
+	function automatic ig_dims_t  PAD_SHAPE(input int unsigned  s[], input int unsigned  n);
+		automatic ig_dims_t  a = '{ default: 1 };
+		for(int unsigned  k = 0; k < n; k++)  a[NDIMS-n+k] = s[k];
+		return  a;
+	endfunction : PAD_SHAPE
+	localparam ig_dims_t  CA = PAD_SHAPE(COND_SHAPE, COND_NDIMS);
+	localparam ig_dims_t  XA = PAD_SHAPE(X_SHAPE, X_NDIMS);
+	localparam ig_dims_t  YA = PAD_SHAPE(Y_SHAPE, Y_NDIMS);
 
-	function automatic int unsigned out_outer_elems();
-		automatic int unsigned  r = 1;
-		for(int unsigned  i = 0; i+1 < NDIMS; i++)
-			r *= OUT_SHAPE[i];
-		return  r;
-	endfunction : out_outer_elems
-
-	function automatic int unsigned cond_word_count();
-		automatic int unsigned  r = 1;
-		for(int unsigned  i = 0; i+1 < COND_NDIMS; i++)
-			r *= COND_SHAPE[i];
-		if(COND_SHAPE[COND_NDIMS-1] != 1)
-			r *= COND_SHAPE[COND_NDIMS-1] / PE;
-		return  r;
-	endfunction : cond_word_count
-
-	function automatic int unsigned x_word_count();
-		automatic int unsigned  r = 1;
-		for(int unsigned  i = 0; i+1 < X_NDIMS; i++)
-			r *= X_SHAPE[i];
-		if(X_SHAPE[X_NDIMS-1] != 1)
-			r *= X_SHAPE[X_NDIMS-1] / PE;
-		return  r;
-	endfunction : x_word_count
-
-	function automatic int unsigned y_word_count();
-		automatic int unsigned  r = 1;
-		for(int unsigned  i = 0; i+1 < Y_NDIMS; i++)
-			r *= Y_SHAPE[i];
-		if(Y_SHAPE[Y_NDIMS-1] != 1)
-			r *= Y_SHAPE[Y_NDIMS-1] / PE;
-		return  r;
-	endfunction : y_word_count
-
-	function automatic int unsigned out_word_count();
-		return  out_outer_elems() * (OUT_SHAPE[NDIMS-1] / PE);
-	endfunction : out_word_count
-
-	function automatic int unsigned cond_dim(input int unsigned axis);
-		automatic int signed  source_axis = int'(axis) + int'(COND_NDIMS) - int'(NDIMS);
-		if(source_axis < 0)
-			return  1;
-		return  COND_SHAPE[source_axis];
-	endfunction : cond_dim
-
-	function automatic int unsigned x_dim(input int unsigned axis);
-		automatic int signed  source_axis = int'(axis) + int'(X_NDIMS) - int'(NDIMS);
-		if(source_axis < 0)
-			return  1;
-		return  X_SHAPE[source_axis];
-	endfunction : x_dim
-
-	function automatic int unsigned y_dim(input int unsigned axis);
-		automatic int signed  source_axis = int'(axis) + int'(Y_NDIMS) - int'(NDIMS);
-		if(source_axis < 0)
-			return  1;
-		return  Y_SHAPE[source_axis];
-	endfunction : y_dim
-
-	function automatic int unsigned cond_word_addr(
-		input outer_idx_t  out_idx,
-		input int unsigned out_fold
-	);
-		automatic int unsigned  r = 0;
-		for(int unsigned  i = 0; i+1 < NDIMS; i++) begin
-			automatic int signed  source_axis = int'(i) + int'(COND_NDIMS) - int'(NDIMS);
-			if(source_axis >= 0) begin
-				r *= COND_SHAPE[source_axis];
-				if(COND_SHAPE[source_axis] != 1)  r += out_idx[i];
-			end
-		end
-		if(COND_SHAPE[COND_NDIMS-1] != 1)
-			r = r * (COND_SHAPE[COND_NDIMS-1] / PE) + out_fold;
-		return  r;
-	endfunction : cond_word_addr
-
-	function automatic int unsigned x_word_addr(
-		input outer_idx_t  out_idx,
-		input int unsigned out_fold
-	);
-		automatic int unsigned  r = 0;
-		for(int unsigned  i = 0; i+1 < NDIMS; i++) begin
-			automatic int signed  source_axis = int'(i) + int'(X_NDIMS) - int'(NDIMS);
-			if(source_axis >= 0) begin
-				r *= X_SHAPE[source_axis];
-				if(X_SHAPE[source_axis] != 1)  r += out_idx[i];
-			end
-		end
-		if(X_SHAPE[X_NDIMS-1] != 1)
-			r = r * (X_SHAPE[X_NDIMS-1] / PE) + out_fold;
-		return  r;
-	endfunction : x_word_addr
-
-	function automatic int unsigned y_word_addr(
-		input outer_idx_t  out_idx,
-		input int unsigned out_fold
-	);
-		automatic int unsigned  r = 0;
-		for(int unsigned  i = 0; i+1 < NDIMS; i++) begin
-			automatic int signed  source_axis = int'(i) + int'(Y_NDIMS) - int'(NDIMS);
-			if(source_axis >= 0) begin
-				r *= Y_SHAPE[source_axis];
-				if(Y_SHAPE[source_axis] != 1)  r += out_idx[i];
-			end
-		end
-		if(Y_SHAPE[Y_NDIMS-1] != 1)
-			r = r * (Y_SHAPE[Y_NDIMS-1] / PE) + out_fold;
-		return  r;
-	endfunction : y_word_addr
-
-	localparam int unsigned  OUT_FOLDS = OUT_SHAPE[NDIMS-1] / PE;
-	localparam int unsigned  OUT_WORDS = out_word_count();
-	localparam int unsigned  COND_WORDS = cond_word_count();
-	localparam int unsigned  X_WORDS = x_word_count();
-	localparam int unsigned  Y_WORDS = y_word_count();
-	localparam int unsigned  COND_ADDR_WIDTH = (COND_WORDS > 1)? $clog2(COND_WORDS) : 1;
-	localparam int unsigned  X_ADDR_WIDTH = (X_WORDS > 1)? $clog2(X_WORDS) : 1;
-	localparam int unsigned  Y_ADDR_WIDTH = (Y_WORDS > 1)? $clog2(Y_WORDS) : 1;
-	localparam int unsigned  OUT_FOLD_WIDTH = (OUT_FOLDS > 1)? $clog2(OUT_FOLDS) : 1;
-
-	typedef logic [COND_ADDR_WIDTH-1:0]  cond_addr_t;
-	typedef logic [X_ADDR_WIDTH-1:0]     x_addr_t;
-	typedef logic [Y_ADDR_WIDTH-1:0]     y_addr_t;
-	typedef logic [OUT_FOLD_WIDTH-1:0]   out_fold_t;
-
+	//=== Static Parameter Validation =======================================
 	initial begin
-		automatic int unsigned  max_dim;
-		automatic int unsigned  cd;
-		automatic int unsigned  xd;
-		automatic int unsigned  yd;
-
 		if(DATA_WIDTH < 1) begin
 			$error("%m: DATA_WIDTH must be positive.");
 			$finish;
@@ -224,243 +103,187 @@ module where #(
 			$finish;
 		end
 		if(COND_NDIMS < 1 || COND_NDIMS > NDIMS) begin
-			$error("%m: COND_NDIMS must be in the range 1..NDIMS.");
+			$error("%m: COND_NDIMS out of range.");
 			$finish;
 		end
 		if(X_NDIMS < 1 || X_NDIMS > NDIMS) begin
-			$error("%m: X_NDIMS must be in the range 1..NDIMS.");
+			$error("%m: X_NDIMS out of range.");
 			$finish;
 		end
 		if(Y_NDIMS < 1 || Y_NDIMS > NDIMS) begin
-			$error("%m: Y_NDIMS must be in the range 1..NDIMS.");
+			$error("%m: Y_NDIMS out of range.");
 			$finish;
 		end
 		if((OUT_SHAPE[NDIMS-1] % PE) != 0) begin
-			$error("%m: PE must divide the output innermost dimension.");
+			$error("%m: PE must divide output innermost dim.");
 			$finish;
 		end
 		for(int unsigned  i = 0; i < NDIMS; i++) begin
-			cd = cond_dim(i);
-			xd = x_dim(i);
-			yd = y_dim(i);
-			max_dim = cd;
-
+			automatic int unsigned  cd = CA[i], xd = XA[i], yd = YA[i], mx = cd;
 			if(cd < 1 || xd < 1 || yd < 1 || OUT_SHAPE[i] < 1) begin
 				$error("%m: shape dimensions must be positive.");
 				$finish;
 			end
-			if(xd != 1 && max_dim != 1 && xd != max_dim) begin
-				$error("%m: X_SHAPE is not broadcast-compatible.");
-				$finish;
-			end
-			if(xd != 1)  max_dim = xd;
-			if(yd != 1 && max_dim != 1 && yd != max_dim) begin
-				$error("%m: Y_SHAPE is not broadcast-compatible.");
-				$finish;
-			end
-			if(yd != 1)  max_dim = yd;
-			if(cd != 1 && cd != max_dim) begin
-				$error("%m: COND_SHAPE is not broadcast-compatible.");
-				$finish;
-			end
-			if(OUT_SHAPE[i] != max_dim) begin
-				$error("%m: OUT_SHAPE is not the multidirectional broadcast result.");
-				$finish;
-			end
-		end
-		if(COND_SHAPE[COND_NDIMS-1] != 1 && (COND_SHAPE[COND_NDIMS-1] % PE) != 0) begin
-			$error("%m: PE must divide the condition innermost dimension when not broadcast.");
-			$finish;
-		end
-		if(X_SHAPE[X_NDIMS-1] != 1 && (X_SHAPE[X_NDIMS-1] % PE) != 0) begin
-			$error("%m: PE must divide the X innermost dimension when not broadcast.");
-			$finish;
-		end
-		if(Y_SHAPE[Y_NDIMS-1] != 1 && (Y_SHAPE[Y_NDIMS-1] % PE) != 0) begin
-			$error("%m: PE must divide the Y innermost dimension when not broadcast.");
-			$finish;
-		end
-	end
-
-	//=======================================================================
-	// Frame Input Buffers
-	(* RAM_STYLE = RAM_STYLE *)
-	cond_word_t  Cmem[COND_WORDS];
-	(* RAM_STYLE = RAM_STYLE *)
-	x_word_t     Xmem[X_WORDS];
-	(* RAM_STYLE = RAM_STYLE *)
-	y_word_t     Ymem[Y_WORDS];
-
-	cond_addr_t  CWr = 0;
-	x_addr_t     XWr = 0;
-	y_addr_t     YWr = 0;
-	logic  CLoaded = 0;
-	logic  XLoaded = 0;
-	logic  YLoaded = 0;
-	logic  Reading = 0;
-	logic  ReadValid = 0;
-	logic  OValid = 0;
-
-	uwire  frame_busy = Reading || ReadValid || OValid;
-	assign	crdy = !frame_busy && !CLoaded;
-	assign	xrdy = !frame_busy && !XLoaded;
-	assign	yrdy = !frame_busy && !YLoaded;
-
-	uwire  c_fire = cvld && crdy;
-	uwire  x_fire = xvld && xrdy;
-	uwire  y_fire = yvld && yrdy;
-	uwire  output_fire = OValid && ordy;
-
-	uwire  c_loaded_now = CLoaded || (c_fire && CWr == COND_WORDS-1);
-	uwire  x_loaded_now = XLoaded || (x_fire && XWr == X_WORDS-1);
-	uwire  y_loaded_now = YLoaded || (y_fire && YWr == Y_WORDS-1);
-	uwire  start_reading = !frame_busy && c_loaded_now && x_loaded_now && y_loaded_now;
-
-	uwire  frame_done = output_fire && !Reading && !ReadValid;
-
-	always_ff @(posedge clk) begin
-		if(rst || frame_done) begin
-			CWr <= 0;
-			XWr <= 0;
-			YWr <= 0;
-			CLoaded <= 0;
-			XLoaded <= 0;
-			YLoaded <= 0;
-		end
-		else begin
-			if(c_fire) begin
-				Cmem[CWr] <= cdat;
-				CLoaded <= (CWr == COND_WORDS-1);
-				if(CWr != COND_WORDS-1)  CWr <= CWr + 1;
-			end
-			if(x_fire) begin
-				Xmem[XWr] <= xdat;
-				XLoaded <= (XWr == X_WORDS-1);
-				if(XWr != X_WORDS-1)  XWr <= XWr + 1;
-			end
-			if(y_fire) begin
-				Ymem[YWr] <= ydat;
-				YLoaded <= (YWr == Y_WORDS-1);
-				if(YWr != Y_WORDS-1)  YWr <= YWr + 1;
-			end
-		end
-	end
-
-	//=======================================================================
-	// Output Indexing
-	outer_idx_t  OutIdx = '{ default: 0 };
-	out_fold_t   OutFold = 0;
-
-	uwire  out_last_fold = (OutFold == OUT_FOLDS-1);
-	logic  out_last_outer;
-	always_comb begin
-		out_last_outer = 1;
-		for(int unsigned  i = 0; i+1 < NDIMS; i++)
-			out_last_outer &= (OutIdx[i] == OUT_SHAPE[i]-1);
-	end
-	uwire  out_last = out_last_fold && out_last_outer;
-
-	uwire  output_ready = !OValid || ordy;
-	uwire  read_ready = !ReadValid || output_ready;
-	uwire  read_issue = Reading && read_ready;
-
-	always_ff @(posedge clk) begin
-		if(rst || frame_done) begin
-			Reading <= 0;
-		end
-		else begin
-			if(start_reading)
-				Reading <= 1;
-			else if(read_issue && out_last)
-				Reading <= 0;
-		end
-	end
-
-	always_ff @(posedge clk) begin
-		if(rst || frame_done || start_reading) begin
-			OutIdx <= '{ default: 0 };
-			OutFold <= 0;
-		end
-		else if(read_issue && !out_last) begin
-			if(out_last_fold) begin
-				automatic bit  carry = 1;
-				OutFold <= 0;
-				for(int  i = int'(NDIMS)-2; i >= 0; i--) begin
-					if(carry) begin
-						if(OutIdx[i] == OUT_SHAPE[i]-1) begin
-							OutIdx[i] <= 0;
-						end
-						else begin
-							OutIdx[i] <= OutIdx[i] + 1;
-							carry = 0;
-						end
-					end
+			if(xd != 1) begin
+				if(mx != 1 && xd != mx) begin
+					$error("%m: X not broadcast-compatible.");
+					$finish;
 				end
+				mx = xd;
 			end
-			else
-				OutFold <= OutFold + 1;
+			if(yd != 1) begin
+				if(mx != 1 && yd != mx) begin
+					$error("%m: Y not broadcast-compatible.");
+					$finish;
+				end
+				mx = yd;
+			end
+			if(cd != 1 && cd != mx) begin
+				$error("%m: COND not broadcast-compatible.");
+				$finish;
+			end
+			if(OUT_SHAPE[i] != mx) begin
+				$error("%m: OUT_SHAPE mismatch.");
+				$finish;
+			end
+		end
+		if(CA[NDIMS-1] != 1 && (CA[NDIMS-1] % PE) != 0) begin
+			$error("%m: PE must divide COND innermost.");
+			$finish;
+		end
+		if(XA[NDIMS-1] != 1 && (XA[NDIMS-1] % PE) != 0) begin
+			$error("%m: PE must divide X innermost.");
+			$finish;
+		end
+		if(YA[NDIMS-1] != 1 && (YA[NDIMS-1] % PE) != 0) begin
+			$error("%m: PE must divide Y innermost.");
+			$finish;
 		end
 	end
 
-	//=======================================================================
-	// Registered Broadcast Reads
-	uwire cond_addr_t  c_addr = cond_addr_t'(cond_word_addr(OutIdx, OutFold));
-	uwire x_addr_t     x_addr = x_addr_t'(x_word_addr(OutIdx, OutFold));
-	uwire y_addr_t     y_addr = y_addr_t'(y_word_addr(OutIdx, OutFold));
+	//=== Loop Nest Configuration for input_gen =============================
+	//
+	// DIMS[k] = OUT_SHAPE[k] for outer dims, OUT_SHAPE[NDIMS-1]/PE for
+	// the folded innermost.  COEFS encode row-major stride into the
+	// operand's word space: 0 for broadcast dims (replay), else the
+	// product of operand word counts below that axis.
+	// FM_SIZE = total operand word count.
 
-	cond_word_t  CWord = 'x;
-	x_word_t     XWord = 'x;
-	y_word_t     YWord = 'x;
+	function automatic ig_dims_t  INIT_OUT_DIMS();
+		automatic ig_dims_t  d;
+		for(int unsigned  i = 0; i+1 < NDIMS; i++)
+			d[i] = OUT_SHAPE[i];
+		d[NDIMS-1] = OUT_SHAPE[NDIMS-1] / PE;
+		return  d;
+	endfunction : INIT_OUT_DIMS
+	localparam ig_dims_t  OUT_DIMS = INIT_OUT_DIMS();
 
-	always_ff @(posedge clk) begin
-		if(rst || frame_done) begin
-			ReadValid <= 0;
-			CWord <= 'x;
-			XWord <= 'x;
-			YWord <= 'x;
-		end
-		else if(read_ready) begin
-			ReadValid <= read_issue;
-			if(read_issue) begin
-				CWord <= Cmem[c_addr];
-				XWord <= Xmem[x_addr];
-				YWord <= Ymem[y_addr];
+	function automatic int unsigned  INIT_FM_SIZE(input ig_dims_t s);
+		automatic int unsigned  r = 1;
+		for(int unsigned  i = 0; i < NDIMS; i++)
+			r *= (i == NDIMS-1 && s[i] != 1)? s[i] / PE : s[i];
+		return  r;
+	endfunction : INIT_FM_SIZE
+
+	function automatic ig_dims_t  INIT_COEFS(input ig_dims_t s);
+		automatic ig_dims_t  c;
+		for(int unsigned  k = 0; k < NDIMS; k++) begin
+			if(s[k] == 1) begin
+				c[k] = 0;
 			end
 			else begin
-				CWord <= 'x;
-				XWord <= 'x;
-				YWord <= 'x;
+				automatic int unsigned  stride = 1;
+				for(int unsigned  j = k+1; j < NDIMS; j++)
+					stride *= (j == NDIMS-1 && s[j] != 1)? s[j] / PE : s[j];
+				c[k] = stride;
 			end
 		end
-	end
+		return  c;
+	endfunction : INIT_COEFS
 
-	//=======================================================================
-	// Broadcast Selection
-	out_word_t  selected;
-	for(genvar  lane = 0; lane < PE; lane++) begin : genSelect
-		uwire  c = (COND_SHAPE[COND_NDIMS-1] == 1)? CWord[0] : CWord[lane];
-		uwire [DATA_WIDTH-1:0]  x = (X_SHAPE[X_NDIMS-1] == 1)? XWord[0] : XWord[lane];
-		uwire [DATA_WIDTH-1:0]  y = (Y_SHAPE[Y_NDIMS-1] == 1)? YWord[0] : YWord[lane];
-		assign	selected[lane] = c? x : y;
-	end : genSelect
+	//=== input_gen Instances ===============================================
 
-	out_word_t  ODat = 'x;
+	//- Condition -----------------------
+	typedef logic [COND_PE-1:0]  cond_word_t;
+	uwire cond_word_t  c_exp_dat;
+	uwire  c_exp_vld;
+	uwire  c_exp_rdy;
+	input_gen #(
+		.DATA_WIDTH(COND_PE),
+		.FM_SIZE(INIT_FM_SIZE(CA)),
+		.D(NDIMS),
+		.DIMS(OUT_DIMS),
+		.COEFS(INIT_COEFS(CA)),
+		.RAM_STYLE(RAM_STYLE)
+	) c_gen (
+		.clk, .rst,
+		.idat(cdat), .ivld(cvld), .irdy(crdy),
+		.odat(c_exp_dat), .ovld(c_exp_vld), .olst(), .ordy(c_exp_rdy)
+	);
 
+	//- Input X -------------------------
+	typedef logic [X_PE-1:0][DATA_WIDTH-1:0]  x_word_t;
+	uwire x_word_t  x_exp_dat;
+	uwire  x_exp_vld;
+	uwire  x_exp_rdy;
+	input_gen #(
+		.DATA_WIDTH(X_PE * DATA_WIDTH),
+		.FM_SIZE(INIT_FM_SIZE(XA)),
+		.D(NDIMS),
+		.DIMS(OUT_DIMS),
+		.COEFS(INIT_COEFS(XA)),
+		.RAM_STYLE(RAM_STYLE)
+	) x_gen (
+		.clk, .rst,
+		.idat(xdat), .ivld(xvld), .irdy(xrdy),
+		.odat(x_exp_dat), .ovld(x_exp_vld), .olst(), .ordy(x_exp_rdy)
+	);
+
+	//- Input Y -------------------------
+	typedef logic [Y_PE-1:0][DATA_WIDTH-1:0]  y_word_t;
+	uwire y_word_t  y_exp_dat;
+	uwire  y_exp_vld;
+	uwire  y_exp_rdy;
+	input_gen #(
+		.DATA_WIDTH(Y_PE * DATA_WIDTH),
+		.FM_SIZE(INIT_FM_SIZE(YA)),
+		.D(NDIMS),
+		.DIMS(OUT_DIMS),
+		.COEFS(INIT_COEFS(YA)),
+		.RAM_STYLE(RAM_STYLE)
+	) y_gen (
+		.clk, .rst,
+		.idat(ydat), .ivld(yvld), .irdy(yrdy),
+		.odat(y_exp_dat), .ovld(y_exp_vld), .olst(), .ordy(y_exp_rdy)
+	);
+
+	//=== Registered Output Selection =======================================
+	uwire  all_valid = c_exp_vld && x_exp_vld && y_exp_vld;
+	uwire  oload = !ovld || ordy;
+	uwire  advance = all_valid && oload;
+	assign	c_exp_rdy = advance;
+	assign	x_exp_rdy = advance;
+	assign	y_exp_rdy = advance;
+
+	logic [PE-1:0][DATA_WIDTH-1:0]  ODat = 'x;
+	logic  OVld = 0;
 	always_ff @(posedge clk) begin
-		if(rst || frame_done) begin
-			OValid <= 0;
+		if(rst) begin
+			OVld <= 0;
 			ODat <= 'x;
 		end
-		else if(output_ready) begin
-			OValid <= ReadValid;
-			if(ReadValid)  ODat <= selected;
-			else           ODat <= 'x;
+		else if(oload) begin
+			for(int unsigned  lane = 0; lane < PE; lane++) begin
+				automatic logic  sel = c_exp_dat[(COND_PE == 1)? 0 : lane];
+				automatic logic [DATA_WIDTH-1:0]  xv = x_exp_dat[(X_PE == 1)? 0 : lane];
+				automatic logic [DATA_WIDTH-1:0]  yv = y_exp_dat[(Y_PE == 1)? 0 : lane];
+				ODat[lane] <= sel? xv : yv;
+			end
+			OVld <= all_valid;
 		end
 	end
-
 	assign	odat = ODat;
-	assign	ovld = OValid;
+	assign	ovld = OVld;
 
 endmodule : where
-
 `default_nettype wire

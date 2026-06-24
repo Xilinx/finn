@@ -39,14 +39,6 @@ RTLBackend
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.addclstoken
------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.addclstoken
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.addstreams
 ----------------------------------------
 
@@ -115,14 +107,6 @@ finn.custom\_op.fpgadataflow.labelselect
 -----------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.labelselect
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.selecttoken
------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.selecttoken
    :members:
    :undoc-members:
    :show-inheritance:
