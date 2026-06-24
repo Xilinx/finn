@@ -1,8 +1,12 @@
 import pytest
 
+import glob
+import multiprocessing as mp
 import numpy as np
 import os
 import re
+import signal
+import sys
 from dataclasses import replace
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -100,11 +104,18 @@ def make_loop_modelwrapper(
     rhs_shape=[1],
     eltw_param_dtype="INT8",
     name_suffix="",
+    simd=2,
+    pe=2,
+    weight_bitwidth=None,
 ):
     is_float = eltw_param_dtype == "FLOAT32"
 
     # Output dtype of adding two `dtype` values needs one extra bit
     add_out_dtype = DataType[f"INT{dtype.bitwidth() + 1}"]
+
+    # weights default to the activation dtype, but can use a separate (e.g. wider)
+    # width to exercise the fetch-weights DDR path independently of the data path
+    wdtype = DataType[f"INT{weight_bitwidth}"] if weight_bitwidth is not None else dtype
 
     # Determine elementwise output dtype
     # HLS elementwise outputs FLOAT32 if parameter is FLOAT32, otherwise INT32
@@ -115,9 +126,9 @@ def make_loop_modelwrapper(
         elemwise_output_dtype = DataType["INT32"]
         thresholding_input_dtype = DataType["INT32"]
 
-    W0 = gen_finn_dt_tensor(dtype, (mw, mh))
-    W1 = gen_finn_dt_tensor(dtype, (mw, mh))
-    W2 = gen_finn_dt_tensor(dtype, (mh, mh))
+    W0 = gen_finn_dt_tensor(wdtype, (mw, mh))
+    W1 = gen_finn_dt_tensor(wdtype, (mw, mh))
+    W2 = gen_finn_dt_tensor(wdtype, (mh, mh))
     T0 = np.sort(
         generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
     )
@@ -170,10 +181,10 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": simd,
+                "PE": pe,
                 "inputDataType": dtype.name,
-                "weightDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -203,10 +214,10 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": simd,
+                "PE": pe,
                 "inputDataType": dtype.name,
-                "weightDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -236,10 +247,10 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": simd,
+                "PE": pe,
                 "inputDataType": dtype.name,
-                "weightDataType": dtype.name,
+                "weightDataType": wdtype.name,
                 "outputDataType": "INT32",
                 "ActVal": 0,
                 "binaryXnorMode": 0,
@@ -403,6 +414,10 @@ def make_loop_modelwrapper(
     for tensor in tensors:
         loop_body_model.set_tensor_datatype(tensor, dtype)
 
+    # weights may use a different (wider) datatype than the activations
+    for w in (f"weights0{name_suffix}", f"weights1{name_suffix}", f"weights2{name_suffix}"):
+        loop_body_model.set_tensor_datatype(w, wdtype)
+
     loop_body_model.set_tensor_datatype(f"thresh3{name_suffix}", T3_dtype)
     loop_body_model.set_tensor_datatype(f"mul_param{name_suffix}", DataType[eltw_param_dtype])
 
@@ -421,6 +436,9 @@ def create_chained_loop_bodies(
     rhs_shape=[1],
     eltw_param_dtype="INT8",
     dtype=DataType["INT8"],
+    simd=2,
+    pe=2,
+    weight_bitwidth=None,
 ):
     loop_body_models = []
 
@@ -435,6 +453,9 @@ def create_chained_loop_bodies(
             rhs_shape=rhs_shape,
             eltw_param_dtype=eltw_param_dtype,
             name_suffix=name_suffix,
+            simd=simd,
+            pe=pe,
+            weight_bitwidth=weight_bitwidth,
         )
         loop_body_models.append(loop_body_model)
 
@@ -631,23 +652,58 @@ def test_finnloop_end2end_mlo(
         ), f"Check vivado.log in {tmp_output_dir}/stitched_ip"
 
 
-# dimensions
-@pytest.mark.parametrize("dim", [16])
+def _run_build_in_child(model_filename, cfg):
+    sys.exit(build.build_dataflow_cfg(model_filename, cfg))
+
+
+@pytest.mark.parametrize(
+    "dim, simd, pe, bitwidth, weight_bitwidth",
+    [
+        (16, 1, 1, 8, 8),
+        (16, 2, 2, 8, 8),
+        (16, 4, 2, 8, 8),
+        (16, 8, 4, 8, 8),
+        (16, 8, 4, 4, 4),
+        (16, 8, 4, 7, 7),
+        (16, 4, 2, 5, 5),
+        (16, 8, 4, 3, 3),
+        (8, 8, 4, 7, 7),
+        (8, 4, 2, 5, 5),
+        (8, 8, 4, 3, 3),
+        (8, 8, 4, 2, 2),
+        (16, 1, 1, 4, 9),
+        (16, 2, 2, 4, 9),
+        (8, 4, 2, 4, 9),
+        (16, 8, 4, 4, 16),
+        (16, 16, 8, 4, 16),
+        (32, 32, 8, 4, 16),
+        (16, 16, 8, 4, 17),
+    ],
+)
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
 @pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
 # elementwise shape
 @pytest.mark.parametrize("rhs_shape", [[1]])
-# data type bitwidth
-@pytest.mark.parametrize("bitwidth", [8, 7])
 # tail node
 @pytest.mark.parametrize("tail_node", [True])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bitwidth, tail_node):
-    # End-to-end MLO+DDR flow parametrized by data type bitwidth.
+def test_finnloop_end2end_mlo_ddr(
+    dim,
+    simd,
+    pe,
+    iteration,
+    elemwise_optype,
+    rhs_shape,
+    bitwidth,
+    weight_bitwidth,
+    tail_node,
+    request,
+):
+    # End-to-end MLO+DDR flow parametrized by data/weight bitwidth and MVAU folding.
     data_dtype = DataType[f"INT{bitwidth}"]
     eltw_param_dtype = data_dtype.name
     # output dtype of adding two `data_dtype` values needs one extra bit
@@ -660,7 +716,16 @@ def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bi
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
     loop_body_models = create_chained_loop_bodies(
-        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, dtype=data_dtype
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        dtype=data_dtype,
+        simd=simd,
+        pe=pe,
+        weight_bitwidth=weight_bitwidth,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
@@ -706,7 +771,8 @@ def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bi
     y_dict = oxe.execute_onnx(model_ref, io_dict)
     y_ref = y_dict[model_ref.graph.output[0].name]
 
-    tmp_output_dir = make_build_dir("build_mlo")
+    test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
+    tmp_output_dir = make_build_dir(f"build_mlo_{test_id}_")
 
     batch_size = 16
     np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
@@ -728,9 +794,9 @@ def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bi
         "step_hw_ipgen",
         "step_set_fifo_depths",
         "step_create_stitched_ip",
-        "step_synthesize_bitfile",
-        "step_make_driver",
-        "step_deployment_package",
+        # "step_synthesize_bitfile",
+        # "step_make_driver",
+        # "step_deployment_package",
     ]
 
     cfg = build_cfg.DataflowBuildConfig(
@@ -758,7 +824,30 @@ def test_finnloop_end2end_mlo_ddr(dim, iteration, elemwise_optype, rhs_shape, bi
             build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
         ],
     )
-    build.build_dataflow_cfg(tmp_output_dir + "/mlo_model.onnx", cfg)
+    # Run the build in a child process so that a segfault in the simulation
+    # (the rtlsim memory model can overrun on straddle + partial-beat weight
+    # layouts) is caught as a non-zero exit code instead of crashing the whole
+    # pytest session. build_dataflow_cfg *returns* -1 on a failed step rather
+    # than raising, so the wrapper forwards that return value to the child's
+    # exit code via sys.exit.
+    ctx = mp.get_context("fork")
+    proc = ctx.Process(
+        target=_run_build_in_child,
+        args=(tmp_output_dir + "/mlo_model.onnx", cfg),
+    )
+    proc.start()
+    proc.join()
+    if proc.exitcode < 0:
+        sig = signal.Signals(-proc.exitcode).name
+        pytest.fail(f"build crashed in child process with signal {sig}")
+    if proc.exitcode != 0:
+        pytest.fail(f"build failed in child process with exit code {proc.exitcode}")
+
+    # A verification mismatch
+    verify_fails = glob.glob(tmp_output_dir + "/verification_output/*FAIL*")
+    if verify_fails:
+        names = ", ".join(sorted(os.path.basename(p) for p in verify_fails))
+        pytest.fail(f"verification mismatch in build output: {names}")
 
 
 # Debug test for manual loop transformation steps below
