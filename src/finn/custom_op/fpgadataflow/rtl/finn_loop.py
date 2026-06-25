@@ -664,7 +664,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
         )
         # "externalize" some of the loop shell signals
-        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm"]
+        ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
         ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
@@ -1060,7 +1060,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
-        cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
+        cmd.append(
+            "set_property name m_axi_intermediate_frame "
+            "[get_bd_intf_ports m_axi_intermediate_frame_0]"
+        )
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
         if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
             cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
@@ -1105,7 +1108,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
         # Also used for MLO in the context of Zynq
-        loop_aximm_names = ["m_axi_hbm"] + [sig[0] for sig in ext_signals]
+        loop_aximm_names = ["m_axi_intermediate_frame"] + [sig[0] for sig in ext_signals]
         for aximm_name in loop_aximm_names:
             cmd.append(
                 "ipx::remove_segment -quiet %s:APERTURE_0 "
@@ -1175,8 +1178,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
-        # TODO: rename because it might not be hbm?
-        intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
+        intf_names["aximm"].append(["m_axi_intermediate_frame", str(addr_bits)])
         offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
         intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 

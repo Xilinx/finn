@@ -91,7 +91,7 @@ def mlo_prehook_func_factory(node) -> Callable[[SimEngine], None]:
             extern_idx += 1
 
     def mlo_rtlsim_prehook(sim):
-        sim.aximm_queue("m_axi_hbm")
+        sim.aximm_queue("m_axi_intermediate_frame")
         for name, intf in mvau_hbm_weights.items():
             sim.aximm_ro_image(intf["extern_name"], intf["offset"], intf["value"].flatten())
 
