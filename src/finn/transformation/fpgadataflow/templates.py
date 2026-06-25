@@ -229,6 +229,188 @@ report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -f
 close_project
 """
 
+# Versal (embedded, e.g. VCK190) overlay shell template.
+custom_versal_shell_template = """
+set FREQ_MHZ %s
+set NUM_AXILITE %d
+if {$NUM_AXILITE > 16} {
+    error "Maximum 16 AXI-Lite interfaces supported"
+}
+set NUM_AXIMM %d
+set BOARD %s
+set FPGA_PART %s
+set GOLDEN_DIR %s
+set OVERLAY_NAME finn_versal
+set design_name $OVERLAY_NAME
+
+# Source the golden reference design. With design_name pre-set this creates a
+# project + block design named $OVERLAY_NAME containing versal_cips_0,
+# axi_noc_ps, axi_noc_pl, rst_pl0 and the PL tie-offs.
+source [file join $GOLDEN_DIR golden_ref.tcl]
+
+# Remove the golden tie-offs on the interfaces FINN drives with real logic:
+# M_AXI_FPD (control path) and the two PL NoC slave ports S00_AXI/S01_AXI
+# (DDR + MLO paths). The pl_tieoff_lpd (M_AXI_LPD) and pl_tieoff_irq
+# (pl_ps_irq*) tie-offs are left in place since FINN does not use those.
+delete_bd_objs [get_bd_cells pl_tieoff_fpd]
+delete_bd_objs [get_bd_cells pl_tieoff_dma0]
+delete_bd_objs [get_bd_cells pl_tieoff_dma1]
+
+# Control path: M_AXI_FPD -> control SmartConnect -> kernel AXI-Lite ports
+set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
+create_bd_cell -type ip -vlnv $smartconnect_vlnv axi_interconnect_0
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
+connect_bd_intf_net [get_bd_intf_pins versal_cips_0/M_AXI_FPD] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+
+# DDR path: FINN I/O DMA masters -> SmartConnect -> axi_noc_pl/S00_AXI
+create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_0
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_0]
+connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins axi_noc_pl/S00_AXI]
+
+# Procedure to assign AXI-Lite register apertures in the M_AXI_FPD space.
+# PL peripherals live in the 0xA4000000 window in the golden address map.
+set axi_peripheral_base 0xA4000000
+proc assign_axi_addr_proc {axi_intf_path} {
+    global axi_peripheral_base
+    set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
+    set range [expr $range < 4096 ? 4096 : $range]
+    set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] \
+        -target_address_space [get_bd_addr_spaces versal_cips_0/M_AXI_FPD] \
+        -offset $offset -range $range -force
+    set axi_peripheral_base [expr $offset + $range]
+}
+
+# Procedure to map an aximm master onto DDR through the PS NoC inter-NoC port.
+# Maps both DDR_LOW0 (0-2 GB) and DDR_LOW1 (32 GB+) so the DMA can reach any
+# buffer the runtime CMA allocator hands out.
+proc assign_ddr_addr_proc {aximm_intf_path} {
+    set space [get_bd_addr_spaces -of_objects [get_bd_intf_pins $aximm_intf_path]]
+    assign_bd_address -offset 0x00000000 -range 0x80000000 \
+        -target_address_space $space \
+        [get_bd_addr_segs axi_noc_ps/S00_INI/C0_DDR_LOW0] -force
+    assign_bd_address -offset 0x000800000000 -range 0x180000000 \
+        -target_address_space $space \
+        [get_bd_addr_segs axi_noc_ps/S00_INI/C0_DDR_LOW1] -force
+}
+
+# custom IP instantiations/connections start here
+%s
+
+# MLO (Multi-Layer Offload) weight streaming -> axi_noc_pl/S01_AXI
+set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+    -filter {MODE == Master && (NAME == m_axi_hbm || NAME =~ m_axi_MVAU_*)}]
+if {[llength $mlo_mm_pins] > 0} {
+    create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
+    set_property -dict [list CONFIG.NUM_SI [llength $mlo_mm_pins] CONFIG.NUM_MI {1}] [get_bd_cells smartconnect_mlo]
+    connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
+    set mlo_si_idx 0
+    foreach mlo_mm_pin $mlo_mm_pins {
+        set mlo_si_name [format "S%%02d_AXI" $mlo_si_idx]
+        connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
+        assign_ddr_addr_proc [get_property PATH $mlo_mm_pin]
+        incr mlo_si_idx
+    }
+    connect_bd_net [get_bd_pins smartconnect_mlo/aclk] [get_bd_pins versal_cips_0/pl0_ref_clk]
+    connect_bd_net [get_bd_pins smartconnect_mlo/aresetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+} else {
+    # keep the second NoC PL slave port driven so the locked NoC solution
+    # remains valid (matches the golden 2-SI topology)
+    create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vip:1.1 pl_dma1_tieoff
+    set_property -dict [list CONFIG.INTERFACE_MODE {MASTER} CONFIG.PROTOCOL {AXI4} CONFIG.ADDR_WIDTH {64}] [get_bd_cells pl_dma1_tieoff]
+    connect_bd_intf_net [get_bd_intf_pins pl_dma1_tieoff/M_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
+    connect_bd_net [get_bd_pins pl_dma1_tieoff/aclk] [get_bd_pins versal_cips_0/pl0_ref_clk]
+    connect_bd_net [get_bd_pins pl_dma1_tieoff/aresetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+}
+
+# clock/reset for the control + DDR SmartConnects
+connect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] \
+    [get_bd_pins axi_interconnect_0/aclk] \
+    [get_bd_pins smartconnect_0/aclk]
+connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] \
+    [get_bd_pins axi_interconnect_0/aresetn] \
+    [get_bd_pins smartconnect_0/aresetn]
+
+# set up debug
+if {%d == 1} {
+    set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets -quiet {idma0_m_axis_0}]
+}
+
+validate_bd_design
+save_bd_design
+
+# Build flow: wrapper, segmented configuration, lock golden NoC, implement,
+# verify against the golden routed checkpoint, export the PL PDI.
+make_wrapper -files [get_files $OVERLAY_NAME.bd] -import -fileset sources_1 -top
+set_property top ${OVERLAY_NAME}_wrapper [current_fileset]
+update_compile_order -fileset sources_1
+
+set_property platform.default_output_type "sd_card" [current_project]
+set_property platform.design_intent.embedded "true" [current_project]
+set_property platform.design_intent.server_managed "false" [current_project]
+set_property platform.design_intent.external_host "false" [current_project]
+set_property platform.design_intent.datacenter "false" [current_project]
+set_property segmented_configuration true [current_project]
+
+# lock the NoC solution to the golden reference -- mandatory for the PLD PDI
+# to be compatible with the golden boot PDI
+set golden_ncr [file join $GOLDEN_DIR golden_noc.ncr]
+if {[file exists $golden_ncr]} {
+    set_property NOC_SOLUTION_FILE [file normalize $golden_ncr] [get_runs impl_1]
+} else {
+    error "golden_noc.ncr not found in $GOLDEN_DIR"
+}
+
+set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
+set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
+
+launch_runs impl_1 -to_step write_device_image -jobs %d
+wait_on_run [get_runs impl_1]
+
+set impl_status [get_property STATUS [get_runs impl_1]]
+if { [string match "*Complete*" $impl_status] == 0 } {
+    error "Implementation did not complete (status: $impl_status)"
+}
+
+# verify NoC/static compatibility with the golden routed checkpoint
+set golden_dcp [file join $GOLDEN_DIR golden_routed.dcp]
+set overlay_dcps [glob -nocomplain ./${OVERLAY_NAME}/${OVERLAY_NAME}.runs/impl_1/*_routed.dcp]
+if {[file exists $golden_dcp] && [llength $overlay_dcps] > 0} {
+    if {[catch {pr_verify [file normalize $golden_dcp] [lindex $overlay_dcps 0]} msg]} {
+        error "pr_verify FAILED -- overlay incompatible with golden reference: $msg"
+    }
+    puts "pr_verify PASSED -- overlay compatible with golden reference"
+} else {
+    error "golden_routed.dcp or overlay routed checkpoint missing, cannot pr_verify"
+}
+
+# export hardware platform + PLD PDI + HWH (the PL PDI is loaded at runtime)
+write_hw_platform -fixed -include_bit -force ./${OVERLAY_NAME}.xsa
+set impl_dir "./${OVERLAY_NAME}/${OVERLAY_NAME}.runs/impl_1"
+set pld_files [glob -nocomplain ${impl_dir}/*_pld.pdi]
+if {[llength $pld_files] > 0} {
+    file copy -force [lindex $pld_files 0] ./finn_versal.pdi
+} else {
+    set pdi_files [glob -nocomplain ${impl_dir}/*.pdi]
+    if {[llength $pdi_files] > 0} {
+        file copy -force [lindex $pdi_files 0] ./finn_versal.pdi
+    } else {
+        error "no PDI produced by write_device_image"
+    }
+}
+set hwh_files [glob -nocomplain \
+    ./${OVERLAY_NAME}/${OVERLAY_NAME}.gen/sources_1/bd/${OVERLAY_NAME}/hw_handoff/${OVERLAY_NAME}.hwh \
+    ./${OVERLAY_NAME}/${OVERLAY_NAME}.gen/sources_1/bd/${OVERLAY_NAME}/hw_handoff/*.hwh]
+if {[llength $hwh_files] > 0} {
+    file copy -force [lindex $hwh_files 0] ./finn_versal.hwh
+}
+
+# synthesis utilization report
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+close_project
+"""
+
 vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1

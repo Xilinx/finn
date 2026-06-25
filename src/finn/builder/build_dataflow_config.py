@@ -50,6 +50,7 @@ class ShellFlowType(str, Enum):
     the FINN-generated accelerator."""
 
     VIVADO_ZYNQ = "vivado_zynq"
+    VIVADO_VERSAL = "vivado_versal"
     VITIS_ALVEO = "vitis_alveo"
     SLASH_ALVEO = "slash_alveo"
 
@@ -419,6 +420,8 @@ class DataflowBuildConfig:
     def _resolve_driver_platform(self):
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
+        elif self.shell_flow_type == ShellFlowType.VIVADO_VERSAL:
+            return "zynq-iodma"  # FINE for now, change later
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "vitis-xrt"
         elif self.shell_flow_type == ShellFlowType.SLASH_ALVEO:

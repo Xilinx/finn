@@ -850,6 +850,187 @@ def test_finnloop_end2end_mlo_ddr(
         pytest.fail(f"verification mismatch in build output: {names}")
 
 
+@pytest.mark.parametrize(
+    "dim, simd, pe, bitwidth, weight_bitwidth",
+    [
+        (16, 2, 2, 8, 8),
+    ],
+)
+# iteration count, number of models chained together
+@pytest.mark.parametrize("iteration", [3])
+# elementwise operation
+@pytest.mark.parametrize("elemwise_optype", ["ElementwiseAdd_hls"])
+# elementwise shape
+@pytest.mark.parametrize("rhs_shape", [[1]])
+# tail node
+@pytest.mark.parametrize("tail_node", [True])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_finnloop_end2end_mlo_ddr_vck190(
+    dim,
+    simd,
+    pe,
+    iteration,
+    elemwise_optype,
+    rhs_shape,
+    bitwidth,
+    weight_bitwidth,
+    tail_node,
+    request,
+):
+    # End-to-end MLO+DDR flow on the embedded Versal VCK190 (xcvc1902) using the
+    # VIVADO_VERSAL shell flow. Mirrors test_finnloop_end2end_mlo_ddr but targets
+    # Versal and generates a full bitfile/deployment package.
+    # Parametrized by data/weight bitwidth and MVAU folding.
+    data_dtype = DataType[f"INT{bitwidth}"]
+    eltw_param_dtype = data_dtype.name
+    # output dtype of adding two `data_dtype` values needs one extra bit
+    add_out_dtype = DataType[f"INT{data_dtype.bitwidth() + 1}"]
+
+    # The VIVADO_VERSAL shell flow is validated with Vivado 2025.1.
+    vivado_path = os.environ.get("XILINX_VIVADO")
+    match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
+    year, minor = int(match.group(1)), int(match.group(2))
+    if (year, minor) != (2025, 2):
+        pytest.skip("""Vivado version 2025.2 required for the VIVADO_VERSAL flow.""")
+    loop_body_models = create_chained_loop_bodies(
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        dtype=data_dtype,
+        simd=simd,
+        pe=pe,
+        weight_bitwidth=weight_bitwidth,
+    )
+    nodes_per_body = len(loop_body_models[0].graph.node)
+    model = loop_body_models[0]
+    for m in loop_body_models[1:]:
+        model = model.transform(MergeONNXModels(m))
+
+    if tail_node:
+        tail_outp = create_tensor_info("tail_outp", [1, 3, 3, dim])
+        tr_node = create_node(
+            "ElementwiseAdd_hls",
+            [model.graph.output[0].name, "tail_add"],
+            ["tail_outp"],
+            "Add_tail",
+            {
+                "lhs_shape": [1, 3, 3, dim],
+                "rhs_shape": [1],
+                "out_shape": [1, 3, 3, dim],
+                "lhs_dtype": data_dtype.name,
+                "rhs_dtype": data_dtype.name,
+                "out_dtype": add_out_dtype.name,
+            },
+        )
+        model.graph.node.insert(len(model.graph.node), tr_node)
+        model.graph.value_info.append(model.graph.output[0])
+        model.graph.output.pop(0)
+        model.graph.output.append(tail_outp)
+        AddtailParam = gen_finn_dt_tensor(data_dtype, [1])
+        model.set_initializer("tail_add", AddtailParam)
+        model.set_tensor_datatype("tail_add", data_dtype)
+
+    # cleanup
+    model = model.transform(RemoveUnusedTensors())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
+    # Generate reference output
+    input_dtype = data_dtype
+    x = gen_finn_dt_tensor(input_dtype, (1, 3, 3, dim))
+    model_ref = model.transform(PrepareCppSim())
+    model_ref = model_ref.transform(CompileCppSim())
+    model_ref = model_ref.transform(SetExecMode("cppsim"))
+    io_dict = {model_ref.graph.input[0].name: x}
+    y_dict = oxe.execute_onnx(model_ref, io_dict)
+    y_ref = y_dict[model_ref.graph.output[0].name]
+
+    test_id = re.sub(r"[^0-9A-Za-z_]+", "_", request.node.name)
+    tmp_output_dir = make_build_dir(f"build_mlo_vck190_{test_id}_")
+
+    batch_size = 16
+    np.save(tmp_output_dir + "/input.npy", np.broadcast_to(x, (batch_size, 3, 3, dim)))
+    np.save(
+        tmp_output_dir + "/expected_output.npy",
+        np.broadcast_to(y_ref, (batch_size, 3, 3, dim)),
+    )
+
+    model.save(tmp_output_dir + "/mlo_model.onnx")
+
+    # steps are skipped because test model created with HLS and RTL layers
+    steps = [
+        "step_create_dataflow_partition",
+        "step_loop_rolling",
+        "step_apply_folding_config",
+        "step_minimize_bit_width",
+        "step_generate_estimate_reports",
+        "step_hw_codegen",
+        "step_hw_ipgen",
+        "step_set_fifo_depths",
+        "step_create_stitched_ip",
+        "step_synthesize_bitfile",
+        "step_make_driver",
+        "step_deployment_package",
+    ]
+
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        steps=steps,
+        synth_clk_period_ns=10.0,
+        board="VCK190",
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_VERSAL,
+        rtlsim_batch_size=100,
+        standalone_thresholds=True,
+        mlo=True,
+        mlo_weight_mem="DDR",
+        fifosim_save_waveform=True,
+        loop_body_hierarchy=[["", "layers.0"]],
+        loop_body_range=(model.graph.node[0], model.graph.node[nodes_per_body - 1]),
+        verify_steps=verif_steps,
+        verify_input_npy=tmp_output_dir + "/input.npy",
+        verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
+        verify_save_full_context=True,  # Enable per-iteration context saving
+        generate_outputs=[
+            build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.BITFILE,
+            build_cfg.DataflowOutputType.PYNQ_DRIVER,
+            build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        ],
+    )
+    # Run the build in a child process so that a segfault in the simulation
+    # (the rtlsim memory model can overrun on straddle + partial-beat weight
+    # layouts) is caught as a non-zero exit code instead of crashing the whole
+    # pytest session. build_dataflow_cfg *returns* -1 on a failed step rather
+    # than raising, so the wrapper forwards that return value to the child's
+    # exit code via sys.exit.
+    ctx = mp.get_context("fork")
+    proc = ctx.Process(
+        target=_run_build_in_child,
+        args=(tmp_output_dir + "/mlo_model.onnx", cfg),
+    )
+    proc.start()
+    proc.join()
+    if proc.exitcode < 0:
+        sig = signal.Signals(-proc.exitcode).name
+        pytest.fail(f"build crashed in child process with signal {sig}")
+    if proc.exitcode != 0:
+        pytest.fail(f"build failed in child process with exit code {proc.exitcode}")
+
+    # A verification mismatch (WRONG OUTPUT) does not fail the build: verify_step
+    # only logs "FAIL" and writes verify_<step>_<idx>_FAIL.{npy,npz}. Treat the
+    # presence of any such artifact as a test failure.
+    verify_fails = glob.glob(tmp_output_dir + "/verification_output/*FAIL*")
+    if verify_fails:
+        names = ", ".join(sorted(os.path.basename(p) for p in verify_fails))
+        pytest.fail(f"verification mismatch in build output: {names}")
+
+
 # Debug test for manual loop transformation steps below
 # This test is intentionally not marked for CI
 # Use test_finnloop_end2end_mlo instead

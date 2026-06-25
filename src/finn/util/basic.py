@@ -69,6 +69,9 @@ pynq_native_port_width["RFSoC2x2"] = 128
 pynq_native_port_width["RFSoC4x2"] = 128
 pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
+# native AXI port width (in bits) for the PL NoC slave ports on Versal
+pynq_native_port_width["VCK190"] = 128
+pynq_native_port_width["VEK280"] = 128
 
 # Vitis device and platform mappings
 vitis_part_map = dict()

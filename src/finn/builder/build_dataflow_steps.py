@@ -99,6 +99,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.loop_rolling import LoopExtraction, LoopRolling
 from finn.transformation.fpgadataflow.make_driver import MakeCPPDriver, MakePYNQDriver
+from finn.transformation.fpgadataflow.make_versal_proj import VersalBuild
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -1326,6 +1327,28 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 post_synth_resources = model.analysis(post_synth_res)
                 with open(report_dir + "/post_synth_resources.json", "w") as f:
                     json.dump(post_synth_resources, f, indent=2)
+
+        elif cfg.shell_flow_type == ShellFlowType.VIVADO_VERSAL:
+            model = model.transform(
+                VersalBuild(
+                    cfg.board,
+                    cfg.synth_clk_period_ns,
+                    cfg.enable_hw_debug,
+                    partition_model_dir=partition_model_dir,
+                )
+            )
+            # the Versal overlay deliverable is the PL PDI (+ hwh) loaded at
+            # runtime via PYNQ
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.pdi")
+            copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
+            copy(
+                model.get_metadata_prop("vivado_synth_rpt"),
+                report_dir + "/post_synth_resources.xml",
+            )
+
+            post_synth_resources = model.analysis(post_synth_res)
+            with open(report_dir + "/post_synth_resources.json", "w") as f:
+                json.dump(post_synth_resources, f, indent=2)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

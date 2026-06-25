@@ -178,18 +178,6 @@ def run_all_config_checks(cfg: DataflowBuildConfig) -> Report:
             )
         )
 
-    if cfg.board in ("VEK280", "VCK190") and has_bitfile:
-        checks.append(
-            _check(
-                "versal_deploy",
-                Severity.ERROR,
-                False,
-                f"Versal board '{cfg.board}' does not yet support bitfile generation. "
-                "System deployment is not available for Versal devices",
-                "Remove BITFILE from generate_outputs, or use a non-Versal board",
-            )
-        )
-
     # === Required Field Dependencies ===
     if cfg.mlo and (cfg.loop_body_hierarchy is None or cfg.loop_body_range is None):
         missing = [f for f in ["loop_body_hierarchy", "loop_body_range"] if getattr(cfg, f) is None]
