@@ -310,8 +310,10 @@ class DataflowBuildConfig:
     #: Default is 2
     fifosim_n_inferences: Optional[int] = 2
 
-    #: Enable saving waveforms from simulation-based FIFO sizing
-    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    #: Enable saving waveforms from simulation-based FIFO sizing.
+    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
+    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
+    #: characterization simulations.
     fifosim_save_waveform: Optional[bool] = False
 
     debug_fifo: Optional[bool] = False

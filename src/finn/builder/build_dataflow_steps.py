@@ -979,10 +979,22 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
             model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
+            if cfg.fifosim_save_waveform:
+                report_dir = cfg.output_dir + "/report"
+                os.makedirs(report_dir, exist_ok=True)
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_inst.set_nodeattr(
+                        "rtlsim_trace",
+                        os.path.abspath(report_dir) + f"/{node.name}_fifosim_trace.wdb",
+                    )
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
             model = model.transform(DeriveCharacteristic(period))
+            if cfg.fifosim_save_waveform:
+                for node in model.graph.node:
+                    getCustomOp(node).set_nodeattr("rtlsim_trace", "")
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
