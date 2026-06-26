@@ -501,13 +501,18 @@ class HWCustomOp(CustomOp):
         for k in txns_out.keys():
             txns_out[k] = sim.trace_stream(k + sname)
         # For characterization, use period as liveness threshold directly
-        total_cycle_count = finnxsi.rtlsim_multi_io(
-            sim,
-            io_dict,
-            num_out_values=self.get_number_output_values(),
-            sname=sname,
-            liveness_threshold=period,
-        )
+        try:
+            total_cycle_count = finnxsi.rtlsim_multi_io(
+                sim,
+                io_dict,
+                num_out_values=self.get_number_output_values(),
+                sname=sname,
+                liveness_threshold=period,
+            )
+        finally:
+            # Assert sim_finish to trigger $finish so that SystemVerilog final
+            # blocks execute, which flush and close the fifo_gauge log files.
+            self.close_rtlsim(sim)
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
         assert (
             total_cycle_count <= period
