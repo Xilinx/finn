@@ -34,7 +34,7 @@ Two export paths are supported:
 
 .. code-block:: text
 
-   Path A: PiecewisePolyActivation        Path B: nn.GELU / nn.SiLU / etc.
+   Path A: PWPolyFActivation             Path B: nn.GELU / nn.SiLU / etc.
        |  torch.onnx.export                   |  torch.onnx.export
        |  (dynamo=False)                      |  (dynamo=True or False)
        v                                      v
@@ -141,7 +141,7 @@ ONNX Export
 
 Two export paths are supported:
 
-* ``PiecewisePolyActivation`` exports as a single ``PWPolyF`` custom op via
+* ``PWPolyFActivation`` exports as a single ``PWPolyF`` custom op via
   ``torch.autograd.Function.symbolic()``. It requires ``dynamo=False`` and
   preserves the ``K`` attribute on the ONNX node.
 * Standard PyTorch modules (``nn.GELU``, ``nn.SiLU``, ``nn.Sigmoid``,
@@ -262,10 +262,10 @@ Tests
 
 * cppsim for all supported functions, channel counts, spatial shapes, and
   foldings
-* ONNX export for the explicit ``PiecewisePolyActivation`` path
+* ONNX export for the explicit ``PWPolyFActivation`` path
 * ``InferPWPolyFLayer`` conversion and execution
 * standard op inference for Gelu, Sigmoid, Tanh, SiLU, and Erf-based GELU
-* execution correctness against ``PiecewisePolyActivation``
+* execution correctness against ``PWPolyFActivation``
 * Versal-only specialization checks
 * resource estimates, folded shapes, and expected cycles
 * coefficient package generation for ``K`` and ``degree``

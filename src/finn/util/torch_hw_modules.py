@@ -148,7 +148,7 @@ class PWPolyFFunction(torch.autograd.Function):
         return g.op("PWPolyF", x, func_s=func, K_i=K, degree_i=degree)
 
 
-class PiecewisePolyActivation(nn.Module):
+class PWPolyFActivation(nn.Module):
     """
     Drop-in activation matching FINN's PWPolyF RTL behavior.
 

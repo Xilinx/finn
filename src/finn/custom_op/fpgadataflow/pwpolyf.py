@@ -176,10 +176,12 @@ class PWPolyF(HWCustomOp):
         # lazy import to avoid hard dependency on torch at module level
         import torch  # noqa: PLC0415
 
-        from finn.util.torch_hw_modules import PiecewisePolyActivation  # noqa: PLC0415
+        from finn.util.torch_hw_modules import (  # noqa: PLC0415
+            PWPolyFActivation,
+        )
 
         degree = self.get_nodeattr("degree")
-        mod = PiecewisePolyActivation(func, K=K, degree=degree)
+        mod = PWPolyFActivation(func, K=K, degree=degree)
         with torch.no_grad():
             x = torch.from_numpy(inp.astype(np.float32))
             y = mod(x)

@@ -24,7 +24,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.torch_hw_modules import PiecewisePolyActivation
+from finn.util.torch_hw_modules import PWPolyFActivation
 
 test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 non_versal_fpga_part = "xczu3eg-sbva484-1-e"
@@ -94,7 +94,7 @@ def test_pwpolyf_cppsim(func, num_channels, num_input_vecs, fold):
     input_shape = tuple(num_input_vecs + [num_channels])
     x = np.random.uniform(-10, 10, input_shape).astype(np.float32)
 
-    ref_mod = PiecewisePolyActivation(func, K=K)
+    ref_mod = PWPolyFActivation(func, K=K)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
 
@@ -111,7 +111,7 @@ def test_pwpolyf_onnx_export(func):
     K = 3
     degree = 3
     num_channels = 32
-    mod = PiecewisePolyActivation(func, K=K, degree=degree)
+    mod = PWPolyFActivation(func, K=K, degree=degree)
     mod.eval()
     dummy = torch.randn(1, num_channels)
 
@@ -148,7 +148,7 @@ def test_pwpolyf_infer_transform(func):
     K = 3
     degree = 3
     num_channels = 16
-    mod = PiecewisePolyActivation(func, K=K, degree=degree)
+    mod = PWPolyFActivation(func, K=K, degree=degree)
     mod.eval()
     dummy = torch.randn(1, num_channels)
 
@@ -190,7 +190,7 @@ def test_pwpolyf_infer_transform(func):
     input_dict = {"inp": x}
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
-    ref_mod = PiecewisePolyActivation(func, K=K, degree=degree)
+    ref_mod = PWPolyFActivation(func, K=K, degree=degree)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)
@@ -505,7 +505,7 @@ def test_pwpolyf_standard_op_execution(op_type, expected_func):
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
     y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
 
-    ref_mod = PiecewisePolyActivation(expected_func, K=3)
+    ref_mod = PWPolyFActivation(expected_func, K=3)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)
@@ -520,7 +520,7 @@ def test_pwpolyf_silu_pattern_execution():
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
     y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
 
-    ref_mod = PiecewisePolyActivation("silu", K=3)
+    ref_mod = PWPolyFActivation("silu", K=3)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)
@@ -556,7 +556,7 @@ def test_pwpolyf_infer_erf_gelu_pattern(num_channels, num_input_vecs):
 
 @pytest.mark.fpgadataflow
 def test_pwpolyf_erf_gelu_execution():
-    """Erf-based GELU produces same output as PiecewisePolyActivation."""
+    """Erf-based GELU produces same output as PWPolyFActivation."""
     num_channels = 16
     model = make_erf_gelu_model(num_channels, [1])
     model = model.transform(InferPWPolyFLayer())
@@ -564,7 +564,7 @@ def test_pwpolyf_erf_gelu_execution():
     x = np.random.uniform(-5, 5, (1, num_channels)).astype(np.float32)
     y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
 
-    ref_mod = PiecewisePolyActivation("gelu", K=3)
+    ref_mod = PWPolyFActivation("gelu", K=3)
     with torch.no_grad():
         y_expected = ref_mod(torch.from_numpy(x)).numpy()
     assert np.allclose(y_produced, y_expected, atol=1e-6)
