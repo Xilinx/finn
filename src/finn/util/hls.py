@@ -31,7 +31,7 @@ import os
 import re
 import subprocess
 
-from finn.util.basic import which
+from finn.util.basic import resolve_xilinx_tool
 
 
 class CallHLS:
@@ -60,11 +60,11 @@ class CallHLS:
         match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
         year, minor = int(match.group(1)), int(match.group(2))
         if (year, minor) > (2024, 2):
-            assert which("vitis-run") is not None, "vitis-run not found in PATH"
-            vitis_cmd = "vitis-run --mode hls --tcl %s\n" % (self.tcl_script)
+            tool = resolve_xilinx_tool("vitis-run")
+            vitis_cmd = "%s --mode hls --tcl %s\n" % (tool, self.tcl_script)
         else:
-            assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
-            vitis_cmd = "vitis_hls %s\n" % (self.tcl_script)
+            tool = resolve_xilinx_tool("vitis_hls")
+            vitis_cmd = "%s %s\n" % (tool, self.tcl_script)
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         working_dir = os.environ["PWD"]

@@ -13,9 +13,10 @@ import os
 import os.path
 import re
 from finn_xsi.sim_engine import SimEngine
+from finn_xsi.srcutil import order_pkg_first
 from typing import Optional
 
-from finn.util.basic import launch_process_helper
+from finn.util.basic import launch_process_helper, resolve_xilinx_tool
 
 
 def locate_glbl() -> Optional[str]:
@@ -45,12 +46,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         }
         verilog_header_incl_str = " ".join(["--include " + x for x in verilog_headers])
 
-        # sort src list so that packages are loaded first
-        # these packages must be compiled before modules that depend on them
-        pkg_patterns = ["swg_pkg", "mvu_pkg"]
-        srcs_list = sorted(
-            source_list, key=lambda s: (not any(pkg in s for pkg in pkg_patterns), s)
-        )
+        # packages must come before the modules that import them
+        srcs_list = order_pkg_first(source_list)
         for src_line in srcs_list:
             if src_line.endswith(".v"):
                 f.write(f"verilog work {verilog_header_incl_str} {src_line}\n")
@@ -91,7 +88,7 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     ]
 
     cmd_xelab = [
-        "xelab",
+        resolve_xilinx_tool("xelab"),
         "work." + top_module_name,
         "-relax",
         "-prj",
@@ -100,11 +97,9 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
         "-s",
         top_module_name,
     ]
-    # Add debug flag if debug is enabled
     if debug:
         cmd_xelab.append("-debug")
         cmd_xelab.append("all")
-    # Add behavioural simulation flag if behav is enabled
     if behav:
         cmd_xelab.append("-define")
         cmd_xelab.append("FINN_SIMULATION")
@@ -115,7 +110,8 @@ def compile_sim_obj(top_module_name, source_list, sim_out_dir, debug=False, beha
     if locate_glbl() is not None:
         cmd_xelab.insert(1, "work.glbl")
 
-    launch_process_helper(cmd_xelab, cwd=sim_out_dir)
+    # check=True so an xelab failure is raised here, not later as a missing xsimk.so
+    launch_process_helper(cmd_xelab, cwd=sim_out_dir, check=True)
     out_so_relative_path = "xsim.dir/%s/xsimk.so" % top_module_name
     out_so_full_path = sim_out_dir + "/" + out_so_relative_path
 

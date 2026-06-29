@@ -46,6 +46,17 @@ def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=N
     including) those nodes is executed.
     """
 
+    # validate that all provided input names exist in the model
+    # this catches common bugs like using outdated tensor names
+    valid_tensor_names = set(model.get_all_tensor_names())
+    for inp_name in input_dict.keys():
+        if inp_name not in valid_tensor_names:
+            graph_input_names = sorted(t.name for t in model.graph.input)
+            raise ValueError(
+                f"Provided input '{inp_name}' not found in model. "
+                f"Valid graph inputs are: {graph_input_names}"
+            )
+
     # check if model has an execution mode set
     # if None, execute model node using the QONNX-provided execute_onnx impl
     # if set to "rtlsim" execute model using xsi

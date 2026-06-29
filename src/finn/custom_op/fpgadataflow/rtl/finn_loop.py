@@ -45,7 +45,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -1086,10 +1086,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_loop_ip.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_loop_ip.tcl\n")
+            f.write("{} -mode batch -source make_loop_ip.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

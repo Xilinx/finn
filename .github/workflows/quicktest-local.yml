@@ -1,0 +1,35 @@
+# Copyright (C) 2026, Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: LocalInstallQuicktest
+
+on:
+  pull_request:
+    branches: [ dev ]
+  push:
+    branches: [ dev ]
+
+jobs:
+
+  test:
+    name: Run quicktest with local installation (no Docker)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install system dependencies
+        run: |
+          sudo ./scripts/install-system-deps.sh
+
+      - name: Setup local FINN environment
+        run: |
+          export FINN_HOST_BUILD_DIR=/tmp/finn_gha
+          ./setup-local.sh --skip-xsi
+
+      - name: Run quicktest
+        run: |
+          export FINN_HOST_BUILD_DIR=/tmp/finn_gha
+          source scripts/finn-env.sh
+          ./scripts/quicktest-local.sh

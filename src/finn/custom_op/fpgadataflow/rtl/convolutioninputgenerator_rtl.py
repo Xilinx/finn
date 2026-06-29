@@ -277,6 +277,38 @@ class ConvolutionInputGenerator_rtl(ConvolutionInputGenerator, RTLBackend):
         else:
             return 0
 
+    def uram_efficiency_estimation(self):
+        # TODO: Versal URAM supports flexible bit widths (9/18/36/72) unlike
+        # UltraScale+ which only supports 72-bit. This could improve efficiency
+        # for narrow data types on Versal devices.
+        simd = self.get_nodeattr("SIMD")
+        ram_style = self.get_nodeattr("ram_style")
+        impl_style = self.select_impl_style()
+        [k_h, k_w] = self.get_nodeattr("ConvKernelDim")
+        [ifm_dim_h, ifm_dim_w] = self.get_nodeattr("IFMDim")
+        [dilation_h, dilation_w] = self.get_nodeattr("Dilation")
+
+        if ram_style != "ultra":
+            return 1
+
+        buffer_width = simd * self.get_input_datatype().bitwidth()
+        if impl_style == "default":
+            buffer_depth = self.get_buffer_depth()
+            buffer_count = 1
+        elif impl_style == "parallel":
+            if ifm_dim_h == 1 or ifm_dim_w == 1:
+                return 1  # 1D case (no line buffers needed)
+            kernel_width = (k_w - 1) * dilation_w + 1
+            buffer_depth = (ifm_dim_w - kernel_width) + ifm_dim_w * (dilation_h - 1)
+            buffer_count = k_h - 1
+
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        used_bits = buffer_width * buffer_depth * buffer_count
+        uram_est_capacity = uram_est * 72 * 4096
+        return used_bits / uram_est_capacity
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
 

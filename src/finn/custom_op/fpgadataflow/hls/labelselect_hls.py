@@ -92,7 +92,6 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
@@ -105,11 +104,10 @@ class LabelSelect_hls(LabelSelect, HLSBackend):
         # Also notice that StreamingDataWidthConverter_Batch performs LE packing
 
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0_V, false);'
+            'npy2apintstream<%s, %s, %s>("%s", in0_V, false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
-                elem_bits,
                 npy_type,
                 npy_in,
             )

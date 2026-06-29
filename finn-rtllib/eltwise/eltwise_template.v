@@ -1,10 +1,10 @@
 /****************************************************************************
-* Copyright (C) 2025, Advanced Micro Devices, Inc.
-* All rights reserved.
-*
+* Copyright Advanced Micro Devices, Inc.
 * SPDX-License-Identifier: BSD-3-Clause
-
-* @author       Shane T. Fleming <shane.fleming@amd.com>
+*
+* @brief  Generalized elementwise wrapper template.
+*         Supports float/float, int/float, float/int, and int/int paths.
+* @author Shane T. Fleming <shane.fleming@amd.com>
 ****************************************************************************/
 
 module $TOP_MODULE_NAME$(
@@ -17,24 +17,30 @@ input ap_rst_n,
 // -- AXIS input ------------------
 output  in0_V_TREADY,
 input   in0_V_TVALID,
-input   [$STREAM_BITS$-1:0] in0_V_TDATA,
+input   [$A_STREAM_BITS$-1:0] in0_V_TDATA,
 
 output  in1_V_TREADY,
 input   in1_V_TVALID,
-input   [$STREAM_BITS$-1:0] in1_V_TDATA,
+input   [$B_STREAM_BITS$-1:0] in1_V_TDATA,
 
 
 // -- AXIS output ------------------
 input   out0_V_TREADY,
 output  out0_V_TVALID,
-output  [$STREAM_BITS$-1:0] out0_V_TDATA
+output  [$O_STREAM_BITS$-1:0] out0_V_TDATA
 );
 
-eltwisef #(
+eltwise #(
         .PE($PE$),
         .OP($OP$),
         .B_SCALE($B_SCALE$),
-        .FORCE_BEHAVIORAL($FORCE_BEHAVIORAL$)
+        .FORCE_BEHAVIORAL($FORCE_BEHAVIORAL$),
+        .A_FLOAT($A_FLOAT$),
+        .B_FLOAT($B_FLOAT$),
+        .A_WIDTH($A_WIDTH$),
+        .A_SIGNED($A_SIGNED$),
+        .B_WIDTH($B_WIDTH$),
+        .B_SIGNED($B_SIGNED$)
 ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),

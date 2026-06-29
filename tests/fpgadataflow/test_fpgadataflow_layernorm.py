@@ -655,6 +655,16 @@ def test_integer_hls_elementwise_no_dsp_conflict():
     np.save(tmp_output_dir + "/expected_output.npy", y_ref)
     model.save(tmp_output_dir + "/model.onnx")
 
+    # Create specialize_layers_config to force HLS for ElementwiseMul
+    # This ensures we test HLS elementwise + RTL DSP coexistence
+    specialize_config = {
+        "Defaults": {},
+        "ElementwiseMul_0": {"preferred_impl_style": "hls"},
+    }
+    specialize_config_path = tmp_output_dir + "/specialize_layers_config.json"
+    with open(specialize_config_path, "w") as f:
+        json.dump(specialize_config, f)
+
     # Build steps - includes conversion to HW layers and specialization
     steps = [
         "step_convert_to_hw",
@@ -682,6 +692,7 @@ def test_integer_hls_elementwise_no_dsp_conflict():
         target_fps=1000,
         synth_clk_period_ns=target_clk_ns,
         board="VCK190",
+        specialize_layers_config_file=specialize_config_path,
         verify_steps=verif_steps,
         verify_input_npy=tmp_output_dir + "/input.npy",
         verify_expected_output_npy=tmp_output_dir + "/expected_output.npy",
@@ -695,6 +706,32 @@ def test_integer_hls_elementwise_no_dsp_conflict():
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
+
+    # Check that layers were specialized as expected:
+    intermediate_model_path = tmp_output_dir + "/intermediate_models/step_specialize_layers.onnx"
+    assert os.path.isfile(
+        intermediate_model_path
+    ), f"Intermediate model not found at {intermediate_model_path}"
+    specialized_model = ModelWrapper(intermediate_model_path)
+    op_types = [n.op_type for n in specialized_model.graph.node]
+
+    # Check LayerNorm is RTL
+    ln_rtl_nodes = specialized_model.get_nodes_by_op_type("LayerNorm_rtl")
+    assert (
+        len(ln_rtl_nodes) == 1
+    ), f"Expected exactly 1 LayerNorm_rtl, found {len(ln_rtl_nodes)}. Op types: {op_types}"
+
+    # Check Thresholding is RTL
+    thr_rtl_nodes = specialized_model.get_nodes_by_op_type("Thresholding_rtl")
+    assert (
+        len(thr_rtl_nodes) == 1
+    ), f"Expected exactly 1 Thresholding_rtl, found {len(thr_rtl_nodes)}. Op types: {op_types}"
+
+    # Check ElementwiseMul is HLS
+    mul_hls_nodes = specialized_model.get_nodes_by_op_type("ElementwiseMul_hls")
+    assert (
+        len(mul_hls_nodes) == 1
+    ), f"Expected exactly 1 ElementwiseMul_hls, found {len(mul_hls_nodes)}. Op types: {op_types}"
 
     # Check that NO DSP conflict warning was issued
     dsp_conflict_warnings = [
