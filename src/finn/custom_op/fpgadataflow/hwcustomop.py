@@ -177,7 +177,7 @@ class HWCustomOp(CustomOp):
 
     def uram_efficiency_estimation(self):
         """Function for URAM efficiency estimation: actual parameter storage
-        needed divided by the allocated URAM storage (from estimation)"""
+        needed divided by the allocated URAM storage (from estimation)."""
         return 1
 
     def bram_estimation(self):

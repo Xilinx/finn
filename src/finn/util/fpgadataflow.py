@@ -77,7 +77,7 @@ def is_rtl_node(node):
 
 def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
     """
-    Detect if model contains both floating-point HLS Elementwise ops and RTL ops using DSPFP32.
+    Detect if model contains both floating-point HLS Elementwise ops and RTL LayerNorm.
 
     This combination causes incorrect simulation results in xsim due to DSP
     primitive initialization conflicts. The hardware is correct - only
@@ -94,14 +94,11 @@ def detect_hls_rtl_dsp_conflict(model, check_subgraphs=True):
         Tuple of (has_conflict, hls_elementwise_ops, rtl_dsp_ops)
         - has_conflict: bool, True if both types of ops are present
         - hls_elementwise_ops: list of floating-point HLS Elementwise node names
-        - rtl_dsp_ops: list of RTL DSP node names (LayerNorm_rtl, Elementwise*_rtl)
+        - rtl_dsp_ops: list of RTL LayerNorm node names
     """
     # RTL ops that use DSPFP32 primitive (via binopf.sv)
     RTL_DSP_OPS = {
         "LayerNorm_rtl",
-        "ElementwiseAdd_rtl",
-        "ElementwiseSub_rtl",
-        "ElementwiseMul_rtl",
     }
 
     HLS_DOMAIN = "finn.custom_op.fpgadataflow.hls"
@@ -175,11 +172,11 @@ def warn_hls_rtl_dsp_conflict(model, verification_type, output_dir=None):
             f"\n{'='*70}\n"
             f"HLS+RTL DSP CONFLICT DETECTED - SKIPPING {verification_type.upper()}\n"
             f"{'='*70}\n"
-            f"The model contains both HLS Elementwise ops and RTL ops using DSPFP32.\n"
+            f"The model contains both HLS Elementwise ops and RTL LayerNorm.\n"
             f"This causes INCORRECT simulation results in xsim (Vivado version <= 2025.2).\n"
             f"\n"
             f"HLS Elementwise ops: {hls_ops}\n"
-            f"RTL DSP ops (DSPFP32): {rtl_ops}\n"
+            f"RTL LayerNorm ops: {rtl_ops}\n"
             f"\n"
             f"The HARDWARE implementation is CORRECT - only xsim is currently affected.\n"
             f"Skipping {verification_type} verification.\n"
