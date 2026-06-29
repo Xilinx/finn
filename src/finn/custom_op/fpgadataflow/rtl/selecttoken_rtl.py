@@ -58,6 +58,7 @@ class SelectToken_rtl(SelectToken, RTLBackend):
             token_index += num_tokens
         assert num_channels % simd == 0, "SIMD must divide NumChannels"
         assert 0 <= token_index < num_tokens, "TokenIndex must select an existing token"
+        token_beats = num_channels // simd
 
         rtlsrc = _rtlsrc_dir()
         template_path = rtlsrc + "/select_token_template.v"
@@ -72,9 +73,7 @@ class SelectToken_rtl(SelectToken, RTLBackend):
         code_gen_dict = {
             "TOP_MODULE_NAME": topname,
             "NUM_TOKENS": num_tokens,
-            "NUM_CHANNELS": num_channels,
-            "SIMD": simd,
-            "ELEM_WIDTH": elem_width,
+            "TOKEN_BEATS": token_beats,
             "TOKEN_INDEX": token_index,
             "FOLD_WIDTH": fold_width,
         }

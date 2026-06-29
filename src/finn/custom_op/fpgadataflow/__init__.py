@@ -52,7 +52,6 @@ def register_custom_op(cls):
 # Import the submodule containing specializations of ElementwiseBinaryOperation
 # Note: This will automatically register all decorated classes into this domain
 import finn.custom_op.fpgadataflow.elementwise_binary
-from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -93,7 +92,6 @@ custom_op["Thresholding"] = Thresholding
 custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
-custom_op["AddCLSToken"] = AddCLSToken
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["Crop"] = Crop
 custom_op["DuplicateStreams"] = DuplicateStreams
@@ -106,7 +104,6 @@ custom_op["LayerNorm"] = LayerNorm
 custom_op["Lookup"] = Lookup
 custom_op["OuterShuffle"] = OuterShuffle
 custom_op["Pool"] = Pool
-custom_op["Requant"] = Requant
 custom_op["SelectToken"] = SelectToken
 custom_op["Shuffle"] = Shuffle
 custom_op["StreamingConcat"] = StreamingConcat
@@ -114,3 +111,4 @@ custom_op["StreamingSplit"] = StreamingSplit
 custom_op["StreamingDataWidthConverter"] = StreamingDataWidthConverter
 custom_op["UpsampleNearestNeighbour"] = UpsampleNearestNeighbour
 custom_op["HWSoftmax"] = HWSoftmax
+custom_op["Requant"] = Requant

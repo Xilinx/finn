@@ -5,14 +5,6 @@ Custom Op - fpgadataflow.rtl
 RTL Custom Op Nodes
 ===================
 
-finn.custom\_op.fpgadataflow.rtl.addclstoken\_rtl
---------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.rtl.addclstoken_rtl
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.custom\_op.fpgadataflow.convolutioninputgenerator\_rtl
 ------------------------------------------------------------
 

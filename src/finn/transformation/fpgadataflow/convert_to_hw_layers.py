@@ -1347,7 +1347,7 @@ class InferSelectTokenLayer(Transformation):
 
 class InferSplitLayer(Transformation):
     """Convert suitable Split nodes (operating on last/-1 axis)
-    into StreamingSplit HW layers."""
+    into StreamingConcat HW layers."""
 
     def apply(self, model):
         graph = model.graph
@@ -1407,85 +1407,6 @@ class InferSplitLayer(Transformation):
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
-
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
-
-
-class InferAddCLSTokenLayer(Transformation):
-    """Convert Concat([cls_token, patches], axis=1) into AddCLSToken."""
-
-    def apply(self, model):
-        graph = model.graph
-        node_ind = 0
-        graph_modified = False
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type != "Concat":
-                continue
-
-            axis = get_by_name(node.attribute, "axis")
-            if axis is None or len(node.input) != 2:
-                continue
-
-            cls_name = node.input[0]
-            patch_name = node.input[1]
-            cls_init = model.get_initializer(cls_name)
-            if cls_init is None or model.get_initializer(patch_name) is not None:
-                continue
-
-            cls_shape = model.get_tensor_shape(cls_name)
-            if cls_shape is None:
-                cls_shape = list(cls_init.shape)
-            patch_shape = model.get_tensor_shape(patch_name)
-            if cls_shape is None or patch_shape is None:
-                continue
-            if any(x is None for x in list(cls_shape) + list(patch_shape)):
-                continue
-
-            rank = len(patch_shape)
-            concat_axis = axis.i if axis.i >= 0 else axis.i + rank
-            if rank != 3 or concat_axis != 1:
-                continue
-
-            if len(cls_shape) != 3 or cls_shape[0] != 1 or cls_shape[1] != 1:
-                continue
-            if patch_shape[0] != 1 or cls_shape[2] != patch_shape[2]:
-                continue
-
-            out_shape = model.get_tensor_shape(node.output[0])
-            exp_oshape = [1, patch_shape[1] + 1, patch_shape[2]]
-            if out_shape is not None and list(out_shape) != exp_oshape:
-                continue
-
-            idt = model.get_tensor_datatype(patch_name)
-            if idt is None or not idt.is_integer():
-                continue
-            cls_dt = model.get_tensor_datatype(cls_name)
-            if cls_dt is None:
-                model.set_tensor_datatype(cls_name, idt)
-            elif cls_dt != idt:
-                continue
-
-            new_node = helper.make_node(
-                "AddCLSToken",
-                [patch_name, cls_name],
-                node.output,
-                domain="finn.custom_op.fpgadataflow",
-                backend="fpgadataflow",
-                name="AddCLSToken_" + node.name,
-                NumTokens=int(patch_shape[1]),
-                NumChannels=int(patch_shape[2]),
-                PadTokens=0,
-                SIMD=1,
-                inputDataType=idt.name,
-                outputDataType=idt.name,
-            )
-            graph.node.insert(node_ind, new_node)
-            graph.node.remove(node)
-            graph_modified = True
 
         if graph_modified:
             model = model.transform(InferShapes())

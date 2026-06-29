@@ -50,7 +50,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.util.vivado import parse_ooc_synth_results
 
 FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
@@ -101,7 +101,7 @@ def _make_selecttoken_model(token_index=0, simd=1, finn_dtype=DataType["INT8"]):
     return _make_graph([select], [1, 4], None, finn_dtype)
 
 
-def _prepare_selecttoken_stitched_ip_model(simd=1, token_index=0):
+def _prepare_selecttoken_stitched_ip_model(simd=1, token_index=0, run_pnr=False):
     model = _make_selecttoken_model(token_index=token_index, simd=simd)
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
@@ -109,7 +109,7 @@ def _prepare_selecttoken_stitched_ip_model(simd=1, token_index=0):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(FPGA_PART, CLK_NS))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, vitis=False))
+    model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, run_pnr=run_pnr))
     return model
 
 
@@ -180,7 +180,8 @@ def test_selecttoken_rtl_codegen(tmp_path, finn_dtype, fold_width):
     assert core.is_file()
     wrapper_text = wrapper.read_text()
     assert "parameter FOLD_WIDTH = %d" % fold_width in wrapper_text
-    assert ".SIMD(2)" in wrapper_text
+    assert ".TOKEN_BEATS(2)" in wrapper_text
+    assert ".DATA_WIDTH(FOLD_WIDTH)" in wrapper_text
     assert ".TOKEN_INDEX(3)" in wrapper_text
     assert "select_token #(" in wrapper_text
     assert "out0_V_TVALID" in wrapper_text
@@ -259,14 +260,13 @@ def test_selecttoken_stitched_ip_rtlsim(simd, token_index):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_selecttoken_stitched_ip_synth_ooc():
-    model = _prepare_selecttoken_stitched_ip_model(simd=2, token_index=1)
-    model = model.transform(SynthOutOfContext(FPGA_PART, CLK_NS))
-    ret = model.get_metadata_prop("res_total_ooc_synth")
+    model = _prepare_selecttoken_stitched_ip_model(simd=2, token_index=1, run_pnr=True)
+    ret = parse_ooc_synth_results(model.get_metadata_prop("vivado_stitch_proj"))
     assert ret is not None
-    ret = eval(ret)
 
     assert ret["LUT"] > 0
     assert ret["FF"] > 0
-    assert ret["DSP"] == 0
-    assert ret["BRAM"] == 0
+    assert ret.get("DSP", 0) == 0
+    assert ret.get("BRAM_18K", 0) == 0
+    assert ret.get("BRAM_36K", 0) == 0
     assert ret["WNS"] >= 0

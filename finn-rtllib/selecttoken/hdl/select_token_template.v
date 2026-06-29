@@ -60,9 +60,8 @@ module $TOP_MODULE_NAME$ #(
 
     select_token #(
         .NUM_TOKENS($NUM_TOKENS$),
-        .NUM_CHANNELS($NUM_CHANNELS$),
-        .SIMD($SIMD$),
-        .ELEM_WIDTH($ELEM_WIDTH$),
+        .TOKEN_BEATS($TOKEN_BEATS$),
+        .DATA_WIDTH(FOLD_WIDTH),
         .TOKEN_INDEX($TOKEN_INDEX$)
     ) impl (
         .clk(ap_clk),
