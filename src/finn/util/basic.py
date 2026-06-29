@@ -54,7 +54,8 @@ pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
 pynq_part_map["RFSoC4x2"] = "xczu48dr-ffvg1517-2-e"
 pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 pynq_part_map["AUP-ZU3_8GB"] = "xczu3eg-sfvc784-2-e"
-
+pynq_part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
+pynq_part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
 # native AXI HP port width (in bits) for PYNQ boards
 pynq_native_port_width = dict()
@@ -71,6 +72,7 @@ pynq_native_port_width["KV260_SOM"] = 128
 pynq_native_port_width["AUP-ZU3_8GB"] = 128
 # native AXI port width (in bits) for the PL NoC slave ports on Versal
 pynq_native_port_width["VCK190"] = 128
+# TODO: For versal width can be defined depending on the golden image. So this has to be changed
 pynq_native_port_width["VEK280"] = 128
 
 # Vitis device and platform mappings
@@ -94,8 +96,6 @@ slash_part_map["V80"] = "xcv80-lsva4737-2MHP-e-s"
 
 # Create a joint part map, encompassing other boards too
 part_map = {**pynq_part_map, **vitis_part_map, **slash_part_map}
-part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
-part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
 
 
 def get_rtlsim_trace_depth():

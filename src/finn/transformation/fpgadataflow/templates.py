@@ -38,15 +38,15 @@ cd %s
 """
 
 custom_zynq_shell_template = """
-set FREQ_MHZ %s
-set NUM_AXILITE %d
+set FREQ_MHZ @FREQ_MHZ@
+set NUM_AXILITE @NUM_AXILITE@
 if {$NUM_AXILITE > 9} {
     error "Maximum 10 AXI-Lite interfaces supported"
 }
-set NUM_AXIMM %d
-set BOARD %s
-set FPGA_PART %s
-create_project finn_zynq_link ./ -part $FPGA_PART
+set NUM_AXIMM @NUM_AXIMM@
+set BOARD @BOARD@
+set FPGA_PART @FPGA_PART@
+create_project finn_link ./finn_link -part $FPGA_PART
 
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
@@ -90,7 +90,7 @@ if {$BOARD == "ZCU104"} {
     puts "Unrecognized board"
 }
 
-create_bd_design "top"
+create_bd_design "finn_link"
 if {$ZYNQ_TYPE == "zynq_us+"} {
     set zynq_ps_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:zynq_ultra_ps_e:*"]]
     create_bd_cell -type ip -vlnv $zynq_ps_vlnv zynq_ps
@@ -160,7 +160,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
 }
 
 #custom IP instantiations/connections start here
-%s
+@CONFIG@
 
 #MLO (Multi-Layer Offload) weight streaming
 if {$ZYNQ_TYPE == "zynq_us+"} {
@@ -173,7 +173,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
         connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP1_FPD]
         set mlo_si_idx 0
         foreach mlo_mm_pin $mlo_mm_pins {
-            set mlo_si_name [format "S%%02d_AXI" $mlo_si_idx]
+            set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
             connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
             incr mlo_si_idx
         }
@@ -184,7 +184,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
 }
 
 # set up debug
-if {%d == 1} {
+if {@ENABLE_DEBUG@ == 1} {
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {idma0_m_axis_0}]
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {StreamingDataflowPartition_1_m_axis_0}]
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets {smartconnect_0_M00_AXI}]
@@ -206,8 +206,8 @@ save_bd_design
 assign_bd_address
 validate_bd_design
 
-set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files top.bd ]
-make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
+set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files finn_link.bd ]
+make_wrapper -files [get_files finn_link.bd] -import -fileset sources_1 -top
 
 set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 set_property STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE AlternateRoutability [get_runs synth_1]
@@ -220,38 +220,34 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
 
 # out-of-context synth can't be used for bitstream generation
 # set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
-launch_runs -to_step write_bitstream impl_1 -jobs %d
+launch_runs -to_step write_bitstream impl_1 -jobs @NUM_WORKERS@
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+report_timing_summary -file timing_summary_routed.rpt
 close_project
 """
 
 # Versal (embedded, e.g. VCK190) overlay shell template.
 custom_versal_shell_template = """
-set FREQ_MHZ %s
-set NUM_AXILITE %d
+set FREQ_MHZ @FREQ_MHZ@
+set NUM_AXILITE @NUM_AXILITE@
 if {$NUM_AXILITE > 16} {
     error "Maximum 16 AXI-Lite interfaces supported"
 }
-set NUM_AXIMM %d
-set BOARD %s
-set FPGA_PART %s
-set GOLDEN_DIR %s
-set OVERLAY_NAME finn_versal
+set NUM_AXIMM @NUM_AXIMM@
+set BOARD @BOARD@
+set FPGA_PART @FPGA_PART@
+set GOLDEN_DIR @GOLDEN_DIR@
+set OVERLAY_NAME finn_link
 set design_name $OVERLAY_NAME
 
-# Source the golden reference design. With design_name pre-set this creates a
-# project + block design named $OVERLAY_NAME containing versal_cips_0,
-# axi_noc_ps, axi_noc_pl, rst_pl0 and the PL tie-offs.
+# Source the golden reference design
 source [file join $GOLDEN_DIR golden_ref.tcl]
 
-# Remove the golden tie-offs on the interfaces FINN drives with real logic:
-# M_AXI_FPD (control path) and the two PL NoC slave ports S00_AXI/S01_AXI
-# (DDR + MLO paths). The pl_tieoff_lpd (M_AXI_LPD) and pl_tieoff_irq
-# (pl_ps_irq*) tie-offs are left in place since FINN does not use those.
+# Remove the golden tie-offs on the interfaces FINN drives with real logic
 delete_bd_objs [get_bd_cells pl_tieoff_fpd]
 delete_bd_objs [get_bd_cells pl_tieoff_dma0]
 delete_bd_objs [get_bd_cells pl_tieoff_dma1]
@@ -284,6 +280,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
 # Procedure to map an aximm master onto DDR through the PS NoC inter-NoC port.
 # Maps both DDR_LOW0 (0-2 GB) and DDR_LOW1 (32 GB+) so the DMA can reach any
 # buffer the runtime CMA allocator hands out.
+# TODO. look into auto assignment
 proc assign_ddr_addr_proc {aximm_intf_path} {
     set space [get_bd_addr_spaces -of_objects [get_bd_intf_pins $aximm_intf_path]]
     assign_bd_address -offset 0x00000000 -range 0x80000000 \
@@ -295,7 +292,12 @@ proc assign_ddr_addr_proc {aximm_intf_path} {
 }
 
 # custom IP instantiations/connections start here
-%s
+@CONFIG@
+
+foreach gmem_pin [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
+    -filter {MODE == Master && NAME == m_axi_gmem0}] {
+    assign_ddr_addr_proc [get_property PATH $gmem_pin]
+}
 
 # MLO (Multi-Layer Offload) weight streaming -> axi_noc_pl/S01_AXI
 set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
@@ -306,7 +308,7 @@ if {[llength $mlo_mm_pins] > 0} {
     connect_bd_intf_net [get_bd_intf_pins smartconnect_mlo/M00_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
     set mlo_si_idx 0
     foreach mlo_mm_pin $mlo_mm_pins {
-        set mlo_si_name [format "S%%02d_AXI" $mlo_si_idx]
+        set mlo_si_name [format "S%02d_AXI" $mlo_si_idx]
         connect_bd_intf_net $mlo_mm_pin [get_bd_intf_pins smartconnect_mlo/$mlo_si_name]
         assign_ddr_addr_proc [get_property PATH $mlo_mm_pin]
         incr mlo_si_idx
@@ -332,7 +334,7 @@ connect_bd_net [get_bd_pins rst_pl0/peripheral_aresetn] \
     [get_bd_pins smartconnect_0/aresetn]
 
 # set up debug
-if {%d == 1} {
+if {@ENABLE_DEBUG@ == 1} {
     set_property HDL_ATTRIBUTE.DEBUG true [get_bd_intf_nets -quiet {idma0_m_axis_0}]
 }
 
@@ -364,7 +366,7 @@ if {[file exists $golden_ncr]} {
 set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
 set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
 
-launch_runs impl_1 -to_step write_device_image -jobs %d
+launch_runs impl_1 -to_step write_device_image -jobs @NUM_WORKERS@
 wait_on_run [get_runs impl_1]
 
 set impl_status [get_property STATUS [get_runs impl_1]]
@@ -384,30 +386,10 @@ if {[file exists $golden_dcp] && [llength $overlay_dcps] > 0} {
     error "golden_routed.dcp or overlay routed checkpoint missing, cannot pr_verify"
 }
 
-# export hardware platform + PLD PDI + HWH (the PL PDI is loaded at runtime)
-write_hw_platform -fixed -include_bit -force ./${OVERLAY_NAME}.xsa
-set impl_dir "./${OVERLAY_NAME}/${OVERLAY_NAME}.runs/impl_1"
-set pld_files [glob -nocomplain ${impl_dir}/*_pld.pdi]
-if {[llength $pld_files] > 0} {
-    file copy -force [lindex $pld_files 0] ./finn_versal.pdi
-} else {
-    set pdi_files [glob -nocomplain ${impl_dir}/*.pdi]
-    if {[llength $pdi_files] > 0} {
-        file copy -force [lindex $pdi_files 0] ./finn_versal.pdi
-    } else {
-        error "no PDI produced by write_device_image"
-    }
-}
-set hwh_files [glob -nocomplain \
-    ./${OVERLAY_NAME}/${OVERLAY_NAME}.gen/sources_1/bd/${OVERLAY_NAME}/hw_handoff/${OVERLAY_NAME}.hwh \
-    ./${OVERLAY_NAME}/${OVERLAY_NAME}.gen/sources_1/bd/${OVERLAY_NAME}/hw_handoff/*.hwh]
-if {[llength $hwh_files] > 0} {
-    file copy -force [lindex $hwh_files 0] ./finn_versal.hwh
-}
-
 # synthesis utilization report
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+report_timing_summary -file timing_summary_routed.rpt
 close_project
 """
 

@@ -49,7 +49,12 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
+from finn.util.basic import (
+    is_versal,
+    make_build_dir,
+    pynq_native_port_width,
+    pynq_part_map,
+)
 
 from . import templates
 
@@ -83,13 +88,12 @@ def collect_ip_dirs(model, ipstitch_path):
     return ip_dirs
 
 
-class MakeZYNQProject(Transformation):
+class MakePynqProject(Transformation):
     """Create a Vivado overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
     and the CreateStitchedIP transformation must have been previously run on
-    the graph. This is functionally equivalent with MakePYNQProject but does
-    not use Pynq infrastructure and instead creates a fully custom block design.
+    the graph. This creates a fully custom block design.
     However, this transform requires DMAs in the accelerator design.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
@@ -100,10 +104,25 @@ class MakeZYNQProject(Transformation):
     def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
         self.platform = platform
+        self.fpga_part = pynq_part_map[platform]
         self.period_ns = period_ns
         self.enable_debug = 1 if enable_debug else 0
 
     def apply(self, model):
+        versal = is_versal(self.fpga_part)
+        golden_dir = None
+        if versal:
+            clk_pin = "versal_cips_0/pl0_ref_clk"
+            rst_pin = "rst_pl0/peripheral_aresetn"
+            golden_dir = os.environ.get("FINN_VERSAL_GOLDEN_DIR")
+            if golden_dir is None:
+                raise Exception("FINN_VERSAL_GOLDEN_DIR must be set for the Versal flow")
+            template = templates.custom_versal_shell_template
+        else:
+            clk_pin = "smartconnect_0/aclk"
+            rst_pin = "smartconnect_0/aresetn"
+            template = templates.custom_zynq_shell_template
+
         # create a config file and empty list of xo files
         config = []
         idma_idx = 0
@@ -209,11 +228,11 @@ class MakeZYNQProject(Transformation):
 
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_clk] "
-                "[get_bd_pins smartconnect_0/aclk]" % instance_names[node.name]
+                "[get_bd_pins %s]" % (instance_names[node.name], clk_pin)
             )
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_rst_n] "
-                "[get_bd_pins smartconnect_0/aresetn]" % instance_names[node.name]
+                "[get_bd_pins %s]" % (instance_names[node.name], rst_pin)
             )
             # connect streams
             if producer is not None:
@@ -233,7 +252,7 @@ class MakeZYNQProject(Transformation):
                         )
 
         # create a temporary folder for the project
-        vivado_pynq_proj_dir = make_build_dir(prefix="vivado_zynq_proj_")
+        vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
 
         fclk_mhz = int(1 / (self.period_ns * 0.001))
@@ -245,22 +264,24 @@ class MakeZYNQProject(Transformation):
         assert num_workers >= 0, "Number of workers must be nonnegative."
         if num_workers == 0:
             num_workers = mp.cpu_count()
+        template_repl = {
+            "@FREQ_MHZ@": fclk_mhz,
+            "@NUM_AXILITE@": axilite_idx,
+            "@NUM_AXIMM@": aximm_idx,
+            "@BOARD@": self.platform,
+            "@FPGA_PART@": self.fpga_part,
+            "@CONFIG@": config,
+            "@ENABLE_DEBUG@": self.enable_debug,
+            "@NUM_WORKERS@": num_workers,
+            "@GOLDEN_DIR@": golden_dir,
+        }
+        for key, val in template_repl.items():
+            if val is not None:
+                template = template.replace(key, str(val))
         with open(ipcfg, "w") as f:
-            f.write(
-                templates.custom_zynq_shell_template
-                % (
-                    fclk_mhz,
-                    axilite_idx,
-                    aximm_idx,
-                    self.platform,
-                    pynq_part_map[self.platform],
-                    config,
-                    self.enable_debug,
-                    num_workers,
-                )
-            )
+            f.write(template)
 
-        # create a TCL recipe for the project
+        # create a shell script to launch the synthesis
         synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
         working_dir = os.environ["PWD"]
         with open(synth_project_sh, "w") as f:
@@ -273,26 +294,33 @@ class MakeZYNQProject(Transformation):
         bash_command = ["bash", synth_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
-        bitfile_name = vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
-        if not os.path.isfile(bitfile_name):
+        deliverables = [
+            vivado_pynq_proj_dir + "/finn_link/finn_link.runs/impl_1/finn_link_wrapper.bit",
+            vivado_pynq_proj_dir + "/finn_link/finn_link.runs/impl_1/finn_link_wrapper_pld.pdi",
+        ]
+        bitfile_name = next((f for f in deliverables if os.path.isfile(f)), None)
+        if bitfile_name is None:
             raise Exception(
-                "Synthesis failed, no bitfile found. Check logs under %s" % vivado_pynq_proj_dir
+                "Synthesis failed, no deliverable (bitfile/pdi) found. Check logs under %s"
+                % vivado_pynq_proj_dir
             )
-        deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer.bit"
+        deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer" + os.path.splitext(bitfile_name)[1]
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
         model.set_metadata_prop("bitfile", deploy_bitfile_name)
         hwh_name_alts = [
-            vivado_pynq_proj_dir + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh",
-            vivado_pynq_proj_dir + "/finn_zynq_link.gen/sources_1/bd/top/hw_handoff/top.hwh",
+            vivado_pynq_proj_dir
+            + "/finn_link/finn_link.gen/sources_1/bd/finn_link/hw_handoff/finn_link.hwh",
+            vivado_pynq_proj_dir
+            + "/finn_link/finn_link.srcs/sources_1/bd/finn_link/hw_handoff/finn_link.hwh",
         ]
         hwh_name = None
         for hwh_name_cand in hwh_name_alts:
             if os.path.isfile(hwh_name_cand):
                 hwh_name = hwh_name_cand
-        if not os.path.isfile(hwh_name):
+        if hwh_name is None or not os.path.isfile(hwh_name):
             raise Exception(
-                "Synthesis failed, no bitfile found. Check logs under %s" % vivado_pynq_proj_dir
+                "Synthesis failed, no hwh found. Check logs under %s" % vivado_pynq_proj_dir
             )
         deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
@@ -300,11 +328,14 @@ class MakeZYNQProject(Transformation):
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
+        # filename for the post-route timing summary report
+        timing_report_filename = vivado_pynq_proj_dir + "/timing_summary_routed.rpt"
+        model.set_metadata_prop("vivado_timing_rpt", timing_report_filename)
         return (model, False)
 
 
-class ZynqBuild(Transformation):
-    """Best-effort attempt at building the accelerator for Zynq.
+class PynqBuild(Transformation):
+    """Best-effort attempt at building the accelerator for Pynq.
     It assumes the model has only fpgadataflow nodes
 
     """
@@ -359,7 +390,7 @@ class ZynqBuild(Transformation):
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(
-            MakeZYNQProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
+            MakePynqProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
         )
 
         # set platform attribute for correct remote execution
