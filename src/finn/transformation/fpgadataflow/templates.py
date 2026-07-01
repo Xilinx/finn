@@ -319,10 +319,11 @@ if {[llength $mlo_mm_pins] > 0} {
     # keep the second NoC PL slave port driven so the locked NoC solution
     # remains valid (matches the golden 2-SI topology)
     create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vip:1.1 pl_dma1_tieoff
-    set_property -dict [list CONFIG.INTERFACE_MODE {MASTER} CONFIG.PROTOCOL {AXI4} CONFIG.ADDR_WIDTH {64}] [get_bd_cells pl_dma1_tieoff]
+    set_property -dict [list CONFIG.INTERFACE_MODE {MASTER} CONFIG.PROTOCOL {AXI4} CONFIG.ADDR_WIDTH {64} CONFIG.DATA_WIDTH {128}] [get_bd_cells pl_dma1_tieoff]
     connect_bd_intf_net [get_bd_intf_pins pl_dma1_tieoff/M_AXI] [get_bd_intf_pins axi_noc_pl/S01_AXI]
     connect_bd_net [get_bd_pins pl_dma1_tieoff/aclk] [get_bd_pins versal_cips_0/pl0_ref_clk]
     connect_bd_net [get_bd_pins pl_dma1_tieoff/aresetn] [get_bd_pins rst_pl0/peripheral_aresetn]
+    assign_ddr_addr_proc pl_dma1_tieoff/M_AXI
 }
 
 # clock/reset for the control + DDR SmartConnects
