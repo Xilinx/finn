@@ -382,6 +382,11 @@ class DataflowBuildConfig:
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
 
+    #: Optional liveness watchdog override, in cycles, for stitched-IP rtlsim
+    #: verification. If unset, FINN derives the watchdog from the performance
+    #: estimate for the graph.
+    stitched_rtlsim_liveness_threshold: Optional[int] = None
+
     #: If set to True, the FINN compiler tries to create an MLO design based on
     #: loop_body_hierarchy and loop_body_range
     mlo: Optional[bool] = False

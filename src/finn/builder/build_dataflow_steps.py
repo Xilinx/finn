@@ -1114,20 +1114,35 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             verify_model = verify_model.transform(AnnotateCycles())
             estimate_network_performance = verify_model.analysis(dataflow_performance)
             prev_liveness = get_liveness_threshold_cycles()
-            os.environ["LIVENESS_THRESHOLD"] = str(
-                int(estimate_network_performance["critical_path_cycles"] * 1.1 + 50)
-            )
-            if cfg.verify_save_rtlsim_waveforms:
-                verify_out_dir = cfg.output_dir + "/verification_output"
-                waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
-                os.makedirs(waveform_dir, exist_ok=True)
-                abspath = os.path.abspath(waveform_dir)
-                verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
-            if is_mlo(model):
-                verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+            stitched_liveness = cfg.stitched_rtlsim_liveness_threshold
+            if stitched_liveness is None:
+                stitched_liveness = int(
+                    estimate_network_performance["critical_path_cycles"] * 1.1 + 50
+                )
+                print(
+                    "Using stitched-IP rtlsim liveness threshold from performance "
+                    + "estimate: "
+                    + str(stitched_liveness)
+                )
             else:
-                verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
-            os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
+                print(
+                    "Using stitched-IP rtlsim liveness threshold override: "
+                    + str(stitched_liveness)
+                )
+            os.environ["LIVENESS_THRESHOLD"] = str(int(stitched_liveness))
+            try:
+                if cfg.verify_save_rtlsim_waveforms:
+                    verify_out_dir = cfg.output_dir + "/verification_output"
+                    waveform_dir = verify_out_dir + "/stitched_ip_rtlsim_waveforms"
+                    os.makedirs(waveform_dir, exist_ok=True)
+                    abspath = os.path.abspath(waveform_dir)
+                    verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+                if is_mlo(model):
+                    verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+                else:
+                    verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+            finally:
+                os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 
