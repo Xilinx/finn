@@ -490,20 +490,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             )
 
         if "decoupled" in weight_file_mode:
-            num_w_reps = np.prod(self.calc_numInputVectors())
-            base_wmem = super().calc_wmem()
-            if num_w_reps % base_wmem != 0:
-                raise RuntimeError(
-                    f"{self.onnx_node.name}: const stream length {base_wmem} "
-                    f"does not divide output stream length {num_w_reps}"
-                )
-            # base_wmem folded const vectors already exist in weight_tensor.
-            # Tile only enough to cover the output stream, otherwise broadcast
-            # constants such as [1, C] for [1, T, C] expand quadratically.
-            tile_factor = int(num_w_reps // base_wmem)
-            weight_tensor = np.tile(
-                weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
-            )
             weight_tensor = weight_tensor.reshape(1, -1, weight_tensor.shape[-1]).copy()
             if weight_file_mode == "decoupled_npy":
                 np.save(weight_file_name, weight_tensor)
@@ -537,8 +523,28 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        num_w_reps = np.prod(self.calc_numInputVectors())
-        return int(num_w_reps)
+        return int(super().calc_wmem())
+
+    def calc_wmem_reps(self):
+        """Return how many times the compact parameter stream is replayed.
+
+        Elementwise constants often broadcast across non-channel axes, for
+        example a [C] scale applied to [N, T, C]. The memstream only needs to
+        store the compact [C] stream; regular single-set memstreams cycle on
+        their own, and FINNLoop multi-set memstreams use this value as the
+        stream-tap repetition count for each loop iteration.
+        """
+
+        base_wmem = int(super().calc_wmem())
+        num_w_reps = int(np.prod(self.calc_numInputVectors()))
+        if base_wmem <= 0:
+            raise RuntimeError(f"{self.onnx_node.name}: invalid const stream length {base_wmem}")
+        if num_w_reps % base_wmem != 0:
+            raise RuntimeError(
+                f"{self.onnx_node.name}: const stream length {base_wmem} "
+                f"does not divide output stream length {num_w_reps}"
+            )
+        return int(num_w_reps // base_wmem)
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)

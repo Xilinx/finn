@@ -309,13 +309,14 @@ def test_elementwise_rtl_broadcast_const_memstream_length(tmp_path):
 
     node_inst = getCustomOp(model.graph.node[0])
     assert model.graph.node[0].op_type == "ElementwiseMul_rtl"
-    assert node_inst.calc_wmem() == 20
+    assert node_inst.calc_wmem() == 4
+    assert node_inst.calc_wmem_reps() == 5
 
     node_inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
     node_inst.generate_params(model, str(tmp_path))
 
-    assert len((tmp_path / "input_1.npy").read_text().splitlines()) == 4
-    assert len((tmp_path / "memblock.dat").read_text().splitlines()) == 20
+    assert np.load(tmp_path / "input_1.npy").shape == (1, 4, 1)
+    assert len((tmp_path / "memblock.dat").read_text().splitlines()) == 4
 
 
 @pytest.mark.fpgadataflow

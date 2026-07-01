@@ -43,6 +43,60 @@ from finn.util.basic import getHWCustomOp, make_build_dir
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
 
 
+RTLSIM_SOURCE_EXTENSIONS = {".v", ".sv", ".vh", ".svh", ".vhd"}
+
+
+def append_missing_finnloop_rtlsim_sources(model, v_file_list):
+    """Add nested FINNLoop-generated HDL sources to the top rtlsim source list.
+
+    Vivado's top-level USED_IN_SYNTHESIS query can omit HDL generated under a
+    packaged FINNLoop IP's own block design. The XSI compile then sees the
+    top-level wrapper but misses nested MLO helper modules such as generated
+    FIFOs, DuplicateStreams, and loop-body shuffles. The FINNLoop IP-generation
+    step already exports a complete local rtlsim source list, so merge entries
+    that are not already present in the top source list.
+    """
+
+    if not os.path.isfile(v_file_list):
+        return
+
+    with open(v_file_list) as f:
+        existing_sources = [line.strip() for line in f if line.strip()]
+    existing_paths = set(existing_sources)
+    existing_basenames = {os.path.basename(path) for path in existing_sources}
+    appended_sources = []
+
+    for node in model.graph.node:
+        if node.op_type != "FINNLoop":
+            continue
+        node_inst = getHWCustomOp(node, model)
+        code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
+        nested_list = os.path.join(code_gen_dir, "all_verilog_srcs.txt")
+        if not os.path.isfile(nested_list):
+            continue
+        with open(nested_list) as f:
+            candidate_sources = [line.strip() for line in f if line.strip()]
+        for source_path in candidate_sources:
+            _, ext = os.path.splitext(source_path)
+            if ext.lower() not in RTLSIM_SOURCE_EXTENSIONS:
+                continue
+            source_basename = os.path.basename(source_path)
+            if source_path in existing_paths or source_basename in existing_basenames:
+                continue
+            appended_sources.append(source_path)
+            existing_paths.add(source_path)
+            existing_basenames.add(source_basename)
+
+    if appended_sources:
+        with open(v_file_list, "a") as f:
+            for source_path in appended_sources:
+                f.write(source_path + "\n")
+        print(
+            "Added %d nested FINNLoop HDL sources to %s"
+            % (len(appended_sources), v_file_list)
+        )
+
+
 def is_external_input(node, model, i):
     # indicate whether input i of node should be made external
     # True only if input is unconnected and has no initializer
@@ -727,6 +781,7 @@ close $ofile
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        append_missing_finnloop_rtlsim_sources(model, v_file_list)
         # wrapper may be created in different location depending on Vivado version
         if not os.path.isfile(wrapper_filename):
             # check in alternative location (.gen instead of .srcs)
