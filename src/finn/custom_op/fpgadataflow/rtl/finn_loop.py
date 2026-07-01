@@ -557,6 +557,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 tap_rep = 1
                 if node.op_type == "Thresholding_rtl":
                     tap_rep = np.prod(node_inst.get_folded_input_shape(0)[:-1])
+                elif node.op_type.startswith("Elementwise") and hasattr(
+                    node_inst, "calc_wmem_reps"
+                ):
+                    tap_rep = node_inst.calc_wmem_reps()
                 stname = "IN_%s" % graph_inputs.index(node.input[1])
                 code_gen_dict = {
                     "$MODULE_NAME$": [stname],
