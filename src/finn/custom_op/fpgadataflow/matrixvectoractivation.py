@@ -126,13 +126,6 @@ class MVAU(HWCustomOp):
             "pumpedMemory": ("i", False, 0, {0, 1}),
             # tiling
             "TH": ("i", False, 1),
-            # MMU parameters
-            "gemm_type": (
-                "s",
-                False,
-                "mvau",
-                {"mvau", "mvau_tiled"},
-            ),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -197,8 +190,6 @@ class MVAU(HWCustomOp):
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append("""The required MatrixVectorActivation attributes do not exist.""")
-
-        # TODO: Verify matrix unit type
 
         # verify the number of inputs depending on noActivation value
         # check noActivation value to determine the number of inputs
@@ -1021,7 +1012,7 @@ class MVAU(HWCustomOp):
                     strm_out_name = "m_axis_0"
 
                 #
-                # Fetch weights instantiation (MLO or TODO: tiling)
+                # Fetch weights instantiation (MLO and tiling)
                 case "external_mem":
                     # additional inputs
                     cmd.append(
