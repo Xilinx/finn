@@ -48,7 +48,8 @@ module $TOP_MODULE_NAME$ #(
     output [AXI_WIDTH-1:0] out0_V_TDATA
 );
 
-    localparam [$CLS_WIDTH$-1:0] CLS_DATA = $CLS_DATA$;
+    localparam [$PAD_LEFT_DATA_WIDTH$-1:0] PAD_LEFT_DATA = $PAD_LEFT_DATA$;
+    localparam [$PAD_RIGHT_DATA_WIDTH$-1:0] PAD_RIGHT_DATA = $PAD_RIGHT_DATA$;
 
     wire [FOLD_WIDTH-1:0] core_out;
 
@@ -60,12 +61,13 @@ module $TOP_MODULE_NAME$ #(
         end
     endgenerate
 
-    addclstoken #(
+    pad1d #(
         .NUM_TOKENS($NUM_TOKENS$),
         .NUM_CHANNELS($NUM_CHANNELS$),
         .SIMD($SIMD$),
         .ELEM_WIDTH($ELEM_WIDTH$),
-        .PAD_TOKENS($PAD_TOKENS$)
+        .PAD_LEFT($PAD_LEFT$),
+        .PAD_RIGHT($PAD_RIGHT$)
     ) impl (
         .clk(ap_clk),
         .rst(!ap_rst_n),
@@ -75,7 +77,8 @@ module $TOP_MODULE_NAME$ #(
         .ordy(out0_V_TREADY),
         .ovld(out0_V_TVALID),
         .odat(core_out),
-        .cls_data(CLS_DATA)
+        .pad_left_data(PAD_LEFT_DATA),
+        .pad_right_data(PAD_RIGHT_DATA)
     );
 
 endmodule

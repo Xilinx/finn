@@ -33,8 +33,15 @@ from qonnx.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 
 
-class AddCLSToken(HWCustomOp):
-    """Prepend a learned class token to a sequence of patch tokens."""
+class Pad1D(HWCustomOp):
+    """One-dimensional padding for token streams.
+
+    The first input is the streamed token sequence with shape
+    ``(1, NumTokens, NumChannels)``. Optional second and third inputs provide
+    left and right padding data. Each pad input can be a single token
+    ``(1, 1, NumChannels)`` to be repeated, or a full pad sequence
+    ``(1, PadLeft/PadRight, NumChannels)``.
+    """
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
@@ -45,7 +52,8 @@ class AddCLSToken(HWCustomOp):
             {
                 "NumTokens": ("i", True, 0),
                 "NumChannels": ("i", True, 0),
-                "PadTokens": ("i", False, 0),
+                "PadLeft": ("i", False, 0),
+                "PadRight": ("i", False, 0),
                 "SIMD": ("i", False, 1),
                 "inputDataType": ("s", True, ""),
                 "outputDataType": ("s", False, ""),
@@ -53,17 +61,52 @@ class AddCLSToken(HWCustomOp):
         )
         return my_attrs
 
+    def _get_pad_count(self, ind):
+        if ind == 1:
+            return self.get_nodeattr("PadLeft")
+        elif ind == 2:
+            return self.get_nodeattr("PadRight")
+        else:
+            raise Exception("Pad1D pad inputs are indices 1 and 2")
+
+    def _get_pad_side_name(self, ind):
+        if ind == 1:
+            return "left"
+        elif ind == 2:
+            return "right"
+        else:
+            raise Exception("Pad1D pad inputs are indices 1 and 2")
+
+    def _get_pad_input_shape(self, ind):
+        num_channels = self.get_nodeattr("NumChannels")
+        pad_count = self._get_pad_count(ind)
+        return (1, max(1, pad_count), num_channels)
+
+    def _validate_pad_shape(self, shape, ind):
+        pad_count = self._get_pad_count(ind)
+        num_channels = self.get_nodeattr("NumChannels")
+        valid_shapes = {(1, max(1, pad_count), num_channels)}
+        if pad_count > 1:
+            valid_shapes.add((1, 1, num_channels))
+        assert tuple(shape) in valid_shapes, (
+            "Pad1D %s pad shape must be one of %s, got %s"
+            % (self._get_pad_side_name(ind), sorted(valid_shapes), tuple(shape))
+        )
+
     def get_normal_input_shape(self, ind=0):
         num_channels = self.get_nodeattr("NumChannels")
         if ind == 0:
             return (1, self.get_nodeattr("NumTokens"), num_channels)
-        elif ind == 1:
-            return (1, 1, num_channels)
+        elif ind in [1, 2]:
+            return self._get_pad_input_shape(ind)
         else:
-            raise Exception("AddCLSToken only has two inputs")
+            raise Exception("Pad1D has at most three inputs")
 
     def get_folded_input_shape(self, ind=0):
         normal_shape = self.get_normal_input_shape(ind)
+        if ind != 0:
+            return normal_shape
+
         simd = self.get_nodeattr("SIMD")
         num_channels = normal_shape[-1]
         assert num_channels % simd == 0, "SIMD must divide NumChannels"
@@ -72,8 +115,9 @@ class AddCLSToken(HWCustomOp):
     def get_normal_output_shape(self, ind=0):
         num_tokens = self.get_nodeattr("NumTokens")
         num_channels = self.get_nodeattr("NumChannels")
-        pad_tokens = self.get_nodeattr("PadTokens")
-        return (1, num_tokens + 1 + pad_tokens, num_channels)
+        pad_left = self.get_nodeattr("PadLeft")
+        pad_right = self.get_nodeattr("PadRight")
+        return (1, num_tokens + pad_left + pad_right, num_channels)
 
     def get_folded_output_shape(self, ind=0):
         normal_shape = self.get_normal_output_shape(ind)
@@ -85,11 +129,24 @@ class AddCLSToken(HWCustomOp):
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape(0)
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpected input shape for patch tokens."
+        assert ishape == exp_ishape, "Unexpected input shape for Pad1D tokens."
 
-        exp_wshape = self.get_normal_input_shape(1)
-        wshape = tuple(model.get_tensor_shape(self.onnx_node.input[1]))
-        assert wshape == exp_wshape, "Unexpected input shape for CLS token."
+        for ind in [1, 2]:
+            if len(self.onnx_node.input) <= ind:
+                assert self._get_pad_count(ind) == 0, (
+                    "Pad1D %s padding requires input index %d"
+                    % (self._get_pad_side_name(ind), ind)
+                )
+                continue
+
+            pad_name = self.onnx_node.input[ind]
+            pad_shape = model.get_tensor_shape(pad_name)
+            if pad_shape is None:
+                pad_init = model.get_initializer(pad_name)
+                if pad_init is not None:
+                    pad_shape = pad_init.shape
+            if pad_shape is not None:
+                self._validate_pad_shape(pad_shape, ind)
 
         return super().make_const_shape_op(self.get_normal_output_shape())
 
@@ -103,7 +160,7 @@ class AddCLSToken(HWCustomOp):
         if idt is None:
             idt = attr_idt
         if idt is None:
-            raise Exception("AddCLSToken input datatype is not set")
+            raise Exception("Pad1D input datatype is not set")
 
         if attr_idt is not None and attr_idt != idt:
             warnings.warn(
@@ -111,17 +168,22 @@ class AddCLSToken(HWCustomOp):
             )
         self.set_nodeattr("inputDataType", idt.name)
 
-        cls_dt = model.get_tensor_datatype(node.input[1])
-        if cls_dt is None:
-            model.set_tensor_datatype(node.input[1], idt)
-        else:
-            assert cls_dt == idt, "CLS token datatype must match input datatype."
+        for pad_input in node.input[1:]:
+            pad_dt = model.get_tensor_datatype(pad_input)
+            if pad_dt is None:
+                model.set_tensor_datatype(pad_input, idt)
+            else:
+                assert pad_dt == idt, "Pad1D pad datatype must match input datatype."
 
         self.set_nodeattr("outputDataType", idt.name)
         model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
-        pass
+        assert self.get_nodeattr("NumTokens") > 0, "NumTokens must be positive"
+        assert self.get_nodeattr("NumChannels") > 0, "NumChannels must be positive"
+        assert self.get_nodeattr("PadLeft") >= 0, "PadLeft cannot be negative"
+        assert self.get_nodeattr("PadRight") >= 0, "PadRight cannot be negative"
+        assert self.get_nodeattr("SIMD") > 0, "SIMD must be positive"
 
     def get_input_datatype(self, ind=0):
         return DataType[self.get_nodeattr("inputDataType")]
@@ -146,18 +208,29 @@ class AddCLSToken(HWCustomOp):
     def get_exp_cycles(self):
         return int(np.prod(self.get_folded_output_shape()[:-1]))
 
+    def _get_expanded_pad_values(self, context, ind):
+        pad_count = self._get_pad_count(ind)
+        num_channels = self.get_nodeattr("NumChannels")
+        if pad_count == 0:
+            return np.zeros((1, 0, num_channels), dtype=np.float32)
+
+        if len(self.onnx_node.input) <= ind:
+            raise Exception("Pad1D %s padding requires input index %d" % (self._get_pad_side_name(ind), ind))
+
+        pad_values = np.asarray(context[self.onnx_node.input[ind]], dtype=np.float32)
+        self._validate_pad_shape(pad_values.shape, ind)
+        if pad_values.shape[1] == 1 and pad_count > 1:
+            return np.repeat(pad_values, pad_count, axis=1)
+        return pad_values
+
     def execute_node(self, context, graph):
         node = self.onnx_node
-        patches = context[node.input[0]]
-        cls_token = context[node.input[1]]
+        inp = context[node.input[0]]
 
-        result = np.concatenate([cls_token, patches], axis=1)
-        pad_tokens = self.get_nodeattr("PadTokens")
-        if pad_tokens > 0:
-            pad_shape = (1, pad_tokens, self.get_nodeattr("NumChannels"))
-            padding = np.zeros(pad_shape, dtype=result.dtype)
-            result = np.concatenate([result, padding], axis=1)
+        values = [self._get_expanded_pad_values(context, 1), inp]
+        values.append(self._get_expanded_pad_values(context, 2))
 
+        result = np.concatenate(values, axis=1)
         oshape = self.get_normal_output_shape()
         context[node.output[0]] = np.asarray(result, dtype=np.float32).reshape(oshape)
 
@@ -165,7 +238,10 @@ class AddCLSToken(HWCustomOp):
         return 0
 
     def lut_estimation(self):
-        return int(128 + self.get_nodeattr("NumChannels"))
+        pad_tokens = self.get_nodeattr("PadLeft") + self.get_nodeattr("PadRight")
+        return int(128 + self.get_nodeattr("NumChannels") * max(1, pad_tokens))
 
     def get_op_and_param_counts(self):
-        return {"param_cls_token": int(self.get_nodeattr("NumChannels"))}
+        num_channels = self.get_nodeattr("NumChannels")
+        pad_tokens = self.get_nodeattr("PadLeft") + self.get_nodeattr("PadRight")
+        return {"param_pad_tokens": int(num_channels * pad_tokens)}

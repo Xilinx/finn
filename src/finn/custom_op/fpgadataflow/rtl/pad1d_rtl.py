@@ -31,23 +31,23 @@ import os
 import shutil
 from qonnx.core.datatype import DataType
 
-from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
+from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 
 
 def _rtlsrc_dir():
-    return os.environ["FINN_ROOT"] + "/finn-rtllib/addclstoken/hdl"
+    return os.environ["FINN_ROOT"] + "/finn-rtllib/pad1d/hdl"
 
 
-class AddCLSToken_rtl(AddCLSToken, RTLBackend):
-    """RTL implementation of AddCLSToken."""
+class Pad1D_rtl(Pad1D, RTLBackend):
+    """RTL implementation of Pad1D."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(AddCLSToken.get_nodeattr_types(self))
+        my_attrs.update(Pad1D.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
 
@@ -63,25 +63,58 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
                 int_value += 1 << bitwidth
         return int_value & ((1 << bitwidth) - 1)
 
-    def _pack_cls_token(self, model):
+    def _get_pad_data_width(self, ind):
+        dtype = self.get_input_datatype()
+        pad_count = self._get_pad_count(ind)
+        num_channels = self.get_nodeattr("NumChannels")
+        return max(1, pad_count) * num_channels * dtype.bitwidth()
+
+    def _get_pad_values(self, model, ind):
+        pad_count = self._get_pad_count(ind)
+        num_channels = self.get_nodeattr("NumChannels")
+        if pad_count == 0:
+            return np.zeros((1, 1, num_channels), dtype=np.float32)
+
+        if len(self.onnx_node.input) <= ind:
+            raise Exception(
+                "Pad1D RTL generation requires a constant %s pad input."
+                % self._get_pad_side_name(ind)
+            )
+
+        pad_values = model.get_initializer(self.onnx_node.input[ind])
+        if pad_values is None:
+            raise Exception(
+                "Pad1D RTL generation requires a constant %s pad input."
+                % self._get_pad_side_name(ind)
+            )
+
+        pad_values = np.asarray(pad_values, dtype=np.float32)
+        self._validate_pad_shape(pad_values.shape, ind)
+        if pad_values.shape[1] == 1 and pad_count > 1:
+            pad_values = np.repeat(pad_values, pad_count, axis=1)
+        return pad_values
+
+    def _pack_pad_data(self, model, ind):
         dtype = self.get_input_datatype()
         bitwidth = dtype.bitwidth()
-        num_channels = self.get_nodeattr("NumChannels")
-        cls_token = model.get_initializer(self.onnx_node.input[1])
-        if cls_token is None:
-            raise Exception("AddCLSToken RTL generation requires a constant CLS token input.")
+        if self._get_pad_count(ind) == 0:
+            data_width = self._get_pad_data_width(ind)
+            hex_digits = (data_width + 3) // 4
+            return "%d'h%0*x" % (data_width, hex_digits, 0)
 
-        cls_token = np.asarray(cls_token, dtype=np.float32)
-        assert cls_token.shape == self.get_normal_input_shape(
-            1
-        ), "CLS token shape does not match AddCLSToken attributes."
-        assert np.vectorize(dtype.allowed)(cls_token).all(), (
-            "CLS token values cannot be represented with %s" % dtype.name
+        pad_values = self._get_pad_values(model, ind)
+
+        assert np.vectorize(dtype.allowed)(pad_values).all(), (
+            "Pad1D %s pad values cannot be represented with %s"
+            % (self._get_pad_side_name(ind), dtype.name)
         )
+
         packed = 0
-        for i, value in enumerate(cls_token.flatten()):
+        for i, value in enumerate(pad_values.flatten()):
             packed |= self._pack_value(value, dtype) << (i * bitwidth)
-        return "%d'h%x" % (num_channels * bitwidth, packed)
+        data_width = self._get_pad_data_width(ind)
+        hex_digits = (data_width + 3) // 4
+        return "%d'h%0*x" % (data_width, hex_digits, packed)
 
     def generate_hdl(self, model, fpgapart, clk):
         simd = self.get_nodeattr("SIMD")
@@ -89,7 +122,7 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
         assert num_channels % simd == 0, "SIMD must divide NumChannels"
 
         rtlsrc = _rtlsrc_dir()
-        template_path = rtlsrc + "/addclstoken_template.v"
+        template_path = rtlsrc + "/pad1d_template.v"
         with open(template_path, "r") as f:
             template = f.read()
 
@@ -104,10 +137,13 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
             "NUM_CHANNELS": num_channels,
             "SIMD": simd,
             "ELEM_WIDTH": elem_width,
-            "PAD_TOKENS": self.get_nodeattr("PadTokens"),
+            "PAD_LEFT": self.get_nodeattr("PadLeft"),
+            "PAD_RIGHT": self.get_nodeattr("PadRight"),
             "FOLD_WIDTH": fold_width,
-            "CLS_WIDTH": num_channels * elem_width,
-            "CLS_DATA": self._pack_cls_token(model),
+            "PAD_LEFT_DATA_WIDTH": self._get_pad_data_width(1),
+            "PAD_RIGHT_DATA_WIDTH": self._get_pad_data_width(2),
+            "PAD_LEFT_DATA": self._pack_pad_data(model, 1),
+            "PAD_RIGHT_DATA": self._pack_pad_data(model, 2),
         }
 
         for key, value in code_gen_dict.items():
@@ -116,7 +152,7 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(os.path.join(code_gen_dir, topname + ".v"), "w") as f:
             f.write(template)
-        shutil.copy(rtlsrc + "/addclstoken.sv", code_gen_dir)
+        shutil.copy(rtlsrc + "/pad1d.sv", code_gen_dir)
 
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
@@ -130,13 +166,13 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
             rtllib_dir = ""
 
         verilog_files = [
-            rtllib_dir + "addclstoken.sv",
+            rtllib_dir + "pad1d.sv",
             code_gen_dir + self.get_nodeattr("gen_top_module") + ".v",
         ]
         return verilog_files
 
     def get_rtlsim_input_indices(self):
-        """Only patch tokens are streamed; CLS token data is embedded in generated RTL."""
+        """Only the token sequence is streamed; pad data is embedded in RTL."""
         return [0]
 
     def code_generation_ipi(self):
@@ -156,7 +192,7 @@ class AddCLSToken_rtl(AddCLSToken, RTLBackend):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         if mode == "cppsim":
-            AddCLSToken.execute_node(self, context, graph)
+            Pad1D.execute_node(self, context, graph)
         elif mode == "rtlsim":
             RTLBackend.execute_node(self, context, graph)
         else:

@@ -42,7 +42,7 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation_complete,
 )
 from finn.core.onnx_exec import execute_onnx
-from finn.transformation.fpgadataflow.convert_to_hw_layers import InferAddCLSTokenLayer
+from finn.transformation.fpgadataflow.convert_to_hw_layers import InferPad1DLayer
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -56,21 +56,23 @@ FPGA_PART = "xc7z020clg400-1"
 CLK_NS = 10
 
 
-def _make_graph(nodes, output_shape, cls_values, finn_dtype=DataType["INT8"]):
+def _make_graph(nodes, output_shape, initializers, finn_dtype=DataType["INT8"]):
     patch_shape = [1, 3, 4]
     patches = helper.make_tensor_value_info("patches", TensorProto.FLOAT, patch_shape)
     output = helper.make_tensor_value_info("out", TensorProto.FLOAT, output_shape)
-    cls_init = numpy_helper.from_array(cls_values.astype(np.float32), name="cls")
-    graph = helper.make_graph(nodes, "addclstoken_test", [patches], [output], [cls_init])
+    graph = helper.make_graph(nodes, "pad1d_test", [patches], [output], initializers)
     model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)])
     model = ModelWrapper(model)
-    for tensor_name in ["patches", "cls", "out"]:
+    for tensor_name in ["patches", "out"]:
         model.set_tensor_datatype(tensor_name, finn_dtype)
+    for init in initializers:
+        model.set_tensor_datatype(init.name, finn_dtype)
     return model
 
 
-def _make_concat_model():
+def _make_concat_cls_model():
     cls_values = np.asarray([[[1, -2, 3, -4]]], dtype=np.float32)
+    cls_init = numpy_helper.from_array(cls_values, name="cls")
     concat = helper.make_node(
         "Concat",
         ["cls", "patches"],
@@ -78,38 +80,69 @@ def _make_concat_model():
         axis=1,
         name="concat_cls",
     )
-    model = _make_graph([concat], [1, 4, 4], cls_values)
+    model = _make_graph([concat], [1, 4, 4], [cls_init])
     return model, cls_values
 
 
-def _make_addclstoken_model(
-    pad_tokens=0,
+def _make_concat_custom_pad_model():
+    left_values = np.asarray([[[10, 11, 12, 13], [20, 21, 22, 23]]], dtype=np.float32)
+    right_values = np.asarray(
+        [[[30, 31, 32, 33], [40, 41, 42, 43], [50, 51, 52, 53]]],
+        dtype=np.float32,
+    )
+    left_init = numpy_helper.from_array(left_values, name="left_pad")
+    right_init = numpy_helper.from_array(right_values, name="right_pad")
+    concat = helper.make_node(
+        "Concat",
+        ["left_pad", "patches", "right_pad"],
+        ["out"],
+        axis=1,
+        name="concat_pad",
+    )
+    model = _make_graph([concat], [1, 8, 4], [left_init, right_init])
+    return model, left_values, right_values
+
+
+def _make_pad1d_model(
+    pad_left=1,
+    pad_right=1,
     simd=1,
     finn_dtype=DataType["INT8"],
-    cls_values=None,
+    left_values=None,
+    right_values=None,
 ):
-    if cls_values is None:
-        cls_values = np.asarray([[[1, -2, 3, -4]]], dtype=np.float32)
-    addcls = helper.make_node(
-        "AddCLSToken",
-        ["patches", "cls"],
+    if left_values is None:
+        left_values = np.asarray([[[1, -2, 3, -4]]], dtype=np.float32)
+    if right_values is None:
+        right_values = np.asarray([[[5, 6, -7, 8]]], dtype=np.float32)
+
+    left_init = numpy_helper.from_array(left_values.astype(np.float32), name="left_pad")
+    right_init = numpy_helper.from_array(right_values.astype(np.float32), name="right_pad")
+    pad1d = helper.make_node(
+        "Pad1D",
+        ["patches", "left_pad", "right_pad"],
         ["out"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        name="AddCLSToken_0",
+        name="Pad1D_0",
         NumTokens=3,
         NumChannels=4,
-        PadTokens=pad_tokens,
+        PadLeft=pad_left,
+        PadRight=pad_right,
         SIMD=simd,
         inputDataType=finn_dtype.name,
         outputDataType=finn_dtype.name,
     )
-    model = _make_graph([addcls], [1, 4 + pad_tokens, 4], cls_values, finn_dtype)
-    return model, cls_values
+    model = _make_graph([pad1d], [1, 3 + pad_left + pad_right, 4], [left_init, right_init])
+    return model, left_values, right_values
 
 
-def _prepare_addclstoken_stitched_ip_model(simd=1, pad_tokens=0):
-    model, cls_values = _make_addclstoken_model(pad_tokens=pad_tokens, simd=simd)
+def _prepare_pad1d_stitched_ip_model(simd=1, pad_left=1, pad_right=1):
+    model, left_values, right_values = _make_pad1d_model(
+        pad_left=pad_left,
+        pad_right=pad_right,
+        simd=simd,
+    )
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(SpecializeLayers(FPGA_PART))
@@ -117,29 +150,39 @@ def _prepare_addclstoken_stitched_ip_model(simd=1, pad_tokens=0):
     model = model.transform(PrepareIP(FPGA_PART, CLK_NS))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(FPGA_PART, CLK_NS, vitis=False))
-    return model, cls_values
+    return model, left_values, right_values
 
 
 def _make_input_dict(model, patches):
     return {model.graph.input[0].name: patches}
 
 
+def _expanded_pad(values, count):
+    if count == 0:
+        return np.zeros((1, 0, values.shape[-1]), dtype=np.float32)
+    if values.shape[1] == 1 and count > 1:
+        return np.repeat(values, count, axis=1)
+    return values
+
+
 @pytest.mark.fpgadataflow
-def test_convert_concat_to_addclstoken():
-    model, cls_values = _make_concat_model()
+def test_convert_concat_cls_to_pad1d():
+    model, cls_values = _make_concat_cls_model()
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
     expected = np.concatenate([cls_values, patches], axis=1)
 
     ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
-    model = model.transform(InferAddCLSTokenLayer())
+    model = model.transform(InferPad1DLayer())
     node = model.graph.node[0]
-    assert node.op_type == "AddCLSToken"
+    assert node.op_type == "Pad1D"
     assert node.domain == "finn.custom_op.fpgadataflow"
-    assert list(node.input) == ["patches", "cls"]
+    assert list(node.input)[0] == "patches"
 
     inst = getCustomOp(node)
+    assert inst.get_nodeattr("PadLeft") == 1
+    assert inst.get_nodeattr("PadRight") == 0
     assert inst.get_normal_output_shape() == (1, 4, 4)
     assert inst.get_exp_cycles() == 16
 
@@ -148,18 +191,41 @@ def test_convert_concat_to_addclstoken():
 
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(GiveUniqueNodeNames())
-    assert model.graph.node[0].op_type == "AddCLSToken_rtl"
+    assert model.graph.node[0].op_type == "Pad1D_rtl"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow.rtl"
 
 
 @pytest.mark.fpgadataflow
-def test_addclstoken_python_execution_with_padding():
-    model, cls_values = _make_addclstoken_model(pad_tokens=2)
+def test_convert_concat_custom_padding_to_pad1d():
+    model, left_values, right_values = _make_concat_custom_pad_model()
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
-    expected = np.concatenate(
-        [cls_values, patches, np.zeros((1, 2, 4), dtype=np.float32)],
-        axis=1,
+    expected = np.concatenate([left_values, patches, right_values], axis=1)
+
+    model = model.transform(InferPad1DLayer())
+    node = model.graph.node[0]
+    assert node.op_type == "Pad1D"
+
+    inst = getCustomOp(node)
+    assert inst.get_nodeattr("PadLeft") == 2
+    assert inst.get_nodeattr("PadRight") == 3
+    assert inst.get_normal_output_shape() == (1, 8, 4)
+
+    ret = execute_onnx(model, _make_input_dict(model, patches))
+    assert (ret["out"] == expected).all()
+
+
+@pytest.mark.fpgadataflow
+def test_pad1d_python_execution_with_repeated_padding():
+    left_values = np.asarray([[[1, 2, 3, 4]]], dtype=np.float32)
+    right_values = np.asarray([[[-1, -2, -3, -4]]], dtype=np.float32)
+    model, _, _ = _make_pad1d_model(
+        pad_left=2,
+        pad_right=1,
+        left_values=left_values,
+        right_values=right_values,
     )
+    patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
+    expected = np.concatenate([np.repeat(left_values, 2, axis=1), patches, right_values], axis=1)
 
     ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
@@ -167,19 +233,46 @@ def test_addclstoken_python_execution_with_padding():
 
 @pytest.mark.fpgadataflow
 @pytest.mark.parametrize(
-    "finn_dtype,cls_values,expected_cls_data",
+    "finn_dtype,left_values,expected_left_data,right_values,expected_right_data",
     [
-        (DataType["INT8"], np.asarray([[[1, -2, 3, -4]]], dtype=np.float32), "32'hfc03fe01"),
-        (DataType["UINT4"], np.asarray([[[1, 2, 3, 4]]], dtype=np.float32), "16'h4321"),
-        (DataType["BIPOLAR"], np.asarray([[[1, -1, 1, -1]]], dtype=np.float32), "4'h5"),
+        (
+            DataType["INT8"],
+            np.asarray([[[1, -2, 3, -4]]], dtype=np.float32),
+            "32'hfc03fe01",
+            np.asarray([[[5, 6, -7, 8]]], dtype=np.float32),
+            "32'h08f90605",
+        ),
+        (
+            DataType["UINT4"],
+            np.asarray([[[1, 2, 3, 4]]], dtype=np.float32),
+            "16'h4321",
+            np.asarray([[[4, 3, 2, 1]]], dtype=np.float32),
+            "16'h1234",
+        ),
+        (
+            DataType["BIPOLAR"],
+            np.asarray([[[1, -1, 1, -1]]], dtype=np.float32),
+            "4'h5",
+            np.asarray([[[-1, 1, -1, 1]]], dtype=np.float32),
+            "4'ha",
+        ),
     ],
 )
-def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_data):
-    model, _ = _make_addclstoken_model(
-        pad_tokens=1,
+def test_pad1d_rtl_codegen(
+    tmp_path,
+    finn_dtype,
+    left_values,
+    expected_left_data,
+    right_values,
+    expected_right_data,
+):
+    model, _, _ = _make_pad1d_model(
+        pad_left=1,
+        pad_right=1,
         simd=2,
         finn_dtype=finn_dtype,
-        cls_values=cls_values,
+        left_values=left_values,
+        right_values=right_values,
     )
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(GiveUniqueNodeNames())
@@ -192,32 +285,72 @@ def test_addclstoken_rtl_codegen(tmp_path, finn_dtype, cls_values, expected_cls_
     topname = inst.get_nodeattr("gen_top_module")
     assert topname == node.name
     wrapper = tmp_path / (topname + ".v")
-    core = tmp_path / "addclstoken.sv"
+    core = tmp_path / "pad1d.sv"
     assert wrapper.is_file()
     assert core.is_file()
     wrapper_text = wrapper.read_text()
     assert "parameter FOLD_WIDTH = %d" % (2 * finn_dtype.bitwidth()) in wrapper_text
     assert ".SIMD(2)" in wrapper_text
-    assert ".PAD_TOKENS(1)" in wrapper_text
-    assert "CLS_DATA = %s" % expected_cls_data in wrapper_text
+    assert ".PAD_LEFT(1)" in wrapper_text
+    assert ".PAD_RIGHT(1)" in wrapper_text
+    assert "PAD_LEFT_DATA = %s" % expected_left_data in wrapper_text
+    assert "PAD_RIGHT_DATA = %s" % expected_right_data in wrapper_text
     assert "out0_V_TVALID" in wrapper_text
     assert "= '0" not in wrapper_text
 
     ipi_cmds = inst.code_generation_ipi()
-    assert any("addclstoken.sv" in cmd for cmd in ipi_cmds)
+    assert any("pad1d.sv" in cmd for cmd in ipi_cmds)
     assert any("create_bd_cell" in cmd and topname in cmd for cmd in ipi_cmds)
 
 
 @pytest.mark.fpgadataflow
-def test_addclstoken_resource_estimation():
-    model, _ = _make_addclstoken_model(pad_tokens=1, simd=2)
+@pytest.mark.parametrize(
+    "pad_left,pad_right,expected_left_data,expected_right_data",
+    [
+        (1, 0, "4'h5", "4'h0"),
+        (0, 1, "4'h0", "4'ha"),
+    ],
+)
+def test_pad1d_bipolar_one_sided_rtl_codegen(
+    tmp_path,
+    pad_left,
+    pad_right,
+    expected_left_data,
+    expected_right_data,
+):
+    left_values = np.asarray([[[1, -1, 1, -1]]], dtype=np.float32)
+    right_values = np.asarray([[[-1, 1, -1, 1]]], dtype=np.float32)
+    model, _, _ = _make_pad1d_model(
+        pad_left=pad_left,
+        pad_right=pad_right,
+        simd=2,
+        finn_dtype=DataType["BIPOLAR"],
+        left_values=left_values,
+        right_values=right_values,
+    )
+    model = model.transform(SpecializeLayers(FPGA_PART))
+    model = model.transform(GiveUniqueNodeNames())
+
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("code_gen_dir_ipgen", str(tmp_path))
+    inst.code_generation_ipgen(model, FPGA_PART, CLK_NS)
+
+    wrapper_text = (tmp_path / (inst.get_nodeattr("gen_top_module") + ".v")).read_text()
+    assert "PAD_LEFT_DATA = %s" % expected_left_data in wrapper_text
+    assert "PAD_RIGHT_DATA = %s" % expected_right_data in wrapper_text
+
+
+@pytest.mark.fpgadataflow
+def test_pad1d_resource_estimation():
+    model, _, _ = _make_pad1d_model(pad_left=1, pad_right=1, simd=2)
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(GiveUniqueNodeNames())
 
     expected = {
         "BRAM_18K": 0,
         "BRAM_efficiency": 1,
-        "LUT": 132,
+        "LUT": 136,
         "URAM": 0,
         "URAM_efficiency": 1,
         "DSP": 0,
@@ -234,14 +367,18 @@ def test_addclstoken_resource_estimation():
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-@pytest.mark.parametrize("simd,pad_tokens", [(1, 0), (2, 1)])
-def test_addclstoken_rtlsim(simd, pad_tokens):
-    model, cls_values = _make_addclstoken_model(pad_tokens=pad_tokens, simd=simd)
+@pytest.mark.parametrize("simd,pad_left,pad_right", [(1, 1, 0), (2, 2, 1)])
+def test_pad1d_rtlsim(simd, pad_left, pad_right):
+    model, left_values, right_values = _make_pad1d_model(
+        pad_left=pad_left,
+        pad_right=pad_right,
+        simd=simd,
+    )
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
-    expected_values = [cls_values, patches]
-    if pad_tokens > 0:
-        expected_values.append(np.zeros((1, pad_tokens, 4), dtype=np.float32))
-    expected = np.concatenate(expected_values, axis=1)
+    expected = np.concatenate(
+        [_expanded_pad(left_values, pad_left), patches, _expanded_pad(right_values, pad_right)],
+        axis=1,
+    )
 
     model = model.transform(SpecializeLayers(FPGA_PART))
     model = model.transform(GiveUniqueNodeNames())
@@ -252,7 +389,7 @@ def test_addclstoken_rtlsim(simd, pad_tokens):
     ret = execute_onnx(model, _make_input_dict(model, patches))
     assert (ret["out"] == expected).all()
 
-    node = model.get_nodes_by_op_type("AddCLSToken_rtl")[0]
+    node = model.get_nodes_by_op_type("Pad1D_rtl")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -264,17 +401,18 @@ def test_addclstoken_rtlsim(simd, pad_tokens):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-@pytest.mark.parametrize("simd,pad_tokens", [(1, 0), (2, 1)])
-def test_addclstoken_stitched_ip_rtlsim(simd, pad_tokens):
-    model, cls_values = _prepare_addclstoken_stitched_ip_model(
+@pytest.mark.parametrize("simd,pad_left,pad_right", [(1, 1, 0), (2, 2, 1)])
+def test_pad1d_stitched_ip_rtlsim(simd, pad_left, pad_right):
+    model, left_values, right_values = _prepare_pad1d_stitched_ip_model(
         simd=simd,
-        pad_tokens=pad_tokens,
+        pad_left=pad_left,
+        pad_right=pad_right,
     )
     patches = np.arange(12, dtype=np.float32).reshape(1, 3, 4)
-    expected_values = [cls_values, patches]
-    if pad_tokens > 0:
-        expected_values.append(np.zeros((1, pad_tokens, 4), dtype=np.float32))
-    expected = np.concatenate(expected_values, axis=1)
+    expected = np.concatenate(
+        [_expanded_pad(left_values, pad_left), patches, _expanded_pad(right_values, pad_right)],
+        axis=1,
+    )
 
     model.set_metadata_prop("exec_mode", "rtlsim")
 
@@ -285,8 +423,8 @@ def test_addclstoken_stitched_ip_rtlsim(simd, pad_tokens):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_addclstoken_stitched_ip_synth_ooc():
-    model, _ = _prepare_addclstoken_stitched_ip_model(simd=2, pad_tokens=1)
+def test_pad1d_stitched_ip_synth_ooc():
+    model, _, _ = _prepare_pad1d_stitched_ip_model(simd=2, pad_left=1, pad_right=1)
     model = model.transform(SynthOutOfContext(FPGA_PART, CLK_NS))
     ret = model.get_metadata_prop("res_total_ooc_synth")
     assert ret is not None
