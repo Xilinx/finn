@@ -31,6 +31,7 @@ import os
 
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import get_dsp_block
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -55,6 +56,19 @@ class MVAU_rtl(MVAU, RTLBackend):
         my_attrs.update(MVAU.get_nodeattr_types(self))
         my_attrs.update(RTLBackend.get_nodeattr_types(self))
         return my_attrs
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt MVAU_rtl for loop body execution.
+
+        When the weight tensor (input[1]) is indexed per iteration (PARAMETER
+        type), the weights must be streamed from external memory over the
+        AXI-MM interface rather than baked into on-chip BRAM. This requires
+        mem_mode "external_mem", which is the only mode that instantiates the
+        AXI-MM weight-fetch path (and the per-iteration index input).
+        """
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            self.set_nodeattr("mem_mode", "external_mem")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

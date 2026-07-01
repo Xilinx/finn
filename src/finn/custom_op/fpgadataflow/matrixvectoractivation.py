@@ -40,6 +40,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
@@ -457,6 +458,29 @@ class MVAU(HWCustomOp):
         wbits = W * D_in * D_out
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt the MVAU for loop body execution.
+
+        When the weight tensor (input[1]) is indexed per iteration (PARAMETER
+        type), the weights must be streamed from external memory over the
+        AXI-MM interface. That path only exists in the RTL backend
+        (MVAU_rtl overrides this method to set mem_mode "external_mem").
+        The abstract HW op and the HLS backend cannot stream loop weights, so
+        reaching this base implementation with a streamed weight input is an
+        error: the node must be specialized to MVAU_rtl before loop rolling.
+
+        NOTE: LoopRolling swallows KeyError/AttributeError from this hook, so
+        this deliberately raises a plain Exception to surface loudly.
+        """
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            raise Exception(
+                "MLO weight streaming requires the RTL MVAU backend. "
+                "Specialize this MVAU to MVAU_rtl before loop rolling; "
+                "the HLS/abstract MVAU cannot stream per-iteration weights "
+                "over AXI-MM."
+            )
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
