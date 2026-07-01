@@ -48,7 +48,6 @@ def register_custom_op(cls):
 # flake8: noqa
 # Disable linting from here, as all import will be flagged E402 and maybe F401
 
-from finn.custom_op.fpgadataflow.addclstoken import AddCLSToken
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -86,6 +85,7 @@ from finn.custom_op.fpgadataflow.layernorm import LayerNorm
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
 from finn.custom_op.fpgadataflow.outer_shuffle import OuterShuffle
+from finn.custom_op.fpgadataflow.pad1d import Pad1D
 from finn.custom_op.fpgadataflow.pool import Pool
 from finn.custom_op.fpgadataflow.pwpolyf import PWPolyF
 from finn.custom_op.fpgadataflow.requant import Requant
@@ -112,7 +112,6 @@ custom_op["Thresholding"] = Thresholding
 custom_op["VVAU"] = VVAU
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 
-custom_op["AddCLSToken"] = AddCLSToken
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["Crop"] = Crop
 custom_op["DuplicateStreams"] = DuplicateStreams
@@ -124,6 +123,7 @@ custom_op["LabelSelect"] = LabelSelect
 custom_op["LayerNorm"] = LayerNorm
 custom_op["Lookup"] = Lookup
 custom_op["OuterShuffle"] = OuterShuffle
+custom_op["Pad1D"] = Pad1D
 custom_op["Pool"] = Pool
 custom_op["PWPolyF"] = PWPolyF
 custom_op["Requant"] = Requant

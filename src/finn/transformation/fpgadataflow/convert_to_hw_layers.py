@@ -30,7 +30,7 @@
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
-from onnx import AttributeProto, NodeProto, TensorProto, helper
+from onnx import AttributeProto, NodeProto, TensorProto, helper, numpy_helper
 from qonnx.core.datatype import DataType
 
 # QONNX wrapper to ONNX model graphs
@@ -1663,8 +1663,34 @@ class InferSplitLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferAddCLSTokenLayer(Transformation):
-    """Convert Concat([cls_token, patches], axis=1) into AddCLSToken."""
+class InferPad1DLayer(Transformation):
+    """Convert 1D Concat padding patterns into Pad1D.
+
+    This covers class-token insertion as ``Concat([cls_token, tokens], axis=1)``
+    as well as constant left/right 1D padding around one streamed tensor.
+    """
+
+    def _get_tensor_shape(self, model, tensor_name):
+        shape = model.get_tensor_shape(tensor_name)
+        if shape is not None:
+            return list(shape)
+
+        init = model.get_initializer(tensor_name)
+        if init is not None:
+            return list(init.shape)
+        return None
+
+    def _make_pad_initializer(self, model, graph, values, idt):
+        values = np.asarray(values, dtype=np.float32)
+        pad_name = model.make_new_valueinfo_name()
+        graph.initializer.append(numpy_helper.from_array(values, name=pad_name))
+        model.set_tensor_datatype(pad_name, idt)
+        return pad_name
+
+    def _make_or_reuse_pad_initializer(self, model, graph, values, tensor_names, idt):
+        if len(tensor_names) == 1:
+            return tensor_names[0]
+        return self._make_pad_initializer(model, graph, values, idt)
 
     def apply(self, model):
         graph = model.graph
@@ -1676,60 +1702,113 @@ class InferAddCLSTokenLayer(Transformation):
                 continue
 
             axis = get_by_name(node.attribute, "axis")
-            if axis is None or len(node.input) != 2:
+            if axis is None:
                 continue
 
-            cls_name = node.input[0]
-            patch_name = node.input[1]
-            cls_init = model.get_initializer(cls_name)
-            if cls_init is None or model.get_initializer(patch_name) is not None:
+            stream_inds = [
+                ind for ind, inp in enumerate(node.input) if model.get_initializer(inp) is None
+            ]
+            if len(stream_inds) != 1:
+                continue
+            stream_ind = stream_inds[0]
+            stream_name = node.input[stream_ind]
+
+            stream_shape = self._get_tensor_shape(model, stream_name)
+            if stream_shape is None:
+                continue
+            if any(x is None for x in stream_shape):
                 continue
 
-            cls_shape = model.get_tensor_shape(cls_name)
-            if cls_shape is None:
-                cls_shape = list(cls_init.shape)
-            patch_shape = model.get_tensor_shape(patch_name)
-            if cls_shape is None or patch_shape is None:
-                continue
-            if any(x is None for x in list(cls_shape) + list(patch_shape)):
-                continue
-
-            rank = len(patch_shape)
+            rank = len(stream_shape)
             concat_axis = axis.i if axis.i >= 0 else axis.i + rank
             if rank != 3 or concat_axis != 1:
                 continue
-
-            if len(cls_shape) != 3 or cls_shape[0] != 1 or cls_shape[1] != 1:
+            if stream_shape[0] != 1:
                 continue
-            if patch_shape[0] != 1 or cls_shape[2] != patch_shape[2]:
+
+            const_values = []
+            valid_const_inputs = True
+            for inp in node.input:
+                init = model.get_initializer(inp)
+                if init is None:
+                    const_values.append(None)
+                    continue
+
+                const_shape = self._get_tensor_shape(model, inp)
+                if const_shape is None or any(x is None for x in const_shape):
+                    valid_const_inputs = False
+                    break
+                if (
+                    len(const_shape) != 3
+                    or const_shape[0] != 1
+                    or const_shape[2] != stream_shape[2]
+                ):
+                    valid_const_inputs = False
+                    break
+                const_values.append(np.asarray(init, dtype=np.float32))
+            if not valid_const_inputs:
+                continue
+
+            left_values = [const_values[ind] for ind in range(stream_ind)]
+            right_values = [const_values[ind] for ind in range(stream_ind + 1, len(node.input))]
+            left_names = [node.input[ind] for ind in range(stream_ind)]
+            right_names = [node.input[ind] for ind in range(stream_ind + 1, len(node.input))]
+            pad_left = sum(x.shape[1] for x in left_values)
+            pad_right = sum(x.shape[1] for x in right_values)
+            if pad_left == 0 and pad_right == 0:
                 continue
 
             out_shape = model.get_tensor_shape(node.output[0])
-            exp_oshape = [1, patch_shape[1] + 1, patch_shape[2]]
+            exp_oshape = [1, stream_shape[1] + pad_left + pad_right, stream_shape[2]]
             if out_shape is not None and list(out_shape) != exp_oshape:
                 continue
 
-            idt = model.get_tensor_datatype(patch_name)
+            idt = model.get_tensor_datatype(stream_name)
             if idt is None or (
                 not idt.is_integer() and idt not in [DataType["FLOAT16"], DataType["FLOAT32"]]
             ):
                 continue
-            cls_dt = model.get_tensor_datatype(cls_name)
-            if cls_dt is None:
-                model.set_tensor_datatype(cls_name, idt)
-            elif cls_dt != idt:
+
+            const_dtypes_valid = True
+            for inp in node.input:
+                if inp == stream_name:
+                    continue
+                pad_dt = model.get_tensor_datatype(inp)
+                if pad_dt is None:
+                    model.set_tensor_datatype(inp, idt)
+                elif pad_dt != idt:
+                    const_dtypes_valid = False
+                    break
+            if not const_dtypes_valid:
                 continue
 
+            if pad_left == 0:
+                left_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                left_pad = np.concatenate(left_values, axis=1)
+            if pad_right == 0:
+                right_pad = np.zeros((1, 1, stream_shape[2]), dtype=np.float32)
+            else:
+                right_pad = np.concatenate(right_values, axis=1)
+
+            left_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, left_pad, left_names, idt
+            )
+            right_pad_name = self._make_or_reuse_pad_initializer(
+                model, graph, right_pad, right_names, idt
+            )
+
             new_node = helper.make_node(
-                "AddCLSToken",
-                [patch_name, cls_name],
+                "Pad1D",
+                [stream_name, left_pad_name, right_pad_name],
                 node.output,
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
-                name="AddCLSToken_" + node.name,
-                NumTokens=int(patch_shape[1]),
-                NumChannels=int(patch_shape[2]),
-                PadTokens=0,
+                name="Pad1D_" + node.name,
+                NumTokens=int(stream_shape[1]),
+                NumChannels=int(stream_shape[2]),
+                PadLeft=int(pad_left),
+                PadRight=int(pad_right),
                 SIMD=1,
                 inputDataType=idt.name,
                 outputDataType=idt.name,

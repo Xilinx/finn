@@ -39,10 +39,10 @@ RTLBackend
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.addclstoken
------------------------------------------
+finn.custom\_op.fpgadataflow.pad1d
+-----------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.addclstoken
+.. automodule:: finn.custom_op.fpgadataflow.pad1d
    :members:
    :undoc-members:
    :show-inheritance:
