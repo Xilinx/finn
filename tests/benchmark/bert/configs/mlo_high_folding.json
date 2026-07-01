@@ -143,13 +143,13 @@
     "PE": 64,
     "SIMD": 48,
     "TH": 1,
-    "mem_mode": "external_mem"
+    "mem_mode": "internal_decoupled"
   },
   "MVAU_rtl_1": {
     "PE": 2,
     "SIMD": 8,
     "TH": 1,
-    "mem_mode": "external_mem"
+    "mem_mode": "internal_decoupled"
   },
 
   "FINNLoop_0_Thresholding_rtl_0": {
