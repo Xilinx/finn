@@ -1003,9 +1003,22 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
-            # Clean up characterization attributes after FIFO sizing
+            # Clean up characterization attributes after FIFO sizing. The
+            # io_chrc arrays are offloaded to sidecar .npy files referenced by
+            # the io_chrc_*_file attrs; unlink those files before dropping the
+            # attrs so we don't leak them.
             for node in model.graph.node:
-                for attr_name in ["io_chrc_period", "io_chrc_in", "io_chrc_out"]:
+                for file_attr_name in ["io_chrc_in_file", "io_chrc_out_file"]:
+                    attr = get_by_name(node.attribute, file_attr_name)
+                    if attr is not None:
+                        fname = attr.s.decode("utf-8")
+                        if fname != "" and os.path.isfile(fname):
+                            os.remove(fname)
+                for attr_name in [
+                    "io_chrc_period",
+                    "io_chrc_in_file",
+                    "io_chrc_out_file",
+                ]:
                     attr = get_by_name(node.attribute, attr_name)
                     if attr is not None:
                         node.attribute.remove(attr)

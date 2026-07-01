@@ -731,8 +731,8 @@ def test_mvau_fifocharacterize_rtlsim(
     node_inst = getCustomOp(model.graph.node[0])
     period_attr = node_inst.get_nodeattr("io_chrc_period")
     assert period_attr == exp_total_cycles
-    chrc_in = node_inst.get_nodeattr("io_chrc_in")
-    chrc_out = node_inst.get_nodeattr("io_chrc_out")
+    chrc_in = node_inst.get_io_chrc_in()
+    chrc_out = node_inst.get_io_chrc_out()
     if mem_mode == "internal_decoupled":
         assert chrc_in.shape == (2, 2 * exp_total_cycles)
     else:
