@@ -43,6 +43,11 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 finnxsi = xsi if xsi.is_available() else None
 
 
+def _debug_stage(msg):
+    if os.getenv("FINN_RTLSIM_DEBUG_STAGES"):
+        print("rtlsim_exec: " + msg, flush=True)
+
+
 def prep_rtlsim_io_dict(model, execution_context):
     # extract i/o info to prepare io_dict
     io_dict = {"inputs": {}, "outputs": {}}
@@ -327,13 +332,16 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     ), """The
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
+    _debug_stage("preparing IO")
     io_dict, if_dict, num_out_values, o_tensor_info, batchsize = prep_rtlsim_io_dict(
         model, execution_context
     )
+    _debug_stage("prepared IO")
 
     # prepare rtlsim model
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
+        _debug_stage("compiling simulation object")
         vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
@@ -350,16 +358,25 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         # pass in correct tracefile from attribute
         if trace_file == "default":
             trace_file = top_module_file_name + ".wdb"
+        _debug_stage("loading compiled simulation object")
         sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
     else:
         sim_base, sim_rel = rtlsim_so.split("xsim.dir")
         sim_rel = "xsim.dir" + sim_rel
+        _debug_stage("loading cached simulation object")
         sim = finnxsi.load_sim_obj(sim_base, sim_rel, trace_file)
+    _debug_stage("loaded simulation object")
 
     # reset and call rtlsim, including any pre/post hooks
+    _debug_stage("resetting simulation")
     finnxsi.reset_rtlsim(sim)
+    _debug_stage("reset simulation")
+
     if pre_hook is not None:
+        _debug_stage("running pre-hook")
         pre_hook(sim)
+        _debug_stage("ran pre-hook")
+    _debug_stage("starting multi-IO simulation")
     n_cycles = finnxsi.rtlsim_multi_io(
         sim,
         io_dict,
@@ -367,10 +384,13 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         sname="",
         liveness_threshold=get_liveness_threshold_cycles() * batchsize,
     )
+    _debug_stage("finished multi-IO simulation")
     if post_hook is not None:
         post_hook(sim)
     # important to call close_rtlsim for finnxsi to flush traces and stop
+    _debug_stage("closing simulation")
     finnxsi.close_rtlsim(sim)
+    _debug_stage("closed simulation")
 
     # unpack outputs and put back into execution context
     for o, o_vi in enumerate(model.graph.output):
