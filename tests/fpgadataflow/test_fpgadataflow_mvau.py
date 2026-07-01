@@ -746,8 +746,37 @@ def test_mvau_fifocharacterize_rtlsim(
 
 @pytest.mark.parametrize("mh", [18])
 @pytest.mark.parametrize("mw", [32])
-@pytest.mark.parametrize("pe", [1, 9, 18])
-@pytest.mark.parametrize("simd", [1, 16, 32])
+# (PE, SIMD, TH, mem_mode) as a jointly-valid tuple satisfying MH % PE == 0,
+# MW % SIMD == 0 and (PE * SIMD) % TH == 0. TH=1 selects the standard MVAU;
+# TH>1 selects the tiled MVAU (Versal DSP58 only, filtered below).
+#
+# TH must divide the number of input vectors (ofm_shape 3x3 -> 9), so the tiled
+# configs use TH in {3, 9}. The tiled set spreads across the integration-level
+# axes (the DSP-chain corner cases themselves are covered by the RTL testbench):
+#   - WSIMD = PE*SIMD/TH:   the =1 edge (1 weight/cycle) up to 192
+#   - CHAINLEN = (SIMD+2)/3: 1, 2, 3, 6, 11
+#   - TH:                    3 and 9 (high tiling)
+#   - mem_mode:              external_mem and internal_decoupled (tiling is
+#                            decoupled from the weight memory mode)
+@pytest.mark.parametrize(
+    "pe_simd_th_mem",
+    [
+        (1, 1, 1, "internal_decoupled"),
+        (1, 16, 1, "internal_decoupled"),
+        (1, 32, 1, "internal_decoupled"),
+        (9, 1, 1, "internal_decoupled"),
+        (9, 16, 1, "internal_decoupled"),
+        (9, 32, 1, "internal_decoupled"),
+        (18, 1, 1, "internal_decoupled"),
+        (18, 16, 1, "internal_decoupled"),
+        (18, 32, 1, "internal_decoupled"),
+        (3, 1, 3, "external_mem"),  # WSIMD=1 edge, CHAINLEN=1
+        (6, 4, 3, "internal_decoupled"),  # CHAINLEN=2, decoupled
+        (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
+        (9, 16, 3, "external_mem"),  # CHAINLEN=6
+        (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+    ],
+)
 @pytest.mark.parametrize(
     "idt_wdt", [[DataType["UINT4"], DataType["INT4"]], [DataType["UINT8"], DataType["INT8"]]]
 )
@@ -761,8 +790,10 @@ def test_mvau_fifocharacterize_rtlsim(
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_rtl_mvau(
-    mh, mw, pe, simd, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
+    mh, mw, pe_simd_th_mem, idt_wdt, part, clk_ns, pumpedMemory, pumpedCompute
 ):
+    pe, simd, th, mem_mode = pe_simd_th_mem
+
     if part != "xcvc1902-vsva2197-2MP-e-S" and clk_ns != 1.66:
         pytest.skip(
             """Skip test for varying clk for devices other than Versal,
@@ -774,6 +805,14 @@ def test_fpgadataflow_rtl_mvau(
 
     if simd == 1 and pumpedCompute:
         pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
+
+    # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
+    # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
+    if th > 1:
+        if part != "xcvc1902-vsva2197-2MP-e-S":
+            pytest.skip("Tiled MVAU (TH>1) is only supported on Versal (DSP58)")
+        if pumpedMemory or pumpedCompute:
+            pytest.skip("Tiled MVAU (TH>1) is not exercised with clock pumping")
 
     idt, wdt = idt_wdt
     # Create test input vector (produced by SWG)
@@ -813,7 +852,9 @@ def test_fpgadataflow_rtl_mvau(
         "MVAU_rtl_0": {
             "PE": pe,
             "SIMD": simd,
+            "TH": th,
             "resType": "dsp",
+            "mem_mode": mem_mode,
             "pumpedMemory": pumpedMemory,
             "pumpedCompute": pumpedCompute,
         },
@@ -855,105 +896,6 @@ def test_fpgadataflow_rtl_mvau(
     assert (
         output_matmul == output_mvau_rtl_stitch
     ).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
-
-
-@pytest.mark.parametrize("mh", [12])
-@pytest.mark.parametrize("mw", [12])
-@pytest.mark.parametrize("pe", [6])
-@pytest.mark.parametrize("simd", [3])
-@pytest.mark.parametrize("th", [3])
-@pytest.mark.parametrize("idt_wdt", [[DataType["UINT8"], DataType["INT8"]]])
-@pytest.mark.parametrize("clk_ns", [4])
-@pytest.mark.fpgadataflow
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_fpgadataflow_rtl_tiled_mvau(mh, mw, pe, simd, th, idt_wdt, clk_ns):
-    # Tiled MVAU only supported on Versal (DSP58)
-    part = "xcvc1902-vsva2197-2MP-e-S"
-
-    if (pe * simd) % th != 0:
-        pytest.skip("(PE * SIMD) must be divisible by TH")
-
-    if mw % simd != 0:
-        pytest.skip("MW must be divisible by SIMD")
-
-    if mh % pe != 0:
-        pytest.skip("MH must be divisible by PE")
-
-    idt, wdt = idt_wdt
-    # Create test input vector (produced by SWG)
-    ofm_shape = (3, 3)
-    ofm_h, ofm_w = ofm_shape
-    ifm = helper.make_tensor_value_info("ifm", TensorProto.FLOAT, [1, ofm_h, ofm_w, mw])
-    ofm = helper.make_tensor_value_info("ofm", TensorProto.FLOAT, (1, ofm_h, ofm_w, mh))
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-    model = make_single_matmul_modelwrapper(ifm, ofm, idt, wdt, W)
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
-
-    # Create MatMul & obtain golden reference output
-    A = gen_finn_dt_tensor(
-        model.get_tensor_datatype("global_in"), model.get_tensor_shape("global_in")
-    )
-    input_dict = prepare_inputs(A, idt, wdt, inp_name="global_in")
-
-    # Execute ONNX model
-    output_matmul = oxe.execute_onnx(model, input_dict)["global_out"]
-
-    # Create MVAU
-    model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(GiveUniqueNodeNames())
-
-    # Apply convert-to-rtl step
-    model = model.transform(SpecializeLayers(part))
-    model = model.transform(GiveUniqueNodeNames())
-
-    assert model.graph.node[0].op_type == "MVAU_rtl"
-    # Apply folding with TH for tiled implementation
-    folding_config = {
-        "Defaults": {},
-        "MVAU_rtl_0": {
-            "PE": pe,
-            "SIMD": simd,
-            "TH": th,
-            "resType": "dsp",
-            "mem_mode": "external_mem",
-        },
-    }
-    model = model.transform(ApplyConfig(folding_config))
-    model = model.transform(MinimizeWeightBitWidth())
-    model = model.transform(MinimizeAccumulatorWidth())
-    # make sure the changed datatypes are propagated through the network
-    model = model.transform(InferDataTypes())
-
-    # Run CPPsim
-    model = model.transform(SetExecMode("cppsim"))
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    output_mvau_hls = oxe.execute_onnx(model, input_dict)["global_out"]
-    assert (
-        output_matmul == output_mvau_hls
-    ).all(), "Output of ONNX model not matching output of node-by-node CPPsim!"
-
-    # Run node-by-node RTLsim
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareIP(part, clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    output_mvau_rtl = oxe.execute_onnx(model, input_dict)["global_out"]
-    assert (
-        output_matmul == output_mvau_rtl
-    ).all(), "Output of ONNX model not matching output of node-by-node RTLsim!"
-
-    # Run stitched-ip RTLsim
-    model = model.transform(InsertAndSetFIFODepths(part, clk_ns))
-    model = model.transform(PrepareIP(part, clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(part, clk_ns))
-    output_mvau_rtl_stitch = oxe.execute_onnx(model, input_dict)["global_out"]
-    assert (
-        output_matmul == output_mvau_rtl_stitch
-    ).all(), "Output of ONNX model not matching output of tiled stitched-IP RTL model!"
 
 
 @pytest.mark.parametrize("mh", [32])
