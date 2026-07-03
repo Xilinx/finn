@@ -1,0 +1,178 @@
+# Copyright (C) 2024, Advanced Micro Devices, Inc. All rights reserved.
+#
+# This file is subject to the Xilinx Design License Agreement located
+# in the LICENSE.md file in the root directory of this repository.
+#
+# This file contains confidential and proprietary information of Xilinx, Inc.
+# and is protected under U.S. and international copyright and other
+# intellectual property laws.
+#
+# DISCLAIMER
+# This disclaimer is not a license and does not grant any rights to the materials
+# distributed herewith. Except as otherwise provided in a valid license issued to
+# you by Xilinx, and to the maximum extent permitted by applicable law: (1) THESE
+# MATERIALS ARE MADE AVAILABLE "AS IS" AND WITH ALL FAULTS, AND XILINX HEREBY
+# DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY,
+# INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NONINFRINGEMENT, OR
+# FITNESS FOR ANY PARTICULAR PURPOSE; and (2) Xilinx shall not be liable (whether
+# in contract or tort, including negligence, or under any other theory of
+# liability) for any loss or damage of any kind or nature related to, arising
+# under or in connection with these materials, including for any direct, or any
+# indirect, special, incidental, or consequential loss or damage (including loss
+# of data, profits, goodwill, or any type of loss or damage suffered as a result
+# of any action brought by a third party) even if such damage or loss was
+# reasonably foreseeable or Xilinx had been advised of the possibility of the
+# same.
+#
+# CRITICAL APPLICATIONS
+# Xilinx products are not designed or intended to be fail-safe, or for use in
+# any application requiring failsafe performance, such as life-support or safety
+# devices or systems, Class III medical devices, nuclear facilities, applications
+# related to the deployment of airbags, or any other applications that could lead
+# to death, personal injury, or severe property or environmental damage
+# (individually and collectively, "Critical Applications"). Customer assumes the
+# sole risk and liability of any use of Xilinx products in Critical Applications,
+# subject only to applicable laws and regulations governing limitations on product
+# liability.
+#
+# THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS PART OF THIS FILE AT ALL TIMES.
+if {[catch {
+
+########################################################################################################
+# Project
+########################################################################################################
+source "${CMAKE_BINARY_DIR}/hw/base.tcl"
+
+puts "[color $clr_flow "** Creating project ..."]"
+puts "[color $clr_flow "**"]"
+
+# Check iprepo
+if { [file isdirectory $iprepo_dir] } {
+	set lib_dir "$iprepo_dir"
+} else {
+	puts "iprepo directory could not be found."
+	exit 1
+}
+
+# Create project
+create_project $project $proj_dir -part $part -force
+set proj [current_project]
+set_property IP_REPO_PATHS $lib_dir [current_fileset]
+update_ip_catalog
+
+########################################################################################################
+# Set project properties
+########################################################################################################
+set_property "default_lib" "xil_defaultlib"                 $proj
+set_property "ip_cache_permissions" "read write"            $proj
+set_property "ip_output_repo" "$proj_dir/$project.cache/ip" $proj
+set_property "sim.ip.auto_export_scripts" "1"               $proj
+set_property "target_language" "Verilog"                    $proj
+set_property "simulator_language" "Mixed"                   $proj
+set_property "xpm_libraries" "XPM_CDC XPM_MEMORY"           $proj
+
+########################################################################################################
+# Create and add source files
+########################################################################################################
+file mkdir "$proj_dir/hdl"
+
+# Add source files
+add_files "$hw_dir/hdl/intf"
+add_files "$hw_dir/hdl/common"
+add_files "$hw_dir/hdl/infrastructure"
+add_files "$hw_dir/hdl/dma"
+
+# Reviewed RTL building blocks reused from finn-rtllib (not vendored here).
+add_files "$finn_rtllib/fifo/hdl/Q_srl.v"
+add_files "$finn_rtllib/dwc/hdl/axis_adapter.v"
+add_files "$finn_rtllib/dwc/hdl/axis_fifo.v"
+add_files "$finn_rtllib/dwc/hdl/axis_fifo_adapter.sv"
+
+
+
+# Adding the static portion of the design
+set output [exec $::env(XILINX_VIVADO)/tps/lnx64/python-$pyv/bin/python3 "$build_dir/gen_bd_wrapper.py" "$build_dir/hdl"]
+set output [exec $::env(XILINX_VIVADO)/tps/lnx64/python-$pyv/bin/python3 "$build_dir/gen_top_wrapper.py" "$build_dir/hdl"]
+set output [exec $::env(XILINX_VIVADO)/tps/lnx64/python-$pyv/bin/python3 "$build_dir/gen_role.py" "$build_dir/hdl"]
+add_files "$build_dir/hdl"
+
+# Export system header
+set output [exec $::env(XILINX_VIVADO)/tps/lnx64/python-$pyv/bin/python3 "$build_dir/extract_sys.py" "$hw_dir/hdl/infrastructure" "$export_dir" 1]
+
+if {"${TB_PATH}" != "0"} {
+    add_files "$hw_dir/tb"
+    add_files "${TB_PATH}"
+    set_property top tb_top [get_filesets sim_1]
+    set_property -name {xsim.simulate.runtime} -value {100000us} -objects [get_filesets sim_1]
+}
+
+# Top level
+set_property "top" "design_top" [current_fileset]
+add_files -norecurse -fileset [get_filesets constrs_1] "$hw_dir/constraints"
+
+# Create a project-local constraint file to take debugging constraints that we
+# don't want to propagate to the repository.
+file mkdir "$proj_dir/$project.srcs/constrs_1"
+close [ open "$proj_dir/$project.srcs/constrs_1/local.xdc" w ]
+
+set_property target_constrs_file "$proj_dir/$project.srcs/constrs_1/local.xdc" [current_fileset -constrset]
+
+########################################################################################################
+# IPREPO
+########################################################################################################
+
+set curr_ip_repo_paths [get_property ip_repo_paths [current_project]]
+lappend curr_ip_repo_paths $hw_dir/ip_cips
+lappend curr_ip_repo_paths ${CORE_PATH}
+set_property ip_repo_paths $curr_ip_repo_paths [current_project]
+update_ip_catalog
+
+########################################################################################################
+# BLOCK DESIGN CIPS
+########################################################################################################
+
+source "$build_dir/cr_bd.tcl" -notrace
+cr_bd_design_static ""
+set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [get_files design_static.bd ]
+
+########################################################################################################
+# IP CORES
+########################################################################################################
+
+source "$build_dir/inst_ip.tcl" -notrace
+create_ip -name ${CORE_IP_NAME} -vendor xilinx_finn -library finn -version 1.0 -module_name ${CORE_INST_NAME}
+
+########################################################################################################
+# RECONFIGURATION
+########################################################################################################
+
+if {${EN_SEG_RECONFIG} eq 1} {
+    set_property segmented_configuration true [current_project]
+}
+
+########################################################################################################
+# CUSTOM PROJECT SCRIPT
+########################################################################################################
+
+if {"${SCR_PATH}" != 0} {
+    source "${SCR_PATH}"
+}
+
+########################################################################################################
+# STATIC PROJECT CREATED
+########################################################################################################
+close_project
+
+put  ""
+puts "[color $clr_flow "** Project created"]"
+puts "[color $clr_flow "**"]"
+
+########################################################################################################
+
+} errorstring]} {
+    puts "[color $clr_error "** CERR: $errorstring"]"
+    puts "[color $clr_error "**"]"
+    exit 1
+}
+
+exit 0

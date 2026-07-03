@@ -48,6 +48,7 @@ cfg = build.DataflowBuildConfig(
     synth_clk_period_ns=10.0,
     board=platform_name,
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+    debug_fifo=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.PYNQ_DRIVER,
         build_cfg.DataflowOutputType.STITCHED_IP,

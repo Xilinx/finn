@@ -1798,7 +1798,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
@@ -1830,7 +1830,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             name="MVAU_" + n.name,
-                            dynamic_input=W is None,
+                            mem_mode="dynamic" if W is None else "internal_decoupled",
                             inFIFODepths=[2, 2] if W is None else [2],
                         )
                         graph.node.insert(node_ind, new_node)
@@ -2016,8 +2016,6 @@ class InferHWSoftmax(Transformation):
                     name=n.name,
                     SIMD=1,
                     NumChannels=input_shape[-1],
-                    cpp_interface="hls_vector",
-                    hls_style="freerunning",
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(n)

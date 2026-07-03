@@ -45,7 +45,10 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
 )
-from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
+from finn.builder.build_dataflow_steps import (
+    _maybe_enable_verify_behavioral,
+    build_dataflow_step_lookup,
+)
 
 
 # adapted from https://stackoverflow.com/a/39215961
@@ -190,6 +193,8 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
+
+    _maybe_enable_verify_behavioral(cfg)
 
     # Run configuration checks
     config_report = run_all_config_checks(cfg)

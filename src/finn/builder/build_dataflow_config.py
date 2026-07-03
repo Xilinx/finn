@@ -277,6 +277,13 @@ class DataflowBuildConfig:
     #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
 
+    #: During Streamlining it might happen that a channelwise operator gets merged into
+    #: a per-tensor thresholding node, that changes the first dim of the threshold array
+    #: from 1 to number of channels.
+    #: Setting this parameter to True will prevent this but please note that this might
+    #: result in additional standalone floating point operations that need to be implemented
+    preserve_thresh_shape: Optional[bool] = False
+
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
     #: If set to False, the folding_config_file can be used to specify sizes
@@ -303,9 +310,13 @@ class DataflowBuildConfig:
     #: Default is 2
     fifosim_n_inferences: Optional[int] = 2
 
-    #: Enable saving waveforms from simulation-based FIFO sizing
-    #: Only relevant if auto_fifo_strategy = LARGEFIFO_RTLSIM
+    #: Enable saving waveforms from simulation-based FIFO sizing.
+    #: Applies to the LARGEFIFO_RTLSIM strategy as well as the characterize
+    #: strategy (used for MLO/FINNLoop models), where it traces the per-node
+    #: characterization simulations.
     fifosim_save_waveform: Optional[bool] = False
+
+    debug_fifo: Optional[bool] = False
 
     #: Target clock frequency (in nanoseconds) for Vitis HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -381,6 +392,13 @@ class DataflowBuildConfig:
     #: If set to True, FIFOs with impl_style=vivado will be kept during
     #: rtlsim, otherwise they will be replaced by RTL implementations.
     rtlsim_use_vivado_comps: Optional[bool] = True
+
+    #: Use behavioral simulation for RTLSim verification steps.
+    #: When True, passes -define FINN_SIMULATION to xelab, enabling faster
+    #: behavioral models for DSP-heavy modules (MVU, LayerNorm, Elementwise)
+    #: and fifo_gauge (with debug capabilities) instead of Q_srl.
+    #: Does not affect FIFO sizing which always uses behavioral simulation.
+    verify_rtlsim_behavioral: Optional[bool] = False
 
     #: If set to True, the FINN compiler tries to create an MLO design based on
     #: loop_body_hierarchy and loop_body_range

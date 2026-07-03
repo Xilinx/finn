@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+import re
+import os
+import sys
+from pathlib import Path
+from typing import List, Tuple
+
+# ------------- CMake-substituted constants (keep this section exactly as literals) -------------
+# Memory/streams
+en_strm      = ${EN_STRM}
+n_hbm_pl     = ${N_HBM_PL_PORTS}
+n_hbm_noc    = ${N_HBM_NOC_PORTS}
+mem_offs     = 0x${HBM_OFFS}
+mem_rng      = 0x${HBM_RNG}
+# Optional CSR base (if you use it elsewhere)
+csr_offs     = 0x${CSR_OFFS}
+
+# Global IO lengths & widths (from your CMake parser)
+ilen         = ${ILEN}
+olen         = ${OLEN}
+ilen_bits    = ${ILEN_BITS}
+olen_bits    = ${OLEN_BITS}
+gi_dtype     = "${GI_DTYPE}"
+go_dtype     = "${GO_DTYPE}"
+
+# MLO (from your CMake parser) — keep as 0/1 and present as bool in header
+kmlo         = ${MLO}
+
+# CORE arrays (CMake must provide *_CSV helpers)
+# - CORE_IDS_CSV: e.g. "2, 5, 8, 10, 17, 18"
+# - CORE_MHMW_CSV: e.g. "4096, 4096, 4096, 4096, 16384, 16384"
+# - CORE_DTYPES_CSV: e.g. "\"INT8\", \"INT8\", \"INT8\", \"INT8\", \"INT8\", \"INT8\""
+core_ids     = [${CORE_IDS_CSV}]
+core_mhmw    = [${CORE_MHMW_CSV}]
+core_dtypes  = [${CORE_DTYPES_CSV}]
+core_count   = ${CORE_ID_COUNT}
+
+# ---------------------------------------------------------------------------------------------
+
+
+def parse_csr_defs(csr_dir: Path) -> List[Tuple[str, int]]:
+    """Parse localparam integer NAME = VALUE; lines between markers in csr.sv"""
+    sv = csr_dir / "csr.sv"
+    if not sv.exists():
+        raise FileNotFoundError(f"Missing CSR file: {sv}")
+    in_regmap = False
+    reg_defs: List[Tuple[str, int]] = []
+    for line in sv.read_text().splitlines():
+        if "// ! REGMAP_START !" in line:
+            in_regmap = True
+            continue
+        if "// ! REGMAP_END !" in line:
+            break
+        if in_regmap:
+            m = re.match(r"\s*localparam\s+integer\s+(\w+)\s*=\s*(\d+)\s*;", line)
+            if m:
+                name, value = m.groups()
+                reg_defs.append((name, int(value)))
+    return reg_defs
+
+
+def write_header(wr_path: Path, rd_csr: bool, reg_defs: List[Tuple[str, int]]):
+    n_hbm = int(n_hbm_pl) + int(n_hbm_noc)
+    n_host_banks = 0 if en_strm else 2
+    n_intf_banks = 1 if kmlo else 0
+    n_weight_banks = n_hbm - n_intf_banks - n_host_banks
+
+    out = []
+    out.append("#pragma once")
+    out.append("#include <array>")
+    out.append("#include <cstdint>")
+    out.append("")
+    out.append("// ---- Auto-generated ----")
+    out.append("")
+    out.append("// Host streams enabled")
+    out.append(f"inline constexpr bool HOST_STREAMS = { 'true' if en_strm else 'false' };")
+    out.append("")
+    out.append("// CSR / IO sizes")
+    out.append(f"inline constexpr bool CSR_EXPORTED = { 'true' if (rd_csr and len(reg_defs) > 0) else 'false' };")
+    out.append(f"inline constexpr int G_IN_LEN = {ilen};")
+    out.append(f"inline constexpr int G_OUT_LEN = {olen};")
+    out.append(f"inline constexpr int G_IN_BITS = {ilen_bits};")
+    out.append(f"inline constexpr int G_OUT_BITS = {olen_bits};")
+    out.append(f'inline constexpr const char* G_IN_DTYPE  = "{gi_dtype}";')
+    out.append(f'inline constexpr const char* G_OUT_DTYPE = "{go_dtype}";')
+    out.append(f"inline constexpr bool EN_MLO = { 'true' if kmlo else 'false' };")
+    out.append("")
+    out.append("// Memory")
+    out.append(f"inline constexpr int  N_HBM_PORTS = {n_hbm};")
+    out.append(f"inline constexpr auto CSR_OFFS    = 0x{csr_offs:08X}ull;")
+    out.append(f"inline constexpr auto HBM_OFFS    = 0x{mem_offs:08X}ull;")
+    out.append(f"inline constexpr auto HBM_CH_RNG  = 0x{mem_rng:08X}ull;")
+    out.append(f"inline constexpr int  N_HOST_BANKS = {n_host_banks};")
+    out.append(f"inline constexpr int  N_INTF_BANKS = {n_intf_banks};")
+    out.append(f"inline constexpr int  N_WEIGHT_BANKS = {n_weight_banks};")
+    if n_hbm > 0:
+        addrs = ", ".join([f"0x{mem_offs + i*mem_rng:08X}ull" for i in range(n_hbm)])
+        out.append(f"inline constexpr std::array<uint64_t, N_HBM_PORTS> BANK = {{ {addrs} }};")
+    else:
+        out.append("// No HBM ports")
+    out.append("")
+    out.append("// CORE")
+    out.append(f"inline constexpr int CORE_ID_COUNT = {core_count};")
+    if core_count > 0:
+        out.append(
+            "inline constexpr std::array<int, CORE_ID_COUNT> CORE_IDS = { " +
+            ", ".join(str(x) for x in core_ids) + " };"
+        )
+        out.append(
+            "inline constexpr std::array<uint32_t, CORE_ID_COUNT> CORE_MHMW = { " +
+            ", ".join(str(x) for x in core_mhmw) + " };"
+        )
+        out.append(
+            "inline constexpr std::array<const char*, CORE_ID_COUNT> CORE_DTYPES = { " +
+            ", ".join(f'"{x}"' for x in core_dtypes) + " };"
+        )
+    else:
+        out.append(
+            "inline constexpr std::array<int, 0> CORE_IDS = { };"
+        )
+        out.append(
+            "inline constexpr std::array<uint32_t, 0> CORE_MHMW = { };"
+        )
+        out.append(
+            "inline constexpr std::array<const char*, 0> CORE_DTYPES = { };"
+        )
+    out.append("")
+
+    if rd_csr and reg_defs:
+        out.append("// Register map")
+        out.append(f"inline constexpr int CSR_N_REGS = {len(reg_defs)};")
+        out.append("")
+        out.append("enum class RegMap {")
+        for i, (name, value) in enumerate(reg_defs):
+            comma = "," if i != len(reg_defs) - 1 else ""
+            out.append(f"    {name} = {value}{comma}")
+        out.append("};")
+        out.append("")
+        out.append("// Binding")
+        out.append("#ifdef BUILD_PYBIND")
+        out.append("#include <pybind11/pybind11.h>")
+        out.append("inline void bind_enum_regmap(pybind11::module_ &m) {")
+        out.append('    pybind11::enum_<RegMap>(m, "RegMap")')
+        for name, _ in reg_defs:
+            out.append(f'        .value("{name}", RegMap::{name})')
+        out.append("        .export_values();")
+        out.append("}")
+        out.append("#endif")
+        out.append("")
+    else:
+        out.append("// No CSR register map exported")
+        out.append("")
+
+    (wr_path / "extract_sys.hpp").write_text("\n".join(out))
+
+
+def extract_regs(rd_path: str, wr_path: str, rd_csr_flag):
+    # rd_csr_flag may be str/bool depending on caller; normalize to bool
+    rd_csr = bool(int(rd_csr_flag)) if isinstance(rd_csr_flag, str) else bool(rd_csr_flag)
+
+    # Optional CSR parse
+    reg_defs: List[Tuple[str, int]] = []
+    if rd_csr:
+        try:
+            reg_defs = parse_csr_defs(Path(rd_path))
+        except Exception as e:
+            print(f"[warn] CSR parse skipped: {e}", file=sys.stderr)
+            reg_defs = []
+
+    write_header(Path(wr_path), rd_csr, reg_defs)
+
+    # Console summary (handy in build logs)
+    n_hbm = int(n_hbm_pl) + int(n_hbm_noc)
+    print("-- extract_sys.hpp generated --")
+    print(f"HOST_STREAMS={en_strm}  EN_MLO={kmlo}")
+    print(f"ILEN={ilen} ({ilen_bits} bits)  OLEN={olen} ({olen_bits} bits)")
+    print(f"GI/GO dtypes: {gi_dtype}/{go_dtype}")
+    print(f"HBM: N_PL={n_hbm_pl} N_NOC={n_hbm_noc} N={n_hbm} OFFS=0x{mem_offs:08X} RNG=0x{mem_rng:08X}")
+    print(f"CORE: count={core_count} ids={core_ids} mhmw={core_mhmw} dtypes={core_dtypes}")
+    if rd_csr:
+        print(f"CSR: exported={bool(reg_defs)} regs={len(reg_defs)}")
+
+
+# Entry point (same call contract you already use)
+#   sys.argv[1] = rd_path (where csr.sv lives)
+#   sys.argv[2] = wr_path (output dir)
+#   sys.argv[3] = rd_csr  (0/1)
+if __name__ == "__main__":
+    if len(sys.argv) < 4:
+        print("Usage: gen.py <rd_path> <wr_path> <rd_csr(0|1)>", file=sys.stderr)
+        sys.exit(2)
+    extract_regs(sys.argv[1], sys.argv[2], sys.argv[3])

@@ -423,6 +423,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ):
                     # rename so it doesn't get overwritten
                     shutil.move(param_file, new_param_file)
+                    # also rename simd-flipped npy for external_mem MVAU nodes
+                    npy_file = "{}/input_1.npy".format(path)
+                    if os.path.isfile(npy_file):
+                        new_npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
+                        shutil.move(npy_file, new_npy_file)
                 elif param_node.op_type.startswith("Thresholding"):
                     # get all generated Thresholding dat files
                     pe = inst.get_nodeattr("PE")
@@ -463,6 +468,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             for line in infile:
                                 outfile.write(line)
                         os.remove(memblock_file)
+                # concatenate all .npy files together (simd-flipped for AXI-MM sim)
+                npy_parts = []
+                for iter in range(iteration):
+                    npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
+                    if os.path.isfile(npy_file):
+                        npy_parts.append(np.load(npy_file))
+                        os.remove(npy_file)
+                if npy_parts:
+                    combined_npy = np.concatenate(npy_parts, axis=1)
+                    npy_out = "{}/input1_{}_id_{}.npy".format(path, param_node.op_type, i + 1)
+                    np.save(npy_out, combined_npy)
                 # Replace the path for the dat files in the ipgen files if Eltwise
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
                 if param_node.op_type.startswith("Elementwise"):
@@ -582,6 +598,40 @@ class FINNLoop(HWCustomOp, RTLBackend):
         vivado_stitch_proj_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         cmd = []
+
+        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
+        olen_bits = self.get_outstream_width(0)
+        ilen_bits = self.get_instream_width(0)
+        data_bits = 256
+        # DWC write path: body output width -> DMA width (256)
+        dwc_sink_s_bytes = (olen_bits + 7) // 8
+        dwc_sink_m_bytes = data_bits // 8
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_sink",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
+            "generate_target all [get_ips if_dwc_sink]",
+        ]
+        # DWC read path: DMA width (256) -> body input width
+        dwc_source_s_bytes = data_bits // 8
+        dwc_source_m_bytes = (ilen_bits + 7) // 8
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_source",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
+            "generate_target all [get_ips if_dwc_source]",
+        ]
+
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
         # add RTL streamer IP
@@ -972,6 +1022,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
+        # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
+        # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
+        # the SystemVerilog final blocks that flush and close the fifo_gauge log
+        # files; without this the gauge logs are left unflushed/empty during
+        # characterization-based FIFO sizing.
+        cmd.append("create_bd_pin -dir I /%s/sim_finish" % self.onnx_node.name)
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
+            % (self.onnx_node.name, finn_ip_name)
+        )
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1013,6 +1074,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+        cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:

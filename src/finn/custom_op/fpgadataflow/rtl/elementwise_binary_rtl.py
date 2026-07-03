@@ -151,7 +151,6 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             "PE": pe,
             "OP": op_name,
             "B_SCALE": 1.0,
-            "FORCE_BEHAVIORAL": 0,
             "A_FLOAT": 1 if lhs_float else 0,
             "B_FLOAT": 1 if rhs_float else 0,
             "A_WIDTH": a_width,
@@ -497,27 +496,25 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
             )
 
+        if weight_file_mode == "decoupled_npy":
+            # save the weight stream as a real .npy array (consumed by the
+            # AXI-MM sim and by FINNLoop.generate_params, which concatenates
+            # per-iteration weight arrays). Must be a genuine numpy file, not
+            # the hex text used for the verilog .dat below.
+            np.save(weight_file_name, weight_tensor.reshape(1, -1, weight_tensor.shape[-1]))
+            return
+
         export_wdt = self.get_input_datatype(1)
         weight_width = self.get_instream_width(1)
         weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            shape = weight_tensor.shape
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
-        else:
-            weight_tensor_hex = pack_innermost_dim_as_hex_string(
-                weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
-                export_wdt,
-                weight_width_padded,
-                reverse_inner=True,
-                prefix="",
-            )
+        weight_tensor_hex = pack_innermost_dim_as_hex_string(
+            weight_tensor.reshape(1, -1, weight_tensor.shape[-1]),
+            export_wdt,
+            weight_width_padded,
+            reverse_inner=True,
+            prefix="",
+        )
 
         weight_stream = weight_tensor_hex.flatten()
         with open(weight_file_name, "w") as f:
