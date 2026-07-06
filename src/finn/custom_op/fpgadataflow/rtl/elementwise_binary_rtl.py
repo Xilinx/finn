@@ -482,19 +482,15 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
             )
 
         if weight_file_mode == "decoupled_verilog_dat":
-            num_w_reps = np.prod(self.calc_numInputVectors())
-            base_wmem = super().calc_wmem()
+            # ROM holds SETS*DEPTH = base_wmem * (mlo or 1) entries. Under MLO,
+            # replicate the per-iteration weights across the mlo weight sets;
+            # activation replay within an iteration is handled by ROM addressing.
             mlo = self.get_nodeattr("mlo_max_iter")
-            if mlo and base_wmem > 1:
-                # In MLO mode, tile only enough to match per-iteration
-                # consumption (num_w_reps entries).  base_wmem entries
-                # already exist, so tile by num_w_reps / base_wmem.
-                tile_factor = int(num_w_reps // base_wmem)
-            else:
-                tile_factor = int(num_w_reps)
-            weight_tensor = np.tile(
-                weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
-            )
+            tile_factor = int(mlo) if mlo else 1
+            if tile_factor > 1:
+                weight_tensor = np.tile(
+                    weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
+                )
 
         if weight_file_mode == "decoupled_npy":
             # save the weight stream as a real .npy array (consumed by the
@@ -522,12 +518,10 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 f.write(val + "\n")
 
     def calc_wmem(self):
-        base_wmem = super().calc_wmem()
-        num_w_reps = np.prod(self.calc_numInputVectors())
-        mlo = self.get_nodeattr("mlo_max_iter")
-        if mlo:
-            return int(num_w_reps)
-        return int(base_wmem * num_w_reps)
+        # DEPTH = distinct weights in the memstream ROM. Replay across the
+        # activation stream is done by the ROM address logic (non-MLO: wrap;
+        # MLO: SETS=mlo_max_iter). Do NOT multiply by activation consumption.
+        return int(super().calc_wmem())
 
     def calc_numInputVectors(self):
         folded_lhs = self.get_folded_input_shape(0)
