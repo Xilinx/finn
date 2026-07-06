@@ -188,7 +188,8 @@ set_property -dict [list \
   CONFIG.C_NUM_PERP_ARESETN {1} \
 ] [get_ips proc_sys_reset_lcl]
 
-# Debug
+# Debug (optional, gated by EN_DBG; off by default)
+if {${EN_DBG}} {
 create_ip -name axis_vio -vendor xilinx.com -library ip -version 1.0 -module_name vio_dbg
 set_property -dict [list \
   CONFIG.C_EN_PROBE_IN_ACTIVITY {1} \
@@ -200,3 +201,4 @@ set_property -dict [list \
   CONFIG.C_PROBE_IN8_WIDTH {32} \
   CONFIG.C_PROBE_IN9_WIDTH {32} \
 ] [get_ips vio_dbg]
+}

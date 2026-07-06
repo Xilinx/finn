@@ -48,15 +48,44 @@ function(create_all)
 
   find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
   find_package(pybind11 REQUIRED)
-  if(EXISTS "/opt/libtorch")
-    list(APPEND CMAKE_PREFIX_PATH "/opt/libtorch")
-  endif()
-  find_package(Torch REQUIRED)
 
-  # torch_python is present in LibTorch CPU builds; optional elsewhere
+  # ---- LibTorch discovery (CPU, straight from the installed torch wheel) ----
+  # The environment ships a CUDA torch wheel (e.g. 2.8.0+cu126) with no CUDA
+  # toolkit, so find_package(Torch) fails in Caffe2Config, which hard-requires
+  # the CUDA libraries. The bindings only use CPU tensor ops, and the CPU shared
+  # libs (libtorch / libtorch_cpu / libc10 / libtorch_python) ship inside the
+  # wheel. The module is also loaded into this very interpreter, so discovering
+  # torch via `import torch` guarantees ABI/version match with the runtime torch.
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c
+      "import os, torch; print(os.path.dirname(torch.__file__))"
+    OUTPUT_VARIABLE TORCH_INSTALL_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _torch_probe_rc)
+  if(NOT _torch_probe_rc EQUAL 0 OR NOT EXISTS "${TORCH_INSTALL_PREFIX}")
+    message(FATAL_ERROR "Could not locate the installed torch package via ${Python3_EXECUTABLE}.")
+  endif()
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c
+      "import torch; print(1 if torch._C._GLIBCXX_USE_CXX11_ABI else 0)"
+    OUTPUT_VARIABLE TORCH_CXX11_ABI
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+  set(TORCH_INCLUDE_DIRS
+    "${TORCH_INSTALL_PREFIX}/include"
+    "${TORCH_INSTALL_PREFIX}/include/torch/csrc/api/include")
+  set(TORCH_LIB_DIR "${TORCH_INSTALL_PREFIX}/lib")
+  find_library(TORCH_LIB     NAMES torch     HINTS "${TORCH_LIB_DIR}" NO_DEFAULT_PATH REQUIRED)
+  find_library(TORCH_CPU_LIB NAMES torch_cpu HINTS "${TORCH_LIB_DIR}" NO_DEFAULT_PATH REQUIRED)
+  find_library(C10_LIB       NAMES c10       HINTS "${TORCH_LIB_DIR}" NO_DEFAULT_PATH REQUIRED)
+  set(TORCH_LIBRARIES ${TORCH_LIB} ${TORCH_CPU_LIB} ${C10_LIB})
+  message(STATUS "** LibTorch (CPU) from wheel: ${TORCH_INSTALL_PREFIX} (CXX11_ABI=${TORCH_CXX11_ABI})")
+
+  # torch_python provides the pybind11 <-> at::Tensor casters used via
+  # <torch/extension.h>; it ships in the wheel.
   find_library(TORCH_PYTHON_LIBRARY
     NAMES torch_python
-    HINTS "${TORCH_INSTALL_PREFIX}/lib" ${TORCH_LIBRARY_DIRS}
+    HINTS "${TORCH_LIB_DIR}"
     NO_DEFAULT_PATH)
 
   file(GLOB V80_C_SOURCES   CONFIGURE_DEPENDS "${V80_SHELL_DIR}/sw/libc/*.c")
@@ -72,6 +101,7 @@ function(create_all)
     "${V80_PUBLIC_INC}" "${V80_GEN_INC}" ${TORCH_INCLUDE_DIRS})
   target_compile_definitions(sw_python PRIVATE
     BUILD_PYBIND _FILE_OFFSET_BITS=64 _GNU_SOURCE _LARGE_FILE_SOURCE
+    _GLIBCXX_USE_CXX11_ABI=${TORCH_CXX11_ABI}
     BW_CONFIG_PATH="${EXPORT_DIR}/config/xfer_config.txt")
   target_link_libraries(sw_python PRIVATE aio rt pthread ${TORCH_LIBRARIES})
   if(TORCH_PYTHON_LIBRARY)
@@ -79,5 +109,7 @@ function(create_all)
   endif()
   set_target_properties(sw_python PROPERTIES
     OUTPUT_NAME v80_rt
-    LIBRARY_OUTPUT_DIRECTORY "${SW_ROOT}/python")
+    LIBRARY_OUTPUT_DIRECTORY "${SW_ROOT}/python"
+    BUILD_RPATH "${TORCH_LIB_DIR}"
+    INSTALL_RPATH "${TORCH_LIB_DIR}")
 endfunction()

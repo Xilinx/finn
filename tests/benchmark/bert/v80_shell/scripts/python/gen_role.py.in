@@ -11,6 +11,7 @@ def generate_axi_top(path):
     num_hbm_ports = ${N_HBM_PORTS}
     en_strm = ${EN_STRM}
     en_mlo = ${MLO}
+    en_dbg = ${EN_DBG}
     core_ids = [${CORE_IDS_CSV}]
 
     role_inst = ""
@@ -201,6 +202,65 @@ def generate_axi_top(path):
             );
         """
 
+    # Debug (VIO core + status counters). Optional, gated by en_dbg (off by
+    # default): the VIO pulls in the debug hub (extra .ltx, reset fanout) and is
+    # only needed for interactive bring-up.
+    debug_block = ""
+    if en_dbg:
+        debug_block = """
+    // ================-----------------------------------------------------------------
+    // DEBUG
+    // ================-----------------------------------------------------------------
+
+    logic [31:0] cnt_core_in_beats, cnt_core_out_beats;
+    logic [31:0] cnt_start_rd, cnt_start_wr;
+    logic [31:0] cnt_done_rd, cnt_done_wr;
+    logic clear_status;
+
+    vio_dbg inst_vio_dbg (
+        .clk(aclk),
+        .probe_in0(axis_dma_rd.tvalid),
+        .probe_in1(axis_dma_rd.tready),
+        .probe_in2(cnt_core_in_beats), // 32
+        .probe_in3(axis_dma_wr.tvalid),
+        .probe_in4(axis_dma_wr.tready),
+        .probe_in5(cnt_core_out_beats), // 32
+        .probe_in6(cnt_start_rd), // 32
+        .probe_in7(cnt_start_wr), // 32
+        .probe_in8(cnt_done_rd), // 32
+        .probe_in9(cnt_done_wr), // 32
+        .probe_out0(clear_status)
+    );
+
+    always_ff @(posedge aclk) begin
+        if(~aresetn) begin
+            cnt_core_in_beats <= 0;
+            cnt_core_out_beats <= 0;
+            cnt_start_rd <= 0;
+            cnt_start_wr <= 0;
+            cnt_done_rd <= 0;
+            cnt_done_wr <= 0;
+        end
+        else begin
+            if(clear_status) begin
+                cnt_core_in_beats <= 0;
+                cnt_core_out_beats <= 0;
+                cnt_start_rd <= 0;
+                cnt_start_wr <= 0;
+                cnt_done_rd <= 0;
+                cnt_done_wr <= 0;
+            end else begin
+                cnt_core_in_beats <= axis_dma_rd.tvalid && axis_dma_rd.tready ? cnt_core_in_beats + 1 : cnt_core_in_beats;
+                cnt_core_out_beats <= axis_dma_wr.tvalid && axis_dma_wr.tready ? cnt_core_out_beats + 1 : cnt_core_out_beats;
+                cnt_start_rd <= rd_ctrl.tvalid && rd_ctrl.tready ? cnt_start_rd + 1 : cnt_start_rd;
+                cnt_start_wr <= wr_ctrl.tvalid && wr_ctrl.tready ? cnt_start_wr + 1 : cnt_start_wr;
+                cnt_done_rd <= rd_done ? cnt_done_rd + 1 : cnt_done_rd;
+                cnt_done_wr <= wr_done ? cnt_done_wr + 1 : cnt_done_wr;
+            end
+        end
+    end
+"""
+
     #
     # Top-level Verilog template
     #
@@ -318,58 +378,7 @@ def generate_axi_top(path):
     // OFFSETS
     // ================-----------------------------------------------------------------
     {hbm_offsets}
-
-    // ================-----------------------------------------------------------------
-    // DEBUG
-    // ================-----------------------------------------------------------------
-
-    logic [31:0] cnt_core_in_beats, cnt_core_out_beats;
-    logic [31:0] cnt_start_rd, cnt_start_wr;
-    logic [31:0] cnt_done_rd, cnt_done_wr;
-    logic clear_status;
-
-    vio_dbg inst_vio_dbg (
-        .clk(aclk),
-        .probe_in0(axis_dma_rd.tvalid),
-        .probe_in1(axis_dma_rd.tready),
-        .probe_in2(cnt_core_in_beats), // 32
-        .probe_in3(axis_dma_wr.tvalid),
-        .probe_in4(axis_dma_wr.tready),
-        .probe_in5(cnt_core_out_beats), // 32
-        .probe_in6(cnt_start_rd), // 32
-        .probe_in7(cnt_start_wr), // 32
-        .probe_in8(cnt_done_rd), // 32
-        .probe_in9(cnt_done_wr), // 32
-        .probe_out0(clear_status)
-    );
-
-    always_ff @(posedge aclk) begin
-        if(~aresetn) begin
-            cnt_core_in_beats <= 0;
-            cnt_core_out_beats <= 0;
-            cnt_start_rd <= 0;
-            cnt_start_wr <= 0;
-            cnt_done_rd <= 0;
-            cnt_done_wr <= 0;
-        end
-        else begin
-            if(clear_status) begin
-                cnt_core_in_beats <= 0;
-                cnt_core_out_beats <= 0;
-                cnt_start_rd <= 0;
-                cnt_start_wr <= 0;
-                cnt_done_rd <= 0;
-                cnt_done_wr <= 0;
-            end else begin
-                cnt_core_in_beats <= axis_dma_rd.tvalid && axis_dma_rd.tready ? cnt_core_in_beats + 1 : cnt_core_in_beats;
-                cnt_core_out_beats <= axis_dma_wr.tvalid && axis_dma_wr.tready ? cnt_core_out_beats + 1 : cnt_core_out_beats;
-                cnt_start_rd <= rd_ctrl.tvalid && rd_ctrl.tready ? cnt_start_rd + 1 : cnt_start_rd;
-                cnt_start_wr <= wr_ctrl.tvalid && wr_ctrl.tready ? cnt_start_wr + 1 : cnt_start_wr;
-                cnt_done_rd <= rd_done ? cnt_done_rd + 1 : cnt_done_rd;
-                cnt_done_wr <= wr_done ? cnt_done_wr + 1 : cnt_done_wr;
-            end
-        end
-    end
+    {debug_block}
 
     endmodule
     """)

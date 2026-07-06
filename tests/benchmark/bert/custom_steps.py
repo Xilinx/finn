@@ -483,6 +483,8 @@ def _build_v80_hw_vars(cfg: Any, stitched_ip_dir: Path, metadata: dict, build_di
         "UCLK_2_F": 100,
         # Streams
         "EN_STRM": 0,
+        # Debug. Off by default.
+        "EN_DBG": 0,
         # Memory
         "N_HBM_PL_PORTS_MAX": 16,
         "BW_PL_HBM_RD": 8500,
