@@ -88,9 +88,10 @@ class Pad1D(HWCustomOp):
         valid_shapes = {(1, max(1, pad_count), num_channels)}
         if pad_count > 1:
             valid_shapes.add((1, 1, num_channels))
-        assert tuple(shape) in valid_shapes, (
-            "Pad1D %s pad shape must be one of %s, got %s"
-            % (self._get_pad_side_name(ind), sorted(valid_shapes), tuple(shape))
+        assert tuple(shape) in valid_shapes, "Pad1D %s pad shape must be one of %s, got %s" % (
+            self._get_pad_side_name(ind),
+            sorted(valid_shapes),
+            tuple(shape),
         )
 
     def get_normal_input_shape(self, ind=0):
@@ -133,9 +134,9 @@ class Pad1D(HWCustomOp):
 
         for ind in [1, 2]:
             if len(self.onnx_node.input) <= ind:
-                assert self._get_pad_count(ind) == 0, (
-                    "Pad1D %s padding requires input index %d"
-                    % (self._get_pad_side_name(ind), ind)
+                assert self._get_pad_count(ind) == 0, "Pad1D %s padding requires input index %d" % (
+                    self._get_pad_side_name(ind),
+                    ind,
                 )
                 continue
 
@@ -215,7 +216,9 @@ class Pad1D(HWCustomOp):
             return np.zeros((1, 0, num_channels), dtype=np.float32)
 
         if len(self.onnx_node.input) <= ind:
-            raise Exception("Pad1D %s padding requires input index %d" % (self._get_pad_side_name(ind), ind))
+            raise Exception(
+                "Pad1D %s padding requires input index %d" % (self._get_pad_side_name(ind), ind)
+            )
 
         pad_values = np.asarray(context[self.onnx_node.input[ind]], dtype=np.float32)
         self._validate_pad_shape(pad_values.shape, ind)
