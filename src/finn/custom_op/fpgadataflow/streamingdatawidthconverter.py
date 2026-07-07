@@ -97,10 +97,9 @@ class StreamingDataWidthConverter(HWCustomOp):
             return tuple(shape[:-1] + [int(channels // elems), elems])
 
         total_elems = int(np.prod(shape))
-        assert total_elems % elems == 0, (
-            "DWC stream width with %d elements does not divide tensor shape %s"
-            % (elems, str(shape))
-        )
+        assert (
+            total_elems % elems == 0
+        ), "DWC stream width with %d elements does not divide tensor shape %s" % (elems, str(shape))
         return (int(total_elems // elems), elems)
 
     def get_folded_input_shape(self, ind=0):

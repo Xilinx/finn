@@ -73,9 +73,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
                 numMiddleWords % (outWidth // elemWidth) == 0
             ), "Error in DWC element-width split calculation"
             self.code_gen_dict["$DEFINES$"].append("#define IntermediateWidth %d" % elemWidth)
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define NumMiddleWords %d" % numMiddleWords
-            )
+            self.code_gen_dict["$DEFINES$"].append("#define NumMiddleWords %d" % numMiddleWords)
         elif self.needs_lcm():
             lcmWidth = self.get_iowidth_lcm()
             assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
@@ -98,8 +96,7 @@ class StreamingDataWidthConverter_hls(StreamingDataWidthConverter, HLSBackend):
         if self._needs_element_width_split():
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 'hls::stream<ap_uint<IntermediateWidth>> intermediate ("intermediate");',
-                "%s<InWidth, IntermediateWidth, NumInWords>(in0_V, intermediate, numReps);"
-                % op,
+                "%s<InWidth, IntermediateWidth, NumInWords>(in0_V, intermediate, numReps);" % op,
                 "%s<IntermediateWidth, OutWidth, NumMiddleWords>(intermediate, out0_V, numReps);"
                 % op,
             ]
