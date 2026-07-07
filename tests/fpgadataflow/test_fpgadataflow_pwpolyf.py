@@ -24,7 +24,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.torch_hw_modules import PWPolyFActivation
+from finn.util.torch_hw_modules import PWPolyFActivation, _threshold_boundaries
 
 test_fpga_part = "xcvc1902-vsva2197-2MP-e-S"
 non_versal_fpga_part = "xczu3eg-sbva484-1-e"
@@ -63,6 +63,11 @@ def make_pwpolyf_modelwrapper(func, K, num_channels, num_input_vecs):
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
     return model
+
+
+def make_threshold_partition_string(K, keep_every=4):
+    boundaries = _threshold_boundaries(K)[::keep_every]
+    return ",".join("%.9g" % float(x) for x in boundaries)
 
 
 def make_pwpolyf_rtl_inst(K=3, degree=2):
@@ -105,6 +110,33 @@ def test_pwpolyf_cppsim(func, num_channels, num_input_vecs, fold):
     assert np.allclose(y_produced, y_expected, atol=1e-6)
 
 
+@pytest.mark.parametrize("func", ["gelu", "sigmoid"])
+@pytest.mark.parametrize("partition_boundaries", ["", make_threshold_partition_string(3)])
+@pytest.mark.fpgadataflow
+def test_pwpolyf_threshold_partition_cppsim(func, partition_boundaries):
+    K = 3
+    num_channels = 16
+    model = make_pwpolyf_modelwrapper(func, K, num_channels, [1])
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("partitionMode", "threshold")
+    inst.set_nodeattr("partitionBoundaries", partition_boundaries)
+
+    x = np.random.uniform(-7.9, 7.9, (1, num_channels)).astype(np.float32)
+    y_produced = oxe.execute_onnx(model, {"inp": x})["outp"]
+
+    ref_boundaries = inst.get_partition_boundaries()
+    ref_mod = PWPolyFActivation(
+        func,
+        K=K,
+        partition_mode="threshold",
+        partition_boundaries=ref_boundaries,
+    )
+    with torch.no_grad():
+        y_expected = ref_mod(torch.from_numpy(x)).numpy()
+    assert np.allclose(y_produced, y_expected, atol=1e-6)
+
+
 @pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_onnx_export(func):
@@ -140,6 +172,7 @@ def test_pwpolyf_onnx_export(func):
     assert func_attr["func"].s.decode("utf-8") == func
     assert func_attr["K"].i == K
     assert func_attr["degree"].i == degree
+    assert func_attr["partitionMode"].s.decode("utf-8") == "bit"
 
 
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
@@ -196,6 +229,50 @@ def test_pwpolyf_infer_transform(func):
     assert np.allclose(y_produced, y_expected, atol=1e-6)
 
 
+@pytest.mark.fpgadataflow
+def test_pwpolyf_infer_transform_threshold_partition_attrs():
+    K = 3
+    degree = 2
+    num_channels = 16
+    boundaries = make_threshold_partition_string(K)
+    mod = PWPolyFActivation(
+        "gelu",
+        K=K,
+        degree=degree,
+        partition_mode="threshold",
+        partition_boundaries=boundaries,
+    )
+    mod.eval()
+    dummy = torch.randn(1, num_channels)
+
+    with tempfile.NamedTemporaryFile(suffix=".onnx", delete=False) as f:
+        tmpf = f.name
+    try:
+        torch.onnx.export(
+            mod,
+            dummy,
+            tmpf,
+            input_names=["inp"],
+            output_names=["outp"],
+            opset_version=13,
+            dynamo=False,
+        )
+        model = ModelWrapper(tmpf)
+    finally:
+        os.unlink(tmpf)
+
+    model = model.transform(InferPWPolyFLayer())
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+
+    assert inst.get_nodeattr("partitionMode") == "threshold"
+    assert inst.get_nodeattr("partitionBoundaries") == boundaries
+    assert np.allclose(
+        inst.get_partition_boundaries(),
+        np.asarray([float(x) for x in boundaries.split(",")], dtype=np.float32),
+    )
+
+
 @pytest.mark.parametrize("func", ["gelu", "silu", "sigmoid", "tanh"])
 @pytest.mark.fpgadataflow
 def test_pwpolyf_specialize_rtl(func):
@@ -238,6 +315,21 @@ def test_pwpolyf_resource_estimates(func, pe, degree, K, bram18_per_coeff_rom):
     assert inst.lut_estimation() == 100 * degree * pe
     assert inst.bram_estimation() == max(degree - 1, 0) * pe * bram18_per_coeff_rom
     assert inst.uram_estimation() == 0
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_threshold_partition_resource_estimate():
+    num_channels = 8
+    model = make_pwpolyf_modelwrapper("gelu", 3, num_channels, [1])
+    node = model.graph.node[0]
+    inst = getCustomOp(node)
+    inst.set_nodeattr("PE", 2)
+    inst.set_nodeattr("degree", 2)
+    inst.set_nodeattr("partitionMode", "threshold")
+    inst.set_nodeattr("partitionBoundaries", make_threshold_partition_string(3))
+
+    threshold_count = len(inst.get_partition_boundaries())
+    assert inst.lut_estimation() == 100 * 2 * 2 + threshold_count * 2
 
 
 @pytest.mark.parametrize("func", ["gelu", "sigmoid"])
@@ -609,6 +701,24 @@ def test_pwpolyf_generate_coeffs_pkg_degree(degree):
     for line in seg_lines:
         hex_vals = [s for s in line.split() if s.startswith("32'h")]
         assert len(hex_vals) == degree + 1
+
+
+@pytest.mark.fpgadataflow
+def test_pwpolyf_generate_coeffs_pkg_threshold_partition():
+    K = 3
+    inst = make_pwpolyf_rtl_inst(K=K, degree=2)
+    boundaries = make_threshold_partition_string(K)
+    inst.set_nodeattr("partitionMode", "threshold")
+    inst.set_nodeattr("partitionBoundaries", boundaries)
+
+    pkg = inst._generate_coeffs_pkg()
+    threshold_count = len(inst.get_partition_boundaries())
+
+    assert "USE_THRESHOLD_PARTITION = 1'b1;" in pkg
+    assert "NUM_SEGS    = %d;" % (threshold_count + 1) in pkg
+    assert "NUM_THRESHOLDS = %d;" % threshold_count in pkg
+    assert "THRESHOLDS[NUM_THRESHOLDS]" in pkg
+    assert pkg.count("// threshold") == threshold_count
 
 
 # ---------- generate_hdl smoketests ----------

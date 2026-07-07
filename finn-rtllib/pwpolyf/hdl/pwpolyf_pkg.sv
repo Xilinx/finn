@@ -26,6 +26,91 @@ package pwpolyf_pkg;
 	localparam int unsigned  K           = 3;
 	localparam int unsigned  NUM_OCTAVES = 5;
 	localparam int unsigned  NUM_SEGS    = 81;
+	localparam int unsigned  NUM_THRESHOLDS = 80;
+	localparam bit           USE_THRESHOLD_PARTITION = 1'b0;
+
+	localparam int unsigned  THRESHOLDS[NUM_THRESHOLDS] = '{
+		32'hC0F00000,	// threshold 0
+		32'hC0E00000,	// threshold 1
+		32'hC0D00000,	// threshold 2
+		32'hC0C00000,	// threshold 3
+		32'hC0B00000,	// threshold 4
+		32'hC0A00000,	// threshold 5
+		32'hC0900000,	// threshold 6
+		32'hC0800000,	// threshold 7
+		32'hC0700000,	// threshold 8
+		32'hC0600000,	// threshold 9
+		32'hC0500000,	// threshold 10
+		32'hC0400000,	// threshold 11
+		32'hC0300000,	// threshold 12
+		32'hC0200000,	// threshold 13
+		32'hC0100000,	// threshold 14
+		32'hC0000000,	// threshold 15
+		32'hBFF00000,	// threshold 16
+		32'hBFE00000,	// threshold 17
+		32'hBFD00000,	// threshold 18
+		32'hBFC00000,	// threshold 19
+		32'hBFB00000,	// threshold 20
+		32'hBFA00000,	// threshold 21
+		32'hBF900000,	// threshold 22
+		32'hBF800000,	// threshold 23
+		32'hBF700000,	// threshold 24
+		32'hBF600000,	// threshold 25
+		32'hBF500000,	// threshold 26
+		32'hBF400000,	// threshold 27
+		32'hBF300000,	// threshold 28
+		32'hBF200000,	// threshold 29
+		32'hBF100000,	// threshold 30
+		32'hBF000000,	// threshold 31
+		32'hBEF00000,	// threshold 32
+		32'hBEE00000,	// threshold 33
+		32'hBED00000,	// threshold 34
+		32'hBEC00000,	// threshold 35
+		32'hBEB00000,	// threshold 36
+		32'hBEA00000,	// threshold 37
+		32'hBE900000,	// threshold 38
+		32'hBE800000,	// threshold 39
+		32'h3E800000,	// threshold 40
+		32'h3E900000,	// threshold 41
+		32'h3EA00000,	// threshold 42
+		32'h3EB00000,	// threshold 43
+		32'h3EC00000,	// threshold 44
+		32'h3ED00000,	// threshold 45
+		32'h3EE00000,	// threshold 46
+		32'h3EF00000,	// threshold 47
+		32'h3F000000,	// threshold 48
+		32'h3F100000,	// threshold 49
+		32'h3F200000,	// threshold 50
+		32'h3F300000,	// threshold 51
+		32'h3F400000,	// threshold 52
+		32'h3F500000,	// threshold 53
+		32'h3F600000,	// threshold 54
+		32'h3F700000,	// threshold 55
+		32'h3F800000,	// threshold 56
+		32'h3F900000,	// threshold 57
+		32'h3FA00000,	// threshold 58
+		32'h3FB00000,	// threshold 59
+		32'h3FC00000,	// threshold 60
+		32'h3FD00000,	// threshold 61
+		32'h3FE00000,	// threshold 62
+		32'h3FF00000,	// threshold 63
+		32'h40000000,	// threshold 64
+		32'h40100000,	// threshold 65
+		32'h40200000,	// threshold 66
+		32'h40300000,	// threshold 67
+		32'h40400000,	// threshold 68
+		32'h40500000,	// threshold 69
+		32'h40600000,	// threshold 70
+		32'h40700000,	// threshold 71
+		32'h40800000,	// threshold 72
+		32'h40900000,	// threshold 73
+		32'h40A00000,	// threshold 74
+		32'h40B00000,	// threshold 75
+		32'h40C00000,	// threshold 76
+		32'h40D00000,	// threshold 77
+		32'h40E00000,	// threshold 78
+		32'h40F00000	// threshold 79
+	};
 
 	typedef struct {
 		int unsigned  neg_clamp;

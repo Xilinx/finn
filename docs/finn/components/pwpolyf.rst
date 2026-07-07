@@ -12,10 +12,19 @@ single-cycle-per-element throughput. Per-function configuration, including
 clamping behaviour and polynomial coefficients, is delivered through a
 SystemVerilog package (``pwpolyf_pkg``) using a ``func_cfg_t`` struct.
 
-The input domain is partitioned into ``1 + 2*5*(2^K)`` segments: one near-zero
-region, positive octave sub-segments, and negative mirrors. With the default
-``K=3`` this gives 81 segments. Segment selection reuses the FP32 exponent and
-mantissa bit fields directly, matching the RTL implementation.
+By default, the input domain is partitioned into ``1 + 2*5*(2^K)`` segments:
+one near-zero region, positive octave sub-segments, and negative mirrors. With
+the default ``K=3`` this gives 81 segments. Segment selection reuses the FP32
+exponent and mantissa bit fields directly, matching the RTL implementation.
+
+An optional threshold partition mode is also available for experiments with
+non-uniform interval boundaries. In this mode, ``partitionMode="threshold"``
+selects segments by comparing the input against sorted FP32 boundaries stored
+in ``partitionBoundaries`` as a comma-separated string. If no boundaries are
+provided, FINN generates boundaries that match the default bit-extract segment
+edges, allowing like-for-like comparison of detector overhead. Custom
+boundaries must be strictly increasing and lie inside the clamped ``(-8, 8)``
+domain. Coefficients are regenerated over the resulting threshold intervals.
 
 Polynomial coefficients are generated at HDL build time by
 ``PWPolyF_rtl._generate_coeffs_pkg()``, which fits polynomials of the
@@ -130,8 +139,10 @@ Resource Estimates
 ------------------
 
 * DSP: ``degree * PE`` (one FP32 FMA stage per polynomial degree per PE)
-* LUT: approximately ``100 * degree * PE`` for segment address decode and
-  control
+* LUT: approximately ``100 * degree * PE`` for bit-extract segment address
+  decode and control. Threshold partitioning adds approximately
+  ``num_thresholds * PE`` LUTs for the FP32 PartDetect logic, calibrated from
+  Versal OOC synthesis for ``K=3``, ``degree=2``.
 * BRAM18: ``(degree - 1) * PE`` for default ``K=3``. Vivado infers delayed
   coefficient lookups as 32-bit ROMs.
 * URAM: 0
@@ -153,6 +164,12 @@ Attributes on the explicit PWPolyF ONNX node are:
 
 * ``func``: one of ``gelu``, ``silu``, ``sigmoid``, ``tanh``
 * ``K``: mantissa subdivision bits, default 3
+* ``degree``: polynomial degree, default 2
+* ``partitionMode``: ``bit`` for exponent/mantissa partitioning, or
+  ``threshold`` for sorted FP32 boundary comparison
+* ``partitionBoundaries``: comma-separated internal FP32 boundaries used when
+  ``partitionMode="threshold"``; empty means use boundaries matching the
+  default bit partition
 
 Node Attributes
 ---------------
@@ -173,6 +190,12 @@ Node Attributes
    * - ``degree``
      - int
      - Polynomial degree / FMA stages, default 2
+   * - ``partitionMode``
+     - string
+     - ``bit`` or ``threshold`` segment selection, default ``bit``
+   * - ``partitionBoundaries``
+     - string
+     - Comma-separated threshold-mode boundaries; empty uses bit-equivalent edges
    * - ``NumChannels``
      - int
      - Number of channels in the last input dimension

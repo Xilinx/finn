@@ -11,7 +11,8 @@
  *	Supports GELU, SiLU, Sigmoid, and Tanh via `parameter string FUNC`.
  *
  *	Approximated by piecewise degree-D polynomials over segments defined
- *	by FP32 bit-extraction, where D = DEGREE from pwpolyf_pkg.
+ *	by FP32 bit-extraction or generated FP32 thresholds, where D = DEGREE
+ *	from pwpolyf_pkg.
  *	Evaluated via Horner's method on a chain
  *	of D DSPFP32 instances, each computing FMA: out = C + A*B.
  *
@@ -146,6 +147,7 @@ module pwpolyf #(
 	localparam int unsigned  NUM_SUBS    = 1 << K;
 	localparam int unsigned  DSP_LAT     = 4;
 	localparam int unsigned  LATENCY     = DEGREE * DSP_LAT;
+	localparam int unsigned  SEG_BITS    = NUM_SEGS > 1? $clog2(NUM_SEGS) : 1;
 
 	initial begin
 		assert(DEGREE >= 1) else begin
@@ -167,6 +169,23 @@ module pwpolyf #(
 
 	//=== Clamping exponent threshold =========================================
 	localparam int unsigned  EXP_CLAMP = 130;  // |x| >= 8.0
+
+	//=== FP32 ordering helper for threshold partitioning =====================
+	function automatic logic fp32_le(input logic [31:0] lhs, input logic [31:0] rhs);
+		logic  mag_eq;
+		logic  mag_le;
+		begin
+			mag_eq = lhs[30:0] == rhs[30:0];
+			mag_le = lhs[30:0] <= rhs[30:0];
+			unique case({lhs[31], rhs[31]})
+			2'b00:  fp32_le = mag_le;
+			2'b01:  fp32_le = 0;
+			2'b10:  fp32_le = 1;
+			2'b11:  fp32_le = !mag_le || mag_eq;
+			default: fp32_le = 'x;
+			endcase
+		end
+	endfunction
 
 	//=== Input Sidestep Register =============================================
 	typedef logic [PE-1:0][31:0]  fp_vec_t;
@@ -221,13 +240,24 @@ module pwpolyf #(
 		uwire  is_neg_clamp =  sign && (exp_bits >= EXP_CLAMP);
 
 		// Segment index for ROM lookup
-		uwire [6:0]  seg_idx;
-		if(1) begin : blk_seg_idx
-			uwire [6:0]  pos_idx = 7'd1 + {1'b0, octave, sub};
-			uwire [6:0]  neg_idx = 7'(7'd1 + NUM_SUBS * NUM_OCTAVES) + {1'b0, octave, sub};
-			assign	seg_idx = is_near_zero? 7'd0 :
+		uwire [SEG_BITS-1:0]  seg_idx;
+		if(USE_THRESHOLD_PARTITION) begin : gen_threshold_seg_idx
+			logic [SEG_BITS-1:0]  threshold_idx;
+			always_comb begin
+				threshold_idx = '0;
+				for(int unsigned t = 0; t < NUM_THRESHOLDS; t++) begin
+					if(fp32_le(THRESHOLDS[t], xi))  threshold_idx = SEG_BITS'(t + 1);
+				end
+			end
+			assign	seg_idx = threshold_idx;
+		end : gen_threshold_seg_idx
+		else begin : gen_bit_seg_idx
+			uwire [SEG_BITS-1:0]  pos_idx = SEG_BITS'(1 + octave * NUM_SUBS + sub);
+			uwire [SEG_BITS-1:0]  neg_idx =
+				SEG_BITS'(1 + NUM_SUBS * NUM_OCTAVES + octave * NUM_SUBS + sub);
+			assign	seg_idx = is_near_zero? '0 :
 			                  sign? neg_idx : pos_idx;
-		end : blk_seg_idx
+		end : gen_bit_seg_idx
 
 		//--- Horner chain: DEGREE stages of pwpolyf_dspfp32 ------------------
 		// Stage 0: s[0] = coeff[DEGREE-1] + coeff[DEGREE] * x

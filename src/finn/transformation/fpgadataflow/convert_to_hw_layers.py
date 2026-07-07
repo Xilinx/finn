@@ -317,7 +317,18 @@ class InferPWPolyFLayer(Transformation):
         return (gelu_input, mul_x.output[0], nodes_to_remove)
 
     @staticmethod
-    def _make_pwpolyf_node(pwp_input, pwp_output, func, in_shape, idt, name, K=3, degree=2):
+    def _make_pwpolyf_node(
+        pwp_input,
+        pwp_output,
+        func,
+        in_shape,
+        idt,
+        name,
+        K=3,
+        degree=2,
+        partition_mode="bit",
+        partition_boundaries="",
+    ):
         num_channels = in_shape[-1]
         return helper.make_node(
             "PWPolyF",
@@ -328,6 +339,8 @@ class InferPWPolyFLayer(Transformation):
             func=func,
             K=K,
             degree=degree,
+            partitionMode=partition_mode,
+            partitionBoundaries=partition_boundaries,
             NumChannels=num_channels,
             PE=1,
             inputDataType=idt.name,
@@ -355,6 +368,20 @@ class InferPWPolyFLayer(Transformation):
                 K = K_attr.i if K_attr is not None else 3
                 degree_attr = get_by_name(node.attribute, "degree")
                 degree = degree_attr.i if degree_attr is not None else 2
+                partition_mode_attr = get_by_name(node.attribute, "partitionMode")
+                if partition_mode_attr is None:
+                    partition_mode_attr = get_by_name(node.attribute, "partition_mode")
+                if partition_mode_attr is None:
+                    partition_mode = "bit"
+                else:
+                    partition_mode = partition_mode_attr.s.decode("utf-8")
+                partition_boundaries_attr = get_by_name(node.attribute, "partitionBoundaries")
+                if partition_boundaries_attr is None:
+                    partition_boundaries_attr = get_by_name(node.attribute, "partition_boundaries")
+                if partition_boundaries_attr is None:
+                    partition_boundaries = ""
+                else:
+                    partition_boundaries = partition_boundaries_attr.s.decode("utf-8")
 
                 new_node = self._make_pwpolyf_node(
                     pwp_input,
@@ -365,6 +392,8 @@ class InferPWPolyFLayer(Transformation):
                     "PWPolyF_" + node.name,
                     K,
                     degree,
+                    partition_mode,
+                    partition_boundaries,
                 )
                 graph.node.insert(node_ind, new_node)
                 graph.node.remove(node)

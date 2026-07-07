@@ -20,6 +20,7 @@ EXP_BASE = 125
 EXP_CLAMP = 130
 
 SUPPORTED_FUNCS = ("gelu", "silu", "sigmoid", "tanh")
+PARTITION_MODES = ("bit", "threshold")
 
 REFERENCE_FUNCS = {
     "gelu": lambda x: F.gelu(x),
@@ -65,10 +66,84 @@ def _segment_boundaries(K):
     return bounds
 
 
-def _fit_coefficients(func_name, K, degree=2, num_samples=1000):
+def _threshold_boundaries(K):
+    """Return sorted threshold boundaries matching the bit-extract partition."""
+    endpoints = []
+    for lo, hi in _segment_boundaries(K):
+        endpoints.extend([lo, hi])
+    endpoints = sorted(set(endpoints))
+    return np.asarray(endpoints[1:-1], dtype=np.float32)
+
+
+def _serialize_threshold_boundaries(boundaries):
+    """Serialize threshold boundaries for use as an ONNX string attribute."""
+    if boundaries is None:
+        return ""
+    boundaries = np.asarray(boundaries, dtype=np.float32).reshape(-1)
+    return ",".join("%.9g" % float(x) for x in boundaries)
+
+
+def _parse_threshold_boundaries(boundaries):
+    """Parse a comma-separated threshold boundary string or sequence."""
+    if boundaries is None:
+        return None
+    if isinstance(boundaries, str):
+        boundaries = boundaries.strip()
+        if boundaries == "":
+            return None
+        ret = np.asarray([float(x.strip()) for x in boundaries.split(",")], dtype=np.float32)
+    else:
+        ret = np.asarray(boundaries, dtype=np.float32).reshape(-1)
+    return ret
+
+
+def _validate_threshold_boundaries(boundaries):
+    """Validate sorted finite internal boundaries for the clamped PWPolyF domain."""
+    boundaries = np.asarray(boundaries, dtype=np.float32).reshape(-1)
+    if boundaries.size == 0:
+        raise ValueError("Threshold partition requires at least one boundary.")
+    if not np.all(np.isfinite(boundaries)):
+        raise ValueError("Threshold partition boundaries must be finite.")
+    if not np.all(np.diff(boundaries) > 0):
+        raise ValueError("Threshold partition boundaries must be strictly increasing.")
+    if boundaries[0] <= -8.0 or boundaries[-1] >= 8.0:
+        raise ValueError("Threshold partition boundaries must lie strictly inside (-8.0, 8.0).")
+    return boundaries
+
+
+def _threshold_segment_boundaries(boundaries):
+    """Return (lo, hi) bounds for threshold-selected PWPolyF segments."""
+    boundaries = _validate_threshold_boundaries(boundaries)
+    endpoints = np.concatenate(
+        [
+            np.asarray([-8.0], dtype=np.float32),
+            boundaries,
+            np.asarray([8.0], dtype=np.float32),
+        ]
+    )
+    return [(float(endpoints[i]), float(endpoints[i + 1])) for i in range(len(endpoints) - 1)]
+
+
+def _fit_coefficients(
+    func_name,
+    K,
+    degree=2,
+    num_samples=1000,
+    partition_mode="bit",
+    partition_boundaries=None,
+):
     """Fit degree-N polynomials per segment. Returns a (segments, degree+1) tensor."""
     ref_fn = REFERENCE_FUNCS[func_name]
-    bounds = _segment_boundaries(K)
+    if partition_mode == "bit":
+        bounds = _segment_boundaries(K)
+    elif partition_mode == "threshold":
+        if partition_boundaries is None:
+            partition_boundaries = _threshold_boundaries(K)
+        bounds = _threshold_segment_boundaries(partition_boundaries)
+    else:
+        raise ValueError(
+            "Unsupported partition_mode=%r; choose from %s" % (partition_mode, PARTITION_MODES)
+        )
     num_segs = len(bounds)
     coeffs = np.zeros((num_segs, degree + 1), dtype=np.float64)
 
@@ -113,20 +188,53 @@ def _segment_index(x, K, num_subs, num_segs):
     return seg_idx, is_neg_clamp, is_pos_clamp
 
 
+def _threshold_segment_index(x, boundaries, num_segs):
+    """Map each element to its polynomial segment via sorted FP32 thresholds."""
+    abs_x = x.abs()
+    is_neg = x < 0
+    is_clamp = abs_x >= 8.0
+    is_neg_clamp = is_neg & is_clamp
+    is_pos_clamp = (~is_neg) & is_clamp
+
+    boundaries = boundaries.to(device=x.device, dtype=x.dtype)
+    seg_idx = torch.bucketize(x, boundaries, right=True).long()
+    seg_idx = seg_idx.clamp(0, num_segs - 1)
+    return seg_idx, is_neg_clamp, is_pos_clamp
+
+
 class PWPolyFFunction(torch.autograd.Function):
     """Emit a single PWPolyF ONNX node during legacy torch.onnx export."""
 
     @staticmethod
-    def forward(ctx, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
+    def forward(
+        ctx,
+        x,
+        coeffs,
+        neg_clamp_val,
+        pos_clamp_val,
+        threshold_boundaries,
+        func,
+        K,
+        degree,
+        partition_mode,
+        partition_boundaries,
+    ):
         num_subs = 1 << K
-        num_segs = 1 + 2 * NUM_OCTAVES * num_subs
+        num_segs = coeffs.shape[0]
         degree = int(degree)
         pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
 
         orig_shape = x.shape
         x_flat = x.contiguous().view(-1)
 
-        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
+        if partition_mode == "bit":
+            seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(x_flat, K, num_subs, num_segs)
+        elif partition_mode == "threshold":
+            seg_idx, is_neg_clamp, is_pos_clamp = _threshold_segment_index(
+                x_flat, threshold_boundaries, num_segs
+            )
+        else:
+            raise ValueError("Unsupported partition_mode=%r" % (partition_mode,))
 
         c = coeffs[seg_idx]
         # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))
@@ -144,8 +252,28 @@ class PWPolyFFunction(torch.autograd.Function):
         return y.view(orig_shape)
 
     @staticmethod
-    def symbolic(g, x, coeffs, neg_clamp_val, pos_clamp_val, func, K, degree):
-        return g.op("PWPolyF", x, func_s=func, K_i=K, degree_i=degree)
+    def symbolic(
+        g,
+        x,
+        coeffs,
+        neg_clamp_val,
+        pos_clamp_val,
+        threshold_boundaries,
+        func,
+        K,
+        degree,
+        partition_mode,
+        partition_boundaries,
+    ):
+        return g.op(
+            "PWPolyF",
+            x,
+            func_s=func,
+            K_i=K,
+            degree_i=degree,
+            partitionMode_s=partition_mode,
+            partitionBoundaries_s=partition_boundaries,
+        )
 
 
 class PWPolyFActivation(nn.Module):
@@ -157,20 +285,52 @@ class PWPolyFActivation(nn.Module):
     Horner's method to match the DSPFP32 FMA chain used by the RTL.
     """
 
-    def __init__(self, func="gelu", K=3, degree=2, fit_samples=1000):
+    def __init__(
+        self,
+        func="gelu",
+        K=3,
+        degree=2,
+        fit_samples=1000,
+        partition_mode="bit",
+        partition_boundaries=None,
+    ):
         super().__init__()
         if func not in SUPPORTED_FUNCS:
             raise ValueError("Unsupported func=%r; choose from %s" % (func, SUPPORTED_FUNCS))
+        if partition_mode not in PARTITION_MODES:
+            raise ValueError(
+                "Unsupported partition_mode=%r; choose from %s" % (partition_mode, PARTITION_MODES)
+            )
 
         self.func = func
         self.K = K
         self.degree = degree
+        self.partition_mode = partition_mode
+        self.partition_boundaries = _parse_threshold_boundaries(partition_boundaries)
+        if self.partition_mode == "threshold" and self.partition_boundaries is None:
+            self.partition_boundaries = _threshold_boundaries(K)
         self.num_subs = 1 << K
-        self.num_segs = 1 + 2 * NUM_OCTAVES * self.num_subs
+        if self.partition_mode == "threshold":
+            self.partition_boundaries = _validate_threshold_boundaries(self.partition_boundaries)
+            self.num_segs = int(self.partition_boundaries.size) + 1
+        else:
+            self.num_segs = 1 + 2 * NUM_OCTAVES * self.num_subs
         self.pos_passthrough = CLAMP_CFG[func]["pos_passthrough"]
 
-        coeffs = _fit_coefficients(func, K, degree=degree, num_samples=fit_samples)
+        coeffs = _fit_coefficients(
+            func,
+            K,
+            degree=degree,
+            num_samples=fit_samples,
+            partition_mode=self.partition_mode,
+            partition_boundaries=self.partition_boundaries,
+        )
         self.register_buffer("coeffs", coeffs)
+        if self.partition_boundaries is None:
+            threshold_boundaries = torch.empty(0, dtype=torch.float32)
+        else:
+            threshold_boundaries = torch.from_numpy(self.partition_boundaries.astype(np.float32))
+        self.register_buffer("threshold_boundaries", threshold_boundaries)
 
         neg_cv = torch.tensor(CLAMP_CFG[func]["neg_clamp"], dtype=torch.float32)
         pos_cv = torch.tensor(CLAMP_CFG[func]["pos_clamp"], dtype=torch.float32)
@@ -184,17 +344,25 @@ class PWPolyFActivation(nn.Module):
                 self.coeffs,
                 self.neg_clamp_val,
                 self.pos_clamp_val,
+                self.threshold_boundaries,
                 self.func,
                 self.K,
                 self.degree,
+                self.partition_mode,
+                _serialize_threshold_boundaries(self.partition_boundaries),
             )
 
         orig_shape = x.shape
         x_flat = x.contiguous().view(-1)
 
-        seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(
-            x_flat, self.K, self.num_subs, self.num_segs
-        )
+        if self.partition_mode == "bit":
+            seg_idx, is_neg_clamp, is_pos_clamp = _segment_index(
+                x_flat, self.K, self.num_subs, self.num_segs
+            )
+        else:
+            seg_idx, is_neg_clamp, is_pos_clamp = _threshold_segment_index(
+                x_flat, self.threshold_boundaries, self.num_segs
+            )
 
         c = self.coeffs[seg_idx]
         # Horner evaluation: y = c0 + x*(c1 + x*(c2 + ...))

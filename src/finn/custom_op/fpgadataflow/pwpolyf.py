@@ -6,6 +6,12 @@ import numpy as np
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.util.torch_hw_modules import (
+    PARTITION_MODES,
+    _parse_threshold_boundaries,
+    _threshold_boundaries,
+    _validate_threshold_boundaries,
+)
 
 # NUM_OCTAVES is fixed by the RTL segment decode and clamp range. K controls
 # the number of mantissa subdivisions inside each of these fixed octaves.
@@ -38,6 +44,13 @@ class PWPolyF(HWCustomOp):
             "outputDataType": ("s", True, ""),
             # polynomial degree (number of FMA stages per PE)
             "degree": ("i", False, 2),
+            # segment selection mode:
+            # bit: FP32 bit-extraction partitioning (current/default)
+            # threshold: sorted FP32 PartDetect thresholds
+            "partitionMode": ("s", False, "bit", set(PARTITION_MODES)),
+            # comma-separated internal boundaries for threshold mode
+            # empty => default boundaries matching the bit-extract partition
+            "partitionBoundaries": ("s", False, ""),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -47,9 +60,24 @@ class PWPolyF(HWCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_partition_mode(self):
+        return self.get_nodeattr("partitionMode")
+
+    def get_partition_boundaries(self):
+        mode = self.get_partition_mode()
+        boundaries = _parse_threshold_boundaries(self.get_nodeattr("partitionBoundaries"))
+        if mode == "threshold":
+            if boundaries is None:
+                boundaries = _threshold_boundaries(self.get_nodeattr("K"))
+            boundaries = _validate_threshold_boundaries(boundaries)
+        return boundaries
+
     def get_num_segments(self):
-        K = self.get_nodeattr("K")
-        return 1 + 2 * _NUM_OCTAVES * (1 << K)
+        if self.get_partition_mode() == "threshold":
+            return len(self.get_partition_boundaries()) + 1
+        else:
+            K = self.get_nodeattr("K")
+            return 1 + 2 * _NUM_OCTAVES * (1 << K)
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
@@ -82,6 +110,20 @@ class PWPolyF(HWCustomOp):
             info_messages.append(
                 "Attribute func must be one of %s, got %s" % (_SUPPORTED_FUNCS, func)
             )
+
+        mode = self.get_partition_mode()
+        if mode in PARTITION_MODES:
+            info_messages.append("Attribute partitionMode is set correctly")
+        else:
+            info_messages.append(
+                "Attribute partitionMode must be one of %s, got %s" % (PARTITION_MODES, mode)
+            )
+
+        try:
+            self.get_partition_boundaries()
+            info_messages.append("Attribute partitionBoundaries is valid")
+        except ValueError as exc:
+            info_messages.append(str(exc))
 
         pe = self.get_nodeattr("PE")
         nch = self.get_nodeattr("NumChannels")
@@ -138,7 +180,12 @@ class PWPolyF(HWCustomOp):
     def lut_estimation(self):
         pe = self.get_nodeattr("PE")
         degree = self.get_nodeattr("degree")
-        return 100 * degree * pe
+        lut = 100 * degree * pe
+        if self.get_partition_mode() == "threshold":
+            # OOC synthesis on Versal for K=3, degree=2 showed the FP32
+            # PartDetect overhead tracking roughly with thresholds * PE.
+            lut += (self.get_num_segments() - 1) * pe
+        return lut
 
     def bram_estimation(self):
         pe = self.get_nodeattr("PE")
@@ -172,16 +219,22 @@ class PWPolyF(HWCustomOp):
 
         func = self.get_nodeattr("func")
         K = self.get_nodeattr("K")
+        partition_mode = self.get_partition_mode()
+        partition_boundaries = self.get_partition_boundaries()
 
         # lazy import to avoid hard dependency on torch at module level
         import torch  # noqa: PLC0415
 
-        from finn.util.torch_hw_modules import (  # noqa: PLC0415
-            PWPolyFActivation,
-        )
+        from finn.util.torch_hw_modules import PWPolyFActivation  # noqa: PLC0415
 
         degree = self.get_nodeattr("degree")
-        mod = PWPolyFActivation(func, K=K, degree=degree)
+        mod = PWPolyFActivation(
+            func,
+            K=K,
+            degree=degree,
+            partition_mode=partition_mode,
+            partition_boundaries=partition_boundaries,
+        )
         with torch.no_grad():
             x = torch.from_numpy(inp.astype(np.float32))
             y = mod(x)
