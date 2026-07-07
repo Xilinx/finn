@@ -40,11 +40,11 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow import create_stitched_ip
 from finn.transformation.fpgadataflow.alveo_build import PrepareForLinking, VitisLink
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow import create_stitched_ip
 from finn.transformation.fpgadataflow.create_stitched_ip import (
     CreateStitchedIP,
     append_missing_finnloop_rtlsim_sources,
