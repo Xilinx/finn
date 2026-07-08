@@ -63,6 +63,7 @@ custom_op["StreamingFIFO_rtl"] = StreamingFIFO_rtl
 custom_op["MVAU_rtl"] = MVAU_rtl
 custom_op["VVAU_rtl"] = VVAU_rtl
 custom_op["Thresholding_rtl"] = Thresholding_rtl
+custom_op["HWSoftmax_rtl"] = HWSoftmax_rtl
 custom_op["InnerShuffle_rtl"] = InnerShuffle_rtl
 custom_op["Requant_rtl"] = Requant_rtl
 
