@@ -2,8 +2,9 @@
  * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * @brief	Combinational integer to IEEE 754 float32 converter.
+ * @brief	Combinational integer to IEEE 754 float32 converter (round to zero).
  * @author	Shane Fleming <shane.fleming@amd.com>
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  ***************************************************************************/
 
 module int_to_fp32 #(
@@ -25,8 +26,8 @@ module int_to_fp32 #(
 	//=== Exponent & Mantissa Tap Position Calculation ====================
 	// OR Reduction from activating hot one positions
 	//  - a zero magnitude yields the required zero exponent
-	logic [              7:0]  exp; // 127, ..., WIDTH +126
-	logic [$clog2(WIDTH)-1:0]  tap; //   0, ..., WIDTH -  1
+	logic [7:0]  exp; // 127, ..., WIDTH +126
+	logic [(WIDTH < 2? 0 : $clog2(WIDTH)-1):0]  tap; //   0, ..., WIDTH -  1
 	always_comb begin
 		exp = 0;
 		tap = 0;
