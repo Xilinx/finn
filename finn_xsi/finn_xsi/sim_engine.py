@@ -28,11 +28,11 @@ class SimEngine:
             clk.set(up).write_back()
             if clk2x is not None:
                 clk2x.set(1).write_back()
-                top.run(25)
+                top.run(2500)
                 clk2x.set(0).write_back()
-                top.run(25)
+                top.run(2500)
             else:
-                top.run(50)
+                top.run(5000)
 
         def cycle(updates):
             half_cycle(1)
