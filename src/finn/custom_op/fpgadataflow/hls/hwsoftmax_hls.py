@@ -26,6 +26,19 @@ class HWSoftmax_hls(HWSoftmax, HLSBackend):
         my_attrs["hls_style"] = ("s", False, "freerunning")
         return my_attrs
 
+    def get_exp_cycles(self):
+        # SoftMax is a batch-then-emit pipeline: it consumes all BEATS=N/SIMD
+        # input beats per vector before any output emerges (max, exp, sum,
+        # divide).  A zero estimate (the HWCustomOp default) makes the FIFO-sizing
+        # sim time out, so bound the no-output gap by the full folded input length
+        # plus the per-vector pipeline latency.
+        folded = self.get_folded_input_shape()
+        n_beats = int(np.prod(folded[:-1]))
+        n = self.get_normal_input_shape()[-1]
+        simd = self.get_nodeattr("SIMD")
+        beats_per_vec = max(1, n // simd)
+        return n_beats + beats_per_vec + 100
+
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
             "#include <hls_vector.h>",
