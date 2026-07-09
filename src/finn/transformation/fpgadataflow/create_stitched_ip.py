@@ -230,12 +230,15 @@ class CreateStitchedIP(Transformation):
             # TODO should propagate this information from the node instead of 256M
             self.connect_cmds.append("set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name))
             self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
-            # Track weight data files for AXI-MM simulation
+            # Track weight data files for AXI-MM simulation. Use the byte-aligned,
+            # per-SIMD packed memblock.dat (the layout fetch_weights expects in
+            # external memory, e.g. DDR/HBM) rather than input_1.npy, which is
+            # one-value-per-element.
             if not node.op_type == "FINNLoop":
                 code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
-                npy_path = os.path.join(code_gen_dir, "input_1.npy")
-                if os.path.isfile(npy_path):
-                    self.aximm_weight_files[ext_if_name] = npy_path
+                dat_path = os.path.join(code_gen_dir, "memblock.dat")
+                if os.path.isfile(dat_path):
+                    self.aximm_weight_files[ext_if_name] = dat_path
             self.has_aximm = True
             self.aximm_idx += 1
 

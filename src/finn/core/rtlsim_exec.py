@@ -40,6 +40,7 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.mlo_sim import dat_file_to_numpy_array
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -372,15 +373,12 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
     aximm_weights_json = model.get_metadata_prop("vivado_stitch_aximm_weights")
     if aximm_weights_json is not None:
         aximm_weights = json.loads(aximm_weights_json)
-        for aximm_name, npy_path in aximm_weights.items():
-            weight_npy = np.load(npy_path)
-            # Pack weight values (int8 etc.) into a flat byte array for AXI-MM
-            # Each element is one weight; pack them LSB-first per line
-            weight_bytes = []
-            for line in weight_npy.reshape(-1, weight_npy.shape[-1]):
-                for val in line:
-                    weight_bytes.append(int(val) & 0xFF)
-            weight_data = np.array(weight_bytes, dtype=np.uint8)
+        for aximm_name, dat_path in aximm_weights.items():
+            # memblock.dat stores weights byte-aligned per SIMD group
+            # (roundup(SIMD*bitwidth, 8) bits per group), the layout fetch_weights
+            # expects in external memory (DDR, HBM, ...). Parse it (LSB-first) into a
+            # flat byte image, matching the validated MLO path in mlo_sim.py.
+            weight_data = dat_file_to_numpy_array(dat_path)
             sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
 
     if pre_hook is not None:

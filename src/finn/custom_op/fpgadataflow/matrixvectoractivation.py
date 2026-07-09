@@ -726,12 +726,39 @@ class MVAU(HWCustomOp):
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             # tiling
-            tinner = (pe * simd) // self.get_nodeattr("TH")
+            th = self.get_nodeattr("TH")
+            tinner = (pe * simd) // th
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, tinner)
+            # The .dat weights are PE-flipped (np.flip axis=-2), which reverses the
+            # PE dimension - the same dimension that TH tiles into sub-tiles. This
+            # reverses the order of the TH sub-tiles within each PE group. Undo that
+            # by flipping the TH tile order back (no-op for th=1).
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, th, tinner)
+            weight_tensor_pe_flipped = np.flip(weight_tensor_pe_flipped, axis=-2)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, tinner)
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
                 np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat" and (
+                self.get_nodeattr("mlo_max_iter") or self.get_nodeattr("mem_mode") == "external_mem"
+            ):
+                # AXI-MM / fetch_weights path (MLO and external_mem): the external
+                # weight memory (DDR, HBM, ...) stores weights as byte-aligned,
+                # unflipped per-SIMD packets. Each group of SIMD weights is packed into
+                # roundup(SIMD*bitwidth, 8) bits, which is the layout the
+                # fetch_weights component always expects. This is independent of
+                # TH: tiling only changes how fetch_weights/the DWC regroup this
+                # same weight image on the way to the MVU, so no flip/tiling
+                # reshape is applied here.
+                simd_group_bits = roundup_to_integer_multiple(simd * export_wdt.bitwidth(), 8)
+                weight_tensor_simd_groups = weight_tensor_unflipped.reshape(1, -1, simd)
+                weight_tensor_simd_groups = pack_innermost_dim_as_hex_string(
+                    weight_tensor_simd_groups, export_wdt, simd_group_bits, prefix=""
+                )
+                weight_stream = weight_tensor_simd_groups.flatten().copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        f.write(val + "\n")
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_instream_width(1)

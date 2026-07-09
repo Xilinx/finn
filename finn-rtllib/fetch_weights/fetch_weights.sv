@@ -29,7 +29,11 @@ module fetch_weights #(
 	int unsigned  OWSIMD = (PE * SIMD) / TH,
 	int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
+	// In external memory (DDR, HBM, ...) weights are stored per SIMD group, each
+	// padded to roundup(SIMD*WEIGHT_WIDTH, 8) bits. The per-layer stride must reflect
+	// that per-group padding (not tight bit-packing); reduces to the tight value when
+	// SIMD*WEIGHT_WIDTH is byte-aligned.
+	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW/SIMD)*((SIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
 )(
 	input  logic  aclk,
 	input  logic  aresetn,
@@ -139,7 +143,12 @@ module fetch_weights #(
 		);
 
 		assign	dma_addr = l_offsets[Idx];
-		assign	dma_len  = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+		// External memory (DDR, HBM, ...) stores weights as byte-aligned per-SIMD
+		// packets: each group of SIMD weights occupies roundup(SIMD*WEIGHT_WIDTH, 8)
+		// bits. The total fetch length must reflect that per-group padding (not tight
+		// bit-packing), otherwise sub-byte weights (e.g. SIMD=1, 4-bit) under-fetch.
+		// Reduces to the tight value whenever SIMD*WEIGHT_WIDTH is already byte-aligned.
+		assign	dma_len  = (((MH*MW/SIMD) * ((SIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin
