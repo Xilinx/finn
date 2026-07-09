@@ -771,6 +771,8 @@ def test_mvau_fifocharacterize_rtlsim(
         (18, 16, 1, "internal_decoupled"),
         (18, 32, 1, "internal_decoupled"),
         (3, 1, 3, "external_mem"),  # WSIMD=1 edge, CHAINLEN=1
+        (6, 1, 3, "external_mem"),  # IWSIMD=(PE*SIMD)/TH=2 != SIMD=1
+        (6, 1, 3, "internal_decoupled"),  # Same shape as above, but internal_decoupled
         (6, 4, 3, "internal_decoupled"),  # CHAINLEN=2, decoupled
         (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
         (9, 16, 3, "external_mem"),  # CHAINLEN=6

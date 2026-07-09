@@ -742,20 +742,22 @@ class MVAU(HWCustomOp):
             elif weight_file_mode == "decoupled_verilog_dat" and (
                 self.get_nodeattr("mlo_max_iter") or self.get_nodeattr("mem_mode") == "external_mem"
             ):
-                # AXI-MM / fetch_weights path (MLO and external_mem): the external
-                # weight memory (DDR, HBM, ...) stores weights as byte-aligned,
-                # unflipped per-SIMD packets. Each group of SIMD weights is packed into
-                # roundup(SIMD*bitwidth, 8) bits, which is the layout the
-                # fetch_weights component always expects. This is independent of
-                # TH: tiling only changes how fetch_weights/the DWC regroup this
-                # same weight image on the way to the MVU, so no flip/tiling
-                # reshape is applied here.
-                simd_group_bits = roundup_to_integer_multiple(simd * export_wdt.bitwidth(), 8)
-                weight_tensor_simd_groups = weight_tensor_unflipped.reshape(1, -1, simd)
-                weight_tensor_simd_groups = pack_innermost_dim_as_hex_string(
-                    weight_tensor_simd_groups, export_wdt, simd_group_bits, prefix=""
+                # AXI-MM / fetch_weights path (MLO and external_mem): external memory
+                # (DDR, HBM, ...) holds one IWSIMD group per DWC output beat, each
+                # byte-aligned to DS_BITS_BA = roundup(IWSIMD*bitwidth, 8) bits. IWSIMD
+                # is (PE*SIMD)/TH for TH>1, SIMD otherwise. The within-group ordering
+                # must match the memstreamer (PE-flipped, TH sub-tile order undone):
+                # unflipped would swap PE lanes when IWSIMD*bitwidth <= 8 packs several
+                # PEs into one byte. For TH>1 weight_tensor_pe_flipped is already in
+                # IWSIMD-sized chunks (tinner == (PE*SIMD)/TH == IWSIMD).
+                th = self.get_nodeattr("TH")
+                iwsimd = (pe * simd) // th if th > 1 else simd
+                iwsimd_group_bits = roundup_to_integer_multiple(iwsimd * export_wdt.bitwidth(), 8)
+                weight_tensor_iwsimd_groups = weight_tensor_pe_flipped.reshape(1, -1, iwsimd)
+                weight_tensor_iwsimd_groups = pack_innermost_dim_as_hex_string(
+                    weight_tensor_iwsimd_groups, export_wdt, iwsimd_group_bits, prefix=""
                 )
-                weight_stream = weight_tensor_simd_groups.flatten().copy()
+                weight_stream = weight_tensor_iwsimd_groups.flatten().copy()
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
                         f.write(val + "\n")
