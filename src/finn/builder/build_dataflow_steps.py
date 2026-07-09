@@ -143,6 +143,40 @@ from finn.util.test import execute_parent
 from finn.util.vivado import parse_ooc_synth_results
 
 
+def _maybe_enable_verify_behavioral(cfg):
+    if cfg.debug_fifo and not cfg.verify_rtlsim_behavioral:
+        print(
+            "[debug_fifo] forcing verify_rtlsim_behavioral=True so that "
+            "the verify phase uses fifo_gauge and produces per-FIFO logs."
+        )
+        cfg.verify_rtlsim_behavioral = True
+
+
+def _fifo_debug_live_dir(cfg):
+    return cfg.output_dir + "/debug/fifo_logs/_live"
+
+
+def snapshot_fifo_logs(cfg, phase_name, loop_context=None):
+    if not cfg.debug_fifo:
+        return
+    live_dir = _fifo_debug_live_dir(cfg)
+    if not os.path.isdir(live_dir):
+        return
+    prefix = (loop_context + "_") if loop_context else None
+    subdir = loop_context or "main"
+    dest_dir = os.path.join(cfg.output_dir, "debug", "fifo_logs", phase_name, subdir)
+    os.makedirs(dest_dir, exist_ok=True)
+    for fn in os.listdir(live_dir):
+        if not fn.endswith(".log"):
+            continue
+        if prefix is not None and not fn.startswith(prefix):
+            continue
+        src = os.path.join(live_dir, fn)
+        dst = os.path.join(dest_dir, fn)
+        shutil.copy2(src, dst)
+        open(src, "w").close()
+
+
 def verify_step(
     model: ModelWrapper,
     cfg: DataflowBuildConfig,
@@ -310,8 +344,11 @@ def prepare_loop_ops_fifo_sizing(node, cfg):
             swg_exception=cfg.default_swg_exception,
             vivado_ram_style=cfg.large_fifo_mem_style,
             fifosim_input_throttle=cfg.fifosim_input_throttle,
+            debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
+            debug_log_prefix=node.name + "_",
         )
     )
+    snapshot_fifo_logs(cfg, "fifo_sizing", loop_context=node.name)
     loop_model = loop_model.transform(SplitLargeFIFOs())
     loop_model = loop_model.transform(RemoveShallowFIFOs())
     loop_model = loop_model.transform(GiveUniqueNodeNames(prefix=node.name + "_"))
@@ -907,7 +944,7 @@ def step_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
                 for node in model.graph.node:
                     node_inst = getCustomOp(node)
                     node_inst.set_nodeattr("rtlsim_trace", f"{abspath}/{node.name}_rtlsim.wdb")
-            model = model.transform(PrepareRTLSim())
+            model = model.transform(PrepareRTLSim(behav=cfg.verify_rtlsim_behavioral))
             model = model.transform(SetExecMode("rtlsim"))
             verify_step(model, cfg, "node_by_node_rtlsim", need_parent=True)
             # Clear rtlsim_trace attributes to prevent later simulations from
@@ -942,10 +979,22 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
             model = model.transform(HLSSynthIP(cfg._resolve_fpga_part()))
+            if cfg.fifosim_save_waveform:
+                report_dir = cfg.output_dir + "/report"
+                os.makedirs(report_dir, exist_ok=True)
+                for node in model.graph.node:
+                    node_inst = getCustomOp(node)
+                    node_inst.set_nodeattr(
+                        "rtlsim_trace",
+                        os.path.abspath(report_dir) + f"/{node.name}_fifosim_trace.wdb",
+                    )
             model = model.transform(PrepareRTLSim(behav=True))
             model = model.transform(AnnotateCycles())
             period = model.analysis(dataflow_performance)["max_cycles"] + 10
             model = model.transform(DeriveCharacteristic(period))
+            if cfg.fifosim_save_waveform:
+                for node in model.graph.node:
+                    getCustomOp(node).set_nodeattr("rtlsim_trace", "")
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
@@ -954,9 +1003,22 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     create_shallow_fifos=True,
                 )
             )
-            # Clean up characterization attributes after FIFO sizing
+            # Clean up characterization attributes after FIFO sizing. The
+            # io_chrc arrays are offloaded to sidecar .npy files referenced by
+            # the io_chrc_*_file attrs; unlink those files before dropping the
+            # attrs so we don't leak them.
             for node in model.graph.node:
-                for attr_name in ["io_chrc_period", "io_chrc_in", "io_chrc_out"]:
+                for file_attr_name in ["io_chrc_in_file", "io_chrc_out_file"]:
+                    attr = get_by_name(node.attribute, file_attr_name)
+                    if attr is not None:
+                        fname = attr.s.decode("utf-8")
+                        if fname != "" and os.path.isfile(fname):
+                            os.remove(fname)
+                for attr_name in [
+                    "io_chrc_period",
+                    "io_chrc_in_file",
+                    "io_chrc_out_file",
+                ]:
                     attr = get_by_name(node.attribute, attr_name)
                     if attr is not None:
                         node.attribute.remove(attr)
@@ -978,8 +1040,10 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     vivado_ram_style=cfg.large_fifo_mem_style,
                     fifosim_input_throttle=cfg.fifosim_input_throttle,
                     cfg_n_inferences=cfg.fifosim_n_inferences,
+                    debug_log_dir=(_fifo_debug_live_dir(cfg) if cfg.debug_fifo else None),
                 )
             )
+            snapshot_fifo_logs(cfg, "fifo_sizing")
             model = model.transform(GiveUniqueNodeNames())
             loop_nodes = model.get_nodes_by_op_type("FINNLoop")
             for loop_node in loop_nodes:
@@ -1123,10 +1187,16 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 os.makedirs(waveform_dir, exist_ok=True)
                 abspath = os.path.abspath(waveform_dir)
                 verify_model.set_metadata_prop("rtlsim_trace", abspath + "/verify_rtlsim.wdb")
+            if cfg.verify_rtlsim_behavioral:
+                verify_model.set_metadata_prop("rtlsim_behavioral", "1")
             if is_mlo(model):
                 verify_mlo(verify_model, cfg, "stitched_ip_rtlsim")
+                for loop_node in verify_model.get_nodes_by_op_type("FINNLoop"):
+                    snapshot_fifo_logs(cfg, "stitched_ip_rtlsim", loop_context=loop_node.name)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
             else:
                 verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+                snapshot_fifo_logs(cfg, "stitched_ip_rtlsim")
             os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
@@ -1157,7 +1227,10 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
         max_iters = latency * 1.1 + 50
-        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
+        # Use behav=False for performance measurement to use real RTL components
+        # instead of behavioral models (FINN_SIMULATION affects FIFOs, MVU, LayerNorm,
+        # and RTL elementwise ops)
+        rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters, behav=False)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
         clk_ns = cfg.synth_clk_period_ns
