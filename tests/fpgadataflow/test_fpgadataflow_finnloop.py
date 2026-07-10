@@ -564,16 +564,17 @@ def test_finnloop_end2end_mlo(
     mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
     dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
-    # The tiled MVAU (TH>1) is only exercised on the canonical elementwise config
-    # to avoid a combinatorial explosion of long Vivado builds. This also filters
-    # out rhs_shape=[16], which is incompatible with the tiled config's dim.
+    # The tiled MVAU (TH>1) is only exercised on selected elementwise configs to
+    # avoid a combinatorial explosion of long Vivado builds. rhs_shape is pinned to
+    # [1] since [16] is incompatible with the tiled config's dim. Within that, we
+    # cover INT8/no-tail (canonical), FLOAT32/no-tail (float path) and INT8/tail
+    # (tail-node integration), skipping the redundant FLOAT32+tail combination.
     if mvau_th > 1 and not (
         elemwise_optype == "ElementwiseMul_hls"
         and rhs_shape == [1]
-        and eltw_param_dtype == "INT8"
-        and not tail_node
+        and not (eltw_param_dtype == "FLOAT32" and tail_node)
     ):
-        pytest.skip("Tiled MVAU only exercised on the canonical elementwise config")
+        pytest.skip("Tiled MVAU only exercised on selected elementwise configs")
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
