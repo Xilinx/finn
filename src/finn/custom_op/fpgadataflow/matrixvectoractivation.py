@@ -125,7 +125,8 @@ class MVAU(HWCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "pumpedMemory": ("i", False, 0, {0, 1}),
-            # tiling
+            # tiling height; only relevant for the RTL backend (MVAU_rtl), the
+            # HLS backend supports the untiled case (TH=1) only.
             "TH": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
@@ -255,7 +256,7 @@ class MVAU(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self, ind=0):  # TODO: Hacky, need to clean these calls ...
+    def get_instream_width(self, ind=0):
         if ind == 0:
             i_bits = self.get_input_datatype(0).bitwidth()
             width = i_bits * self.get_nodeattr("SIMD")

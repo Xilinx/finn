@@ -862,6 +862,12 @@ def test_fpgadataflow_rtl_mvau(
         },
     }
     model = model.transform(ApplyConfig(folding_config))
+    # Verify the folding config was actually applied to the node
+    inst = getCustomOp(model.graph.node[0])
+    for attr, expected in folding_config["MVAU_rtl_0"].items():
+        assert (
+            inst.get_nodeattr(attr) == expected
+        ), f"Config not applied: {attr}={inst.get_nodeattr(attr)}, expected {expected}"
     model = model.transform(MinimizeWeightBitWidth())
     model = model.transform(MinimizeAccumulatorWidth())
     # make sure the changed datatypes are propagated through the network
