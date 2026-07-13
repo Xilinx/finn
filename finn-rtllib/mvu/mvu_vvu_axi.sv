@@ -43,7 +43,7 @@
  *	 - Full unfolding along MH (PE=MH) results in no replay buffer instantiated
  *****************************************************************************/
 
-module mvu_vvu_axi #(
+module $MVU_CORE_NAME$ #(
 	bit IS_MVU,
 	int unsigned  VERSION,	// Allowed versions - 1: DSP48E1, 2: DSP48E2, 3: DSP58
 
@@ -417,4 +417,4 @@ module mvu_vvu_axi #(
 
 	end : blkOutput
 
-endmodule : mvu_vvu_axi
+endmodule : $MVU_CORE_NAME$

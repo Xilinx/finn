@@ -229,9 +229,11 @@ class MVAU_rtl(MVAU, RTLBackend):
             sourcefiles.append(os.path.join(code_gen_dir, f"{dotp_module_name}.sv"))
             sourcefiles.append(os.path.join(code_gen_dir, "mul_comp_map.sv"))
             sourcefiles.append(os.path.join(code_gen_dir, comp_name + ".sv"))
-            # Use local mvu_vvu_axi.sv with substituted $DOTP_MODULE_NAME$
+            sourcefiles.append(os.path.join(code_gen_dir, "compress_core.sv"))
+            sourcefiles.append(os.path.join(code_gen_dir, "compressor_counters.sv"))
+            # `include`d header must be registered too, else stitching fails (56-591)
+            sourcefiles.append(os.path.join(code_gen_dir, "compressor_tags.svh"))
             sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
-            # dotp_comp path doesn't need add_multi.sv
         else:
             # DSP path: use local mvu_vvu_axi.sv (no placeholder substitution needed)
             sourcefiles.append(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"))
@@ -243,6 +245,10 @@ class MVAU_rtl(MVAU, RTLBackend):
                 # Add compressor modules if present
                 for name in add_multi_names_str.split(";"):
                     sourcefiles.append(os.path.join(code_gen_dir, name + ".sv"))
+                sourcefiles.append(os.path.join(code_gen_dir, "compress_core.sv"))
+                sourcefiles.append(os.path.join(code_gen_dir, "compressor_counters.sv"))
+                # `include`d header must be registered too, else stitching fails (56-591)
+                sourcefiles.append(os.path.join(code_gen_dir, "compressor_tags.svh"))
 
         return sourcefiles
 
@@ -383,6 +389,10 @@ class MVAU_rtl(MVAU, RTLBackend):
         pumped_compute = int(code_gen_dict["$PUMPED_COMPUTE$"][0])
         version = int(code_gen_dict["$VERSION$"][0])
 
+        # Unique per-node core name; avoids flat-namespace collision in whole-design sim
+        mvu_core_name = "mvu_vvu_axi_" + self.get_verilog_top_module_name()
+        code_gen_dict["$MVU_CORE_NAME$"] = [mvu_core_name]
+
         # Compressor generation if applicable.
         if self._is_dotp_comp_eligible(fpgapart, ww, aw, pumped_compute):
             result = generate_dotp_comp(
@@ -398,7 +408,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 mvu_vvu_axi_content = f.read()
             mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
                 "$DOTP_MODULE_NAME$", result["dotp_module_name"]
-            )
+            ).replace("$MVU_CORE_NAME$", mvu_core_name)
             with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
                 f.write(mvu_vvu_axi_content)
         else:
@@ -435,7 +445,7 @@ class MVAU_rtl(MVAU, RTLBackend):
                 mvu_vvu_axi_content = f.read()
             mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
                 "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
-            )
+            ).replace("$MVU_CORE_NAME$", mvu_core_name)
             with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
                 f.write(mvu_vvu_axi_content)
 

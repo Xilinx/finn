@@ -202,6 +202,10 @@ class VVAU_rtl(VVAU, RTLBackend):
         code_gen_dict["$NARROW_WEIGHTS$"] = str(narrow_weights)
         # add general parameters to dictionary
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
+        # Unique per-node mvu_vvu_axi core name so per-node copies don't collide in
+        # flat-namespace whole-design xsi sim (matches MVAU_rtl convention).
+        mvu_core_name = "mvu_vvu_axi_" + self.get_verilog_top_module_name()
+        code_gen_dict["$MVU_CORE_NAME$"] = [mvu_core_name]
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
@@ -226,7 +230,7 @@ class VVAU_rtl(VVAU, RTLBackend):
             mvu_vvu_axi_content = f.read()
         mvu_vvu_axi_content = mvu_vvu_axi_content.replace(
             "$DOTP_MODULE_NAME$", "dotp_comp"  # Dummy name, won't be instantiated
-        )
+        ).replace("$MVU_CORE_NAME$", mvu_core_name)
         with open(os.path.join(code_gen_dir, "mvu_vvu_axi.sv"), "w") as f:
             f.write(mvu_vvu_axi_content)
 

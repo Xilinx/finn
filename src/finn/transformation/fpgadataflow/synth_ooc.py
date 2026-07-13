@@ -34,6 +34,7 @@ from shutil import copy2
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_hls_node
 from finn.util.vivado import out_of_context_synth
+from finn.transformation.fpgadataflow.add_multi_dedup import generate_unified_add_multi
 
 
 def is_hls_float_op(node, model):
@@ -42,44 +43,6 @@ def is_hls_float_op(node, model):
             if model.get_tensor_datatype(inp).name.startswith("FLOAT"):
                 return True
     return False
-
-
-def generate_unified_add_multi(model, build_dir):
-    """
-    Generate unified add_multi.sv with aggregated CATCH_COMP entries from all
-    MVAU_rtl nodes. Deduplicates specs and programmatically generates macro calls.
-    """
-    all_specs = set()
-    for node in model.graph.node:
-        if node.op_type == "MVAU_rtl":
-            inst = getCustomOp(node)
-            specs_str = inst.get_nodeattr("add_multi_comp_specs")
-            if specs_str:
-                for spec in specs_str.split(";"):
-                    n, w, d = map(int, spec.split(","))
-                    all_specs.add((n, w, d))
-
-    rtllib_template = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/add_multi.sv")
-    with open(rtllib_template, "r") as f:
-        template = f.read()
-
-    if all_specs:
-        catch_comp_lines = [f"\t`CATCH_COMP({n},{w},{d})" for n, w, d in sorted(all_specs)]
-        entries = "\n".join(catch_comp_lines) + "\n"
-    else:
-        entries = ""
-
-    marker = "\t// FINN_GENERATED_COMP_ENTRIES\n"
-    if marker not in template:
-        raise RuntimeError(
-            "FINN_GENERATED_COMP_ENTRIES marker not found in finn-rtllib/mvu/add_multi.sv! "
-            "Template file may have been modified."
-        )
-
-    unified = template.replace(marker, entries + marker)
-
-    with open(os.path.join(build_dir, "add_multi.sv"), "w") as f:
-        f.write(unified)
 
 
 class SynthOutOfContext(Transformation):
