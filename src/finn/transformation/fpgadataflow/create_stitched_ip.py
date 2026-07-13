@@ -202,6 +202,9 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, mm_intf_name[0])
             )
 
+            # Address range for the external segment; overridden per interface below.
+            addr_range = "256M"
+
             # Determine external interface name and address segment path
             if node.op_type == "FINNLoop":
                 ext_if_name = mm_intf_name[0]
@@ -209,9 +212,12 @@ class CreateStitchedIP(Transformation):
                     "set_property name %s [get_bd_intf_ports %s_0]" % (ext_if_name, ext_if_name)
                 )
                 seg_name = "%s/%s/SEG_%s_Reg" % (inst_name, ext_if_name, ext_if_name)
-            else:
-                # Derive a unique name from graph input index or instance name
-                if node.input[1] in inputs:
+            elif mm_intf_name[0] == "axi_mm":
+                # MVAU with external weights: the per-node fetch_weights unit
+                # streams weights over AXI-MM. Derive a unique name from the
+                # weight graph-input index when available, otherwise from the
+                # instance name.
+                if len(node.input) > 1 and node.input[1] in inputs:
                     idx = inputs.index(node.input[1])
                     ext_if_name = f"m_axi_MVAU_id_{idx}"
                 else:
@@ -224,21 +230,32 @@ class CreateStitchedIP(Transformation):
                     inst_name,
                     ext_if_name,
                 )
-
-            self.connect_cmds.append("assign_bd_address")
-            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
-            # TODO should propagate this information from the node instead of 256M
-            self.connect_cmds.append("set_property range 256M [get_bd_addr_segs {%s}]" % (seg_name))
-            self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
-            # Track weight data files for AXI-MM simulation. Use the byte-aligned,
-            # per-SIMD packed memblock.dat (the layout fetch_weights expects in
-            # external memory, e.g. DDR/HBM) rather than input_1.npy, which is
-            # one-value-per-element.
-            if not node.op_type == "FINNLoop":
+                # Track weight data files for AXI-MM simulation. Use the byte-aligned,
+                # per-SIMD packed memblock.dat (the layout fetch_weights expects in
+                # external memory, e.g. DDR/HBM) rather than input_1.npy, which is
+                # one-value-per-element.
                 code_gen_dir = node_inst.get_nodeattr("code_gen_dir_ipgen")
                 dat_path = os.path.join(code_gen_dir, "memblock.dat")
                 if os.path.isfile(dat_path):
                     self.aximm_weight_files[ext_if_name] = dat_path
+            else:
+                # Generic AXI-MM master accessing global memory (e.g. IODMA, Lookup).
+                ext_if_name = "m_axi_gmem%d" % (self.aximm_idx)
+                self.connect_cmds.append(
+                    "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
+                )
+                seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
+                addr_range = "4G"
+
+            self.connect_cmds.append("assign_bd_address")
+            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
+            # TODO should propagate this information from the node instead of a fixed range
+            # (currently: 256M for FINNLoop and MVAU external weights, 4G for generic
+            # AXI-MM masters like IODMA/Lookup).
+            self.connect_cmds.append(
+                "set_property range %s [get_bd_addr_segs {%s}]" % (addr_range, seg_name)
+            )
+            self.intf_names["aximm"].append((ext_if_name, mm_intf_name[1]))
             self.has_aximm = True
             self.aximm_idx += 1
 
