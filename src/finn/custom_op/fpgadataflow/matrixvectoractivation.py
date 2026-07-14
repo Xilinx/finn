@@ -746,15 +746,28 @@ class MVAU(HWCustomOp):
                 # AXI-MM / fetch_weights path (MLO and external_mem): external memory
                 # (DDR, HBM, ...) holds one IWSIMD group per DWC output beat, each
                 # byte-aligned to DS_BITS_BA = roundup(IWSIMD*bitwidth, 8) bits. IWSIMD
-                # is (PE*SIMD)/TH for TH>1, SIMD otherwise. The within-group ordering
-                # must match the memstreamer (PE-flipped, TH sub-tile order undone):
-                # unflipped would swap PE lanes when IWSIMD*bitwidth <= 8 packs several
-                # PEs into one byte. For TH>1 weight_tensor_pe_flipped is already in
-                # IWSIMD-sized chunks (tinner == (PE*SIMD)/TH == IWSIMD).
+                # is (PE*SIMD)/TH for TH>1, SIMD otherwise.
+                #
+                # The within-group ordering depends on how fetch_weights delivers the
+                # stream to the MVU:
+                #   - TH>1 (tiled MVAU): the stream passes straight through to the tiled
+                #     MVU, which expects the PE-flipped, TH-sub-tile-undone ordering.
+                #     weight_tensor_pe_flipped is already in IWSIMD-sized chunks
+                #     (tinner == (PE*SIMD)/TH == IWSIMD).
+                #   - TH=1 (standard MVAU): the stream goes through local_weight_buffer,
+                #     which distributes consecutive SIMD groups across PE lanes 0..PE-1
+                #     (pe-minor) and pairs weight SIMD lane s with activation SIMD lane s.
+                #     That reconstruction needs the natural (unflipped) PE/SIMD order:
+                #     PE-flipping reverses the PE lanes and SIMD-flipping scrambles the
+                #     dot product.
                 th = self.get_nodeattr("TH")
                 iwsimd = (pe * simd) // th if th > 1 else simd
                 iwsimd_group_bits = roundup_to_integer_multiple(iwsimd * export_wdt.bitwidth(), 8)
-                weight_tensor_iwsimd_groups = weight_tensor_pe_flipped.reshape(1, -1, iwsimd)
+                if th > 1:
+                    weight_tensor_iwsimd = weight_tensor_pe_flipped
+                else:
+                    weight_tensor_iwsimd = weight_tensor_unflipped.reshape(1, -1, pe * simd).copy()
+                weight_tensor_iwsimd_groups = weight_tensor_iwsimd.reshape(1, -1, iwsimd)
                 weight_tensor_iwsimd_groups = pack_innermost_dim_as_hex_string(
                     weight_tensor_iwsimd_groups, export_wdt, iwsimd_group_bits, prefix=""
                 )

@@ -777,6 +777,10 @@ def test_mvau_fifocharacterize_rtlsim(
         (9, 8, 9, "external_mem"),  # TH=9 high tiling, CHAINLEN=3
         (9, 16, 3, "external_mem"),  # CHAINLEN=6
         (18, 32, 3, "internal_decoupled"),  # max fold, CHAINLEN=11, decoupled
+        # external_mem + TH=1: standard MVAU fed by fetch_weights from external memory
+        # (PE>1 catches PE-lane swaps, SIMD=1 covers the sub-word byte-packing edge).
+        (9, 16, 1, "external_mem"),
+        (18, 1, 1, "external_mem"),
     ],
 )
 @pytest.mark.parametrize(
@@ -807,6 +811,10 @@ def test_fpgadataflow_rtl_mvau(
 
     if simd == 1 and pumpedCompute:
         pytest.skip("""Clock pumping an input of SIMD=1 is not meaningful. Skipping test""")
+
+    # External memory has no on-chip weight memory to clock-pump.
+    if mem_mode == "external_mem" and pumpedMemory:
+        pytest.skip("External memory has no on-chip weight memory to clock-pump")
 
     # Tiled MVAU (TH>1) requires DSP58 (Versal) and is not combined with clock pumping.
     # The (PE * SIMD) % TH == 0 constraint is guaranteed by the parameter tuples above.
