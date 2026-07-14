@@ -214,7 +214,12 @@ module fetch_weights #(
 		);
 
 		assign	dma_addr = l_offsets[q_idx_dat];
-		assign	dma_len  = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+		// Same byte-aligned per-IWSIMD-group packing as the tiled path (see above):
+		// each of the MH*MW/IWSIMD groups occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
+		// bits (= DS_BITS_BA) in external memory. Using tight bit-packing here would
+		// under-fetch whenever IWSIMD*WEIGHT_WIDTH is not byte-aligned (e.g. SIMD=1,
+		// sub-byte weights). Reduces to the tight value when it is byte-aligned.
+		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
 
 	end : genDirect
 

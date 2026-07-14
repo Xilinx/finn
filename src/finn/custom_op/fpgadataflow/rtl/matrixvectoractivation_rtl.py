@@ -241,16 +241,12 @@ class MVAU_rtl(MVAU, RTLBackend):
                     node_name,
                 )
             )
-            # if using 2x pumped compute, connect the MVU's 2x clk input
-            # to the 2x clock port. Otherwise connect 2x clk to regular clk port
+            # For 2x pumped compute the MVU's 2x clk input is driven by the external
+            # 2x clock port, which CreateStitchedIP exposes and connects for this
+            # (flat) cell - nothing to connect here. Otherwise drive the unused 2x
+            # clk input from the regular clock.
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
-            if self.get_nodeattr("pumpedCompute"):
-                clk2x_name = self.get_verilog_top_module_intf_names()["clk2x"][0]
-                cmd.append(
-                    "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
-                    % (node_name, clk2x_name, node_name, clk2x_name)
-                )
-            else:
+            if not self.get_nodeattr("pumpedCompute"):
                 cmd.append(
                     "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/ap_clk2x]"
                     % (node_name, clk_name, node_name)
