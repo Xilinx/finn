@@ -197,10 +197,16 @@ class MVAU_hls(MVAU, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["internal_embedded", "internal_decoupled", "external"]:
+        if mem_mode not in [
+            "internal_embedded",
+            "internal_decoupled",
+            "external",
+            "external_mem",
+            "dynamic",
+        ]:
             raise Exception(
-                """Please set mem_mode to "internal_embedded", "internal_decoupled", or "external",
-                currently no other parameter value is supported!"""
+                """Please set mem_mode to "internal_embedded", "internal_decoupled", "external",
+                "external_mem", or "dynamic", currently no other parameter value is supported!"""
             )
         self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         if self.calc_tmem() != 0:
