@@ -946,7 +946,9 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("n_vectors", [32])
 @pytest.mark.parametrize("pe", [1, 16, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["INT4"], DataType["INT4"]]])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
+)
 @pytest.mark.parametrize(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
 )
