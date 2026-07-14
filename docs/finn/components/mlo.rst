@@ -16,9 +16,9 @@ Within the loop body, nodes fall into two categories. **Dynamic nodes** are
 parameter-holding nodes whose parameters differ between iterations. Their
 parameter set has to be switched on every iteration, while their hardware remains the same.
 **Static nodes** stay the same across all iterations and therefore reuse the exact same hardware and parameters
-on every pass. The loop body is implemented in hardware only once, wrapped by a shell 
-that selects the right parameters and feeds intermediate data to the body on every iteration. 
-MLO introduces a trade-off between throughput and resource footprint. 
+on every pass. The loop body is implemented in hardware only once, wrapped by a shell
+that selects the right parameters and feeds intermediate data to the body on every iteration.
+MLO introduces a trade-off between throughput and resource footprint.
 In some cases, a neural network cannot be implemented without MLO.
 
 |
@@ -90,7 +90,7 @@ contains three sub-blocks:
   decide where the body's output should go. Back into the buffer for another
   iteration, or out of the loop when the last iteration has completed.
 * the **intermediate frames** engine, a DMA-backed buffer in external memory
-  that stores each iteration's body output and replays it as the next iteration's input, while carrying 
+  that stores each iteration's body output and replays it as the next iteration's input, while carrying
   the index alongside in internal memory and advancing it for the next iteration.
 
 Stream-Tap Graph
