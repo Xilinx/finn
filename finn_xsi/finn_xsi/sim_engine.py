@@ -24,21 +24,35 @@ class SimEngine:
             if p.isInput():
                 p.clear().write_back()
 
-        def half_cycle(up):
-            clk.set(up).write_back()
-            if clk2x is not None:
-                clk2x.set(1).write_back()
-                top.run(25)
-                clk2x.set(0).write_back()
-                top.run(25)
-            else:
-                top.run(50)
+        def half_cycle_2x(run_first):
+            # Complete one slow half-cycle while the fast clock goes high->low.
+            # run_first reserves the stimulus tick after the active edge (2499)
+            # for the leading half; the trailing half uses the full 2500.
+            top.run(run_first)
+            clk2x.set(0).write_back()
+            top.run(2500)
 
         def cycle(updates):
-            half_cycle(1)
+            # Start the cycle on the active (rising) edge.
+            clk.set(1).write_back()
+            if clk2x is not None:
+                clk2x.set(1).write_back()
+            # Apply stimulus one tick after the active edge so inputs are stable
+            # across the whole slow cycle (both fast beats). Required for the
+            # double-pumped DSP58 datapath, which samples on the clk2x rising
+            # edges; mutating stimulus on a clk2x edge corrupts the 2nd beat.
+            top.run(1)
             for port, update in updates.items():
                 port.set_hexstr(update).write_back()
-            half_cycle(0)
+            if clk2x is None:
+                top.run(4999)
+                clk.set(0).write_back()
+                top.run(5000)
+            else:
+                half_cycle_2x(2499)  # finish the clk-high half
+                clk.set(0).write_back()
+                clk2x.set(1).write_back()
+                half_cycle_2x(2500)  # finish the clk-low half
 
         self.top = top
         self.cycle = cycle
@@ -100,7 +114,7 @@ class SimEngine:
 
             # Execute Cycle
             self.ticks += 1
-            # print(f"Cycle {self.ticks}")
+            print(f"Cycle {self.ticks}")
             strong = False
             for task in self.tasks:
                 # Tasks read signals and derive updates to schedule for after the clock cycle

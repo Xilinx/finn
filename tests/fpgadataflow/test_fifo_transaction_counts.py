@@ -17,15 +17,13 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 
 
 def make_multi_fclayer_model(ch, wdt, adt, nnodes):
-    """Build a chain of MVAU_hls nodes (no activation) directly as HLS layers, 
+    """Build a chain of MVAU_hls nodes (no activation) directly as HLS layers,
     mirroring tests/fpgadataflow/test_set_folding.py."""
     W = np.random.randint(wdt.min(), wdt.max() + 1, size=(ch, ch)).astype(np.float32)
 
     tensors = [helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ch])]
     for i in range(1, nnodes):
-        tensors.append(
-            helper.make_tensor_value_info("inter_" + str(i), TensorProto.FLOAT, [1, ch])
-        )
+        tensors.append(helper.make_tensor_value_info("inter_" + str(i), TensorProto.FLOAT, [1, ch]))
     tensors.append(helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch]))
 
     nodes = []
@@ -106,9 +104,7 @@ def test_fifo_transaction_counts_finnloop_iteration():
         inputDataType=dtype.name,
         outputDataType=dtype.name,
     )
-    top = helper.make_graph(
-        nodes=[loop_node], name="top", inputs=[top_in], outputs=[top_out]
-    )
+    top = helper.make_graph(nodes=[loop_node], name="top", inputs=[top_in], outputs=[top_out])
     model = ModelWrapper(qonnx_make_model(top, producer_name="loop-model"))
 
     # insert FIFOs in the body subgraph (and around the loop at the top level)

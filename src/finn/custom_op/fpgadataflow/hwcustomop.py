@@ -319,6 +319,8 @@ class HWCustomOp(CustomOp):
                 sets = mlo_max_iter
             if self.onnx_node.op_type.startswith("Thresholding"):
                 depth = self.calc_tmem()
+            elif self.onnx_node.op_type.startswith("MVAU"):
+                depth = self.calc_wmem() * self.get_nodeattr("TH")
             else:
                 depth = self.calc_wmem()
             padded_width = self.get_instream_width_padded(1)

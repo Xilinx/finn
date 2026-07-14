@@ -423,11 +423,16 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 ):
                     # rename so it doesn't get overwritten
                     shutil.move(param_file, new_param_file)
-                    # also rename simd-flipped npy for external_mem MVAU nodes
-                    npy_file = "{}/input_1.npy".format(path)
-                    if os.path.isfile(npy_file):
-                        new_npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
-                        shutil.move(npy_file, new_npy_file)
+                    # also rename the simd-flipped npy for the AXI-MM weight sim.
+                    # Only MVAU uses the AXI-MM interface; Elementwise weights are
+                    # streamed via the memstream .dat file handled below.
+                    if param_node.op_type.startswith("MVAU"):
+                        npy_file = "{}/input_1.npy".format(path)
+                        if os.path.isfile(npy_file):
+                            new_npy_file = "{}/{}_input1_{}.npy".format(
+                                path, param_node.op_type, iter
+                            )
+                            shutil.move(npy_file, new_npy_file)
                 elif param_node.op_type.startswith("Thresholding"):
                     # get all generated Thresholding dat files
                     pe = inst.get_nodeattr("PE")
@@ -468,17 +473,20 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             for line in infile:
                                 outfile.write(line)
                         os.remove(memblock_file)
-                # concatenate all .npy files together (simd-flipped for AXI-MM sim)
-                npy_parts = []
-                for iter in range(iteration):
-                    npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
-                    if os.path.isfile(npy_file):
-                        npy_parts.append(np.load(npy_file))
-                        os.remove(npy_file)
-                if npy_parts:
-                    combined_npy = np.concatenate(npy_parts, axis=1)
-                    npy_out = "{}/input1_{}_id_{}.npy".format(path, param_node.op_type, i + 1)
-                    np.save(npy_out, combined_npy)
+                # concatenate all .npy files together (simd-flipped for AXI-MM sim).
+                # Only MVAU uses the AXI-MM weight interface; Elementwise weights
+                # are streamed via the memstream .dat file handled above.
+                if param_node.op_type.startswith("MVAU"):
+                    npy_parts = []
+                    for iter in range(iteration):
+                        npy_file = "{}/{}_input1_{}.npy".format(path, param_node.op_type, iter)
+                        if os.path.isfile(npy_file):
+                            npy_parts.append(np.load(npy_file))
+                            os.remove(npy_file)
+                    if npy_parts:
+                        combined_npy = np.concatenate(npy_parts, axis=1)
+                        npy_out = "{}/input1_{}_id_{}.npy".format(path, param_node.op_type, i + 1)
+                        np.save(npy_out, combined_npy)
                 # Replace the path for the dat files in the ipgen files if Eltwise
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
                 if param_node.op_type.startswith("Elementwise"):
@@ -761,7 +769,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         adj_list = adjacency_list(
             loop_body,
-            lambda node: node.op_type == "Thresholding_rtl"
+            lambda node: (
+                node.op_type == "Thresholding_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            )
             or (
                 node.op_type == "MVAU_rtl"
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)

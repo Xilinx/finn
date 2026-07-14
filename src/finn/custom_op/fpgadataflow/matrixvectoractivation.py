@@ -40,6 +40,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
+from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
@@ -124,15 +125,9 @@ class MVAU(HWCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "pumpedMemory": ("i", False, 0, {0, 1}),
-            # tiling
+            # tiling height; only relevant for the RTL backend (MVAU_rtl), the
+            # HLS backend supports the untiled case (TH=1) only.
             "TH": ("i", False, 1),
-            # MMU parameters
-            "gemm_type": (
-                "s",
-                False,
-                "mvau",
-                {"mvau", "mvau_tiled"},
-            ),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -198,8 +193,6 @@ class MVAU(HWCustomOp):
         except Exception:
             info_messages.append("""The required MatrixVectorActivation attributes do not exist.""")
 
-        # TODO: Verify matrix unit type
-
         # verify the number of inputs depending on noActivation value
         # check noActivation value to determine the number of inputs
         no_act = self.get_nodeattr("noActivation")
@@ -263,7 +256,7 @@ class MVAU(HWCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self, ind=0):  # TODO: Hacky, need to clean these calls ...
+    def get_instream_width(self, ind=0):
         if ind == 0:
             i_bits = self.get_input_datatype(0).bitwidth()
             width = i_bits * self.get_nodeattr("SIMD")
@@ -466,6 +459,29 @@ class MVAU(HWCustomOp):
         wbits = W * D_in * D_out
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
+
+    def adapt_for_loop_body(self, input_types):
+        """
+        Adapt the MVAU for loop body execution.
+
+        When the weight tensor (input[1]) is indexed per iteration (PARAMETER
+        type), the weights must be streamed from external memory over the
+        AXI-MM interface. That path only exists in the RTL backend
+        (MVAU_rtl overrides this method to set mem_mode "external_mem").
+        The abstract HW op and the HLS backend cannot stream loop weights, so
+        reaching this base implementation with a streamed weight input is an
+        error: the node must be specialized to MVAU_rtl before loop rolling.
+
+        NOTE: LoopRolling swallows KeyError/AttributeError from this hook, so
+        this deliberately raises a plain Exception to surface loudly.
+        """
+        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+            raise Exception(
+                "MLO weight streaming requires the RTL MVAU backend. "
+                "Specialize this MVAU to MVAU_rtl before loop rolling; "
+                "the HLS/abstract MVAU cannot stream per-iteration weights "
+                "over AXI-MM."
+            )
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
@@ -711,12 +727,41 @@ class MVAU(HWCustomOp):
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             # tiling
-            tinner = (pe * simd) // self.get_nodeattr("TH")
+            th = self.get_nodeattr("TH")
+            tinner = (pe * simd) // th
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, tinner)
+            # The .dat weights are PE-flipped (np.flip axis=-2), which reverses the
+            # PE dimension - the same dimension that TH tiles into sub-tiles. This
+            # reverses the order of the TH sub-tiles within each PE group. Undo that
+            # by flipping the TH tile order back (no-op for th=1).
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, th, tinner)
+            weight_tensor_pe_flipped = np.flip(weight_tensor_pe_flipped, axis=-2)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, tinner)
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
                 np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat" and (
+                self.get_nodeattr("mlo_max_iter") or self.get_nodeattr("mem_mode") == "external_mem"
+            ):
+                # AXI-MM / fetch_weights path (MLO and external_mem): external memory
+                # (DDR, HBM, ...) holds one IWSIMD group per DWC output beat, each
+                # byte-aligned to DS_BITS_BA = roundup(IWSIMD*bitwidth, 8) bits. IWSIMD
+                # is (PE*SIMD)/TH for TH>1, SIMD otherwise. The within-group ordering
+                # must match the memstreamer (PE-flipped, TH sub-tile order undone):
+                # unflipped would swap PE lanes when IWSIMD*bitwidth <= 8 packs several
+                # PEs into one byte. For TH>1 weight_tensor_pe_flipped is already in
+                # IWSIMD-sized chunks (tinner == (PE*SIMD)/TH == IWSIMD).
+                th = self.get_nodeattr("TH")
+                iwsimd = (pe * simd) // th if th > 1 else simd
+                iwsimd_group_bits = roundup_to_integer_multiple(iwsimd * export_wdt.bitwidth(), 8)
+                weight_tensor_iwsimd_groups = weight_tensor_pe_flipped.reshape(1, -1, iwsimd)
+                weight_tensor_iwsimd_groups = pack_innermost_dim_as_hex_string(
+                    weight_tensor_iwsimd_groups, export_wdt, iwsimd_group_bits, prefix=""
+                )
+                weight_stream = weight_tensor_iwsimd_groups.flatten().copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        f.write(val + "\n")
             elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_instream_width(1)
@@ -1021,7 +1066,7 @@ class MVAU(HWCustomOp):
                     strm_out_name = "m_axis_0"
 
                 #
-                # Fetch weights instantiation (MLO or TODO: tiling)
+                # Fetch weights instantiation (MLO and tiling)
                 case "external_mem":
                     # additional inputs
                     cmd.append(

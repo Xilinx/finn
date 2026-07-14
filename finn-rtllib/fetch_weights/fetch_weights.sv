@@ -1,33 +1,6 @@
 /******************************************************************************
- * Copyright (C) 2024, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *  1. Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *
- *  2. Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- *  3. Neither the name of the copyright holder nor the names of its
- *     contributors may be used to endorse or promote products derived from
- *     this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
- * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
+ * Copyright Advanced Micro Devices, Inc.
+ * SPDX-License-Identifier: BSD-3-Clause
  *****************************************************************************/
 
 module fetch_weights #(
@@ -56,7 +29,11 @@ module fetch_weights #(
 	int unsigned  OWSIMD = (PE * SIMD) / TH,
 	int unsigned  DS_BITS_BA = (IWSIMD*WEIGHT_WIDTH+7)/8 * 8,
 	int unsigned  WS_BITS_BA = (OWSIMD*WEIGHT_WIDTH+7)/8 * 8,
-	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW*WEIGHT_WIDTH+7)/8 + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
+	// In external memory (DDR, HBM, ...) weights are stored per IWSIMD group, each
+	// padded to roundup(IWSIMD*WEIGHT_WIDTH, 8) bits (= DS_BITS_BA, the DWC output
+	// width). The per-layer stride must reflect that per-group padding (not tight
+	// bit-packing); reduces to the tight value when IWSIMD*WEIGHT_WIDTH is byte-aligned.
+	logic[ADDR_BITS-1:0]  LAYER_OFFS = ((MH*MW/IWSIMD)*((IWSIMD*WEIGHT_WIDTH+7)/8) + (DATA_BITS/8-1)) & ~(DATA_BITS/8-1) // AXI bus-width aligned
 )(
 	input  logic  aclk,
 	input  logic  aresetn,
@@ -166,7 +143,12 @@ module fetch_weights #(
 		);
 
 		assign	dma_addr = l_offsets[Idx];
-		assign	dma_len  = ((MH*MW*WEIGHT_WIDTH+7)/8) & ~7;
+		// External memory (DDR, HBM, ...) stores weights as byte-aligned per-IWSIMD
+		// packets: each group of IWSIMD weights occupies roundup(IWSIMD*WEIGHT_WIDTH, 8)
+		// bits (= DS_BITS_BA). The total fetch length must reflect that per-group
+		// padding (not tight bit-packing), otherwise sub-byte weights under-fetch.
+		// Reduces to the tight value whenever IWSIMD*WEIGHT_WIDTH is already byte-aligned.
+		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin

@@ -47,9 +47,7 @@ def _count(model, apply_to_subgraphs):
         for node in model.graph.node:
             # FINNLoop re-streams its body once per iteration; generic subgraphs run once
             multiplier = (
-                getCustomOp(node).get_nodeattr("iteration")
-                if node.op_type == "FINNLoop"
-                else 1
+                getCustomOp(node).get_nodeattr("iteration") if node.op_type == "FINNLoop" else 1
             )
             for attr in node.attribute:
                 if attr.type == onnx.AttributeProto.GRAPH:

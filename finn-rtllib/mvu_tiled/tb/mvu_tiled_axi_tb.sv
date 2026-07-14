@@ -1,7 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2024, Advanced Micro Devices, Inc.
- * All rights reserved.
- *
+ * Copyright Advanced Micro Devices, Inc.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * @brief	Testbench for MVU-Tiled AXI wrapper module.
