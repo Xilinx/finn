@@ -33,7 +33,6 @@ from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MVAU
-from finn.util.basic import is_versal
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation_hls:
@@ -139,19 +138,8 @@ class MVAU_hls(MVAU, HLSBackend):
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         super().code_generation_ipgen(model, fpgapart, clk)
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "dynamic":
-            self.generate_hdl_dynload()
-        if mem_mode == "internal_decoupled":
-            if self.get_nodeattr("ram_style") == "ultra" and not is_versal(fpgapart):
-                runtime_writeable = self.get_nodeattr("runtime_writeable_weights")
-                assert (
-                    runtime_writeable == 1
-                ), """Layer with URAM weights must have runtime_writeable_weights=1
-                    if Ultrascale device is targeted."""
-            self.generate_hdl_memstream(fpgapart, pumped_memory=self.get_nodeattr("pumpedMemory"))
-        elif mem_mode == "external_mem":
-            self.generate_hdl_fetch_weights(fpgapart)
+        # generate the weight-infrastructure HDL (shared MVAU helper)
+        self.generate_infra_hdl(fpgapart)
 
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight

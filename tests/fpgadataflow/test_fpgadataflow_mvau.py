@@ -365,7 +365,7 @@ def test_fpgadataflow_mvau_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
 
 # mem_mode: internal_embedded or internal_decoupled
-@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external"])
+@pytest.mark.parametrize("mem_mode", ["internal_embedded", "internal_decoupled", "external_mem"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
@@ -472,6 +472,33 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
     exp_cycles = exp_cycles_dict[node.name]
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
+
+    # Also exercise stitched-IP rtlsim, but only for a single representative
+    # (max-parallelism, INT4, no-activation) config per mem_mode to bound runtime.
+    # Pumped memory is only meaningful with internal_decoupled (and SIMD > 1), so
+    # cover exactly that one pumped config in addition to the non-pumped modes.
+    representative = (
+        pe == mh
+        and simd == mw
+        and act is None
+        and idt == DataType["INT4"]
+        and wdt == DataType["INT4"]
+    )
+    if pumpedMemory:
+        run_stitched = representative and mem_mode == "internal_decoupled"
+    else:
+        run_stitched = representative
+    if run_stitched:
+        part = "xczu7ev-ffvc1156-2-e"
+        model = model.transform(InsertAndSetFIFODepths(part, 5))
+        model = model.transform(PrepareIP(part, 5))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(part, 5))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        y_produced_stitch = oxe.execute_onnx(model, input_dict)["outp"]
+        assert (
+            y_produced_stitch.reshape(y_expected.shape) == y_expected
+        ).all(), "stitched-IP rtlsim failed"
 
 
 # mem_mode: internal_embedded or internal_decoupled
