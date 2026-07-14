@@ -40,7 +40,6 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
-from finn.transformation.fpgadataflow.loop_rolling import LoopBodyInputType
 from finn.util.basic import is_versal
 from finn.util.data_packing import numpy_to_hls_code, pack_innermost_dim_as_hex_string
 
@@ -472,10 +471,14 @@ class MVAU(HWCustomOp):
         reaching this base implementation with a streamed weight input is an
         error: the node must be specialized to MVAU_rtl before loop rolling.
 
+        LoopRolling flags nodes with a per-iteration indexed weight by setting
+        mlo_max_iter (on the consumer of each PARAMETER loop input), so key off
+        that per-node signal rather than the positional loop signature.
+
         NOTE: LoopRolling swallows KeyError/AttributeError from this hook, so
         this deliberately raises a plain Exception to surface loudly.
         """
-        if len(input_types) > 1 and input_types[1] == LoopBodyInputType.PARAMETER:
+        if self.get_nodeattr("mlo_max_iter") > 0:
             raise Exception(
                 "MLO weight streaming requires the RTL MVAU backend. "
                 "Specialize this MVAU to MVAU_rtl before loop rolling; "
