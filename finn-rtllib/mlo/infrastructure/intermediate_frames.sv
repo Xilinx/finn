@@ -441,20 +441,19 @@ end
 logic last_dwc_in;
 assign last_dwc_in = (cnt_dwc_C == FM_BEATS_IN-1);
 
-//TODO: Check if intermediate_frames padding for intermediate data so it is byte alligned is necessary else remove the it
 
-// DWC write: OLEN_BITS -> DATA_BITS (body output -> DMA)
+// DWC write: OLEN_BITS_BA -> DATA_BITS (byte-aligned body output -> DMA)
 if_dwc_sink inst_dwc_wr (
     .aclk(aclk), .aresetn(aresetn),
-    .s_axis_tvalid(s_axis_int_tvalid), .s_axis_tready(s_axis_int_tready), .s_axis_tdata(s_axis_int_tdata), .s_axis_tkeep({(OLEN_BITS/8){1'b1}}), .s_axis_tlast(last_dwc_in),
+    .s_axis_tvalid(s_axis_ba_tvalid), .s_axis_tready(s_axis_ba_tready), .s_axis_tdata(s_axis_ba_tdata), .s_axis_tkeep({(OLEN_BITS_BA/8){1'b1}}), .s_axis_tlast(last_dwc_in),
     .m_axis_tvalid(axis_dma_wr_tvalid), .m_axis_tready(axis_dma_wr_tready), .m_axis_tdata(axis_dma_wr_tdata), .m_axis_tkeep(axis_dma_wr_tkeep), .m_axis_tlast(axis_dma_wr_tlast)
 );
 
-// DWC read: DATA_BITS -> ILEN_BITS (DMA -> body input)
+// DWC read: DATA_BITS -> ILEN_BITS_BA (DMA -> byte-aligned body input)
 if_dwc_source inst_dwc_rd (
     .aclk(aclk), .aresetn(aresetn),
     .s_axis_tvalid(axis_dma_rd_tvalid), .s_axis_tready(axis_dma_rd_tready), .s_axis_tdata(axis_dma_rd_tdata), .s_axis_tkeep(axis_dma_rd_tkeep), .s_axis_tlast(axis_dma_rd_tlast),
-    .m_axis_tvalid(m_axis_int_tvalid), .m_axis_tready(m_axis_int_tready), .m_axis_tdata(m_axis_int_tdata), .m_axis_tkeep(), .m_axis_tlast()
+    .m_axis_tvalid(m_axis_ba_tvalid), .m_axis_tready(m_axis_ba_tready), .m_axis_tdata(m_axis_ba_tdata), .m_axis_tkeep(), .m_axis_tlast()
 );
 
 // REG

@@ -603,8 +603,15 @@ class FINNLoop(HWCustomOp, RTLBackend):
         olen_bits = self.get_outstream_width(0)
         ilen_bits = self.get_instream_width(0)
         data_bits = 256
-        # DWC write path: body output width -> DMA width (256)
-        dwc_sink_s_bytes = (olen_bits + 7) // 8
+        # Intermediate frames pad each element to a whole number of bytes, so the
+        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
+        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
+        elem_bits = self.get_input_datatype(0).bitwidth()
+        elem_bytes = (elem_bits + 7) // 8
+        oelem = olen_bits // elem_bits
+        ielem = ilen_bits // elem_bits
+        # DWC write path: byte-aligned body output width -> DMA width (256)
+        dwc_sink_s_bytes = oelem * elem_bytes
         dwc_sink_m_bytes = data_bits // 8
         cmd += [
             "create_ip -name axis_dwidth_converter -vendor xilinx.com "
@@ -617,9 +624,9 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
             "generate_target all [get_ips if_dwc_sink]",
         ]
-        # DWC read path: DMA width (256) -> body input width
+        # DWC read path: DMA width (256) -> byte-aligned body input width
         dwc_source_s_bytes = data_bits // 8
-        dwc_source_m_bytes = (ilen_bits + 7) // 8
+        dwc_source_m_bytes = ielem * elem_bytes
         cmd += [
             "create_ip -name axis_dwidth_converter -vendor xilinx.com "
             "-library ip -version 1.1 -module_name if_dwc_source",
