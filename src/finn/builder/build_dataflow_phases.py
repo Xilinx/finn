@@ -237,9 +237,10 @@ def _apply_to_loop_bodies(model: ModelWrapper, cfg: DataflowBuildConfig, step_fn
         if loop_model.get_nodes_by_op_type("FINNLoop"):
             loop_model = _apply_to_loop_bodies(loop_model, cfg, step_fn)
 
-        # Apply step to this loop body
+        # Apply step to this loop body; pass the loop name so debug_fifo logs
+        # and waveforms can be tagged per loop body
         print(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
-        loop_model = step_fn(loop_model, cfg)
+        loop_model = step_fn(loop_model, cfg, loop_context=node.name)
 
         node_inst.set_nodeattr("body", loop_model.graph)
 

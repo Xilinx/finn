@@ -100,6 +100,10 @@ def make_loop_modelwrapper(
     rhs_shape=[1],
     eltw_param_dtype="INT8",
     name_suffix="",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
 ):
     is_float = eltw_param_dtype == "FLOAT32"
 
@@ -152,7 +156,7 @@ def make_loop_modelwrapper(
             {
                 "NumChannels": mh,
                 "NumOutputStreams": 2,
-                "PE": 8,
+                "PE": helper_pe,
                 "inputDataType": dtype.name,
                 "outFIFODepths": [2, 2],
                 "cpp_interface": "hls_vector",
@@ -167,8 +171,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -184,7 +189,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_0{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -200,8 +205,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -217,7 +223,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_1{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -233,8 +239,9 @@ def make_loop_modelwrapper(
             {
                 "MW": mw,
                 "MH": mh,
-                "SIMD": 2,
-                "PE": 2,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
                 "inputDataType": "INT8",
                 "weightDataType": "INT8",
                 "outputDataType": "INT32",
@@ -250,7 +257,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl_2{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 2,
+                "PE": helper_pe,
                 "inputDataType": "INT32",
                 "weightDataType": "INT33",
                 "outputDataType": dtype.name,
@@ -272,7 +279,7 @@ def make_loop_modelwrapper(
                 "out_dtype": "INT9",
                 "lhs_style": "input",
                 "rhs_style": "input",
-                "PE": 2,
+                "PE": helper_pe,
             },
         ),
         create_node(
@@ -323,7 +330,7 @@ def make_loop_modelwrapper(
             f"Thresholding_rtl4{name_suffix}",
             {
                 "NumChannels": mh,
-                "PE": 4,
+                "PE": helper_pe,
                 "numSteps": dtype.get_num_possible_values() - 1,
                 "inputDataType": thresholding_input_dtype.name,
                 "weightDataType": thresholding_input_dtype.name,
@@ -410,8 +417,101 @@ def make_loop_modelwrapper(
     return loop_body_model
 
 
+def make_single_mvau_loop_body(
+    mw,
+    mh,
+    dtype=DataType["INT8"],
+    name_suffix="",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
+):
+    """Create a minimal loop body with just MVAU_rtl -> Thresholding_rtl."""
+
+    W0 = gen_finn_dt_tensor(dtype, (mw, mh))
+    T0 = np.sort(
+        generate_random_threshold_values(dtype, 1, dtype.get_num_possible_values() - 1), axis=1
+    )
+
+    nodes = [
+        create_node(
+            "MVAU_rtl",
+            [f"ifm{name_suffix}", f"weights0{name_suffix}"],
+            [f"mm0_out{name_suffix}"],
+            f"MVAU_rtl_0{name_suffix}",
+            {
+                "MW": mw,
+                "MH": mh,
+                "SIMD": mvau_simd,
+                "PE": mvau_pe,
+                "TH": mvau_th,
+                "inputDataType": "INT8",
+                "weightDataType": "INT8",
+                "outputDataType": "INT32",
+                "ActVal": 0,
+                "binaryXnorMode": 0,
+                "noActivation": 1,
+            },
+        ),
+        create_node(
+            "Thresholding_rtl",
+            [f"mm0_out{name_suffix}", f"thresh0{name_suffix}"],
+            [f"ofm{name_suffix}"],
+            f"Thresholding_rtl_0{name_suffix}",
+            {
+                "NumChannels": mh,
+                "PE": helper_pe,
+                "inputDataType": "INT32",
+                "weightDataType": "INT33",
+                "outputDataType": dtype.name,
+                "ActVal": int(dtype.min()),
+                "numSteps": dtype.get_num_possible_values() - 1,
+            },
+        ),
+    ]
+
+    loop_body = helper.make_graph(
+        nodes=nodes,
+        name=f"single_mvau_graph{name_suffix}",
+        inputs=[
+            create_tensor_info(f"ifm{name_suffix}", [1, 3, 3, mw]),
+            create_threshold(f"thresh0{name_suffix}", (1, dtype.get_num_possible_values() - 1)),
+        ],
+        outputs=[create_tensor_info(f"ofm{name_suffix}", (1, 3, 3, mh))],
+        value_info=[
+            create_tensor_info(f"mm0_out{name_suffix}", [1, 3, 3, mh]),
+        ],
+    )
+
+    loop_body_model = qonnx_make_model(loop_body, producer_name=f"single-mvau-body{name_suffix}")
+    loop_body_model = ModelWrapper(loop_body_model)
+
+    loop_body_model.set_initializer(f"weights0{name_suffix}", W0)
+    loop_body_model.set_initializer(f"thresh0{name_suffix}", T0)
+
+    for tensor in [
+        f"weights0{name_suffix}",
+        f"thresh0{name_suffix}",
+        f"ifm{name_suffix}",
+        f"ofm{name_suffix}",
+    ]:
+        loop_body_model.set_tensor_datatype(tensor, dtype)
+
+    return loop_body_model
+
+
 def create_chained_loop_bodies(
-    mw, mh, num_copies, elemwise_optype="ElementwiseMul_hls", rhs_shape=[1], eltw_param_dtype="INT8"
+    mw,
+    mh,
+    num_copies,
+    elemwise_optype="ElementwiseMul_hls",
+    rhs_shape=[1],
+    eltw_param_dtype="INT8",
+    mvau_pe=2,
+    mvau_simd=2,
+    mvau_th=1,
+    helper_pe=2,
 ):
     loop_body_models = []
 
@@ -426,14 +526,27 @@ def create_chained_loop_bodies(
             rhs_shape=rhs_shape,
             eltw_param_dtype=eltw_param_dtype,
             name_suffix=name_suffix,
+            mvau_pe=mvau_pe,
+            mvau_simd=mvau_simd,
+            mvau_th=mvau_th,
+            helper_pe=helper_pe,
         )
         loop_body_models.append(loop_body_model)
 
     return loop_body_models
 
 
-# dimensions
-@pytest.mark.parametrize("dim", [16])
+# MVAU folding as a jointly-valid tuple (dim, mvau_pe, mvau_simd, mvau_th, helper_pe).
+# TH=1 selects the standard MVAU; TH>1 selects the tiled MVAU (Versal DSP58).
+# The dimensions must satisfy the tiling constraints: MW % SIMD == 0, MH % PE == 0
+# and (PE * SIMD) % TH == 0, so pe/simd/th cannot be stacked independently.
+@pytest.mark.parametrize(
+    "mvau_cfg",
+    [
+        (16, 2, 2, 1, 2),
+        (12, 6, 3, 3, 6),
+    ],
+)
 # iteration count, number of models chained together
 @pytest.mark.parametrize("iteration", [3])
 # elementwise operation
@@ -448,8 +561,20 @@ def create_chained_loop_bodies(
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_finnloop_end2end_mlo(
-    dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
+    mvau_cfg, iteration, elemwise_optype, rhs_shape, eltw_param_dtype, tail_node
 ):
+    dim, mvau_pe, mvau_simd, mvau_th, helper_pe = mvau_cfg
+    # The tiled MVAU (TH>1) is only exercised on selected elementwise configs to
+    # avoid a combinatorial explosion of long Vivado builds. rhs_shape is pinned to
+    # [1] since [16] is incompatible with the tiled config's dim. Within that, we
+    # cover INT8/no-tail (canonical), FLOAT32/no-tail (float path) and INT8/tail
+    # (tail-node integration), skipping the redundant FLOAT32+tail combination.
+    if mvau_th > 1 and not (
+        elemwise_optype == "ElementwiseMul_hls"
+        and rhs_shape == [1]
+        and not (eltw_param_dtype == "FLOAT32" and tail_node)
+    ):
+        pytest.skip("Tiled MVAU only exercised on selected elementwise configs")
     # Check vivado version
     vivado_path = os.environ.get("XILINX_VIVADO")
     match = re.search(r"\b(20\d{2})\.(1|2)\b", vivado_path)
@@ -457,7 +582,16 @@ def test_finnloop_end2end_mlo(
     if (year, minor) < (2024, 2):
         pytest.skip("""At least Vivado version 2024.2 needed for MLO.""")
     loop_body_models = create_chained_loop_bodies(
-        dim, dim, iteration, elemwise_optype, rhs_shape, eltw_param_dtype
+        dim,
+        dim,
+        iteration,
+        elemwise_optype,
+        rhs_shape,
+        eltw_param_dtype,
+        mvau_pe=mvau_pe,
+        mvau_simd=mvau_simd,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
     model = loop_body_models[0]
