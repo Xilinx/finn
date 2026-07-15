@@ -153,8 +153,7 @@ module fetch_weights #(
 		// bits (= DS_BITS_BA). The total fetch length must reflect that per-group
 		// padding (not tight bit-packing), otherwise sub-byte weights under-fetch.
 		// Reduces to the tight value whenever IWSIMD*WEIGHT_WIDTH is already byte-aligned.
-		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
-		// TODO: look at the rounding here
+		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
 
 		//--- Sequential ----------------------------------------------------
 		always_ff @(posedge aclk) begin
@@ -225,7 +224,7 @@ module fetch_weights #(
 		// bits (= DS_BITS_BA) in external memory. Using tight bit-packing here would
 		// under-fetch whenever IWSIMD*WEIGHT_WIDTH is not byte-aligned (e.g. SIMD=1,
 		// sub-byte weights). Reduces to the tight value when it is byte-aligned.
-		assign	dma_len  = (((MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8)) + 7) & ~7;
+		assign dma_len = (MH*MW/IWSIMD) * ((IWSIMD*WEIGHT_WIDTH+7)/8);
 
 	end : genDirect
 
