@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import json
 import numpy as np
 import os
 from qonnx.custom_op.registry import getCustomOp
@@ -39,6 +40,7 @@ from finn.util.basic import (
     make_build_dir,
 )
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.mlo_sim import dat_file_to_numpy_array
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -366,6 +368,19 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
 
     # reset and call rtlsim, including any pre/post hooks
     finnxsi.reset_rtlsim(sim)
+
+    # automatically load AXI-MM weight images for external_mem nodes
+    aximm_weights_json = model.get_metadata_prop("vivado_stitch_aximm_weights")
+    if aximm_weights_json is not None:
+        aximm_weights = json.loads(aximm_weights_json)
+        for aximm_name, dat_path in aximm_weights.items():
+            # memblock.dat stores weights byte-aligned per SIMD group
+            # (roundup(SIMD*bitwidth, 8) bits per group), the layout fetch_weights
+            # expects in external memory (DDR, HBM, ...). Parse it (LSB-first) into a
+            # flat byte image, matching the validated MLO path in mlo_sim.py.
+            weight_data = dat_file_to_numpy_array(dat_path)
+            sim.aximm_ro_image(aximm_name, 0, weight_data.flatten())
+
     if pre_hook is not None:
         pre_hook(sim)
     n_cycles = finnxsi.rtlsim_multi_io(
