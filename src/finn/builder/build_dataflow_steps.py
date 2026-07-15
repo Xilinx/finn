@@ -1380,24 +1380,25 @@ def step_loop_rolling(model, cfg):
     return model
 
 
-def step_loop_body_set_fifo_depths(
-    model: ModelWrapper, cfg: DataflowBuildConfig, loop_context=None
-):
+def step_loop_body_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Set FIFO depths for loop body model.
 
     This step is designed to be called on a loop body model (extracted from FINNLoop).
     It performs PrepareIP, HLSSynthIP, and InsertAndSetFIFODepths with parameters
     appropriate for loop bodies.
 
+    The enclosing FINNLoop name is read from the "loop_context" metadata prop
+    (set by _apply_to_loop_bodies) and used to tag debug_fifo logs / waveforms so
+    that per-loop-body FIFO sizing can be told apart.
+
     Args:
         model: Loop body ModelWrapper
         cfg: Build configuration
-        loop_context: name of the enclosing FINNLoop node, used to tag debug_fifo
-            logs / waveforms so that per-loop-body FIFO sizing can be told apart
 
     Returns:
         Loop body ModelWrapper with FIFOs sized
     """
+    loop_context = model.get_metadata_prop("loop_context")
     # Prepare and synthesize IP for FIFO characterization
     model = model.transform(PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()))
     model = model.transform(HLSSynthIP(cfg._resolve_hls_clk_period()))
@@ -1432,7 +1433,7 @@ def step_loop_body_set_fifo_depths(
     return model
 
 
-def step_loop_body_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig, loop_context=None):
+def step_loop_body_ipgen_and_stitch(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run HLS synthesis and create stitched IP for loop body model.
 
     This step is designed to be called on a loop body model (extracted from FINNLoop).
@@ -1442,8 +1443,6 @@ def step_loop_body_hw_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig, loop_
     Args:
         model: Loop body ModelWrapper
         cfg: Build configuration
-        loop_context: name of the enclosing FINNLoop node (accepted for a uniform
-            loop-body step signature; not used here)
 
     Returns:
         Loop body ModelWrapper with synthesized IP and stitched IP created
@@ -1485,5 +1484,5 @@ build_dataflow_step_lookup = {
     "step_deployment_package": step_deployment_package,
     "step_loop_rolling": step_loop_rolling,
     "step_loop_body_set_fifo_depths": step_loop_body_set_fifo_depths,
-    "step_loop_body_hw_ipgen": step_loop_body_hw_ipgen,
+    "step_loop_body_ipgen_and_stitch": step_loop_body_ipgen_and_stitch,
 }

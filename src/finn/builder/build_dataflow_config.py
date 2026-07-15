@@ -113,7 +113,7 @@ default_build_dataflow_steps = [
     "phase_convert_to_hardware",
     "phase_optimize_hardware",
     "phase_build_hardware",
-    "phase_synthesize_hardware",
+    "phase_generate_outputs",
 ]
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build

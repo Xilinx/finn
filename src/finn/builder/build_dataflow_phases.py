@@ -32,7 +32,7 @@ from finn.builder.build_dataflow_steps import (
     step_generate_estimate_reports,
     step_hw_codegen,
     step_hw_ipgen,
-    step_loop_body_hw_ipgen,
+    step_loop_body_ipgen_and_stitch,
     step_loop_body_set_fifo_depths,
     step_loop_rolling,
     step_make_driver,
@@ -237,10 +237,15 @@ def _apply_to_loop_bodies(model: ModelWrapper, cfg: DataflowBuildConfig, step_fn
         if loop_model.get_nodes_by_op_type("FINNLoop"):
             loop_model = _apply_to_loop_bodies(loop_model, cfg, step_fn)
 
-        # Apply step to this loop body; pass the loop name so debug_fifo logs
-        # and waveforms can be tagged per loop body
+        # Tag the loop body with its enclosing FINNLoop name so the step can
+        # emit per-loop debug_fifo logs / waveforms without needing a special
+        # signature. Steps read this via model.get_metadata_prop("loop_context").
+        loop_model.set_metadata_prop("loop_context", node.name)
         print(f"Running {step_fn.__name__} for FINNLoop: {node.name}")
-        loop_model = step_fn(loop_model, cfg, loop_context=node.name)
+        loop_model = step_fn(loop_model, cfg)
+
+        # Clear the transient tag so it doesn't leak into the saved body graph
+        loop_model.set_metadata_prop("loop_context", "")
 
         node_inst.set_nodeattr("body", loop_model.graph)
 
@@ -265,7 +270,7 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     Internal steps:
     - step_loop_body_set_fifo_depths: FIFO sizing for loop bodies (MLO only)
     - step_hw_codegen: Generate HLS C++ or RTL code via PrepareIP
-    - step_loop_body_hw_ipgen: Create stitched IP for loop bodies (MLO only)
+    - step_loop_body_ipgen_and_stitch: Synth IP and create stitchedIP for loop bodies (MLO only)
     - step_set_fifo_depths: FIFO sizing for main model (MLO only)
     - step_hw_ipgen: Synthesize IP blocks via HLSSynthIP
 
@@ -285,7 +290,7 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     # Step 3: Create stitched IP for loop bodies
     # Must happen before step_set_fifo_depths (MLO) so FINNLoop can be simulated
-    model = _apply_to_loop_bodies(model, cfg, step_loop_body_hw_ipgen)
+    model = _apply_to_loop_bodies(model, cfg, step_loop_body_ipgen_and_stitch)
 
     # Step 4: FIFO sizing for main model (MLO only)
     # Must happen after loop body stitched IPs so FINNLoop can be characterized
@@ -298,7 +303,7 @@ def phase_build_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def phase_synthesize_hardware(model: ModelWrapper, cfg: DataflowBuildConfig):
+def phase_generate_outputs(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Phase: Create final hardware artifacts (stitched IP or bitfile + deployment package).
 
     This phase creates the final hardware deliverables based on requested outputs.
@@ -338,5 +343,5 @@ build_dataflow_phase_lookup = {
     "phase_convert_to_hardware": phase_convert_to_hardware,
     "phase_optimize_hardware": phase_optimize_hardware,
     "phase_build_hardware": phase_build_hardware,
-    "phase_synthesize_hardware": phase_synthesize_hardware,
+    "phase_generate_outputs": phase_generate_outputs,
 }
