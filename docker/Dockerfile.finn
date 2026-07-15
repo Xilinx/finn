@@ -166,6 +166,6 @@ COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
-USER USERNAME
+USER $USERNAME
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
