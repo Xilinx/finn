@@ -88,7 +88,7 @@ RUN locale-gen "en_US.UTF-8"
 # Install v80++. If the package isn't provided, this is a no-op
 # The wildcard pattern ensures COPY doesn't fail if the file doesn't exist
 COPY v80pp.de[b] /tmp/
-RUN if [ -f /tmp/v80pp.deb ]; then apt-get install -y /tmp/v80pp.deb && rm /tmp/v80pp.deb; fi
+RUN if [ -f /tmp/v80pp.deb ]; then apt-get update && apt-get install -y /tmp/v80pp.deb && rm /tmp/v80pp.deb; fi
 
 # install XRT
 RUN if [ -z "$LOCAL_XRT" ] && [ -z "$SKIP_XRT" ];then \
