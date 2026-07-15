@@ -488,6 +488,13 @@ def _slash_link_command(tool, config_path, vbin_path, component_xml_paths, build
     ] + [str(path) for path in component_xml_paths]
 
 
+def _slash_link_argv(config_path, vbin_path, component_xml_paths, build_hardware):
+    slash_linker = resolve_xilinx_tool("slashkit")
+    return _slash_link_command(
+        slash_linker, config_path, vbin_path, component_xml_paths, build_hardware
+    )
+
+
 class SlashLink(Transformation):
     """Create a VBIN file with SLASH.
 
@@ -588,8 +595,8 @@ class SlashLink(Transformation):
 
         # Construct the linker invocation
         vbin_path = link_dir / "finn.vbin"
-        command = _slash_link_command(
-            "v80++", config_path, vbin_path, component_xml_paths, self.build_hardware
+        command = _slash_link_argv(
+            config_path, vbin_path, component_xml_paths, self.build_hardware
         )
 
         # Run the linker
