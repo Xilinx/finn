@@ -30,7 +30,6 @@ import pytest
 
 import onnx
 import onnx.numpy_helper as nph
-import os
 import torch
 from brevitas.export import export_qonnx
 from pkgutil import get_data
@@ -42,25 +41,28 @@ from qonnx.util.cleanup import cleanup as qonnx_cleanup
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import ConvertSignToThres
+from finn.util.basic import make_build_dir, robust_rmtree
 from finn.util.test import get_test_model_trained
-
-export_onnx_path = "test_sign_to_thres.onnx"
 
 
 @pytest.mark.streamline
 def test_sign_to_thres():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
-    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(ConvertQONNXtoFINN())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    new_model = model.transform(ConvertSignToThres())
-    assert new_model.graph.node[3].op_type == "MultiThreshold"
-    # load one of the test vectors
-    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
-    assert oxe.compare_execution(model, new_model, input_dict)
-    os.remove(export_onnx_path)
+    build_dir = make_build_dir(prefix="test_sign_to_thres_")
+    try:
+        export_onnx_path = f"{build_dir}/test_sign_to_thres.onnx"
+        lfc = get_test_model_trained("LFC", 1, 1)
+        export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+        model = ModelWrapper(export_onnx_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        new_model = model.transform(ConvertSignToThres())
+        assert new_model.graph.node[3].op_type == "MultiThreshold"
+        # load one of the test vectors
+        raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        input_tensor = onnx.load_tensor_from_string(raw_i)
+        input_dict = {model.get_first_global_in(): nph.to_array(input_tensor)}
+        assert oxe.compare_execution(model, new_model, input_dict)
+    finally:
+        robust_rmtree(build_dir)

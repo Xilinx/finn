@@ -53,12 +53,11 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import get_vivado_version
-
-export_onnx_path = "test_lookup.onnx"
+from finn.util.basic import get_vivado_version, make_build_dir, robust_rmtree
 
 
-def make_lookup_model(embeddings, ishape, idt, edt):
+def make_lookup_model(embeddings, ishape, idt, edt, build_dir):
+    export_onnx_path = f"{build_dir}/test_lookup.onnx"
     num_embeddings, embedding_dim = embeddings.shape
 
     class LookupModel(nn.Module):
@@ -111,6 +110,14 @@ def make_lookup_model(embeddings, ishape, idt, edt):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style):
+    build_dir = make_build_dir(prefix="test_fpgadataflow_lookup_")
+    try:
+        _test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style, build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style, build_dir):
     # Skip URAM on old Vivado versions
     if ram_style == "ultra":
         vivado_version = get_vivado_version()
@@ -122,7 +129,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style
     eshape = (num_embeddings, embedding_dim)
     exp_oshape = tuple(list(ishape) + [embedding_dim])
     embeddings = gen_finn_dt_tensor(edt, eshape)
-    model = make_lookup_model(embeddings, ishape, idt, edt)
+    model = make_lookup_model(embeddings, ishape, idt, edt, build_dir)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
     iname = model.get_first_global_in()
@@ -171,6 +178,14 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode, fpga_part, ram_style
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup_external():
+    build_dir = make_build_dir(prefix="test_fpgadataflow_lookup_external_")
+    try:
+        _test_fpgadataflow_lookup_external(build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_lookup_external(build_dir):
     fpga_part = "xczu3eg-sbva484-1-e"
     edt = DataType["INT8"]
     embedding_cfg = (200000, DataType["UINT32"], 300)
@@ -179,7 +194,7 @@ def test_fpgadataflow_lookup_external():
     eshape = (num_embeddings, embedding_dim)
     exp_oshape = tuple(list(ishape) + [embedding_dim])
     embeddings = gen_finn_dt_tensor(edt, eshape)
-    model = make_lookup_model(embeddings, ishape, idt, edt)
+    model = make_lookup_model(embeddings, ishape, idt, edt, build_dir)
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "Gather"
     iname = model.get_first_global_in()

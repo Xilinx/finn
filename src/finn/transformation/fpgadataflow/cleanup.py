@@ -29,9 +29,9 @@
 
 import os
 import qonnx.custom_op.registry as registry
-import shutil
 from qonnx.transformation.base import Transformation
 
+from finn.util.basic import robust_rmtree
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -45,12 +45,12 @@ class CleanUp(Transformation):
         # delete PYNQ project, if any
         vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
         if vivado_pynq_proj_dir is not None and os.path.isdir(vivado_pynq_proj_dir):
-            shutil.rmtree(vivado_pynq_proj_dir)
+            robust_rmtree(vivado_pynq_proj_dir)
         model.set_metadata_prop("vivado_pynq_proj", "")
         # delete IP stitching project, if any
         ipstitch_path = model.get_metadata_prop("vivado_stitch_proj")
         if ipstitch_path is not None and os.path.isdir(ipstitch_path):
-            shutil.rmtree(ipstitch_path)
+            robust_rmtree(ipstitch_path)
         model.set_metadata_prop("vivado_stitch_proj", "")
         for node in model.graph.node:
             op_type = node.op_type
@@ -61,22 +61,22 @@ class CleanUp(Transformation):
                     # delete code_gen_dir from cppsim
                     code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
                     if os.path.isdir(code_gen_dir):
-                        shutil.rmtree(code_gen_dir)
+                        robust_rmtree(code_gen_dir)
                     inst.set_nodeattr("code_gen_dir_cppsim", "")
                     inst.set_nodeattr("executable_path", "")
                     # delete code_gen_dir from ipgen and project folder
                     code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
                     ipgen_path = inst.get_nodeattr("ipgen_path")
                     if os.path.isdir(code_gen_dir):
-                        shutil.rmtree(code_gen_dir)
+                        robust_rmtree(code_gen_dir)
                     if os.path.isdir(ipgen_path):
-                        shutil.rmtree(ipgen_path)
+                        robust_rmtree(ipgen_path)
                     inst.set_nodeattr("code_gen_dir_ipgen", "")
                     inst.set_nodeattr("ipgen_path", "")
                     # delete Java HotSpot Performance data log
                     for d_name in os.listdir("/tmp/"):
                         if "hsperfdata" in d_name:
-                            shutil.rmtree("/tmp/" + str(d_name))
+                            robust_rmtree("/tmp/" + str(d_name))
 
                 except KeyError:
                     # exception if op_type is not supported

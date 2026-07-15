@@ -28,10 +28,10 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
+from finn.util.basic import make_build_dir, robust_rmtree
 
 test_fpga_part: str = "xczu7ev-ffvc1156-2-e"
 target_clk_ns = 5
-export_onnx_path = "pytest_softmax_dut.onnx"
 
 
 class SoftMaxSimple(nn.Module):
@@ -44,7 +44,8 @@ class SoftMaxSimple(nn.Module):
         return x
 
 
-def create_softmax_model(io_shape, idt):
+def create_softmax_model(io_shape, idt, build_dir):
+    export_onnx_path = f"{build_dir}/pytest_softmax_dut.onnx"
     dut = SoftMaxSimple()
     input = torch.rand(io_shape)
     export_qonnx(dut, input, export_onnx_path, opset_version=11)
@@ -61,11 +62,19 @@ def create_softmax_model(io_shape, idt):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_hwsoftmax(simd, idt, exec_mode, ifm_dim):
+    build_dir = make_build_dir(prefix="test_fpgadataflow_hwsoftmax_")
+    try:
+        _test_fpgadataflow_hwsoftmax(simd, idt, exec_mode, ifm_dim, build_dir)
+    finally:
+        robust_rmtree(build_dir)
+
+
+def _test_fpgadataflow_hwsoftmax(simd, idt, exec_mode, ifm_dim, build_dir):
     idt = DataType[idt]
     io_shape = ifm_dim
     tollerance = 1e-5
 
-    model = create_softmax_model(io_shape, idt)
+    model = create_softmax_model(io_shape, idt, build_dir)
 
     input = gen_finn_dt_tensor(idt, io_shape)
     in_name = model.graph.input[0].name
