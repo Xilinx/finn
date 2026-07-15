@@ -52,7 +52,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.specialize_layers import SpecializeLayers
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, resolve_xilinx_tool
 
 from . import templates
 
@@ -182,10 +182,11 @@ class CreateVitisXO(Transformation):
         # create a shell script and call Vivado
         package_xo_sh = vivado_proj_dir + "/gen_xo.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(package_xo_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_proj_dir))
-            f.write("vivado -mode batch -source gen_xo.tcl\n")
+            f.write("{} -mode batch -source gen_xo.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", package_xo_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
@@ -418,14 +419,16 @@ class VitisLink(Transformation):
         # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
         working_dir = os.environ["PWD"]
+        vxx_cmd = resolve_xilinx_tool("v++")
         with open(script, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(link_dir))
             f.write(
-                "v++ -t hw --platform %s --link %s"
+                "%s -t hw --platform %s --link %s"
                 " --kernel_frequency %d --config config.txt --optimize %s"
                 " --save-temps -R2 %s\n"
                 % (
+                    vxx_cmd,
                     self.vitis_platform,
                     " ".join(object_files),
                     self.f_mhz,
@@ -447,10 +450,11 @@ class VitisLink(Transformation):
         # run Vivado to gen xml report
         gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(gen_rep_xml_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(link_dir))
-            f.write("vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl"))
+            f.write("%s -mode batch -source %s\n" % (vivado_cmd, link_dir + "/gen_report_xml.tcl"))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", gen_rep_xml_sh]
         process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

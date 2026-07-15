@@ -45,7 +45,7 @@ from finn.custom_op.fpgadataflow import templates
 from finn.custom_op.fpgadataflow.hwcustomop import HWCustomOp
 from finn.custom_op.fpgadataflow.rtlbackend import RTLBackend
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.util.basic import make_build_dir
+from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.mlo_sim import mlo_prehook_func_factory
@@ -598,6 +598,47 @@ class FINNLoop(HWCustomOp, RTLBackend):
         vivado_stitch_proj_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         cmd = []
+
+        # Create Vivado axis_dwidth_converter IPs for intermediate_frames DWCs
+        olen_bits = self.get_outstream_width(0)
+        ilen_bits = self.get_instream_width(0)
+        data_bits = 256
+        # Intermediate frames pad each element to a whole number of bytes, so the
+        # DWCs must be sized on the byte-aligned widths (OLEN_BITS_BA/ILEN_BITS_BA
+        # in intermediate_frames.sv), matching the per-element FM_SIZE layout.
+        elem_bits = self.get_input_datatype(0).bitwidth()
+        elem_bytes = (elem_bits + 7) // 8
+        oelem = olen_bits // elem_bits
+        ielem = ilen_bits // elem_bits
+        # DWC write path: byte-aligned body output width -> DMA width (256)
+        dwc_sink_s_bytes = oelem * elem_bytes
+        dwc_sink_m_bytes = data_bits // 8
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_sink",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_sink]" % (dwc_sink_s_bytes, dwc_sink_m_bytes),
+            "generate_target all [get_ips if_dwc_sink]",
+        ]
+        # DWC read path: DMA width (256) -> byte-aligned body input width
+        dwc_source_s_bytes = data_bits // 8
+        dwc_source_m_bytes = ielem * elem_bytes
+        cmd += [
+            "create_ip -name axis_dwidth_converter -vendor xilinx.com "
+            "-library ip -version 1.1 -module_name if_dwc_source",
+            "set_property -dict [list "
+            "CONFIG.S_TDATA_NUM_BYTES {%d} "
+            "CONFIG.M_TDATA_NUM_BYTES {%d} "
+            "CONFIG.HAS_TLAST {1} "
+            "CONFIG.HAS_TKEEP {1} "
+            "] [get_ips if_dwc_source]" % (dwc_source_s_bytes, dwc_source_m_bytes),
+            "generate_target all [get_ips if_dwc_source]",
+        ]
+
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs = ["list"]
         # add RTL streamer IP
@@ -664,7 +705,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
             % (self.onnx_node.name, clk_name, loop_shell_name, clk_name)
         )
         # "externalize" some of the loop shell signals
-        ext_intf_signals = ["in0_V", "out0_V", "m_axi_hbm"]
+        ext_intf_signals = ["in0_V", "out0_V", "m_axi_intermediate_frame"]
         ext_signals = ["done_if"]
         for sig in ext_intf_signals:
             cmd.append(
@@ -727,7 +768,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         adj_list = adjacency_list(
             loop_body,
-            lambda node: node.op_type == "Thresholding_rtl"
+            lambda node: (
+                node.op_type == "Thresholding_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            )
             or (
                 node.op_type == "MVAU_rtl"
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
@@ -988,6 +1032,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
+        # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
+        # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
+        # the SystemVerilog final blocks that flush and close the fifo_gauge log
+        # files; without this the gauge logs are left unflushed/empty during
+        # characterization-based FIFO sizing.
+        cmd.append("create_bd_pin -dir I /%s/sim_finish" % self.onnx_node.name)
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
+            % (self.onnx_node.name, finn_ip_name)
+        )
 
         if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
             ac_module_name = self.onnx_node.name + "_address_config_wrapper"
@@ -1060,8 +1115,12 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
         cmd.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
-        cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
+        cmd.append(
+            "set_property name m_axi_intermediate_frame "
+            "[get_bd_intf_ports m_axi_intermediate_frame_0]"
+        )
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+        cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         if get_by_name(self.onnx_node.attribute, "address_offset") is not None:
             cmd.append("set_property name s_axilite [get_bd_intf_ports s_axilite_0]")
         # set property name for aximm interfaces
@@ -1105,7 +1164,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
         # Also used for MLO in the context of Zynq
-        loop_aximm_names = ["m_axi_hbm"] + [sig[0] for sig in ext_signals]
+        loop_aximm_names = ["m_axi_intermediate_frame"] + [sig[0] for sig in ext_signals]
         for aximm_name in loop_aximm_names:
             cmd.append(
                 "ipx::remove_segment -quiet %s:APERTURE_0 "
@@ -1141,10 +1200,11 @@ class FINNLoop(HWCustomOp, RTLBackend):
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_loop_ip.sh"
         working_dir = os.environ["PWD"]
+        vivado_cmd = resolve_xilinx_tool("vivado")
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
-            f.write("vivado -mode batch -source make_loop_ip.tcl\n")
+            f.write("{} -mode batch -source make_loop_ip.tcl\n".format(vivado_cmd))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
@@ -1175,8 +1235,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         intf_names["aximm"] = []
         # AXI4 master interface for intermediate buffering between layers
-        # TODO: rename because it might not be hbm?
-        intf_names["aximm"].append(["m_axi_hbm", str(addr_bits)])
+        intf_names["aximm"].append(["m_axi_intermediate_frame", str(addr_bits)])
         offset_attr = get_by_name(self.onnx_node.attribute, "address_offset") is not None
         intf_names["axilite"] = ["s_axilite"] if offset_attr else []
 

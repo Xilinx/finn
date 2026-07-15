@@ -165,7 +165,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
 #MLO (Multi-Layer Offload) weight streaming
 if {$ZYNQ_TYPE == "zynq_us+"} {
     set mlo_mm_pins [get_bd_intf_pins -quiet -of_objects [get_bd_cells] \
-        -filter {MODE == Master && (NAME == m_axi_hbm || NAME =~ m_axi_MVAU_*)}]
+        -filter {MODE == Master && (NAME == m_axi_intermediate_frame || NAME =~ m_axi_MVAU_*)}]
     if {[llength $mlo_mm_pins] > 0} {
         set_property -dict [list CONFIG.PSU__USE__S_AXI_GP3 {1}] [get_bd_cells zynq_ps]
         create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_mlo
