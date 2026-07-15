@@ -29,11 +29,34 @@
 
 
 import qonnx.custom_op.registry as registry
-import warnings
-from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import NodeLocalTransformation
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+
+
+def _assert_no_reconvergent_residuals(model):
+    """Raise if the model contains a reconvergent residual, i.e. a two-stream
+    ElementwiseAdd join.
+
+    Characterization-based FIFO sizing derives each consumer's requirement from
+    its first input characteristic only (io_chrc_in[0]), so a node that joins
+    two live streams (a residual add fed by a stream fork) cannot be sized
+    correctly. Detect this up front and fail with a clear message rather than
+    after the (potentially hours-long) characterization rtlsim. FINNLoop bodies
+    are opaque here (the loop is an IP core at this stage), so no descent into
+    subgraphs is needed.
+    """
+    for node in model.graph.node:
+        if "ElementwiseAdd" in node.op_type:
+            inst = registry.getCustomOp(node)
+            if inst.get_nodeattr("lhs_style") == "input" and (
+                inst.get_nodeattr("rhs_style") == "input"
+            ):
+                raise RuntimeError(
+                    "Characterize FIFO sizing is not supported for models with "
+                    "reconvergent residual paths (two-stream ElementwiseAdd '%s' "
+                    "fed by a stream fork). Use a different auto_fifo_strategy." % node.name
+                )
 
 
 class DeriveCharacteristic(NodeLocalTransformation):
@@ -52,10 +75,14 @@ class DeriveCharacteristic(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, period, num_workers=None, manual_bypass=False):
+    def __init__(self, period, num_workers=None):
         super().__init__(num_workers=num_workers)
         self.period = period
-        self.manual_bypass = manual_bypass
+
+    def apply(self, model):
+        # fail fast on unsupported topologies before the (long) characterization
+        _assert_no_reconvergent_residuals(model)
+        return super().apply(model)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
@@ -68,57 +95,6 @@ class DeriveCharacteristic(NodeLocalTransformation):
                 # exception if op_type is not supported
                 raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)
-
-    def apply(self, model: ModelWrapper):
-        (model, run_again) = super().apply(model)
-        if not self.manual_bypass:
-            return (model, run_again)
-        # apply manual fix for DuplicateStreams and ElementwiseAdd for
-        # simple residual reconvergent paths with bypass
-        addstrm_nodes = model.get_nodes_by_op_type("ElementwiseAdd_hls")
-        for addstrm_node in addstrm_nodes:
-            # skip ElementwiseAdd nodes that have constant inputs (not two streams)
-            addstrm_inst = registry.getCustomOp(addstrm_node)
-            if addstrm_inst.get_nodeattr("lhs_style") != "input":
-                continue
-            if addstrm_inst.get_nodeattr("rhs_style") != "input":
-                continue
-            # we currently only support the case where one branch is
-            # a bypass
-            b0 = model.find_producer(addstrm_node.input[0])
-            b1 = model.find_producer(addstrm_node.input[1])
-            if (b0 is None) or (b1 is None):
-                warnings.warn("Found unsupported ElementwiseAdd, skipping")
-                return (model, run_again)
-            b0_is_bypass = b0.op_type == "DuplicateStreams_hls"
-            b1_is_bypass = b1.op_type == "DuplicateStreams_hls"
-            if (not b0_is_bypass) and (not b1_is_bypass):
-                warnings.warn("Found unsupported ElementwiseAdd, skipping")
-                return (model, run_again)
-            ds_node = b0 if b0_is_bypass else b1
-            comp_branch_last = b1 if b0_is_bypass else b0
-
-            ds_comp_bout = ds_node.output[0] if b0_is_bypass else ds_node.output[1]
-            comp_branch_first = model.find_consumer(ds_comp_bout)
-            if comp_branch_first is None or comp_branch_last is None:
-                warnings.warn("Found unsupported DuplicateStreams, skipping")
-                return (model, run_again)
-            comp_branch_last = registry.getCustomOp(comp_branch_last)
-            comp_branch_first = registry.getCustomOp(comp_branch_first)
-            # for DuplicateStreams, use comp_branch_first's input characterization
-            # for ElementwiseAdd, use comp_branch_last's output characterization
-            period = comp_branch_first.get_nodeattr("io_chrc_period")
-            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[: 2 * period]
-            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[2 * period :]
-            ds_node_inst = registry.getCustomOp(ds_node)
-            addstrm_node_inst = registry.getCustomOp(addstrm_node)
-            ds_node_inst.set_nodeattr("io_chrc_period", period)
-            ds_node_inst.set_nodeattr("io_characteristic", comp_branch_first_f * 2)
-            addstrm_node_inst.set_nodeattr("io_chrc_period", period)
-            addstrm_node_inst.set_nodeattr("io_characteristic", comp_branch_last_f * 2)
-            warnings.warn(f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}")
-            warnings.warn(f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}")
-        return (model, run_again)
 
 
 class DeriveFIFOSizes(NodeLocalTransformation):
@@ -143,7 +119,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 prod = registry.getCustomOp(node)
                 assert not (op_type.startswith("StreamingFIFO")), "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
-                prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
+                prod_chrc = prod.get_io_chrc_out()[0]
                 assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
                 if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
@@ -160,7 +136,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                         out_fifo_depths.append(self.io_fifo_depth)
                         continue
                     cons = registry.getCustomOp(cons_node)
-                    cons_chrc = cons.get_nodeattr("io_chrc_in")[0]
+                    cons_chrc = cons.get_io_chrc_in()[0]
                     # find minimum phase shift satisfying the constraint
                     pshift_min = period - 1
                     for pshift_cand in range(period):

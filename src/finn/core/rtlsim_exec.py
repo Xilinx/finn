@@ -123,11 +123,14 @@ def rtlsim_exec_cppxsi(
     dummy_data_mode=False,
     timeout_cycles=None,
     throttle_cycles=0,
+    behav=True,
 ):
     """Use XSI C++ rtl simulation to execute given model with stitched IP.
     The dummy_data_mode flag controls whether the simulation is driven by
     dummy data or real data. The execution_context parameter must be formatted
     according to whether dummy or real data is used.
+    If behav=True (default), FINN_SIMULATION is defined and fifo_gauge is used.
+    If behav=False, Q_srl is used instead (no debug logging).
     Example with dummy_data = True:
         execution_context = {
             "inputs" : {"<name_of_input_stream>" : <number_of_transactions>},
@@ -176,7 +179,7 @@ def rtlsim_exec_cppxsi(
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         debug = not (trace_file is None or trace_file == "")
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug=debug, behav=True
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug, behav=behav
         )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])
@@ -292,8 +295,11 @@ def rtlsim_exec_cppxsi(
     runsim_env["LD_LIBRARY_PATH"] = get_vivado_root() + "/lib/lnx64.o"
     runsim_cmd = ["bash", "run_rtlsim.sh"]
     with open(sim_base + "/run_rtlsim.sh", "w") as f:
+        ld_path = runsim_env["LD_LIBRARY_PATH"]
         f.write(
-            f"LD_LIBRARY_PATH={runsim_env['LD_LIBRARY_PATH']} ./rtlsim_xsi > rtlsim_xsi_log.txt"
+            f"LD_LIBRARY_PATH={ld_path}"
+            " ./rtlsim_xsi > rtlsim_xsi_log.txt"
+            " 2> rtlsim_xsi_stderr.log"
         )
     launch_process_helper(runsim_cmd, cwd=sim_base)
 
@@ -341,8 +347,10 @@ def rtlsim_exec_finnxsi(model, execution_context, pre_hook=None, post_hook=None)
         top_module_name = top_module_file_name.strip(".v")
         single_src_dir = make_build_dir("rtlsim_" + top_module_name + "_")
         debug = not (trace_file is None or trace_file == "")
+        rtlsim_behavioral = model.get_metadata_prop("rtlsim_behavioral")
+        behav = rtlsim_behavioral is not None and rtlsim_behavioral == "1"
         rtlsim_so = finnxsi.compile_sim_obj(
-            top_module_name, all_verilog_srcs, single_src_dir, debug=debug
+            top_module_name, all_verilog_srcs, single_src_dir, debug=debug, behav=behav
         )
         # save generated lib filename in attribute
         model.set_metadata_prop("rtlsim_so", rtlsim_so[0] + "/" + rtlsim_so[1])

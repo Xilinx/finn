@@ -711,7 +711,10 @@ class FINNLoop(HWCustomOp, RTLBackend):
 
         adj_list = adjacency_list(
             loop_body,
-            lambda node: node.op_type == "Thresholding_rtl"
+            lambda node: (
+                node.op_type == "Thresholding_rtl"
+                and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
+            )
             or (
                 node.op_type == "MVAU_rtl"
                 and any(attr.name == "mlo_max_iter" and attr.i > 0 for attr in node.attribute)
@@ -972,6 +975,17 @@ class FINNLoop(HWCustomOp, RTLBackend):
             "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s]"
             % (self.onnx_node.name, clk_name, finn_ip_name, clk_name)
         )
+        # Expose the loop body's sim_finish control to the top of the FINNLoop IP.
+        # The body's stitched IP carries a sim_ctrl (inserted by CreateStitchedIP)
+        # whose sim_finish input triggers $finish. Asserting it during rtlsim runs
+        # the SystemVerilog final blocks that flush and close the fifo_gauge log
+        # files; without this the gauge logs are left unflushed/empty during
+        # characterization-based FIFO sizing.
+        cmd.append("create_bd_pin -dir I /%s/sim_finish" % self.onnx_node.name)
+        cmd.append(
+            "connect_bd_net [get_bd_pins %s/sim_finish] [get_bd_pins %s/sim_finish]"
+            % (self.onnx_node.name, finn_ip_name)
+        )
         # "externalize" some of the loop shell signals
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:
@@ -1013,6 +1027,7 @@ class FINNLoop(HWCustomOp, RTLBackend):
         cmd.append("set_property name out0_V [get_bd_intf_ports out0_V_0]")
         cmd.append("set_property name m_axi_hbm [get_bd_intf_ports m_axi_hbm_0]")
         cmd.append("set_property name done_if [get_bd_ports done_if_0]")
+        cmd.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
         # set property name for aximm interfaces
         ext_signals = loop_body_intf_names["aximm"]
         for sig in ext_signals:

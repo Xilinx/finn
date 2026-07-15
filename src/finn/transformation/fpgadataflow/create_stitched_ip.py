@@ -390,6 +390,21 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
         self.connect_cmds.append("assign_bd_address")
 
+    def insert_sim_ctrl(self):
+        sim_ctrl_src = "$::env(FINN_ROOT)/finn-rtllib/sim/hdl/sim_ctrl.v"
+        sim_ctrl_name = "sim_ctrl_0"
+        self.create_cmds.append("add_files -norecurse %s" % sim_ctrl_src)
+        self.create_cmds.append(
+            "create_bd_cell -type module -reference sim_ctrl %s" % sim_ctrl_name
+        )
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]" % sim_ctrl_name
+        )
+        self.connect_cmds.append(
+            "make_bd_pins_external [get_bd_pins %s/sim_finish]" % sim_ctrl_name
+        )
+        self.connect_cmds.append("set_property name sim_finish [get_bd_ports sim_finish_0]")
+
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
@@ -466,6 +481,8 @@ class CreateStitchedIP(Transformation):
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("CheckSum_hls")
             self.insert_signature(len(checksum_layers))
+
+        self.insert_sim_ctrl()
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
