@@ -974,9 +974,9 @@ def test_finnloop_end2end_mlo_ddr(
 
 
 @pytest.mark.parametrize(
-    "dim, simd, pe, bitwidth, weight_bitwidth",
+    "dim, simd, pe, mvau_th, helper_pe, bitwidth, weight_bitwidth",
     [
-        (16, 2, 2, 8, 8),
+        (12, 3, 6, 3, 6, 8, 8),
     ],
 )
 # iteration count, number of models chained together
@@ -994,6 +994,8 @@ def test_finnloop_end2end_mlo_ddr_vck190(
     dim,
     simd,
     pe,
+    mvau_th,
+    helper_pe,
     iteration,
     elemwise_optype,
     rhs_shape,
@@ -1025,8 +1027,10 @@ def test_finnloop_end2end_mlo_ddr_vck190(
         rhs_shape,
         eltw_param_dtype,
         dtype=data_dtype,
-        simd=simd,
-        pe=pe,
+        mvau_simd=simd,
+        mvau_pe=pe,
+        mvau_th=mvau_th,
+        helper_pe=helper_pe,
         weight_bitwidth=weight_bitwidth,
     )
     nodes_per_body = len(loop_body_models[0].graph.node)
