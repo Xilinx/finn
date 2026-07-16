@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.util.basic import make_build_dir, resolve_xilinx_tool
 from finn.util.create import adjacency_list
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.mlo_sim import mlo_prehook_func_factory
+from finn.util.mlo_sim import dat_file_to_numpy_array, mlo_prehook_func_factory
 
 finnxsi = xsi if xsi.is_available() else None
 
@@ -465,10 +465,28 @@ class FINNLoop(HWCustomOp, RTLBackend):
                 else:
                     raise Exception
 
-            if param_node.op_type.startswith("MVAU") or param_node.op_type.startswith(
-                "Elementwise"
-            ):
-                # concatinate all .dat files together
+            if param_node.op_type.startswith("MVAU"):
+                # Concatenate the per-iteration weights, padding each layer up to the
+                # AXI-bus offset (LAYER_OFFS in fetch_weights.sv) so that the DDR
+                # image built from this .dat reads layer i from i*LAYER_OFFS. The
+                # rtlsim memory model (mlo_sim.py) and the driver's DDR upload
+                # (make_driver.py) consume this file as-is. Written one hex byte per
+                # line.
+                param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
+                layer_bytes, layer_offs = getCustomOp(param_node).get_weight_mem_bytes()
+                padded = np.zeros(iteration * layer_offs, dtype=np.uint8)
+                for iter in range(iteration):
+                    memblock_file = "{}/{}_memblock_{}.dat".format(path, param_node.op_type, iter)
+                    layer = dat_file_to_numpy_array(memblock_file)
+                    padded[iter * layer_offs : iter * layer_offs + layer_bytes] = layer
+                    os.remove(memblock_file)
+                with open(param_file, "w") as outfile:
+                    outfile.write("\n".join("%02x" % b for b in padded))
+                    outfile.write("\n")
+            elif param_node.op_type.startswith("Elementwise"):
+                # Concatenate the per-iteration .dat files back-to-back into the
+                # single memblock the memstream reads (no DDR padding here, unlike
+                # the MVAU path above).
                 param_file = "{}/memblock_{}_id_{}.dat".format(path, param_node.op_type, i + 1)
                 with open(param_file, "w") as outfile:
                     for iter in range(iteration):
@@ -479,27 +497,26 @@ class FINNLoop(HWCustomOp, RTLBackend):
                             for line in infile:
                                 outfile.write(line)
                         os.remove(memblock_file)
-                # Replace the path for the dat files in the ipgen files if Eltwise
+                # Point the ipgen memstream wrapper at the concatenated .dat file.
                 # Adapted from transformations.fpgadataflow.replace_verilog_relpaths
-                if param_node.op_type.startswith("Elementwise"):
-                    param_customop = getCustomOp(param_node)
-                    ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
-                    if ipgen_path is not None and os.path.isdir(ipgen_path):
-                        for dname, dirs, files in os.walk(ipgen_path):
-                            for fname in files:
-                                if fname.endswith("_memstream_wrapper.v"):
-                                    fpath = os.path.join(dname, fname)
-                                    with open(fpath, "r") as f:
-                                        s = f.read()
-                                    old = "%s/memblock.dat" % ipgen_path
-                                    new = "%s/memblock_%s_id_%s.dat" % (
-                                        path,
-                                        param_node.op_type,
-                                        i + 1,
-                                    )
-                                    s = s.replace(old, new)
-                                    with open(fpath, "w") as f:
-                                        f.write(s)
+                param_customop = getCustomOp(param_node)
+                ipgen_path = param_customop.get_nodeattr("code_gen_dir_ipgen")
+                if ipgen_path is not None and os.path.isdir(ipgen_path):
+                    for dname, dirs, files in os.walk(ipgen_path):
+                        for fname in files:
+                            if fname.endswith("_memstream_wrapper.v"):
+                                fpath = os.path.join(dname, fname)
+                                with open(fpath, "r") as f:
+                                    s = f.read()
+                                old = "%s/memblock.dat" % ipgen_path
+                                new = "%s/memblock_%s_id_%s.dat" % (
+                                    path,
+                                    param_node.op_type,
+                                    i + 1,
+                                )
+                                s = s.replace(old, new)
+                                with open(fpath, "w") as f:
+                                    f.write(s)
             elif param_node.op_type.startswith("Thresholding"):
                 # concatinate all .dat files together
                 pe = inst.get_nodeattr("PE")

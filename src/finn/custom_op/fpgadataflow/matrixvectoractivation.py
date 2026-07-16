@@ -1305,10 +1305,20 @@ class MVAU(HWCustomOp):
 
         return cmd
 
-    def wmat_size_bytes(self):
-        mw = self.get_nodeattr("MW")
-        mh = self.get_nodeattr("MH")
-        simd = self.get_nodeattr("SIMD")
+    def get_weight_mem_bytes(self):
+        """Return (size, offs) in bytes for one layer's weight matrix.
+        size is the tight per-layer packing (byte-aligned per IWSIMD group);
+        offs rounds it up to the DATA_BITS wide AXI bus (DATA_BITS in fetch_weights.sv),
+        matching LAYER_OFFS, the spacing between layers in the DDR image."""
+        data_bits = 256  # DATA_BITS in fetch_weights.sv
+        th = self.get_nodeattr("TH")
+        iwsimd = (
+            (self.get_nodeattr("PE") * self.get_nodeattr("SIMD")) // th
+            if th > 1
+            else self.get_nodeattr("SIMD")
+        )
         weight_width = self.get_input_datatype(1).bitwidth()
-        bytes_chunk = roundup_to_integer_multiple(simd * weight_width, 8) // 8
-        return (mh * mw // simd) * bytes_chunk
+        bytes_chunk = roundup_to_integer_multiple(iwsimd * weight_width, 8) // 8
+        size = (self.get_nodeattr("MH") * self.get_nodeattr("MW") // iwsimd) * bytes_chunk
+        offs = roundup_to_integer_multiple(size, data_bits // 8)  # round up to the AXI bus width
+        return size, offs
