@@ -481,16 +481,14 @@ class ElementwiseBinary_rtl(ElementwiseBinaryOperation, RTLBackend):
                 weight_tensor, (1,) * (len(weight_tensor.shape) - 1) + (self.pe,)
             )
 
-        if weight_file_mode == "decoupled_verilog_dat":
-            # ROM holds SETS*DEPTH = base_wmem * (mlo or 1) entries. Under MLO,
-            # replicate the per-iteration weights across the mlo weight sets;
-            # activation replay within an iteration is handled by ROM addressing.
-            mlo = self.get_nodeattr("mlo_max_iter")
-            tile_factor = int(mlo) if mlo else 1
-            if tile_factor > 1:
-                weight_tensor = np.tile(
-                    weight_tensor, (tile_factor,) + (1,) * (len(weight_tensor.shape) - 1)
-                )
+        # NOTE: do NOT tile the weights by mlo_max_iter here. For MLO nodes the
+        # memstream ROM holds SETS*DEPTH entries (SETS=mlo_max_iter, DEPTH=one
+        # set's worth of weights), but the SETS dimension is filled by
+        # FINNLoop.generate_params, which calls this per iteration with that
+        # iteration's distinct weights and concatenates the per-iteration
+        # memblock .dat files. Tiling here would double-count -> the concatenated
+        # .dat becomes mlo_max_iter x too large (xsim "Too many words in data
+        # file"). make_weight_file must emit exactly one set's worth.
 
         if weight_file_mode == "decoupled_npy":
             # save the weight stream as a real .npy array (consumed by the
