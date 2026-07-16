@@ -25,5 +25,5 @@ class AssignMemoryOffset(Transformation):
                 if not mlo_max_iter or not node.op_type == "MVAU_rtl":
                     continue
                 inst.set_nodeattr("address_offset", self._offset)
-                self._offset += mlo_max_iter * inst.wmat_size_bytes()
+                self._offset += mlo_max_iter * inst.get_weight_mem_bytes()[1]
                 self._offset = roundup_to_integer_multiple(self._offset, 32)

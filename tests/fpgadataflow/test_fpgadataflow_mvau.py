@@ -495,7 +495,9 @@ def test_fpgadataflow_mvau_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh, pumpe
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(part, 5))
         model.set_metadata_prop("exec_mode", "rtlsim")
-        y_produced_stitch = oxe.execute_onnx(model, input_dict)["outp"]
+        y_produced_stitch = oxe.execute_onnx(model, {model.get_first_global_in(): x})[
+            model.get_first_global_out()
+        ]
         assert (
             y_produced_stitch.reshape(y_expected.shape) == y_expected
         ).all(), "stitched-IP rtlsim failed"
@@ -946,7 +948,9 @@ def test_fpgadataflow_rtl_mvau(
 @pytest.mark.parametrize("n_vectors", [32])
 @pytest.mark.parametrize("pe", [1, 16, 32])
 @pytest.mark.parametrize("simd", [1, 8, 16])
-@pytest.mark.parametrize("idt_wdt", [[DataType["INT4"], DataType["INT4"]]])
+@pytest.mark.parametrize(
+    "idt_wdt", [[DataType["INT8"], DataType["INT8"]], [DataType["INT4"], DataType["INT4"]]]
+)
 @pytest.mark.parametrize(
     "part", ["xcvc1902-vsva2197-2MP-e-S", "xcku3p-ffva676-1-e", "xc7z020clg400-1"]
 )
